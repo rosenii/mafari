@@ -11,6 +11,10 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // GeckoView（Mozilla 官方 Maven，nightly 与 release 都在这里）
+        maven("https://maven.mozilla.org/maven2") {
+            content { includeGroupByRegex("org\\.mozilla.*") }
+        }
     }
 }
 

@@ -14,6 +14,10 @@ val DOWNLOAD_MIN_MB_OPTIONS = listOf(10, 50, 100, 200, 500, 1024)
 /** 阈值档位的显示文字 */
 fun downloadThresholdLabel(mb: Int): String = if (mb >= 1024) "${mb / 1024} GB" else "$mb MB"
 
+/** 浏览器内核 */
+const val ENGINE_WEBVIEW = 0
+const val ENGINE_GECKO = 1
+
 /** 模糊效果模式 */
 const val BLUR_MIUIX = 0
 const val BLUR_LIQUID = 1
@@ -32,6 +36,11 @@ fun parseHomeOrder(raw: String?): List<Int> {
         .filter { it in all }.distinct()
     return parsed + all.filter { it !in parsed }
 }
+
+/** 标签页创建时直接读 SharedPreferences（不必构造整个 AppSettings） */
+fun readBrowserEngine(context: Context): Int =
+    context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
+        .getInt("browser_engine", ENGINE_WEBVIEW)
 
 class AppSettings(context: Context) {
 
@@ -122,6 +131,18 @@ class AppSettings(context: Context) {
     fun updateUpdateChannel(channel: Int) {
         updateChannel = channel.coerceIn(0, 1)
         prefs.edit().putInt(KEY_UPDATE_CHANNEL, updateChannel).apply()
+    }
+
+    /**
+     * 浏览器内核：0 = 系统 WebView，1 = GeckoView（Nightly）。
+     * 只影响「之后新建」的标签页；已打开的标签保持创建时的内核，直到关闭。
+     */
+    var browserEngine by mutableStateOf(prefs.getInt(KEY_ENGINE, ENGINE_WEBVIEW).coerceIn(ENGINE_WEBVIEW, ENGINE_GECKO))
+        private set
+
+    fun updateBrowserEngine(engine: Int) {
+        browserEngine = engine.coerceIn(ENGINE_WEBVIEW, ENGINE_GECKO)
+        prefs.edit().putInt(KEY_ENGINE, browserEngine).apply()
     }
 
     /** 下载线程数：4/8/16/32/64 */
@@ -484,6 +505,7 @@ class AppSettings(context: Context) {
         const val KEY_APP_ICON = "app_icon"
         const val KEY_IGNORED_UPDATE = "ignored_update"
         const val KEY_UPDATE_CHANNEL = "update_channel"
+        const val KEY_ENGINE = "browser_engine"
         const val KEY_DL_THREADS = "download_threads"
         const val KEY_DL_MIN_MB = "download_multithread_min_mb"
         const val KEY_UA = "ua"

@@ -13,6 +13,9 @@ val webkitVersion = "1.18.0"
 val credentialsVersion = "1.6.0"
 val browserVersion = "1.10.0"
 val navigationEventVersion = "1.2.0"
+// GeckoView nightly（仅 arm64-v8a）。默认 "+" = 取 Mozilla Maven 上最新的 nightly；
+// 要锁定版本（推荐，nightly 的 API 偶尔会改）在 gradle.properties 写 geckoViewVersion=152.0.20260801093011
+val geckoViewVersion = (project.findProperty("geckoViewVersion") as String?) ?: "+"
 // 构建工具链：Kotlin / Compose Multiplatform / AGP 的版本声明在根 build.gradle.kts（miuix 的在 miuix/gradle/libs.versions.toml），
 // Gradle 版本在 gradle/wrapper/gradle-wrapper.properties；升级时请同步这里，仅用于「关于」页展示
 val kotlinVersion = "2.4.21"
@@ -48,9 +51,11 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 243
-        versionName = "v1.8.27-dev"
+        versionCode = 1001
+        versionName = "v99.1.0"
         buildConfigField("String", "DEP_VERSIONS", "\"$dependencyVersions\"")
+        // GeckoView nightly 只发布 arm64-v8a 单架构包；其余 ABI 的设备仍可用 WebView 内核
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildFeatures {
@@ -92,6 +97,8 @@ android {
     }
 
     packaging {
+        // Gecko 的 libxul 等 so 需要解压到磁盘后加载
+        jniLibs { useLegacyPackaging = true }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -119,4 +126,11 @@ dependencies {
     implementation("androidx.credentials:credentials-play-services-auth:$credentialsVersion")
     implementation("androidx.browser:browser:$browserVersion")
     implementation("androidx.navigationevent:navigationevent-compose:$navigationEventVersion")
+    // 第二内核：GeckoView nightly（arm64-v8a）
+    implementation("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
+}
+
+// 动态版本（"+"）每 6 小时才重新解析一次，避免每次构建都访问网络
+configurations.all {
+    resolutionStrategy.cacheDynamicVersionsFor(6, "hours")
 }

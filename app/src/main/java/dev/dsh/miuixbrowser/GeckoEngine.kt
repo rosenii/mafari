@@ -1,0 +1,478 @@
+package dev.dsh.miuixbrowser
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Build
+import android.os.SystemClock
+import android.view.MotionEvent
+import org.mozilla.geckoview.AllowOrDeny
+import org.mozilla.geckoview.ContentBlocking
+import org.mozilla.geckoview.GeckoResult
+import org.mozilla.geckoview.GeckoRuntime
+import org.mozilla.geckoview.GeckoRuntimeSettings
+import org.mozilla.geckoview.GeckoSession
+import org.mozilla.geckoview.GeckoSessionSettings
+import org.mozilla.geckoview.GeckoView
+import org.mozilla.geckoview.StorageController
+import org.mozilla.geckoview.WebRequestError
+import org.mozilla.geckoview.WebResponse
+import java.io.File
+import java.util.UUID
+
+/**
+ * GeckoRuntime 进程内只能有一个：第一次创建 Gecko 标签时才惰性初始化（不用 Gecko 的人完全没有开销）。
+ */
+object GeckoRuntimeHolder {
+
+    @Volatile
+    private var runtime: GeckoRuntime? = null
+
+    /** GeckoView nightly 只打了 arm64-v8a，其它 ABI 的设备只能用 WebView */
+    fun supported(): Boolean = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+
+    /** 已创建则返回，不会为了「看一眼」而启动 Gecko */
+    fun peek(): GeckoRuntime? = runtime
+
+    /** 必须在主线程调用 */
+    fun get(context: Context): GeckoRuntime {
+        runtime?.let { return it }
+        synchronized(this) {
+            runtime?.let { return it }
+            val settings = GeckoRuntimeSettings.Builder()
+                .javaScriptEnabled(true)
+                .aboutConfigEnabled(true)
+                .remoteDebuggingEnabled(dev.dsh.miuixbrowser.BuildConfig.DEBUG)
+                .build()
+            val created = GeckoRuntime.create(context.applicationContext, settings)
+            runtime = created
+            return created
+        }
+    }
+
+    /** 清 Gecko 的网络 / 图片缓存（只有 Gecko 已经启动过才有事可做） */
+    fun clearCaches() {
+        val rt = runtime ?: return
+        runCatching {
+            rt.storageController.clearData(
+                StorageController.ClearFlags.NETWORK_CACHE or StorageController.ClearFlags.IMAGE_CACHE,
+            )
+        }
+    }
+}
+
+/**
+ * 一个标签页的 Gecko 内核：一个 [GeckoSession] + 一个 [GeckoView]。
+ *
+ * 只负责「把 Gecko 的回调翻译成 [BrowserTab] 已有的状态」，标签页 / 历史 / 书签 / 地址栏
+ * 等上层逻辑全部仍由 BrowserTab / BrowserState 提供，所以两种内核共用同一套界面。
+ */
+class GeckoTabEngine(
+    private val context: Context,
+    privateMode: Boolean,
+    private val tab: BrowserTab,
+) {
+    private val runtime: GeckoRuntime = GeckoRuntimeHolder.get(context)
+
+    val session: GeckoSession = GeckoSession(
+        GeckoSessionSettings.Builder().usePrivateMode(privateMode).build(),
+    )
+
+    val view: GeckoView = GeckoView(context)
+
+    var canGoBack = false
+        private set
+    var canGoForward = false
+        private set
+
+    /** 当前页在会话历史里的下标（-1 = 还没有历史） */
+    var historyIndex = -1
+        private set
+
+    /** 页面滚动位置：供底栏自动收起 / 下拉刷新判断 */
+    var scrollY = 0
+        private set
+
+    var pageTitle = ""
+        private set
+    var inFullScreen = false
+        private set
+
+    private var lastUrl = ""
+    private var lastTouchAt = 0L
+    private var lastDirectLoadAt = 0L
+
+    init {
+        installDelegates()
+        session.open(runtime)
+        // TextureView 后端：支持 alpha / 位移，且能被毛玻璃背景采样；SurfaceView 会在叠加层下面「穿洞」
+        view.setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+        view.setSession(session)
+        installTouchListener()
+    }
+
+    // ---------------------------------------------------------------- 基础操作
+
+    fun loadUri(uri: String) {
+        lastDirectLoadAt = SystemClock.uptimeMillis()
+        session.loadUri(uri)
+    }
+
+    fun reload() = session.reload()
+
+    fun stop() = session.stop()
+
+    fun goBack() = session.goBack()
+
+    fun goForward() = session.goForward()
+
+    fun currentUrl(): String = lastUrl
+
+    fun setActive(active: Boolean) {
+        runCatching { session.setActive(active) }
+    }
+
+    fun exitFullScreen() {
+        runCatching { session.exitFullScreen() }
+    }
+
+    /** 桌面模式 / 自定义 UA：Gecko 在会话设置里切换，不需要改脚本 */
+    fun applyUserAgent(customUa: String, desktop: Boolean) {
+        runCatching {
+            val st = session.settings
+            st.setUserAgentMode(
+                if (desktop) GeckoSessionSettings.USER_AGENT_MODE_DESKTOP else GeckoSessionSettings.USER_AGENT_MODE_MOBILE,
+            )
+            st.setViewportMode(
+                if (desktop) GeckoSessionSettings.VIEWPORT_MODE_DESKTOP else GeckoSessionSettings.VIEWPORT_MODE_MOBILE,
+            )
+            st.setUserAgentOverride(customUa.ifBlank { null })
+        }
+    }
+
+    /** 深浅色：Gecko 的 prefers-color-scheme 是运行时级别的 */
+    fun applyTheme(dark: Boolean) {
+        runCatching {
+            runtime.settings.setPreferredColorScheme(
+                if (dark) GeckoRuntimeSettings.COLOR_SCHEME_DARK else GeckoRuntimeSettings.COLOR_SCHEME_LIGHT,
+            )
+        }
+    }
+
+    /** 第三方 Cookie（运行时级别） */
+    fun applyThirdPartyCookies(allowed: Boolean) {
+        runCatching {
+            runtime.settings.contentBlocking.setCookieBehavior(
+                if (allowed) ContentBlocking.CookieBehavior.ACCEPT_ALL else ContentBlocking.CookieBehavior.ACCEPT_FIRST_PARTY,
+            )
+        }
+    }
+
+    fun find(text: String) {
+        runCatching { session.finder.find(text, 0) }
+    }
+
+    /** flags: 1 = 向后查找（FINDER_FIND_BACKWARDS），0 = 向前 */
+    fun findNext(forward: Boolean) {
+        runCatching { session.finder.find(null, if (forward) 0 else 1) }
+    }
+
+    fun clearFind() {
+        runCatching { session.finder.clear() }
+    }
+
+    /** 截取当前画面（异步，回调在主线程） */
+    fun capture(onBitmap: (Bitmap) -> Unit) {
+        runCatching {
+            view.capturePixels().accept { bitmap -> if (bitmap != null) onBitmap(bitmap) }
+        }
+    }
+
+    fun destroy() {
+        runCatching { view.releaseSession() }
+        runCatching { session.close() }
+    }
+
+    // ---------------------------------------------------------------- 回调翻译
+
+    private fun installDelegates() {
+        session.progressDelegate = object : GeckoSession.ProgressDelegate {
+            override fun onPageStart(session: GeckoSession, url: String) {
+                tab.geckoPageStart(url)
+            }
+
+            override fun onPageStop(session: GeckoSession, success: Boolean) {
+                tab.geckoPageStop(success)
+            }
+
+            override fun onProgressChange(session: GeckoSession, progress: Int) {
+                tab.geckoProgress(progress)
+            }
+        }
+
+        session.navigationDelegate = object : GeckoSession.NavigationDelegate {
+            override fun onLocationChange(
+                session: GeckoSession,
+                url: String?,
+                perms: List<GeckoSession.PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
+            ) {
+                if (url.isNullOrEmpty()) return
+                lastUrl = url
+                tab.geckoLocation(url)
+            }
+
+            override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
+                this@GeckoTabEngine.canGoBack = canGoBack
+                tab.geckoNavChanged()
+            }
+
+            override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
+                this@GeckoTabEngine.canGoForward = canGoForward
+                tab.geckoNavChanged()
+            }
+
+            override fun onLoadRequest(
+                session: GeckoSession,
+                request: GeckoSession.NavigationDelegate.LoadRequest,
+            ): GeckoResult<AllowOrDeny>? {
+                val target = request.uri
+                if (isUserScriptUrl(target)) {
+                    tab.onUserScriptLink?.invoke(target)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
+                val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
+                if (scheme == null || scheme in INTERNAL_SCHEMES) {
+                    return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+                }
+                // weixin:// alipays:// intent:// 等：交给系统。页面自己无手势地唤起其他应用一律拦截
+                val direct = SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
+                if (request.hasUserGesture || direct) {
+                    tab.geckoLaunchExternal(Uri.parse(target))
+                } else {
+                    tab.geckoExternalBlocked()
+                }
+                return GeckoResult.fromValue(AllowOrDeny.DENY)
+            }
+
+            // window.open / target=_blank：不真正创建新会话，只截获地址，由标签页逻辑开新标签
+            override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
+                val linkClick = SystemClock.uptimeMillis() - lastTouchAt < 2_000
+                if (uri.isNotBlank() && uri != "about:blank") tab.geckoNewWindow(uri, linkClick)
+                return null
+            }
+
+            override fun onLoadError(
+                session: GeckoSession,
+                uri: String?,
+                error: WebRequestError,
+            ): GeckoResult<String>? {
+                tab.geckoLoadError("加载失败（错误 ${error.category}/${error.code}）")
+                return null
+            }
+        }
+
+        session.historyDelegate = object : GeckoSession.HistoryDelegate {
+            override fun onHistoryStateChange(
+                session: GeckoSession,
+                historyList: GeckoSession.HistoryDelegate.HistoryList,
+            ) {
+                historyIndex = historyList.currentIndex
+                tab.geckoNavChanged()
+            }
+        }
+
+        session.scrollDelegate = object : GeckoSession.ScrollDelegate {
+            override fun onScrollChanged(session: GeckoSession, scrollX: Int, scrollY: Int) {
+                this@GeckoTabEngine.scrollY = scrollY
+            }
+        }
+
+        session.contentDelegate = object : GeckoSession.ContentDelegate {
+            override fun onTitleChange(session: GeckoSession, title: String?) {
+                pageTitle = title.orEmpty()
+                tab.geckoTitle(pageTitle)
+            }
+
+            override fun onContextMenu(
+                session: GeckoSession,
+                screenX: Int,
+                screenY: Int,
+                element: GeckoSession.ContentDelegate.ContextElement,
+            ) {
+                val src = element.srcUri
+                val link = element.linkUri
+                when {
+                    element.type == GeckoSession.ContentDelegate.ContextElement.TYPE_IMAGE && !src.isNullOrEmpty() ->
+                        tab.onLongPressImage?.invoke(src)
+                    !link.isNullOrEmpty() -> tab.onLongPressLink?.invoke(link)
+                }
+            }
+
+            /** Gecko 判定「不是网页」的响应（下载 / 附件 / blob）都走这里 */
+            override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
+                val uri = response.uri
+                val headers = response.headers
+                val mime = headerOf(headers, "content-type")?.substringBefore(';')?.trim()?.ifBlank { null }
+                val disposition = headerOf(headers, "content-disposition")
+                when {
+                    isUserScriptUrl(uri) -> {
+                        runCatching { response.body?.close() }
+                        tab.onUserScriptLink?.invoke(uri)
+                    }
+                    // blob：HTTP 下载器拉不到，直接把 Gecko 给的响应体落到缓存文件
+                    uri.startsWith("blob:", ignoreCase = true) -> spoolBody(response, uri, disposition, mime)
+                    uri.startsWith("data:", ignoreCase = true) -> {
+                        runCatching { response.body?.close() }
+                        tab.geckoDataUrlDownload(uri, disposition, mime)
+                    }
+                    else -> {
+                        runCatching { response.body?.close() }
+                        tab.onDownload?.invoke(uri, null, disposition, mime)
+                    }
+                }
+            }
+
+            override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
+                inFullScreen = fullScreen
+                tab.geckoFullScreen(fullScreen)
+            }
+
+            override fun onCloseRequest(session: GeckoSession) {
+                tab.geckoCloseRequest()
+            }
+
+            override fun onCrash(session: GeckoSession) {
+                recover()
+            }
+
+            override fun onKill(session: GeckoSession) {
+                recover()
+            }
+        }
+
+        session.permissionDelegate = object : GeckoSession.PermissionDelegate {
+            override fun onAndroidPermissionsRequest(
+                session: GeckoSession,
+                permissions: Array<out String>?,
+                callback: GeckoSession.PermissionDelegate.Callback,
+            ) {
+                tab.geckoEnsureAndroid(permissions?.toList().orEmpty()) { ok ->
+                    if (ok) callback.grant() else callback.reject()
+                }
+            }
+
+            override fun onContentPermissionRequest(
+                session: GeckoSession,
+                perm: GeckoSession.PermissionDelegate.ContentPermission,
+            ): GeckoResult<Int>? {
+                val result = GeckoResult<Int>()
+                val allow = GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW
+                val deny = GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY
+                when (perm.permission) {
+                    GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION ->
+                        tab.geckoRequestLocation(hostOf(perm.uri)) { ok -> result.complete(if (ok) allow else deny) }
+                    // 站点存储 / 静音自动播放 / DRM 视频：浏览所需，直接放行
+                    GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE,
+                    GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE,
+                    GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS,
+                    -> result.complete(allow)
+                    // 网站通知等：本应用目前没有对应的界面，一律拒绝
+                    else -> result.complete(deny)
+                }
+                return result
+            }
+
+            override fun onMediaPermissionRequest(
+                session: GeckoSession,
+                uri: String,
+                video: Array<out GeckoSession.PermissionDelegate.MediaSource>?,
+                audio: Array<out GeckoSession.PermissionDelegate.MediaSource>?,
+                callback: GeckoSession.PermissionDelegate.MediaCallback,
+            ) {
+                val wantCam = !video.isNullOrEmpty()
+                val wantMic = !audio.isNullOrEmpty()
+                tab.geckoRequestMedia(hostOf(uri), wantCam, wantMic) { ok ->
+                    if (ok) {
+                        callback.grant(video?.firstOrNull(), audio?.firstOrNull())
+                    } else {
+                        callback.reject()
+                    }
+                }
+            }
+        }
+    }
+
+    /** 与 WebView 版一致：约 2.5cm 的拉动距离触发下拉刷新；同时记录最近一次按下时间（判定新窗口是否由点击触发） */
+    private fun installTouchListener() {
+        val pullThresholdPx = context.resources.displayMetrics.xdpi / 2.54f * 4f
+        var downY = 0f
+        var pulled = 0f
+        view.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastTouchAt = SystemClock.uptimeMillis()
+                    downY = event.y
+                    pulled = 0f
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (tab.url.isNotEmpty() && scrollY <= 0 && event.y > downY) {
+                        pulled = event.y - downY
+                        tab.geckoSetPull((pulled / pullThresholdPx).coerceIn(0f, 1f))
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (tab.url.isNotEmpty() && pulled > pullThresholdPx && scrollY <= 0) tab.geckoPullRefresh()
+                    pulled = 0f
+                    tab.geckoSetPull(0f)
+                }
+            }
+            false
+        }
+    }
+
+    /** 内容进程崩溃 / 被系统杀掉：重新打开会话并回到崩溃前的页面 */
+    private fun recover() {
+        val u = lastUrl
+        view.post {
+            runCatching {
+                if (!session.isOpen) session.open(runtime)
+                if (u.isNotBlank() && u != "about:blank") session.loadUri(u)
+            }
+        }
+    }
+
+    private fun spoolBody(response: WebResponse, uri: String, disposition: String?, mime: String?) {
+        val body = response.body
+        if (body == null) {
+            tab.geckoBlobError("无法读取下载内容")
+            return
+        }
+        val name = Downloader.fileNameFrom(uri, disposition)
+        Thread {
+            val file = File(context.cacheDir, "mafari_blob_${UUID.randomUUID()}.part")
+            val ok = runCatching {
+                body.use { input -> file.outputStream().use { out -> input.copyTo(out) } }
+            }.isSuccess && file.length() > 0L
+            view.post {
+                if (ok) {
+                    tab.geckoBlobReady(Downloader.withExtension(name, mime), mime, file.absolutePath)
+                } else {
+                    runCatching { file.delete() }
+                    tab.geckoBlobError("文件读取不完整或写入失败")
+                }
+            }
+        }.start()
+    }
+
+    private fun headerOf(headers: Map<String, String>, name: String): String? =
+        headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+
+    private companion object {
+        /** 这些协议由 Gecko 自己加载；其余（intent / weixin / alipays / mailto / tel …）交给系统 */
+        val INTERNAL_SCHEMES = setOf(
+            "http", "https", "about", "data", "file", "blob", "javascript",
+            "resource", "view-source", "moz-extension", "ftp",
+        )
+    }
+}

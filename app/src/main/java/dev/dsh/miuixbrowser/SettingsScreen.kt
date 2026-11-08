@@ -315,6 +315,29 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
+                    AppDropdownPreference(
+                        backdrop = if (glass) backdrop else null,
+                        title = "浏览器内核",
+                        summary = if (settings.browserEngine == ENGINE_GECKO) {
+                            "Gecko：新建标签页生效，已打开的标签保持原内核 · 部分网页增强功能暂不可用"
+                        } else {
+                            "系统 WebView：新建标签页生效，已打开的标签保持原内核"
+                        },
+                        items = listOf("WebView（系统）", "GeckoView（Nightly）"),
+                        selectedIndex = settings.browserEngine.coerceIn(0, 1),
+                        onSelectedIndexChange = { index ->
+                            if (index == ENGINE_GECKO && !GeckoRuntimeHolder.supported()) {
+                                Toast.makeText(context, "当前设备不是 arm64-v8a，无法使用 Gecko 内核", Toast.LENGTH_SHORT).show()
+                            } else if (index != settings.browserEngine) {
+                                settings.updateBrowserEngine(index)
+                                Toast.makeText(
+                                    context,
+                                    "新建的标签页将使用 " + (if (index == ENGINE_GECKO) "Gecko" else "WebView") + " 内核",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                        },
+                    )
                     AppSwitchPreference(
                         title = "网页增强",
                         summary = "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告",
@@ -359,6 +382,7 @@ fun SettingsScreen(
                                 // WebView 网页缓存要在主线程清；其余文件在 IO 线程删
                                 val clearWeb: () -> Unit = {
                                     runCatching { WebView(context.applicationContext).apply { clearCache(true); destroy() } }
+                                    GeckoRuntimeHolder.clearCaches()
                                 }
                                 val freed = withContext(Dispatchers.IO) {
                                     CacheCleaner.cleanNow(context) { runBlocking(Dispatchers.Main) { clearWeb() } }

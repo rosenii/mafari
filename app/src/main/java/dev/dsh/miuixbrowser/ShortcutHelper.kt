@@ -128,7 +128,8 @@ object ShortcutHelper {
         }
 
         val title = tab.title.ifBlank { hostOf(url) }
-        val webView = tab.webView
+        // Gecko 标签没有 WebView：取不到页面图标，退回按域名抓取
+        val webView = runCatching { tab.webView }.getOrNull()
         scope.launch {
             val iconHref = queryPageIcon(webView)
             val raw = loadIcon(url, iconHref)
@@ -165,7 +166,8 @@ object ShortcutHelper {
     }
 
     /** 读页面声明的最大图标（link rel=icon / apple-touch-icon），读不到返回空串 */
-    private suspend fun queryPageIcon(webView: android.webkit.WebView): String {
+    private suspend fun queryPageIcon(webView: android.webkit.WebView?): String {
+        if (webView == null) return ""
         val js = """
             (function(){var best='',bs=-1;
             document.querySelectorAll('link[rel~="icon"],link[rel="shortcut icon"],link[rel^="apple-touch-icon"]').forEach(function(l){

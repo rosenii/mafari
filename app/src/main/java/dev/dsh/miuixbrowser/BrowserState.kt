@@ -131,9 +131,21 @@ fun isUserScriptUrl(url: String): Boolean {
     return path.endsWith(".user.js", ignoreCase = true)
 }
 
-/** 一个标签页：持有自己的 WebView 和页面状态。 */
+/** 浏览器内核。标签页创建时确定，之后不变。 */
+enum class EngineKind { WEBVIEW, GECKO }
+
+/**
+ * 一个标签页：持有自己的内核（WebView 或 GeckoView）和页面状态。
+ * 标题 / 地址 / 进度 / 前进后退等状态全部是与内核无关的 Compose 状态，两种内核共用同一套界面。
+ */
 @SuppressLint("SetJavaScriptEnabled")
-class BrowserTab(private val appContext: Context) {
+class BrowserTab(
+    private val appContext: Context,
+    /** 本标签使用的内核：创建时确定，之后不变 */
+    val engineKind: EngineKind = EngineKind.WEBVIEW,
+    /** 无痕标签：Gecko 的私有模式必须在会话创建时指定 */
+    startIncognito: Boolean = false,
+) {
 
     /** 每个标签的唯一 id，Compose 用它做 key。 */
     val id: Int = nextId()
@@ -187,7 +199,7 @@ class BrowserTab(private val appContext: Context) {
         // Cookie 开关是进程级的，不能在这里改；改为在该标签成为当前标签时由 applyPrivacy 设置
     }
 
-    private val defaultUserAgent: String by lazy { webView.settings.userAgentString }
+    private val defaultUserAgent: String by lazy { webViewOrNull?.settings?.userAgentString.orEmpty() }
 
     /** 设置里的自定义 UA（空串 = 跟随系统） */
     var customUserAgent: String = ""
@@ -285,10 +297,24 @@ class BrowserTab(private val appContext: Context) {
     /** 记录历史 */
     var onVisited: ((url: String, title: String) -> Unit)? = null
 
-    val webView: WebView = WebView(appContext)
+    /** 只有 WebView 内核的标签才有 WebView；Gecko 标签不创建（省内存） */
+    private val webViewOrNull: WebView? = if (engineKind == EngineKind.WEBVIEW) WebView(appContext) else null
+
+    /** WebView 内核专用 API 的入口。Gecko 标签访问它会抛异常，界面层应改用 [contentView] 等与内核无关的成员 */
+    val webView: WebView
+        get() = webViewOrNull ?: error("Gecko 标签没有 WebView，请使用与内核无关的接口")
+
+    private val gecko: GeckoTabEngine? =
+        if (engineKind == EngineKind.GECKO) GeckoTabEngine(appContext, startIncognito, this) else null
+
+    /** 挂到界面里的内容视图：WebView 或 GeckoView */
+    val contentView: View
+        get() = gecko?.view ?: webView
+
+    val isGecko: Boolean get() = gecko != null
 
     /** 指纹保护：按 origin 注册 document-start 脚本（见 FingerprintInjector / docs/FINGERPRINT.md）。 */
-    private val fpInjector = FingerprintInjector(webView)
+    private val fpInjector: FingerprintInjector? = webViewOrNull?.let { FingerprintInjector(it) }
 
     private val elementBridge = object {
         @android.webkit.JavascriptInterface
@@ -581,7 +607,7 @@ class BrowserTab(private val appContext: Context) {
             })()
         """.trimIndent()
         // 结果由 blobBridge 回调，这里不解析返回值
-        webView.evaluateJavascript(js, null)
+        evaluateJs(js, null)
     }
 
     /**
@@ -596,16 +622,17 @@ class BrowserTab(private val appContext: Context) {
     /** 去广告元素隐藏脚本是否已作为 document-start 脚本装上（没装上时由页面加载回调兜底注入） */
     private var adblockDocStart = false
 
-    init {
+    private fun initWebView() {
         runCatching { webView.addJavascriptInterface(AdBlockBridge { !incognito || adblockInIncognito }, "MafariAdblock") }
         runCatching { webView.addJavascriptInterface(blobBridge, "MafariBlob") }
         // 仅降级路径：WebView 不支持 DOCUMENT_START_SCRIPT 时才安装无参的指纹桥；主路径不向页面暴露任何指纹接口
-        if (!fpInjector.docStartSupported) {
-            runCatching { webView.addJavascriptInterface(FpFallbackBridge(fpInjector), "MafariFp") }
+        val fp = fpInjector ?: return
+        if (!fp.docStartSupported) {
+            runCatching { webView.addJavascriptInterface(FpFallbackBridge(fp), "MafariFp") }
         }
         // 落在未预注册 origin 时的兜底：重载走带请求头的 loadUrl；STOP 策略在页面上给出提示
-        fpInjector.loader = { target -> loadUrl(target) }
-        fpInjector.onUnprotectedBlocked = { target ->
+        fp.loader = { target -> loadUrl(target) }
+        fp.onUnprotectedBlocked = { target ->
             loading = false
             errorText = "指纹保护：${runCatching { Uri.parse(target).host }.getOrNull().orEmpty()} 未能在加载前注册保护，已停止加载"
         }
@@ -623,7 +650,7 @@ class BrowserTab(private val appContext: Context) {
                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, cacheJs, setOf("*"))
                 }.onFailure { Diag.log("blob cache install failed: ${it.message}") }
                 androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, AdBlock.COSMETIC_JS, setOf("*"))
-                // 指纹保护不在这里注册：它按 origin 注册（fpInjector.prepare），配置内联在各 origin 自己的脚本里
+                // 指纹保护不在这里注册：它按 origin 注册（fpInjector?.prepare），配置内联在各 origin 自己的脚本里
                 adblockDocStart = true
             }
         }.onFailure { Diag.log("adblock: document-start install failed ${it.message}") }
@@ -702,7 +729,7 @@ class BrowserTab(private val appContext: Context) {
                 syncUserScripts()
                 if (!adblockDocStart) view.evaluateJavascript(AdBlock.COSMETIC_JS, null)
                 // 主路径：补注册（只对之后的加载生效）；降级路径：补跑脚本
-                fpInjector.onPageStarted(pageUrl)
+                fpInjector?.onPageStarted(pageUrl)
             }
 
             /** HTTP 代理认证：挑战主机等于代理主机时自动提交设置里的账号密码 */
@@ -739,7 +766,7 @@ class BrowserTab(private val appContext: Context) {
 
             override fun doUpdateVisitedHistory(view: WebView, pageUrl: String?, isReload: Boolean) {
                 // 服务端重定向的最终落点只有这里看得到：未预注册就按策略兜底
-                fpInjector.onCommitted(pageUrl)
+                fpInjector?.onCommitted(pageUrl)
                 if (!parked) pageUrl?.let { url = it }
                 updatePageHost(pageUrl)
                 syncNav()
@@ -764,7 +791,7 @@ class BrowserTab(private val appContext: Context) {
                     if (interceptRedirect(request, external = false, onAllowed = proceed)) return true
                 }
                 // 主框架导航放行前，先为目标 origin 注册指纹保护脚本（注入只作用于注册之后才开始加载的文档）
-                if (request.isForMainFrame && (scheme == "http" || scheme == "https")) fpInjector.prepare(target)
+                if (request.isForMainFrame && (scheme == "http" || scheme == "https")) fpInjector?.prepare(target)
                 // DNT / Sec-GPC：点击链接产生的主框架 GET 导航也带上请求头
                 if (dntEnabled && (scheme == "http" || scheme == "https") && request.isForMainFrame &&
                     request.method == "GET" && !request.isRedirect &&
@@ -939,6 +966,11 @@ class BrowserTab(private val appContext: Context) {
         }
     }
 
+    init {
+        // 引擎初始化放在这里（而不是各自的构造处），保证上面所有属性初始化完毕
+        if (webViewOrNull != null) initWebView()
+    }
+
     data class ElementHit(val tag: String, val imageUrl: String, val selector: String)
 
     /** 最近一次手指按下的位置（WebView 像素），长按图片 / 链接后用它定位对应的页面元素 */
@@ -952,6 +984,7 @@ class BrowserTab(private val appContext: Context) {
      * [onNotFound] 在没找到可标记元素时回调。
      */
     fun markAdAtTouch(onNotFound: () -> Unit) {
+        if (webViewOrNull == null) { onNotFound(); return }
         @Suppress("DEPRECATION")
         val scale = webView.scale.takeIf { it > 0f } ?: webView.context.resources.displayMetrics.density
         val cssX = lastTouchX / scale
@@ -1007,7 +1040,7 @@ class BrowserTab(private val appContext: Context) {
     return 1;
   } catch (e) { return 0; }
 })()"""
-        webView.evaluateJavascript(js) { raw ->
+        evaluateJs(js) { raw ->
             if (raw?.trim() != "1") onNotFound()
         }
     }
@@ -1079,7 +1112,8 @@ class BrowserTab(private val appContext: Context) {
      * 脚本列表 / 缓存资源变化时重建；系统不支持该特性时由 injectMissingUserScripts 兜底。
      */
     private fun syncUserScripts() {
-        if (destroyed) return
+        // 用户脚本依赖 WebView 的 document-start 注入；Gecko 内核需要走 WebExtension（见 docs/GECKO.md）
+        if (destroyed || webViewOrNull == null) return
         if (!scriptsActive()) {
             scriptHandlers.forEach { handler -> runCatching { handler.remove() } }
             scriptHandlers.clear()
@@ -1147,7 +1181,7 @@ class BrowserTab(private val appContext: Context) {
     /** 当前页面里脚本通过 GM_registerMenuCommand 注册的命令（仅主框架） */
     fun queryMenuCommands(onResult: (List<ScriptMenuCommand>) -> Unit) {
         val js = "(function(){try{return window.__mafariMenuList?window.__mafariMenuList():'[]'}catch(e){return '[]'}})()"
-        webView.evaluateJavascript(js) { raw ->
+        evaluateJs(js) { raw ->
             val list = runCatching {
                 val text = org.json.JSONTokener(raw ?: "null").nextValue() as? String ?: "[]"
                 val array = org.json.JSONArray(text)
@@ -1163,13 +1197,13 @@ class BrowserTab(private val appContext: Context) {
     /** 当前页面（主框架）里真正匹配并运行的脚本数量 */
     fun queryRunningScripts(onResult: (Int) -> Unit) {
         val js = "(function(){try{return Object.keys(window.__mafariRan||{}).length}catch(e){return 0}})()"
-        webView.evaluateJavascript(js) { raw -> onResult(raw?.trim()?.toIntOrNull() ?: 0) }
+        evaluateJs(js) { raw -> onResult(raw?.trim()?.toIntOrNull() ?: 0) }
     }
 
     /** 当前页面（主框架）里真正匹配并运行的脚本 id */
     fun queryRunningScriptIds(onResult: (List<String>) -> Unit) {
         val js = "(function(){try{return JSON.stringify(Object.keys(window.__mafariRan||{}))}catch(e){return '[]'}})()"
-        webView.evaluateJavascript(js) { raw ->
+        evaluateJs(js) { raw ->
             val ids = runCatching {
                 val text = org.json.JSONTokener(raw ?: "null").nextValue() as? String ?: "[]"
                 val array = org.json.JSONArray(text)
@@ -1180,7 +1214,7 @@ class BrowserTab(private val appContext: Context) {
     }
 
     fun runMenuCommand(id: String) {
-        webView.evaluateJavascript(
+        evaluateJs(
             "(function(){try{window.__mafariMenuRun&&window.__mafariMenuRun(" + org.json.JSONObject.quote(id) + ")}catch(e){}})()",
             null,
         )
@@ -1193,8 +1227,261 @@ class BrowserTab(private val appContext: Context) {
             canGoForward = false
             return
         }
-        canGoBack = runCatching { webView.canGoBack() }.getOrDefault(false) || fromHome || openedFromLink
-        canGoForward = runCatching { webView.canGoForward() }.getOrDefault(false)
+        canGoBack = engineCanGoBack() || fromHome || openedFromLink
+        canGoForward = engineCanGoForward()
+    }
+
+    // ======================================================================
+    // 与内核无关的统一接口：界面层只应该调用这些，不要直接碰 webView
+    // ======================================================================
+
+    private fun engineCanGoBack(): Boolean =
+        gecko?.canGoBack ?: runCatching { webView.canGoBack() }.getOrDefault(false)
+
+    private fun engineCanGoForward(): Boolean =
+        gecko?.canGoForward ?: runCatching { webView.canGoForward() }.getOrDefault(false)
+
+    private fun engineUrl(): String =
+        gecko?.currentUrl() ?: runCatching { webView.url }.getOrNull().orEmpty()
+
+    private fun engineStop() {
+        gecko?.let { it.stop(); return }
+        runCatching { webView.stopLoading() }
+    }
+
+    private fun engineReload() {
+        gecko?.let { it.reload(); return }
+        webView.reload()
+    }
+
+    private fun engineLoad(target: String) {
+        gecko?.let { it.loadUri(target); return }
+        val headers = extraRequestHeaders()
+        if (headers.isEmpty()) webView.loadUrl(target) else webView.loadUrl(target, headers)
+    }
+
+    /** 强制刷新（下拉刷新 / 脚本开关后刷新）：不像 [reload] 那样在加载中变成「停止」 */
+    fun refresh() = engineReload()
+
+    /** 页面滚动位置（像素）：底栏自动收起 / 下拉刷新判断用 */
+    val scrollOffsetY: Int
+        get() = gecko?.scrollY ?: webViewOrNull?.scrollY ?: 0
+
+    /** 引擎当前的页面标题（切换地址时用来清掉旧标题） */
+    fun currentPageTitle(): String = gecko?.pageTitle ?: webViewOrNull?.title.orEmpty()
+
+    /**
+     * 在页面里执行 JS。Gecko 没有公开的 evaluateJavascript，
+     * 这类功能（油猴脚本 / 元素标记 / 页面内查询）在 Gecko 下需要走 WebExtension，这里直接回调 null。
+     */
+    fun evaluateJs(js: String, callback: ((String?) -> Unit)? = null) {
+        val wv = webViewOrNull
+        if (wv == null) {
+            callback?.invoke(null)
+            return
+        }
+        if (callback == null) {
+            wv.evaluateJavascript(js, null)
+        } else {
+            wv.evaluateJavascript(js) { raw -> callback(raw) }
+        }
+    }
+
+    /** 可见区域尺寸变化后：让内容视图重新布局，并通知页面重新计算响应式布局 */
+    fun onViewportChanged() {
+        val v = contentView
+        v.post {
+            if (!v.isAttachedToWindow) return@post
+            v.requestLayout()
+            v.invalidate()
+            evaluateJs(
+                """
+                (function() {
+                    try {
+                        window.dispatchEvent(new Event('resize'));
+                        if (window.visualViewport) {
+                            window.visualViewport.dispatchEvent(new Event('resize'));
+                        }
+                    } catch (_) {}
+                })();
+                """.trimIndent(),
+            )
+        }
+    }
+
+    /** 当前标签是否是正被显示的那个：后台的 Gecko 会话停止渲染以省电 */
+    fun setEngineActive(active: Boolean) {
+        gecko?.setActive(active)
+    }
+
+    // ======================================================================
+    // Gecko 回调 → 标签状态（由 GeckoTabEngine 调用，均在主线程）
+    // ======================================================================
+
+    private fun isBlankPage(u: String) = u == "about:blank"
+
+    internal fun geckoPageStart(u: String) {
+        if (closed || destroyed) return
+        // 主页（url 为空）或被主页盖住（parked）时，页面侧回调不得改写 url；引擎初始化产生的 about:blank 也忽略
+        if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
+        pageHost = runCatching { Uri.parse(u).host }.getOrNull().orEmpty()
+        loading = true
+        errorText = null
+        syncNav()
+    }
+
+    internal fun geckoLocation(u: String) {
+        if (closed || destroyed) return
+        if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
+        updatePageHost(u)
+        syncNav()
+    }
+
+    internal fun geckoProgress(p: Int) {
+        if (closed || destroyed) return
+        progress = p / 100f
+        loading = p < 100
+    }
+
+    internal fun geckoTitle(t: String) {
+        if (t.isNotBlank()) title = t
+    }
+
+    internal fun geckoPageStop(success: Boolean) {
+        if (closed || destroyed) return
+        loading = false
+        progress = 1f
+        syncNav()
+        val visited = url
+        if (success && !parked && visited.isNotEmpty() && !visited.startsWith("about:")) {
+            onVisited?.invoke(visited, title)
+        }
+        // 稍等布局稳定再截标签缩略图
+        gecko?.view?.postDelayed({ captureGeckoThumbnail() }, 350)
+    }
+
+    internal fun geckoNavChanged() {
+        if (closed || destroyed) return
+        syncNav()
+    }
+
+    internal fun geckoLoadError(text: String) {
+        if (closed || destroyed) return
+        loading = false
+        errorText = text
+    }
+
+    private fun captureGeckoThumbnail() {
+        val g = gecko ?: return
+        if (closed || destroyed || url.isBlank() || isBlankPage(url) || parked) return
+        g.capture { bmp ->
+            runCatching {
+                // 与 WebView 版一致：缩到 480x854 以内
+                val scale = minOf(480f / bmp.width, 854f / bmp.height, 1f)
+                val scaled = if (scale < 1f) {
+                    Bitmap.createScaledBitmap(
+                        bmp,
+                        (bmp.width * scale).toInt().coerceAtLeast(1),
+                        (bmp.height * scale).toInt().coerceAtLeast(1),
+                        true,
+                    )
+                } else {
+                    bmp
+                }
+                thumbnail = scaled.asImageBitmap()
+            }
+        }
+    }
+
+    /** window.open / target=_blank：沿用 WebView 版的新窗口规则（同站 / 点击 / 重定向权限） */
+    internal fun geckoNewWindow(target: String, linkClick: Boolean) {
+        val uri = Uri.parse(target)
+        val scheme = uri.scheme
+        if (scheme != "http" && scheme != "https") return
+        handlePopupTarget(target, uri.host.orEmpty(), linkClick)
+    }
+
+    internal fun geckoLaunchExternal(uri: Uri) = launchExternalApp(uri)
+
+    internal fun geckoExternalBlocked() = notifyRedirectBlocked(true, "")
+
+    internal fun geckoCloseRequest() {
+        onRequestClose?.invoke()
+    }
+
+    internal fun geckoSetPull(p: Float) {
+        pullProgress = p
+    }
+
+    internal fun geckoPullRefresh() {
+        onPullRefresh?.invoke()
+    }
+
+    internal fun geckoDataUrlDownload(uri: String, disposition: String?, mime: String?) {
+        val dataMime = uri.substringAfter("data:").substringBefore(',').substringBefore(';').ifBlank { null }
+        val name = Downloader.withExtension(
+            Downloader.fileNameFrom(uri, disposition),
+            mime?.takeIf { it.isNotBlank() } ?: dataMime,
+        )
+        onBlobReady?.invoke(uri, name, mime ?: dataMime, null)
+    }
+
+    internal fun geckoBlobReady(name: String, mime: String?, path: String) {
+        onBlobReady?.invoke(null, name, mime, path)
+    }
+
+    internal fun geckoBlobError(message: String) {
+        onBlobError?.invoke(message)
+    }
+
+    internal fun geckoEnsureAndroid(perms: List<String>, result: (Boolean) -> Unit) {
+        ensureAndroid(perms.toTypedArray(), anyOk = false, result = result)
+    }
+
+    internal fun geckoRequestLocation(origin: String, result: (Boolean) -> Unit) {
+        decide(
+            locationMode,
+            origin,
+            "获取你的位置",
+            arrayOf(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+            anyOk = true,
+            result = result,
+        )
+    }
+
+    /** 摄像头 / 麦克风：规则与 WebView 版 handleWebPermission 一致；其中任一被设置为「拒绝」则整体拒绝 */
+    internal fun geckoRequestMedia(origin: String, wantCam: Boolean, wantMic: Boolean, result: (Boolean) -> Unit) {
+        val camOk = wantCam && cameraMode != 2
+        val micOk = wantMic && micMode != 2
+        if ((wantCam && !camOk) || (wantMic && !micOk) || (!camOk && !micOk)) {
+            result(false)
+            return
+        }
+        val perms = buildList {
+            if (camOk) add(android.Manifest.permission.CAMERA)
+            if (micOk) add(android.Manifest.permission.RECORD_AUDIO)
+        }.toTypedArray()
+        val what = listOfNotNull(if (camOk) "摄像头" else null, if (micOk) "麦克风" else null).joinToString("、")
+        val mustAsk = (camOk && cameraMode == 0) || (micOk && micMode == 0)
+        decide(if (mustAsk) 0 else 1, origin, "使用$what", perms, result = result)
+    }
+
+    /** Gecko 视频全屏：系统栏隐藏 + 横屏（页面本身由 Gecko 撑满 GeckoView） */
+    internal fun geckoFullScreen(on: Boolean) {
+        val activity = resolveActivity() ?: return
+        val controller = androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        if (on) {
+            lockLandscape()
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            restoreOrientation()
+        }
     }
 
     fun load(input: String) {
@@ -1207,41 +1494,36 @@ class BrowserTab(private val appContext: Context) {
         }
         parked = false
         url = target
-        fpInjector.prepare(target)
-        val headers = extraRequestHeaders()
-        if (headers.isEmpty()) {
-            webView.loadUrl(target)
-        } else {
-            webView.loadUrl(target, headers)
-        }
+        fpInjector?.prepare(target)
+        engineLoad(target)
         syncNav()
     }
 
     fun loadUrl(raw: String) {
         parked = false
         url = raw
-        fpInjector.prepare(raw)
-        val headers = extraRequestHeaders()
-        if (headers.isEmpty()) {
-            webView.loadUrl(raw)
-        } else {
-            webView.loadUrl(raw, headers)
-        }
+        fpInjector?.prepare(raw)
+        engineLoad(raw)
     }
 
     fun reload() {
         if (loading) {
-            webView.stopLoading()
+            engineStop()
             loading = false
         } else {
             // 设置 / 豁免列表变更后旧注册已作废，刷新前重新注册当前页的 origin
-            fpInjector.prepare(webView.url)
-            webView.reload()
+            fpInjector?.prepare(engineUrl())
+            engineReload()
         }
     }
 
     /** 应用 UA：桌面模式优先，其次设置里的自定义 UA，最后系统默认 */
     fun applyUserAgent() {
+        gecko?.let { g ->
+            val desktop = desktopMode || customUserAgent == DESKTOP_UA
+            g.applyUserAgent(if (desktop) "" else customUserAgent, desktop)
+            return
+        }
         val ua = when {
             desktopMode -> desktopUserAgent()
             customUserAgent.isBlank() -> defaultUserAgent
@@ -1259,10 +1541,14 @@ class BrowserTab(private val appContext: Context) {
      * 3. 对齐 Activity `Configuration.uiMode` — 让算法深色跟随应用内「深色/浅色/跟随系统」
      */
     fun applyDisplayTheme(dark: Boolean) {
-        runCatching { webView.settings.setAlgorithmicDarkeningAllowed(true) }
-        webView.setBackgroundColor(
-            if (dark) 0xFF1A1A1A.toInt() else 0xFFFFFFFF.toInt(),
-        )
+        if (gecko != null) {
+            gecko.applyTheme(dark)
+        } else {
+            runCatching { webView.settings.setAlgorithmicDarkeningAllowed(true) }
+            webView.setBackgroundColor(
+                if (dark) 0xFF1A1A1A.toInt() else 0xFFFFFFFF.toInt(),
+            )
+        }
         val activity = resolveActivity() ?: return
         runCatching {
             val res = activity.resources
@@ -1302,9 +1588,12 @@ class BrowserTab(private val appContext: Context) {
         redirectMode: Int = 0,
         blockTrackers: Boolean = false,
     ) {
-        runCatching {
-            CookieManager.getInstance().setAcceptCookie(!incognito)
-            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookiesAllowed)
+        gecko?.applyThirdPartyCookies(thirdPartyCookiesAllowed)
+        webViewOrNull?.let { wv ->
+            runCatching {
+                CookieManager.getInstance().setAcceptCookie(!incognito)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(wv, thirdPartyCookiesAllowed)
+            }
         }
         dntEnabled = sendDnt
         this.webrtcDisabledFlag = webrtcDisabled
@@ -1315,7 +1604,9 @@ class BrowserTab(private val appContext: Context) {
         this.redirectMode = redirectMode
         this.blockTrackers = blockTrackers
         // 媒体发声：允许=可自动播放；询问/拒绝=需用户手势才能出声
-        runCatching { webView.settings.mediaPlaybackRequiresUserGesture = mediaMode != 1 }
+        // 以下全是 WebView 专用：脚本注入 / 媒体自动播放策略。Gecko 对应能力见 docs/GECKO.md
+        val wv = webViewOrNull ?: return
+        runCatching { wv.settings.mediaPlaybackRequiresUserGesture = mediaMode != 1 }
 
         val script = buildString {
             if (webrtcDisabled) {
@@ -1515,7 +1806,7 @@ class BrowserTab(private val appContext: Context) {
         if (started) return
         val fallback = if (isIntentScheme) intent.getStringExtra("browser_fallback_url") else null
         if (!fallback.isNullOrBlank() && (fallback.startsWith("http://") || fallback.startsWith("https://"))) {
-            webView.post { loadUrl(fallback) }
+            contentView.post { loadUrl(fallback) }
         } else {
             android.widget.Toast.makeText(appContext, "未找到可打开的应用", android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -1524,7 +1815,7 @@ class BrowserTab(private val appContext: Context) {
     /** 允许重定向：目标在新标签页打开；原页面在导航被截下时就没有离开，无需回退 */
     private fun openRedirectInNewTab(target: String) {
         val open = onOpenInNewTab
-        if (open != null) open(target) else webView.post { loadUrl(target) }
+        if (open != null) open(target) else contentView.post { loadUrl(target) }
     }
 
     /**
@@ -1577,7 +1868,7 @@ class BrowserTab(private val appContext: Context) {
         val sameSite = pageHost.isNotEmpty() && targetHost.isNotEmpty() && isSameSite(targetHost, pageHost)
         if (sameSite || pageHost.isEmpty()) {
             // 同站新窗口链接：默认在当前标签打开，「同站链接新标签页打开」开关打开才新开标签
-            if (sameSiteNewTab) open(target) else webView.post { loadUrl(target) }
+            if (sameSiteNewTab) open(target) else contentView.post { loadUrl(target) }
             return
         }
         // 用户亲手点的跨站 target=_blank 链接：就是要新窗口，直接新标签打开，不走重定向权限
@@ -1738,6 +2029,11 @@ class BrowserTab(private val appContext: Context) {
 
     fun toggleDesktopMode(enabled: Boolean) {
         desktopMode = enabled
+        if (gecko != null) {
+            applyUserAgent()
+            gecko.reload()
+            return
+        }
         runCatching {
             webView.settings.apply {
                 useWideViewPort = true
@@ -1757,7 +2053,7 @@ class BrowserTab(private val appContext: Context) {
         applyUserAgent()
         val target = webView.url ?: url
         if (target.isNotBlank() && !target.startsWith("about:")) {
-            fpInjector.prepare(target)
+            fpInjector?.prepare(target)
             webView.loadUrl(target)
         } else {
             webView.reload()
@@ -1766,6 +2062,7 @@ class BrowserTab(private val appContext: Context) {
 
     /** 页内查找 */
     fun findAll(text: String) {
+        gecko?.let { if (text.isBlank()) it.clearFind() else it.find(text); return }
         if (text.isBlank()) webView.clearMatches() else webView.findAllAsync(text)
     }
 
@@ -1790,10 +2087,12 @@ class BrowserTab(private val appContext: Context) {
     }
 
     fun findNext(forward: Boolean) {
+        gecko?.let { it.findNext(forward); return }
         runCatching { webView.findNext(forward) }
     }
 
     fun clearFind() {
+        gecko?.let { it.clearFind(); return }
         runCatching { webView.clearMatches() }
     }
 
@@ -1812,7 +2111,7 @@ class BrowserTab(private val appContext: Context) {
     fun restoreFromHome() {
         if (url.isEmpty() && savedUrl.isNotBlank()) {
             // 页面在主页下面可能又自己跳转过，以 WebView 当前地址为准
-            url = runCatching { webView.url }.getOrNull()?.takeIf { it.isNotBlank() } ?: savedUrl
+            url = engineUrl().takeIf { it.isNotBlank() } ?: savedUrl
             savedUrl = ""
             parked = false
             syncNav()
@@ -1820,7 +2119,7 @@ class BrowserTab(private val appContext: Context) {
     }
 
     private fun historyIndex(): Int =
-        runCatching { webView.copyBackForwardList().currentIndex }.getOrDefault(-1)
+        gecko?.historyIndex ?: runCatching { webView.copyBackForwardList().currentIndex }.getOrDefault(-1)
 
     fun goHome() {
         // 已经在主页：不能再覆盖 savedUrl，否则被盖住的页面就丢了
@@ -1835,6 +2134,11 @@ class BrowserTab(private val appContext: Context) {
     }
 
     fun goBack() {
+        // Gecko 视频全屏：返回键先退出全屏
+        if (gecko?.inFullScreen == true) {
+            gecko.exitFullScreen()
+            return
+        }
         // 从主页返回：恢复刚才那页（WebView 没销毁，直接还原状态即可）
         if (url.isEmpty()) {
             restoreFromHome()
@@ -1842,7 +2146,7 @@ class BrowserTab(private val appContext: Context) {
         }
         // 回到「从主页进入」的第一页：再返回就是主页，而不是继续翻进入主页之前的旧历史
         if (fromHome && historyIndex() <= homeAnchor + 1) {
-            runCatching { webView.stopLoading() }
+            engineStop()
             fromHome = false
             parked = true
             url = ""
@@ -1851,9 +2155,9 @@ class BrowserTab(private val appContext: Context) {
             syncNav()
             return
         }
-        if (webView.canGoBack()) {
-            fpInjector.prepareHistory(-1)
-            webView.goBack()
+        if (engineCanGoBack()) {
+            fpInjector?.prepareHistory(-1)
+            gecko?.goBack() ?: webView.goBack()
         } else if (openedFromLink) {
             // 链接打开的标签已经在第一页：关掉它，回到来源标签（而不是先落到本标签的主页）
             onRequestClose?.invoke()
@@ -1862,9 +2166,9 @@ class BrowserTab(private val appContext: Context) {
 
     fun goForward() {
         if (url.isEmpty()) return
-        if (webView.canGoForward()) {
-            fpInjector.prepareHistory(1)
-            webView.goForward()
+        if (engineCanGoForward()) {
+            fpInjector?.prepareHistory(1)
+            gecko?.goForward() ?: webView.goForward()
         }
     }
 
@@ -1874,7 +2178,13 @@ class BrowserTab(private val appContext: Context) {
         cancelFileChooser()
         exitCustomView()
         discardAllBlobSessions()
-        runCatching { fpInjector.clear() }
+        runCatching { fpInjector?.clear() }
+        val g = gecko
+        if (g != null) {
+            runCatching { (g.view.parent as? ViewGroup)?.removeView(g.view) }
+            runCatching { g.destroy() }
+            return
+        }
         runCatching {
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.stopLoading()
@@ -1887,7 +2197,7 @@ class BrowserTab(private val appContext: Context) {
     /** 关闭标签：等界面把 WebView 从视图树摘下来后再销毁。 */
     fun close() {
         closed = true
-        webView.post { if (webView.parent == null) destroyNow() }
+        contentView.post { if (contentView.parent == null) destroyNow() }
     }
 
     private companion object {
@@ -1928,10 +2238,22 @@ class BrowserState(private val context: Context) {
         val id = tabs[index].id
         recentIds.remove(id)
         recentIds.add(id)
+        // Gecko 会话只有「当前标签」保持活动，后台标签停止渲染
+        tabs.forEachIndexed { i, t -> t.setEngineActive(i == index) }
     }
 
     private fun createTab(incognito: Boolean, opener: BrowserTab?): BrowserTab {
-        val tab = BrowserTab(context)
+        val wantGecko = readBrowserEngine(context) == ENGINE_GECKO && GeckoRuntimeHolder.supported()
+        val tab = (if (wantGecko) {
+            runCatching { BrowserTab(context, EngineKind.GECKO, incognito) }
+                .onFailure {
+                    Diag.log("gecko tab create failed, fallback to WebView: ${it.message}")
+                    android.widget.Toast.makeText(context, "Gecko 内核启动失败，已改用 WebView", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                .getOrNull()
+        } else {
+            null
+        }) ?: BrowserTab(context, EngineKind.WEBVIEW, incognito)
         tab.customUserAgent = userAgent
         tab.applyUserAgent()
         tab.applyIncognito(incognito)

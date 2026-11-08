@@ -426,7 +426,7 @@ fun BrowserScreen(
         if (addressTitleUrl != tab.url) {
             addressTitleUrl = tab.url
             // 真正导航加载时旧标题会残留；同文档 history.pushState 则保留当前标题。
-            tab.title = if (tab.loading) "" else tab.webView.title.orEmpty()
+            tab.title = if (tab.loading) "" else tab.currentPageTitle()
         }
     }
 
@@ -470,7 +470,7 @@ fun BrowserScreen(
     LaunchedEffect(tab.id, tab.url) {
         val onHome = tab.url.isEmpty()
         if (!onHome) webViewHidden = false
-        tab.webView.apply {
+        tab.contentView.apply {
             alpha = if (onHome) 0f else 1f
             visibility = if (onHome) {
                 android.view.View.INVISIBLE
@@ -776,7 +776,7 @@ fun BrowserScreen(
         tab.searchTemplate = settings.searchTemplate
         tab.onPullRefresh = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            tab.webView.reload()
+            tab.refresh()
         }
         tab.onUserScriptLink = { url -> pendingScript = url }
         tab.onDownload = { url, ua, disposition, mime ->
@@ -827,8 +827,7 @@ fun BrowserScreen(
         var scrollUpAccum = 0f
         while (true) {
             runCatching {
-                val webView = tab.webView
-                val offset = webView.scrollY.coerceAtLeast(0)
+                val offset = tab.scrollOffsetY.coerceAtLeast(0)
                 val dy = offset - last
                 when {
                     offset <= 12 -> {
@@ -999,8 +998,8 @@ fun BrowserScreen(
                     AndroidView(
                         factory = { _ ->
                             // AndroidView.factory 接收的是 Context，而不是 View。
-                            // 这里返回已经由 BrowserTab 持有的 WebView 实例。
-                            tab.webView.apply {
+                            // 这里返回已经由 BrowserTab 持有的内容视图（WebView 或 GeckoView）。
+                            tab.contentView.apply {
                                 layoutParams = android.view.ViewGroup.LayoutParams(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1035,27 +1034,7 @@ fun BrowserScreen(
                             .onSizeChanged { size ->
                                 // Compose 的尺寸才是当前沉浸式内容区域的真实可用尺寸。
                                 // 尺寸有效后让 WebView 重新布局，再通知页面重新计算响应式布局。
-                                if (size.width > 0 && size.height > 0) {
-                                    tab.webView.post {
-                                        if (tab.webView.isAttachedToWindow) {
-                                            tab.webView.requestLayout()
-                                            tab.webView.invalidate()
-                                            tab.webView.evaluateJavascript(
-                                                """
-                                                (function() {
-                                                    try {
-                                                        window.dispatchEvent(new Event('resize'));
-                                                        if (window.visualViewport) {
-                                                            window.visualViewport.dispatchEvent(new Event('resize'));
-                                                        }
-                                                    } catch (_) {}
-                                                })();
-                                                """.trimIndent(),
-                                                null
-                                            )
-                                        }
-                                    }
-                                }
+                                if (size.width > 0 && size.height > 0) tab.onViewportChanged()
                             },
                     )
                 }
@@ -1785,11 +1764,11 @@ fun BrowserScreen(
                             // 选择器不安全 / 站点名不合法时规则没有保存，不能让人以为下次会自动隐藏
                             android.widget.Toast.makeText(context, "这个元素无法生成规则，本次仅移除", android.widget.Toast.LENGTH_SHORT).show()
                         }
-                        tab.webView.evaluateJavascript(removeElementJs(hit.selector), null)
+                        tab.evaluateJs(removeElementJs(hit.selector))
                     }
                     SheetRow(title = "仅移除该元素") {
                         sheet = Sheet.None
-                        tab.webView.evaluateJavascript(removeElementJs(hit.selector), null)
+                        tab.evaluateJs(removeElementJs(hit.selector))
                     }
                 }
             }
@@ -2031,7 +2010,7 @@ fun BrowserScreen(
                 runningScripts = emptyList()
                 scriptMenuItems = emptyList()
                 // 已注入的脚本无法撤销，刷新页面使开关生效（直接 reload：页面正在加载时 tab.reload() 只会停止加载）
-                runCatching { tab.webView.reload() }
+                runCatching { tab.refresh() }
             },
             onRunCommand = { cmd ->
                 scriptSheetShow = false
