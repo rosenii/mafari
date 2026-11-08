@@ -38,7 +38,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            ${{ env.ANDROID_HOME }}/platforms/android-37.0
+            ${{ env.ANDROID_HOME }}/platforms/android-37.2
             ${{ env.ANDROID_HOME }}/build-tools/36.0.0
             ${{ env.ANDROID_HOME }}/platform-tools
           key: android-sdk-${{ runner.os }}-37.0-36.0.0
@@ -46,7 +46,7 @@ jobs:
       - name: Install Android SDK packages
         run: |
           set -x
-          if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ -d "$ANDROID_HOME/build-tools/36.0.0" ]; then
+          if [ -d "$ANDROID_HOME/platforms/android-37.2" ] && [ -d "$ANDROID_HOME/build-tools/36.0.0" ]; then
             echo "Android SDK packages cached, skip install"
             ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
             exit 0
@@ -54,7 +54,7 @@ jobs:
           SDKMANAGER=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
           echo "sdkmanager=$SDKMANAGER ANDROID_HOME=$ANDROID_HOME"
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          yes | "$SDKMANAGER" "platform-tools" "platforms;android-37.0" "build-tools;36.0.0" 2>&1 | tail -5 || true
+          yes | "$SDKMANAGER" "platform-tools" "platforms;android-37.2" "build-tools;36.0.0" 2>&1 | tail -5 || true
           ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
       - name: Prepare keystore
