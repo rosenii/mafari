@@ -93,6 +93,8 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
+    /** 当前标签是 Gecko 内核：依赖 WebView 专有 API 的功能置灰，点击只弹 toast（见 docs/GECKO.md 适配矩阵） */
+    geckoActive: Boolean = false,
 ) {
     val context = LocalContext.current
     var showUa by remember { mutableStateOf(false) }
@@ -319,7 +321,7 @@ fun SettingsScreen(
                         backdrop = if (glass) backdrop else null,
                         title = "浏览器内核",
                         summary = if (settings.browserEngine == ENGINE_GECKO) {
-                            "Gecko：新建标签页生效，已打开的标签保持原内核 · 部分网页增强功能暂不可用"
+                            "Gecko：新建标签页生效，已打开的标签保持原内核 · Gecko 标签下不支持的功能会置灰，菜单里出现「拓展」"
                         } else {
                             "系统 WebView：新建标签页生效，已打开的标签保持原内核"
                         },
@@ -338,30 +340,36 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    AppSwitchPreference(
-                        title = "网页增强",
-                        summary = "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告",
-                        checked = settings.pageEnhancements,
-                        onCheckedChange = {
-                            settings.updatePageEnhancements(it)
-                            onPageEnhancementsChange(it)
-                            AdBlock.updateEnabled(it)
-                        },
-                    )
-                    SettingsRow(
-                        title = "去广告",
-                        summary = if (AdBlock.enabled) {
-                            "已开启 · " + AdBlock.subs.count { it.enabled } + " 个订阅 · 订阅源导入、自定义规则"
-                        } else {
-                            "已关闭"
-                        },
-                        onClick = onOpenAdBlock,
-                    )
-                    SettingsRow(
-                        title = "脚本管理",
-                        summary = "用户脚本 / 油猴脚本",
-                        onClick = onOpenScripts,
-                    )
+                    GeckoGate(geckoActive, "，可在「拓展」安装 Tampermonkey、uBlock Origin 替代") {
+                        AppSwitchPreference(
+                            title = "网页增强",
+                            summary = "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告",
+                            checked = settings.pageEnhancements,
+                            onCheckedChange = {
+                                settings.updatePageEnhancements(it)
+                                onPageEnhancementsChange(it)
+                                AdBlock.updateEnabled(it)
+                            },
+                        )
+                    }
+                    GeckoGate(geckoActive, "，可安装 uBlock Origin 拓展替代") {
+                        SettingsRow(
+                            title = "去广告",
+                            summary = if (AdBlock.enabled) {
+                                "已开启 · " + AdBlock.subs.count { it.enabled } + " 个订阅 · 订阅源导入、自定义规则"
+                            } else {
+                                "已关闭"
+                            },
+                            onClick = onOpenAdBlock,
+                        )
+                    }
+                    GeckoGate(geckoActive, "，可安装 Tampermonkey / Violentmonkey 拓展替代") {
+                        SettingsRow(
+                            title = "脚本管理",
+                            summary = "用户脚本 / 油猴脚本",
+                            onClick = onOpenScripts,
+                        )
+                    }
                     SettingsRow(
                         title = "代理",
                         summary = if (settings.proxyEnabled && settings.proxyHost.isNotBlank()) {
@@ -562,7 +570,7 @@ fun SettingsScreen(
                     }
                     if (proxyAuth && proxyType == 1) {
                         Text(
-                            text = "SOCKS5 认证由应用内本机中转（127.0.0.1 随机端口）完成，WebView 自身不支持 SOCKS5 认证。",
+                            text = "SOCKS5 认证由应用内本机中转（127.0.0.1 随机端口）完成，WebView 和 Gecko 自身都不支持 SOCKS5 认证。",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(top = 4.dp),

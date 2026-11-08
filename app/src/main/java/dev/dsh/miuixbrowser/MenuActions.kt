@@ -40,6 +40,24 @@ enum class MenuAction(val id: String, val label: String, val icon: ImageVector) 
     ScriptMenu("script_menu", "脚本菜单", MiuixIcons.Glass.File),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
+
+    /** 只在 Gecko 标签下出现（见 [geckoOnly]）；放在最后，旧用户保存的顺序里没有它时会自动补在末尾 */
+    GeckoExtensions("gecko_extensions", "拓展", AppIcons.Puzzle),
+    ;
+
+    /** 仅 Gecko 内核可用：WebView 标签下整个入口隐藏，切到 Gecko 标签时出现 */
+    val geckoOnly: Boolean get() = this == GeckoExtensions
+
+    /**
+     * Gecko 下不支持的功能：返回 toast 里的替代方案提示（以逗号开头，可为空串）；null = Gecko 下可用。
+     * 置灰与否由这里统一决定，对照 docs/GECKO.md 的适配矩阵。
+     */
+    val geckoUnsupportedHint: String?
+        get() = when (this) {
+            Extensions -> "，可在「拓展」安装 Tampermonkey / Violentmonkey 替代"
+            ScriptMenu -> "，请使用拓展自带的菜单"
+            else -> null
+        }
 }
 
 /** 更多面板的图标顺序与隐藏项，可拖动排序 / 拖到下方隐藏并持久化 */
@@ -62,13 +80,23 @@ class MenuOrderStore(context: Context) {
         MenuAction.entries.forEach { if (it !in order && it !in hidden) order.add(it) }
     }
 
-    /** 把 [action] 放到显示区 / 隐藏区的第 [toIndex] 位；「设置」不允许隐藏，避免找不到入口 */
-    fun place(action: MenuAction, toHidden: Boolean, toIndex: Int) {
+    /**
+     * 把 [action] 放到显示区 / 隐藏区的第 [toIndex] 位；「设置」不允许隐藏，避免找不到入口。
+     * [toIndex] 是界面上看到的序号：[skipped]（当前内核下不显示的入口，如 WebView 下的「拓展」）不计入，
+     * 这里换算回含隐藏入口的真实下标。
+     */
+    fun place(action: MenuAction, toHidden: Boolean, toIndex: Int, skipped: Set<MenuAction> = emptySet()) {
         if (toHidden && action == MenuAction.Settings) return
         val target = if (toHidden) hidden else order
         order.remove(action)
         hidden.remove(action)
-        target.add(toIndex.coerceIn(0, target.size), action)
+        var real = 0
+        var seen = 0
+        while (real < target.size && seen < toIndex) {
+            if (target[real] !in skipped) seen++
+            real++
+        }
+        target.add(real, action)
         persist()
     }
 

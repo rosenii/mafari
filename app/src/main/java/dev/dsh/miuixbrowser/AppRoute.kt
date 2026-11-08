@@ -16,6 +16,9 @@ sealed interface AppRoute : NavKey {
     data object Downloads : AppRoute
     data object Extensions : AppRoute
 
+    /** Gecko 专属「拓展」页（WebExtension：搜索 / 导入 / 更新 / 管理） */
+    data object GeckoExtensions : AppRoute
+
     /** 设置 → 高级 → 去广告 */
     data object AdBlockPage : AppRoute
 

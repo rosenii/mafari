@@ -4,6 +4,10 @@
 
 ## [1.8.19-dev]
 
+- 新增：Gecko「拓展」（WebExtension）。当前标签是 Gecko 时，菜单里出现「拓展」入口（带淡入），切到 WebView 标签后整格收起；拓展页沿用其它页面样式，右上角「搜索 / 更多」。搜索走 Firefox 附加组件商店（AMO），结果显示在页面最上方；「更多」里有「导入」（底部 sheet：从链接 / 从文件 .xpi）和「全部更新」；顶部「定期检查更新」（手动 / 每天 / 每 3 天 / 每周）；已安装拓展可启用 / 停用、检查更新、移除，点卡片进详情（权限、无痕运行、拓展设置页、主页）。安装与更新新增权限时弹确认。新文件 `GeckoExtensions.kt`（封装）、`GeckoExtensionsScreen.kt`（页面）
+- 新增：Gecko 标签下不支持的功能置灰且不可点，点击 toast「该功能在 Gecko 下不支持」并给出替代方案：菜单「脚本」「脚本菜单」，设置里「网页增强」「去广告」「脚本管理」，长按链接 / 图片的「标记为广告」。统一用 `GeckoGate` 与 `MenuAction.geckoUnsupportedHint`
+- 新增：Gecko 端处理「指纹保护」「发送禁止跟踪请求」「禁用 WebRTC」「代理」，与 WebView 共用同一套开关和界面，不置灰。指纹保护映射到 Gecko Fingerprinting Protection（按 Canvas / WebGL / Audio / Fonts 四个开关选目标）；DNT + GPC；`media.peerconnection.enabled`；代理走 `network.proxy.*`，HTTP 认证走 PromptDelegate，SOCKS5 认证复用本机中转。新文件 `GeckoPrivacy.kt`
+- 调整：`MenuOrderStore.place` 新增 `skipped` 参数，拖动排序时不把当前内核下隐藏的入口算进序号
 - 调整：liquid glass 下弹窗 / sheet 底部按钮去掉按压放大、拖拽形变与跟指高光（只保留按下变淡）；拖拽形变改用于对话框、sheet、弹出菜单和下拉菜单的大面板（面板无跟指高光）。`GlassDragDeform` 改为公开，下拉菜单在自定义 surface 时开启形变
 - 修复：弹窗 / sheet 内容在 popup host 里组合，读不到 `LocalLiquidBackdrop`，导致「首页内容显示」sheet 里的下拉菜单与弹窗内按钮退回 miuix；门面现在把两个 local 重新注入内容
 - 调整：liquid glass + 壁纸模糊时，首页卡片的取样层改为模糊后的壁纸（真实下层背景），不再取未模糊原图

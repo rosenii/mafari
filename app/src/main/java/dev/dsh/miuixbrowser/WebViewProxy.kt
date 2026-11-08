@@ -49,7 +49,7 @@ object WebViewProxy {
         authEnabled && host.isNotEmpty() && challengeHost.equals(host, ignoreCase = true)
 
     /** 去掉用户误填的协议头 / 路径 / 账号 / 「:端口」/ IPv6 方括号 */
-    private fun normalizeHost(raw: String): String {
+    internal fun normalizeHost(raw: String): String {
         var s = raw.trim().substringAfter("://").substringBefore('/').substringAfterLast('@').trim()
         if (s.startsWith("[")) {
             val e = s.indexOf(']')

@@ -46,6 +46,8 @@ object GeckoRuntimeHolder {
                 .build()
             val created = GeckoRuntime.create(context.applicationContext, settings)
             runtime = created
+            // 隐私 / 代理设置（禁止跟踪、WebRTC、指纹保护、代理）：第一个页面加载前就位
+            runCatching { GeckoPrivacy.apply(created, AppSettings(context.applicationContext)) }
             return created
         }
     }
@@ -196,6 +198,8 @@ class GeckoTabEngine(
     // ---------------------------------------------------------------- 回调翻译
 
     private fun installDelegates() {
+        // 目前只接管「代理认证」提示；其它弹层仍按原来的方式忽略（见 docs/GECKO.md「下一步」）
+        session.promptDelegate = GeckoPrivacy.authDelegate
         session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStart(session: GeckoSession, url: String) {
                 tab.geckoPageStart(url)

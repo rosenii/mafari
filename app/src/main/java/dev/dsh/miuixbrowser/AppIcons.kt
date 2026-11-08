@@ -49,6 +49,14 @@ object AppIcons {
         )
     }
 
+    /** 拓展：拼图块（上、右两个凸起，左、下两个凹口）。 */
+    val Puzzle: ImageVector by lazy {
+        stroked(
+            "Puzzle",
+            "M6.5,6H10a2,2 0 1 1 4,0H17.5A1.5,1.5 0 0 1 19,7.5V10a2,2 0 1 1 0,4V17.5A1.5,1.5 0 0 1 17.5,19H14a2,2 0 1 0 -4,0H6.5A1.5,1.5 0 0 1 5,17.5V14a2,2 0 1 0 0,-4V7.5A1.5,1.5 0 0 1 6.5,6Z",
+        )
+    }
+
     /** 添加到桌面：圆角方框 + 加号（[+]）。 */
     val AddToDesktop: ImageVector by lazy {
         stroked(

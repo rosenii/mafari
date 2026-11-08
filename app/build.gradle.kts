@@ -51,8 +51,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 1001
-        versionName = "v99.1.0"
+        versionCode = 1002
+        versionName = "v99.1.2"
         buildConfigField("String", "DEP_VERSIONS", "\"$dependencyVersions\"")
         // GeckoView nightly 只发布 arm64-v8a 单架构包；其余 ABI 的设备仍可用 WebView 内核
         ndk { abiFilters += "arm64-v8a" }
