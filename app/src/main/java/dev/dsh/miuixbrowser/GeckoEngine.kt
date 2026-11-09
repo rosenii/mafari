@@ -119,11 +119,9 @@ class GeckoTabEngine(
         session.open(runtime)
         // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate
         GeckoExtensionStore.registerSession(session)
-        // SurfaceView 后端（GeckoView 默认）：独立硬件图层直接上屏，滑动跟手、帧率正常，
-        // 且系统不会在闲置时回收缓冲（TextureView 后端会：多一次 GPU 拷贝导致掉帧，
-        // 一段时间不触摸后合成面被回收，整页变黑）。网页状态下本来就不采集 WebView 做毛玻璃，
-        // 所以不再需要 TextureView；底栏等 Compose 叠加层画在窗口层，仍然显示在网页上方。
-        view.setViewBackend(GeckoView.BACKEND_SURFACE_VIEW)
+        // 使用 GeckoView 默认渲染后端（SurfaceView）。不要在 session.open() 后调用
+        // setViewBackend()：该方法会销毁并重建内部渲染 View，可能造成 Surface 生命周期错位。
+        // 网页区域不需要被毛玻璃采样，因此无需 TextureView。
         view.setSession(session)
         installTouchListener()
     }

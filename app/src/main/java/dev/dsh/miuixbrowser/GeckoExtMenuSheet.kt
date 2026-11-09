@@ -115,7 +115,7 @@ fun GeckoExtMenuSheet(
             AndroidView(
                 factory = { ctx ->
                     GeckoView(ctx).apply {
-                        setViewBackend(GeckoView.BACKEND_SURFACE_VIEW)
+                        // 使用 GeckoView 默认 SurfaceView 后端；避免 setViewBackend() 重建内部 View。
                         setSession(popup.session)
                     }
                 },
