@@ -98,10 +98,21 @@ object GeckoExtensionStore {
             description = meta?.description.orEmpty(),
             enabled = meta?.enabled ?: true,
             optionsUrl = meta?.optionsPageUrl?.takeIf { it.isNotBlank() },
-            permissions = meta?.permissions?.toList().orEmpty(),
-            origins = meta?.origins?.toList().orEmpty(),
+            permissions = metaStrings(meta, "requiredPermissions", "permissions"),
+            origins = metaStrings(meta, "requiredOrigins", "origins"),
             ext = ext,
         )
+    }
+
+    /** MetaData 的权限字段在不同 GeckoView 版本里叫法不同（permissions / requiredPermissions…），按名字反射读取 */
+    private fun metaStrings(meta: Any?, vararg names: String): List<String> {
+        if (meta == null) return emptyList()
+        for (n in names) {
+            val value = runCatching { meta.javaClass.getField(n).get(meta) }.getOrNull()
+            if (value is Array<*>) return value.filterIsInstance<String>()
+            if (value is Collection<*>) return value.filterIsInstance<String>()
+        }
+        return emptyList()
     }
 
     private fun loadIcon(item: GeckoExtItem) {
