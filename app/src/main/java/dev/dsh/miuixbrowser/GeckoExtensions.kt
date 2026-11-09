@@ -425,15 +425,36 @@ object GeckoExtensionStore {
     private fun attachSessionDelegate(session: org.mozilla.geckoview.GeckoSession, ext: WebExtension) {
         val proxy = actionProxy ?: return
         runCatching {
-            val m = session.javaClass.methods.firstOrNull {
-                it.name == "setWebExtensionActionDelegate" && it.parameterTypes.size == 2 &&
-                    it.parameterTypes[0] == WebExtension::class.java && it.parameterTypes[1].isInstance(proxy)
-            } ?: run {
-                Diag.log("ext: GeckoSession.setWebExtensionActionDelegate not found")
-                return
+            // 新版 GeckoView：session.webExtensionController.setActionDelegate(ext, delegate)；
+            // 旧版：session.setWebExtensionActionDelegate(ext, delegate)
+            val ctrl = session.javaClass.methods
+                .firstOrNull { it.name == "getWebExtensionController" && it.parameterTypes.isEmpty() }
+                ?.invoke(session)
+            val target: Any
+            val m: Method
+            if (ctrl != null) {
+                target = ctrl
+                m = ctrl.javaClass.methods.firstOrNull {
+                    it.name == "setActionDelegate" && it.parameterTypes.size == 2 &&
+                        it.parameterTypes[0].isInstance(ext) && it.parameterTypes[1].isInstance(proxy)
+                } ?: run {
+                    Diag.log("ext: session controller has no setActionDelegate: " +
+                        ctrl.javaClass.methods.filter { it.name.contains("Delegate") }.joinToString { it.name })
+                    return
+                }
+            } else {
+                target = session
+                m = session.javaClass.methods.firstOrNull {
+                    it.name == "setWebExtensionActionDelegate" && it.parameterTypes.size == 2 &&
+                        it.parameterTypes[0].isInstance(ext) && it.parameterTypes[1].isInstance(proxy)
+                } ?: run {
+                    Diag.log("ext: no session-level action delegate API found")
+                    return
+                }
             }
-            m.invoke(session, ext, proxy)
-        }.onFailure { Diag.log("ext: session setWebExtensionActionDelegate failed: $it") }
+            m.invoke(target, ext, proxy)
+            Diag.log("ext: session action delegate attached for ${ext.id}")
+        }.onFailure { Diag.log("ext: session action delegate failed: $it") }
     }
 
     private fun attachToAllSessions(ext: WebExtension) {
