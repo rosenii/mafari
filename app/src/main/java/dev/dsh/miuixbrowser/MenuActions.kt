@@ -15,7 +15,6 @@ import top.yukonga.miuix.kmp.icon.glass.Link
 import top.yukonga.miuix.kmp.icon.glass.Hide
 import top.yukonga.miuix.kmp.icon.glass.GridView
 import top.yukonga.miuix.kmp.icon.glass.Favorites
-import top.yukonga.miuix.kmp.icon.glass.File
 import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.glass.Copy
 import top.yukonga.miuix.kmp.icon.glass.Close
@@ -42,9 +41,8 @@ enum class MenuAction(
     Settings("settings", "设置", MiuixIcons.Glass.Settings),
     Home("home", "主页", MiuixIcons.Home),
     Downloads("downloads", "下载", MiuixIcons.Glass.Download),
-    Extensions("extensions", "脚本", AppIcons.Script),
     GeckoExtensions("gecko_extensions", "拓展", AppIcons.Puzzle, geckoOnly = true),
-    ScriptMenu("script_menu", "脚本菜单", MiuixIcons.Glass.File),
+    ScriptMenu("script_menu", "脚本", AppIcons.Script),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
 }
@@ -84,7 +82,7 @@ class MenuOrderStore(context: Context) {
                 if (prefs.getString(KEY_HIDDEN, null)?.split(",")?.contains(action.id) == true) {
                     hidden.add(action)
                 } else {
-                    val after = order.indexOf(MenuAction.Extensions)
+                    val after = order.indexOf(MenuAction.ScriptMenu)
                     order.add(if (after >= 0) after + 1 else order.size, action)
                 }
             }

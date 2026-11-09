@@ -118,6 +118,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.drag
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -1444,6 +1449,8 @@ fun BrowserScreen(
         if (sheet == Sheet.Menu) {
             scriptRunCount = 0
             state.activeTab.queryRunningScripts { scriptRunCount = it }
+            // 「拓展」角标：刷新已启用的拓展数
+            if (settings.geckoMode) runCatching { GeckoExtensionStore.refresh(context) }
         }
     }
 
@@ -1645,13 +1652,15 @@ fun BrowserScreen(
                             MenuAction.Downloads ->
                                 Downloader.tasks.count { it.state == DownloadState.RUNNING }
                             MenuAction.ScriptMenu -> scriptRunCount
+                            MenuAction.GeckoExtensions -> GeckoExtensionStore.items.count {
+                                it.enabled && (!tab.incognito || it.allowedInPrivate)
+                            }
                             else -> 0
                         }
                     },
                     // Gecko 下不支持的功能置灰：脚本管理走全局设置（跟随「浏览器内核」），脚本菜单看当前标签
                     lockedFor = { action ->
                         when (action) {
-                            MenuAction.Extensions -> settings.geckoMode
                             MenuAction.ScriptMenu -> tab.isGecko || settings.geckoMode
                             else -> false
                         }
@@ -1699,7 +1708,6 @@ fun BrowserScreen(
                             MenuAction.AddToDesktop -> ShortcutHelper.addToDesktop(context, scope, tab)
                             MenuAction.Home -> tab.goHome()
                             MenuAction.Downloads -> pushPage(AppRoute.Downloads)
-                            MenuAction.Extensions -> pushPage(AppRoute.Extensions)
                             // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
                             MenuAction.GeckoExtensions -> geckoExtSheetShow = true
                             MenuAction.ScriptMenu -> {
@@ -1712,10 +1720,27 @@ fun BrowserScreen(
                         }
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
+                    // 长按 1 秒（图标不动）：直接进入管理页；单击保持原有操作
+                    longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.GeckoExtensions),
                     onLongPressAction = { action ->
-                        if (action == MenuAction.GeckoExtensions) {
-                            sheet = Sheet.None
-                            pushPage(AppRoute.GeckoExtensions)
+                        when (action) {
+                            MenuAction.ScriptMenu ->
+                                // 脚本管理在 Gecko 下不可用（与原「脚本」按钮一致）
+                                if (settings.geckoMode) {
+                                    showGeckoUnsupportedToast(context)
+                                } else {
+                                    sheet = Sheet.None
+                                    pushPage(AppRoute.Extensions)
+                                }
+                            MenuAction.Favorite -> {
+                                sheet = Sheet.None
+                                pushPage(AppRoute.Library(0))
+                            }
+                            MenuAction.GeckoExtensions -> {
+                                sheet = Sheet.None
+                                pushPage(AppRoute.GeckoExtensions)
+                            }
+                            else -> Unit
                         }
                     },
                     incognitoActive = tab.incognito,
@@ -3658,6 +3683,9 @@ private fun FavoriteGrid(
     var dragPos by remember { mutableStateOf(Offset.Zero) }
     val countNow by rememberUpdatedState(count)
     val onMoveNow by rememberUpdatedState(onMove)
+    val editingNow by rememberUpdatedState(editing)
+    val onToggleEditNow by rememberUpdatedState(onToggleEdit)
+    val haptic = LocalHapticFeedback.current
 
     BoxWithConstraints(
         modifier = Modifier
@@ -3669,6 +3697,7 @@ private fun FavoriteGrid(
         favorites.forEachIndexed { index, favorite ->
             key(favorite) {
                 val indexNow by rememberUpdatedState(index)
+                val tapNow by rememberUpdatedState(guard { if (editingNow) onEdit(indexNow) else onOpen(favorite.url) })
                 val slot = liveOrder?.indexOf(index) ?: index
                 val target = IntOffset(
                     ((slot % 3) * (cellWPx + gapPx)).roundToInt(),
@@ -3693,17 +3722,30 @@ private fun FavoriteGrid(
                             scaleY = sc
                         }
                         .pointerInput(Unit) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = {
-                                    val i = indexNow
-                                    dragIndex = i
-                                    liveOrder = List(countNow) { it }
-                                    dragPos = Offset((i % 3) * (cellWPx + gapPx), (i / 3) * (tileHPx + gapPx))
-                                },
-                                onDrag = { change, amount ->
+                            // 点击 / 长按 / 拖动合在同一个手势里：不再与 clickable 的长按抢事件
+                            //（clickable 长按后会 consumeUntilUp，把后续移动吞掉，导致拖不动）
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                                val finishedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                    up = waitForUpOrCancellation()
+                                    true
+                                }
+                                if (finishedEarly != null) {
+                                    up?.let { it.consume(); tapNow() }
+                                    return@awaitEachGesture
+                                }
+                                // 长按：进入编辑态并开始拖动
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (!editingNow) onToggleEditNow()
+                                val i = indexNow
+                                dragIndex = i
+                                liveOrder = List(countNow) { it }
+                                dragPos = Offset((i % 3) * (cellWPx + gapPx), (i / 3) * (tileHPx + gapPx))
+                                val completed = drag(down.id) { change ->
                                     change.consume()
-                                    dragPos += amount
-                                    val order = liveOrder ?: return@detectDragGesturesAfterLongPress
+                                    dragPos += change.positionChange()
+                                    val order = liveOrder ?: return@drag
                                     val centerX = dragPos.x + cellWPx / 2f
                                     val centerY = dragPos.y + tileHPx / 2f
                                     val lastRow = (countNow - 1) / 3
@@ -3714,26 +3756,14 @@ private fun FavoriteGrid(
                                     if (from >= 0 && to != from) {
                                         liveOrder = order.toMutableList().also { it.removeAt(from); it.add(to, dragIndex) }
                                     }
-                                },
-                                onDragEnd = {
-                                    val from = dragIndex
-                                    val to = liveOrder?.indexOf(from) ?: -1
-                                    dragIndex = -1
-                                    liveOrder = null
-                                    if (from >= 0 && to >= 0 && to != from) onMoveNow(from, to)
-                                },
-                                onDragCancel = {
-                                    dragIndex = -1
-                                    liveOrder = null
-                                },
-                            )
+                                }
+                                val from = dragIndex
+                                val to = liveOrder?.indexOf(from) ?: -1
+                                dragIndex = -1
+                                liveOrder = null
+                                if (completed && from >= 0 && to >= 0 && to != from) onMoveNow(from, to)
+                            }
                         },
-                    onClick = guard {
-                        if (editing) onEdit(indexNow) else onOpen(favorite.url)
-                    },
-                    onLongPress = {
-                        if (!editing) onToggleEdit()
-                    },
                     onRemove = { onRemove(indexNow) },
                 )
             }
@@ -3750,24 +3780,12 @@ private fun FavoriteTile(
     blurEnabled: Boolean,
     editing: Boolean,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-    onLongPress: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val haptic = LocalHapticFeedback.current
     Box(
         modifier = modifier
             .height(58.dp)
-            .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-                onLongClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongPress()
-                },
-            ),
+            .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop),
         contentAlignment = Alignment.Center,
     ) {
         Row(
@@ -4036,6 +4054,7 @@ private fun MenuGrid(
     onAction: (MenuAction) -> Unit,
     onMove: (MenuAction, Boolean, Int) -> Unit,
     onLongPressAction: (MenuAction) -> Unit = {},
+    longPressActions: Set<MenuAction> = emptySet(),
     incognitoActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
     lockedFor: (MenuAction) -> Boolean = { false },
@@ -4047,6 +4066,10 @@ private fun MenuGrid(
     val dividerHeight = 30.dp
     val columns = 4
     val purple = Color(0xFF9C27B0)
+    val gridScope = rememberCoroutineScope()
+    // 长按计时：按下满 1 秒且手指没动（没进入拖动排序）才触发长按功能
+    var holdJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val longPressNow by rememberUpdatedState(onLongPressAction)
 
     var editing by remember { mutableStateOf(false) }
     var dragAction by remember { mutableStateOf<MenuAction?>(null) }
@@ -4112,7 +4135,18 @@ private fun MenuGrid(
                                 }
                             },
                             onDragStart = {
-                                // 长按不进编辑；等 onDrag 出现真实位移再展开隐藏区
+                                // 长按不进编辑；等 onDrag 出现真实位移再展开隐藏区。
+                                // 系统长按约 0.4s 后进入这里，再等 0.6s 凑够 1s
+                                holdJob?.cancel()
+                                if (action in longPressActions && !editing) {
+                                    holdJob = gridScope.launch {
+                                        kotlinx.coroutines.delay(600)
+                                        if (dragAction == null && !editing && pendingDrag.getDistance() < enterEditThresholdPx) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            longPressNow(action)
+                                        }
+                                    }
+                                }
                             },
                             onDrag = { delta ->
                                 if (delta.x != 0f || delta.y != 0f) {
@@ -4134,19 +4168,17 @@ private fun MenuGrid(
                                 }
                             },
                             onDragEnd = {
+                                holdJob?.cancel()
                                 if (editing && dragAction == action) {
                                     finishDrag(action, inHidden, row, col)
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                } else if (dragAction == null && !editing && pendingDrag.getDistance() < enterEditThresholdPx) {
-                                    // 长按后没有真正拖动：当作「长按」触发该项的长按功能
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onLongPressAction(action)
                                 }
                                 dragAction = null
                                 dragOffset = Offset.Zero
                                 pendingDrag = Offset.Zero
                             },
                             onDragCancel = {
+                                holdJob?.cancel()
                                 dragAction = null
                                 dragOffset = Offset.Zero
                                 pendingDrag = Offset.Zero
@@ -4268,7 +4300,7 @@ private fun MenuCell(
                     imageVector = action.icon,
                     contentDescription = label,
                     tint = tint,
-                    modifier = Modifier.size(if (action == MenuAction.Extensions) 31.dp else 26.dp),
+                    modifier = Modifier.size(if (action == MenuAction.ScriptMenu) 31.dp else 26.dp),
                 )
                 if (badge > 0) {
                     CountBadge(
