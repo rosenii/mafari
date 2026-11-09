@@ -6,6 +6,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.TextureView
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.ContentBlocking
 import org.mozilla.geckoview.GeckoResult
@@ -109,6 +114,7 @@ class GeckoTabEngine(
     private var lastDirectLoadAt = 0L
 
     init {
+        GeckoViewLifecycle.register(this)
         installDelegates()
         session.open(runtime)
         // TextureView 后端：支持 alpha / 位移，且能被毛玻璃背景采样；SurfaceView 会在叠加层下面「穿洞」
@@ -134,8 +140,128 @@ class GeckoTabEngine(
 
     fun currentUrl(): String = lastUrl
 
+    @Volatile
+    private var sessionActive = true
+
     fun setActive(active: Boolean) {
+        sessionActive = active
         runCatching { session.setActive(active) }
+    }
+
+    // ---------------------------------------------------------------- 前后台切换：防止切回应用时网页黑屏
+    //
+    // GeckoView 用 TextureView 后端（为了能被毛玻璃采样）。应用退到后台后，TextureView 的缓冲会被系统回收，
+    // 切回来时 Gecko 要重新建合成面再画一帧，这几秒里显示的是黑底。
+    // 做法：退到后台前把当前画面抓成一张小图 → 完全停止（onStop）后盖在 GeckoView 上 →
+    // 切回来后轻推一下 Gecko 重绘，等 TextureView 里重新有内容了（或超时）再撤掉这张图。
+
+    private var frozenBitmap: Bitmap? = null
+    private var freezeOverlay: ImageView? = null
+    private var freezeRemoval: Runnable? = null
+
+    private fun findTextureView(v: View): TextureView? {
+        if (v is TextureView) return v
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) findTextureView(v.getChildAt(i))?.let { return it }
+        }
+        return null
+    }
+
+    /** Activity.onPause：画面还在，趁现在抓一张（半分辨率，省内存） */
+    fun captureFrameForBackground() {
+        runCatching {
+            clearFreeze()
+            if (!view.isAttachedToWindow || view.visibility != View.VISIBLE || view.width <= 0 || view.height <= 0) return
+            val tv = findTextureView(view) ?: return
+            if (!tv.isAvailable) return
+            frozenBitmap = tv.getBitmap((view.width / 2).coerceAtLeast(1), (view.height / 2).coerceAtLeast(1))
+        }
+    }
+
+    /** Activity.onStop：真的看不见了才盖图（分屏 / 画中画仅失焦时不会走到这里，不影响实时画面） */
+    fun showFrozenFrame() {
+        val bmp = frozenBitmap ?: return
+        if (freezeOverlay != null) return
+        runCatching {
+            val iv = ImageView(context).apply {
+                setImageBitmap(bmp)
+                scaleType = ImageView.ScaleType.FIT_XY
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+            }
+            view.addView(iv)
+            freezeOverlay = iv
+        }
+    }
+
+    /** Activity.onResume：切回前台 */
+    fun onAppForeground() {
+        if (freezeOverlay == null) {
+            // 只是失焦又回来（没经过 onStop）：不需要盖图，丢掉抓到的图
+            frozenBitmap?.let { runCatching { it.recycle() } }
+            frozenBitmap = null
+            return
+        }
+        // 轻推一下：恢复渲染 / 焦点，并让 TextureView 重新布局重绘
+        if (sessionActive) {
+            runCatching { session.setActive(true) }
+            runCatching { session.setFocused(true) }
+        }
+        view.requestLayout()
+        view.invalidate()
+        scheduleFreezeRemoval()
+    }
+
+    private fun scheduleFreezeRemoval() {
+        freezeRemoval?.let { view.removeCallbacks(it) }
+        val start = SystemClock.uptimeMillis()
+        val tick = object : Runnable {
+            override fun run() {
+                if (freezeOverlay == null) return
+                val elapsed = SystemClock.uptimeMillis() - start
+                // 至少盖 250ms 避免一闪；最多盖 5 秒，防止纯黑网页永远撤不掉
+                if ((elapsed >= 250 && textureLooksPainted()) || elapsed >= 5000) {
+                    clearFreeze()
+                } else {
+                    view.postDelayed(this, 100)
+                }
+            }
+        }
+        freezeRemoval = tick
+        view.postDelayed(tick, 100)
+    }
+
+    /** TextureView 里重新有非黑内容 = Gecko 已经把页面画回来了 */
+    private fun textureLooksPainted(): Boolean {
+        val tv = findTextureView(view) ?: return true
+        if (!tv.isAvailable) return false
+        val bmp = runCatching { tv.getBitmap(16, 16) }.getOrNull() ?: return false
+        return try {
+            var painted = false
+            loop@ for (y in 0 until bmp.height) {
+                for (x in 0 until bmp.width) {
+                    val p = bmp.getPixel(x, y)
+                    if ((p ushr 24) != 0 && (p and 0xFFFFFF) != 0) {
+                        painted = true
+                        break@loop
+                    }
+                }
+            }
+            painted
+        } finally {
+            runCatching { bmp.recycle() }
+        }
+    }
+
+    private fun clearFreeze() {
+        freezeRemoval?.let { view.removeCallbacks(it) }
+        freezeRemoval = null
+        freezeOverlay?.let { iv -> runCatching { view.removeView(iv) } }
+        freezeOverlay = null
+        frozenBitmap?.let { runCatching { it.recycle() } }
+        frozenBitmap = null
     }
 
     fun exitFullScreen() {
@@ -207,6 +333,8 @@ class GeckoTabEngine(
     }
 
     fun destroy() {
+        GeckoViewLifecycle.unregister(this)
+        clearFreeze()
         runCatching { view.releaseSession() }
         runCatching { session.close() }
     }
@@ -516,4 +644,28 @@ class GeckoTabEngine(
             "resource", "view-source", "moz-extension", "ftp",
         )
     }
+}
+
+/**
+ * 应用前后台切换时通知所有 Gecko 标签（弱引用，标签销毁后自动消失）。由 MainActivity 的 onPause / onStop / onResume 调用。
+ */
+object GeckoViewLifecycle {
+    private val engines: MutableSet<GeckoTabEngine> =
+        java.util.Collections.newSetFromMap(java.util.WeakHashMap<GeckoTabEngine, Boolean>())
+
+    fun register(engine: GeckoTabEngine) {
+        synchronized(engines) { engines.add(engine) }
+    }
+
+    fun unregister(engine: GeckoTabEngine) {
+        synchronized(engines) { engines.remove(engine) }
+    }
+
+    private fun snapshot(): List<GeckoTabEngine> = synchronized(engines) { engines.toList() }
+
+    fun onPause() = snapshot().forEach { it.captureFrameForBackground() }
+
+    fun onStop() = snapshot().forEach { it.showFrozenFrame() }
+
+    fun onResume() = snapshot().forEach { it.onAppForeground() }
 }

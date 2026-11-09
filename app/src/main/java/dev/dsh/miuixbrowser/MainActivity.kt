@@ -84,7 +84,19 @@ class MainActivity : ComponentActivity() {
     }
 
     /** 图标切换推迟到离开应用时再生效，避免正在前台的入口被停用导致界面被系统关掉 */
+    // Gecko 前后台切换：退到后台前抓帧、停止后盖图、切回后撤图，避免切回应用时网页黑几秒
+    override fun onPause() {
+        GeckoViewLifecycle.onPause()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        GeckoViewLifecycle.onResume()
+    }
+
     override fun onStop() {
+        GeckoViewLifecycle.onStop()
         super.onStop()
         val wanted = AppSettings(this).appIcon
         if (AppIconManager.current(this) != wanted) AppIconManager.apply(this, wanted)

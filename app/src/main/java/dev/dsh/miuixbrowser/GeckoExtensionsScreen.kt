@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -126,15 +127,23 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
     }
 
     fun installFrom(key: String, uri: String, label: String) {
-        if (key in installingIds) return
-        installingIds = installingIds + key
-        scope.launch {
-            store.install(context, uri)
-                .onSuccess { toast("已添加 ${it.name}") }
-                .onFailure { if (it.message != "已取消安装") toast(it.message ?: "安装失败") }
-            installingIds = installingIds - key
+        if (key in installingIds) {
+            // 之前这里是静默 return，用户看起来就是「点了没反应」
+            toast("$label 正在安装中，请稍候…")
+            return
         }
+        installingIds = installingIds + key
         toast("正在安装 $label…")
+        scope.launch {
+            try {
+                store.install(context, uri)
+                    .onSuccess { toast("已添加 ${it.name}") }
+                    .onFailure { if (it.message != "已取消安装") toast(it.message ?: "安装失败") }
+            } finally {
+                // 无论成功 / 取消 / 失败 / 协程被取消，都要把「安装中」状态放掉
+                installingIds = installingIds - key
+            }
+        }
     }
 
     fun runSearch() {
@@ -352,7 +361,11 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                     text = "导入",
                     onClick = {
                         showMore = false
-                        showImport = true
+                        // 等菜单的收起动画结束再弹导入 sheet：两个浮层同一帧一收一开，sheet 会被菜单的关闭一并吞掉
+                        scope.launch {
+                            delay(220)
+                            showImport = true
+                        }
                     },
                     icon = MiuixIcons.Glass.Download,
                 )
@@ -454,7 +467,12 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                 },
                 onFile = {
                     showImport = false
-                    filePicker.launch(arrayOf("application/x-xpinstall", "application/zip", "application/octet-stream", "*/*"))
+                    scope.launch {
+                        delay(150)
+                        runCatching {
+                            filePicker.launch(arrayOf("application/x-xpinstall", "application/zip", "application/octet-stream", "*/*"))
+                        }.onFailure { toast("无法打开文件选择器：${it.message}") }
+                    }
                 },
             )
         }

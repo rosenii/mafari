@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.mozilla.geckoview.AllowOrDeny
@@ -20,7 +21,10 @@ import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.WebExtension
 import org.mozilla.geckoview.WebExtensionController
 import java.io.File
+import java.lang.reflect.Method
+import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Proxy
+import java.util.concurrent.atomic.AtomicBoolean
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -69,6 +73,8 @@ object GeckoExtensionStore {
     var activityProvider: (() -> Activity?)? = null
 
     private var delegateInstalled = false
+
+    private const val INSTALL_TIMEOUT_MS = 180_000L
 
     private fun controller(context: Context) = GeckoRuntimeHolder.get(context).webExtensionController
 
@@ -132,7 +138,9 @@ object GeckoExtensionStore {
         ensureDelegate(runtime)
         val controller = runtime.webExtensionController
         val result = invokeInstall(controller, uri)
-        val ext = result.await() ?: error("安装失败")
+        // 兜底超时：提示框被系统回收 / 内核没回调时，界面不会永远停在「安装中」
+        val ext = withTimeoutOrNull(INSTALL_TIMEOUT_MS) { result.await() ?: error("安装失败") }
+            ?: error("安装超时，请重试")
         refresh(context)
         items.firstOrNull { it.id == ext.id } ?: toItem(ext)
     }.recoverCatching { throw IllegalStateException(friendlyError(it)) }
@@ -279,11 +287,11 @@ object GeckoExtensionStore {
                     val iface = setter.parameterTypes[0]
                     val proxy = Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
                         when {
-                            method.name == "hashCode" -> System.identityHashCode(self)
-                            method.name == "equals" -> self === args?.firstOrNull()
-                            method.name == "toString" -> "GeckoExtensionPrompt"
+                            method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
+                            method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
+                            method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionPrompt"
                             method.name.contains("Prompt") && GeckoResult::class.java.isAssignableFrom(method.returnType) ->
-                                askPermission(method.name, args)
+                                askPermission(method, args)
                             else -> null
                         }
                     }
@@ -292,6 +300,37 @@ object GeckoExtensionStore {
                 }
             }
         delegateInstalled = installedAny
+    }
+
+    /**
+     * 提示委托的返回类型随 GeckoView 版本不同：
+     *  - 旧版 / 更新 / 可选权限：GeckoResult<AllowOrDeny>
+     *  - 新版安装确认 onInstallPromptRequest：GeckoResult<WebExtension.PermissionPromptResponse>
+     * 回给 Gecko 的值类型不对时它收不到结果，安装会一直卡住。这里按方法的泛型返回类型取出需要的类。
+     * 返回 null 表示用 AllowOrDeny。
+     */
+    private fun promptResponseClass(method: Method): Class<*>? {
+        val arg = (method.genericReturnType as? ParameterizedType)?.actualTypeArguments?.firstOrNull()
+        if (arg is Class<*>) return if (arg == AllowOrDeny::class.java) null else arg
+        // 泛型签名被裁掉时，按方法名兜底
+        if (method.name.contains("InstallPromptRequest")) {
+            return runCatching { Class.forName("org.mozilla.geckoview.WebExtension\$PermissionPromptResponse") }.getOrNull()
+        }
+        return null
+    }
+
+    /** PermissionPromptResponse(是否同意权限, 是否允许在无痕窗口运行, 是否同意收集技术与交互数据…)：不同版本布尔参数个数不同，取参数最多的构造函数 */
+    private fun buildPromptResponse(cls: Class<*>, allow: Boolean): Any? {
+        return try {
+            val ctor = cls.constructors
+                .filter { c -> c.parameterTypes.isNotEmpty() && c.parameterTypes.all { it == java.lang.Boolean.TYPE } }
+                .maxByOrNull { it.parameterTypes.size }
+                ?: return null
+            val values = Array<Any?>(ctor.parameterTypes.size) { i -> if (i == 0) allow else false }
+            ctor.newInstance(*values)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private val PERMISSION_NAMES = mapOf(
@@ -320,6 +359,21 @@ object GeckoExtensionStore {
         "webNavigation" to "监控页面跳转",
     )
 
+    private val DATA_NAMES = mapOf(
+        "technicalAndInteraction" to "技术与交互数据",
+        "locationInfo" to "位置信息",
+        "personalCommunications" to "个人通信内容",
+        "healthInfo" to "健康信息",
+        "financialAndPaymentInfo" to "财务和支付信息",
+        "authenticationInfo" to "身份验证信息",
+        "personallyIdentifyingInfo" to "个人身份信息",
+        "searchTerms" to "搜索词",
+        "websiteActivity" to "网站活动",
+        "websiteContent" to "网站内容",
+        "browsingActivity" to "浏览活动",
+        "bookmarksInfo" to "书签信息",
+    )
+
     /** 权限 / 可访问网站 → 中文说明（安装确认框与详情页共用） */
     fun describePermissions(permissions: List<String>, origins: List<String>): List<String> = buildList {
         permissions.forEach { add(PERMISSION_NAMES[it] ?: it) }
@@ -332,35 +386,57 @@ object GeckoExtensionStore {
         }
     }
 
-    private fun askPermission(method: String, args: Array<Any?>?): GeckoResult<AllowOrDeny> {
-        val result = GeckoResult<AllowOrDeny>()
+    private fun askPermission(method: Method, args: Array<Any?>?): GeckoResult<Any?> {
+        val name = method.name
+        val result = GeckoResult<Any?>()
+        val responseClass = promptResponseClass(method)
+        val done = AtomicBoolean(false)
+
+        /** 只回一次；类型按内核要求的来（见 [promptResponseClass]） */
+        fun finish(allow: Boolean) {
+            if (!done.compareAndSet(false, true)) return
+            if (responseClass == null) {
+                result.complete(if (allow) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
+            } else {
+                val response = buildPromptResponse(responseClass, allow)
+                if (response != null) result.complete(response)
+                else result.completeExceptionally(IllegalStateException("当前 GeckoView 版本的安装确认接口不兼容"))
+            }
+        }
+
         val ext = args?.firstOrNull { it is WebExtension } as? WebExtension
         val arrays = args?.filterIsInstance<Array<*>>()?.map { arr -> arr.filterIsInstance<String>() }.orEmpty()
         val permissions = arrays.getOrNull(0).orEmpty()
         val origins = arrays.getOrNull(1).orEmpty()
-        val name = ext?.metaData?.name?.takeIf { it.isNotBlank() } ?: "此拓展"
-        val lines = describePermissions(permissions, origins).map { "· $it" }
+        val dataCollection = arrays.getOrNull(2).orEmpty().filter { it != "none" }
+        val extName = ext?.metaData?.name?.takeIf { it.isNotBlank() } ?: "此拓展"
+        val lines = (describePermissions(permissions, origins) + dataCollection.map { "收集" + (DATA_NAMES[it] ?: it) })
+            .map { "· $it" }
         val title = when {
-            method.contains("Update") -> "更新「$name」？"
-            method.contains("Optional") -> "「$name」请求更多权限"
-            else -> "添加「$name」？"
+            name.contains("Update") -> "更新「$extName」？"
+            name.contains("Optional") -> "「$extName」请求更多权限"
+            else -> "添加「$extName」？"
         }
         val message = if (lines.isEmpty()) "此拓展不需要额外权限。" else "此拓展将可以：\n" + lines.joinToString("\n")
         val activity = activityProvider?.invoke()
         if (activity == null || activity.isFinishing || activity.isDestroyed) {
-            result.complete(AllowOrDeny.DENY)
+            finish(false)
             return result
         }
         activity.runOnUiThread {
-            runCatching {
+            try {
                 AlertDialog.Builder(activity)
                     .setTitle(title)
                     .setMessage(message)
-                    .setPositiveButton(if (method.contains("Install")) "添加" else "允许") { _, _ -> result.complete(AllowOrDeny.ALLOW) }
-                    .setNegativeButton("取消") { _, _ -> result.complete(AllowOrDeny.DENY) }
-                    .setOnCancelListener { result.complete(AllowOrDeny.DENY) }
+                    .setPositiveButton(if (name.contains("Install")) "添加" else "允许") { _, _ -> finish(true) }
+                    .setNegativeButton("取消") { _, _ -> finish(false) }
+                    .setOnCancelListener { finish(false) }
+                    // 任何方式关掉（含 Activity 重建）都要回结果，否则安装会一直挂着
+                    .setOnDismissListener { finish(false) }
                     .show()
-            }.onFailure { result.complete(AllowOrDeny.DENY) }
+            } catch (_: Throwable) {
+                finish(false)
+            }
         }
         return result
     }

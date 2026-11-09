@@ -2,6 +2,12 @@
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
 
+## [99.1.7]
+
+- 修复（Gecko）：从其他应用切回 Mafari 时网页黑几秒 —— 退到后台前抓一帧当前画面，完全停止后盖在 GeckoView 上，切回后推一下重绘，等 TextureView 重新有内容再撤掉（`GeckoViewLifecycle` / `GeckoTabEngine.captureFrameForBackground`）
+- 修复（Gecko）：安装拓展时点「添加 / 取消」后一直「安装中」—— 新版 GeckoView 的安装确认（`onInstallPromptRequest`）要求回 `PermissionPromptResponse`，之前一律回 `AllowOrDeny`，内核收不到结果就挂住；现按方法的泛型返回类型回对应类型，提示框以任何方式关闭都会回结果；安装加 3 分钟超时兜底，「安装中」状态放进 finally 一定释放
+- 修复（Gecko）：拓展页「更多 → 导入」点了没反应 —— 菜单收起与导入 sheet 弹出同一帧冲突，改为菜单收起后再弹；重复点同一个正在安装的拓展不再静默忽略，会提示「正在安装中」
+
 ## [99.1.3]
 
 - 新增（Gecko）：「网页字体跟随系统」开关（Gecko 高级保护 → 其他）—— `browser.display.use_document_fonts=0` + 各语言默认字体指向系统 sans-serif；关闭时清除用户值恢复默认（`GeckoPrefs.CLEAR`）
