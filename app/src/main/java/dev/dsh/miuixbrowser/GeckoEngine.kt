@@ -46,8 +46,10 @@ object GeckoRuntimeHolder {
                 .build()
             val created = GeckoRuntime.create(context.applicationContext, settings)
             runtime = created
-            // 隐私 / 代理设置（禁止跟踪、WebRTC、指纹保护、代理）：第一个页面加载前就位
-            runCatching { GeckoPrivacy.apply(created, AppSettings(context.applicationContext)) }
+            // 「Gecko 高级保护」里的设置（ETP 档位 / 安全 DNS…）+ 之前记下的 about:config 偏好，此刻统一写入
+            GeckoProtection.load(context)
+            GeckoProtection.pushAll()
+            GeckoPrefs.flush()
             return created
         }
     }
@@ -170,6 +172,18 @@ class GeckoTabEngine(
         }
     }
 
+    /**
+     * 隐私 / 跟踪：与 WebView 版同一组设置。
+     * - 跟踪拦截：Gecko 自带 Enhanced Tracking Protection 分类列表（取代 shouldInterceptRequest）
+     * - DNT / GPC、WebRTC、指纹保护：没有专用 Java API，走 about:config 偏好（[GeckoPrefs]）
+     * 具体合并逻辑在 [GeckoProtection]。
+     */
+    fun applyPrivacy(blockTrackers: Boolean, sendDnt: Boolean, webrtcDisabled: Boolean, fingerprint: Boolean) {
+        // 与「Gecko 高级保护」页合并后统一写入（ETP 档位、DNT/GPC、WebRTC、指纹）
+        GeckoProtection.load(context)
+        GeckoProtection.pushApp(blockTrackers, sendDnt, webrtcDisabled, fingerprint)
+    }
+
     fun find(text: String) {
         runCatching { session.finder.find(text, 0) }
     }
@@ -198,8 +212,9 @@ class GeckoTabEngine(
     // ---------------------------------------------------------------- 回调翻译
 
     private fun installDelegates() {
-        // 目前只接管「代理认证」提示；其它弹层仍按原来的方式忽略（见 docs/GECKO.md「下一步」）
-        session.promptDelegate = GeckoPrivacy.authDelegate
+        // 网页弹层：JS 对话框 / <select> / 认证 / 日期 / 文件选择
+        session.promptDelegate = GeckoPromptHandler(tab)
+
         session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStart(session: GeckoSession, url: String) {
                 tab.geckoPageStart(url)
@@ -247,6 +262,13 @@ class GeckoTabEngine(
                 }
                 val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
                 if (scheme == null || scheme in INTERNAL_SCHEMES) {
+                    // 网页重定向权限：页面自己发起（无手势、非地址栏、非服务器 3xx）的跨站跳转
+                    val direct = request.isDirectNavigation || SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
+                    if ((scheme == "http" || scheme == "https") &&
+                        tab.geckoInterceptRedirect(target, direct, request.hasUserGesture, request.isRedirect)
+                    ) {
+                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                    }
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW)
                 }
                 // weixin:// alipays:// intent:// 等：交给系统。页面自己无手势地唤起其他应用一律拦截
@@ -331,8 +353,17 @@ class GeckoTabEngine(
                         tab.geckoDataUrlDownload(uri, disposition, mime)
                     }
                     else -> {
-                        runCatching { response.body?.close() }
-                        tab.onDownload?.invoke(uri, null, disposition, mime)
+                        // 带登录态的下载：Downloader 重新请求拿不到 Gecko 的 Cookie，所以体积不大的文件直接
+                        // 消费 Gecko 给的响应体（落到缓存后走与 blob 相同的确认 / 保存流程）；
+                        // 大文件或没有 Content-Length 的仍交给 Downloader（断点 / 进度 / 通知）
+                        val length = headerOf(headers, "content-length")?.trim()?.toLongOrNull()
+                        val http = uri.startsWith("http://", ignoreCase = true) || uri.startsWith("https://", ignoreCase = true)
+                        if (http && response.body != null && length != null && length in 1..SPOOL_LIMIT) {
+                            spoolBody(response, uri, disposition, mime)
+                        } else {
+                            runCatching { response.body?.close() }
+                            tab.onDownload?.invoke(uri, null, disposition, mime)
+                        }
                     }
                 }
             }
@@ -453,6 +484,7 @@ class GeckoTabEngine(
             return
         }
         val name = Downloader.fileNameFrom(uri, disposition)
+        tab.geckoBlobStart(name)
         Thread {
             val file = File(context.cacheDir, "mafari_blob_${UUID.randomUUID()}.part")
             val ok = runCatching {
@@ -473,6 +505,9 @@ class GeckoTabEngine(
         headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
 
     private companion object {
+        /** 响应体直接落盘的体积上限（带 Cookie 的小文件下载） */
+        const val SPOOL_LIMIT = 64L * 1024 * 1024
+
         /** 这些协议由 Gecko 自己加载；其余（intent / weixin / alipays / mailto / tel …）交给系统 */
         val INTERNAL_SCHEMES = setOf(
             "http", "https", "about", "data", "file", "blob", "javascript",

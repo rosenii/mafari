@@ -23,7 +23,7 @@ nightly 的 Java API 偶尔会改，**建议在 `gradle.properties` 锁定**：`
 
 ## 功能适配矩阵
 
-状态：✅ 第一步已实现　🔜 下一步　🧩 需 WebExtension（第三步「扩展」页）　⛔ Gecko 下禁用
+状态：✅ 已实现　⚠ 部分实现　🔜 下一步　🧩 需 WebExtension（第三步「扩展」页）　⛔ Gecko 下禁用
 
 ### 浏览器基础（两内核同一套 UI）
 
@@ -40,15 +40,15 @@ nightly 的 Java API 偶尔会改，**建议在 `gradle.properties` 锁定**：`
 | 桌面模式 / 自定义 UA | ✅ | GeckoSessionSettings（不再依赖 `mafari_desktop.js`） |
 | 深浅色 | ✅ | 运行时 `preferredColorScheme` |
 | 第三方 Cookie 开关 | ✅ | ContentBlocking.cookieBehavior（运行时级别） |
-| 下载（http/https） | ✅* | *Downloader 重新请求链接，**不带 Gecko 的 Cookie**：需要登录态的下载会失败（见「下一步」） |
+| 下载（http/https） | ✅ | ≤ 64 MB 且带 Content-Length 的直接消费 Gecko 响应体（带登录态，走与 blob 相同的确认 / 保存流程）；更大或未知长度仍交给 Downloader 重新请求（**不带 Cookie**） |
 | blob: / data: 下载 | ✅ | blob 直接读取 Gecko 给的响应体，不再需要 `mafari_blob_cache.js` |
 | 外部协议（weixin:// intent:// …） | ✅ | 有用户手势才放行；无手势的自动唤起被拦截 |
 | 定位 / 摄像头 / 麦克风权限 | ✅ | 复用现有「询问 / 允许 / 拒绝」设置与弹窗 |
 | 标签缩略图 | ✅ | `GeckoView.capturePixels()` |
 | 下拉刷新 / 底栏随滚动收起 | ✅ | ScrollDelegate |
 | 崩溃恢复 | ✅ | onCrash / onKill 后重开会话并回到原页面 |
-| 视频全屏 | 🔜 | 目前只做系统栏隐藏 + 横屏，应用自己的顶栏 / 底栏还在 |
-| 文件选择 / 拍照上传、alert / confirm / prompt、HTTP 认证 | 🔜 | PromptDelegate，**第二步** |
+| 视频全屏 | ✅ | 系统栏隐藏 + 横屏，同时收起应用自己的顶栏 / 底栏（`BrowserTab.geckoFullscreen`） |
+| 文件选择 / 拍照上传、alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、弹窗拦截 | ✅ | `GeckoPrompts.kt`（PromptDelegate）：文件 / 拍照包装成 WebView 同款 `FileChooserParams` 复用现有选择器；其余用系统对话框 |
 | 网站通知 | ⛔ | 现在直接拒绝（WebView 版本来也没有） |
 
 ### 依赖 WebView 专有 API 的功能
@@ -58,36 +58,41 @@ nightly 的 Java API 偶尔会改，**建议在 `gradle.properties` 锁定**：`
 | 油猴脚本（GM_*、菜单命令、脚本数量） | `addDocumentStartJavaScript` + `@JavascriptInterface` | ⛔ 先禁用（`syncUserScripts` 直接返回，菜单显示 0 个脚本）。🧩 之后用 WebExtension（Tampermonkey / Violentmonkey）代替 |
 | 去广告（拦截请求 `shouldInterceptRequest` + 元素隐藏 JS） | 拦截 + 注入 | ⛔ 自带订阅 / 规则不生效。🧩 装 uBlock Origin；或先用 Gecko 内置 Enhanced Tracking Protection |
 | 「标记为广告」（长按元素） | 页面 JS + `MafariElement` | ⛔ 不可用 |
-| 跟踪脚本拦截 | `shouldInterceptRequest` | 🔜 改用 `ContentBlocking`（Gecko 自带分类列表） |
-| 指纹保护（Canvas / WebGL / Audio / Fonts） | 按 origin 注册 document-start 脚本 | ✅ 已映射到 Gecko 的 Fingerprinting Protection（`GeckoRuntimeSettings.setFingerprintingProtection*`）：overrides 以 `-AllTargets` 清空默认集合，再按四个开关打开对应目标（Canvas→`CanvasRandomization`；WebGL→`WebGLRenderCapability`/`WebGLRenderInfo`；Audio→`AudioSampleRate`/`AudioContext`；Fonts→`FontVisibility*`）。站点白名单与检测报告仍只对 WebView 有效 |
-| 禁用 WebRTC | 注入脚本 | ✅ pref `media.peerconnection.enabled=false`（关闭时清除用户值） |
-| DNT / Sec-GPC | 请求头 + JS 属性 | ✅ pref `privacy.donottrackheader.enabled` + `GeckoRuntimeSettings.setGlobalPrivacyControl` |
+| 跟踪脚本拦截 | `shouldInterceptRequest` | ✅ `ContentBlocking.setAntiTracking`（Gecko 自带 ETP 分类列表），随「拦截跟踪脚本」开关 |
+| 指纹保护（Canvas / WebGL / Audio / Fonts） | 按 origin 注册 document-start 脚本 | ⚠ 四项细分开关不适用；任一开启 → `privacy.fingerprintingProtection` + `privacy.trackingprotection.fingerprinting.enabled`（不开 `resistFingerprinting`：它把时区改成 UTC，较易破坏网页） |
+| 禁用 WebRTC | 注入脚本 | ✅ pref `media.peerconnection.enabled=false`（新页面生效） |
+| DNT / Sec-GPC | 请求头 + JS 属性 | ✅ pref `privacy.donottrackheader.enabled` + `privacy.globalprivacycontrol.enabled` |
 | 剪贴板 / 媒体静音 / 通知拒绝（JS 层覆写） | 注入脚本 | ⛔ 不适用；Gecko 走权限系统 |
-| 网页重定向权限（拦截无手势的跨站跳转） | `shouldOverrideUrlLoading` + `hitTestResult` | 🔜 `onLoadRequest`（`hasUserGesture` / `isRedirect`）可以近似实现；目前只对外部协议和新窗口生效 |
-| 代理（HTTP / SOCKS5 / 认证 / Socks5Relay） | `ProxyController` | ✅ `network.proxy.*` pref；HTTP 认证走 `PromptDelegate.onAuthPrompt`（只接管来自代理的提示）；SOCKS5 认证与 WebView 共用 `Socks5Relay`，Gecko 连本机中转 |
+| 网页重定向权限（拦截无手势的跨站跳转） | `shouldOverrideUrlLoading` + `hitTestResult` | ✅ `onLoadRequest`（`isDirectNavigation` / `hasUserGesture` / `isRedirect`）；Gecko 取不到触点下是否 `<a>`，有手势一律视为用户点击 |
+| 代理（HTTP / SOCKS5 / 认证 / Socks5Relay） | `ProxyController` | ✅ `WebViewProxy` 最终采用的规则（含 SOCKS5 认证用的本机中转）同步写入 `network.proxy.*`；HTTP 代理认证在 `onAuthPrompt` 自动提交 |
 | Passkey | WebView WebAuthn + Credential Manager | Gecko 自带 WebAuthn，是否弹系统 Passkey 界面需实测 |
 | 缓存清理 | `WebView.clearCache` | ✅ 同时调用 `StorageController.clearData` |
 | 添加到桌面（轻应用 `WebAppActivity`） | 独立 WebView 页面 | 轻应用本身仍是 WebView；Gecko 标签取不到页面图标，改按域名抓取 favicon |
 | 标记 / 下载 `.user.js` | 拦截导航 | ✅ `onLoadRequest` / `onExternalResponse` 里同样拦截并交给「导入脚本」 |
 
-## Gecko 专属 UI（拓展 / 置灰）
+## Gecko 高级保护
 
-**判定依据是当前标签的内核**（`tab.isGecko`），不是「浏览器内核」设置：设置只决定新建标签用哪个内核，已打开的标签保持原内核。所以在设置里切到 Gecko 后，要在 Gecko 标签里才会看到下面的变化。
+设置 → 高级 → 「Gecko 高级保护」（仅 Gecko 模式出现）。`GeckoProtection` 持久化全部设置，并与应用原有「隐私」开关合并：
 
-- **置灰**：`GeckoGate(disabled, hint) { … }` 把内容不透明度降到 38%，并盖一层吞掉点击的透明层，点击只弹 toast「该功能在 Gecko 下不支持」+ 替代方案。菜单格子由 `MenuAction.geckoUnsupportedHint` 决定（非 null = 置灰）；设置页行由 `SettingsScreen(geckoActive = …)` 包 `GeckoGate`。新增一个 Gecko 下不可用的功能时，只需要加这两处之一。
-- **拓展入口**：`MenuAction.GeckoExtensions`（`geckoOnly`）只在 Gecko 标签的菜单里出现，打开菜单时淡入；WebView 标签下被过滤掉。拖动排序用 `MenuOrderStore.place(…, skipped)` 换算序号。
-- **拓展页** `GeckoExtensionsScreen`：搜索走 AMO 公开 API（`/api/v5/addons/search/?app=android&type=extension`），安装时把 `current_version.file.url`（xpi 直链）交给 `WebExtensionController.install`，由 Gecko 下载并校验签名。导入：链接（AMO 页面会先解析成 xpi 直链）/ 本地文件（复制到缓存目录后以 `file://` 安装）。
-- **权限确认**：`GeckoExtensionStore` 实现 `WebExtensionController.PromptDelegate`（安装、更新新增权限、可选权限），把请求交给拓展页弹窗；拓展页不在前台时一律拒绝，避免回调悬挂。
-- **定期检查更新**：设置项存在 `mafari_gecko_ext`（`auto_update` / `last_check`）。检查时机是「有 Gecko 标签时的应用启动」和「打开拓展页」，不为了检查更新而拉起 Gecko；应用在后台时不检查（没有引入 WorkManager）。
-- **拓展设置页 / `tabs.create`**：通过 `TabDelegate` 转成应用自己的新标签；`moz-extension://` 只有 Gecko 能加载，当前内核设置不是 Gecko 时会提示先切换。
+| 项 | 实现 |
+|---|---|
+| 增强型跟踪保护 | `ContentBlocking.setAntiTracking`（跟随隐私设置 / 关闭 / 标准 `DEFAULT` / 严格 `STRICT`） |
+| 清理跟踪参数 / 弹跳跟踪 / 跟踪者清理 | `privacy.query_stripping.*` / `privacy.bounceTrackingProtection.mode` / `privacy.purge_trackers.enabled` |
+| 指纹保护 / 强力抗指纹 | `privacy.fingerprintingProtection` / `privacy.resistFingerprinting` |
+| GPC / DNT | `privacy.globalprivacycontrol.enabled` + `privacy.donottrackheader.enabled`（与隐私设置取并集） |
+| 精简 Referer | `network.http.referer.XOriginTrimmingPolicy=2` |
+| 防 WebRTC 泄露 | `media.peerconnection.ice.default_address_only` + `ice.no_host` |
+| 第一方隔离 | `privacy.firstparty.isolate` |
+| 仅 HTTPS | `dom.security.https_only_mode(_pbm)` |
+| 安全 DNS / ECH | `network.trr.mode`（2 优先 / 3 仅 DoH）+ `network.trr.uri`；`network.dns.echconfig.enabled` |
+| 预取 / WebGL | `network.prefetch-next` 等 / `webgl.disabled` |
 
-### 隐私 / 代理（`GeckoPrivacy.kt`）
+## about:config 偏好
 
-指纹保护、禁止跟踪、禁用 WebRTC、代理四项与 WebView **共用同一套开关和界面**，不置灰。`GeckoPrivacy.apply` 在 Gecko 运行时创建后立即执行一次（第一个页面加载前就位），之后由 BrowserScreen 在设置变化时调用 `applyIfRunning`（Gecko 没启动则跳过）。偏好写在用户分支，关闭时清除用户值回到 Gecko 默认，不写死。这些偏好由 `GeckoPreferenceController`（GeckoView 标注为 experimental）写入，nightly 升级后若签名变化改这一个文件即可。
+没有专用 Java API 的开关统一走 `GeckoPrefs`（`GeckoPreferenceController.setGeckoPref`，反射调用，找不到只记日志不崩）。
+Gecko 尚未启动时只记录期望值，运行时创建后一次性写入，所以不用 Gecko 的人没有任何开销。
 
 ## 下一步
 
-1. **（第二步）PromptDelegate**：文件选择 / 拍照、JS 对话框、HTTP 认证、地址栏下拉自动补全以外的弹层。
-2. 下载带 Cookie：Gecko 没有 Cookie 公开 API，计划二选一：直接消费 `onExternalResponse` 的 `body` 流并落盘；或经 WebExtension `cookies` API 取。
-3. **（第三步，已完成大半）Gecko 专属「拓展」页**：安装 / 搜索 / 导入 / 更新 / 管理 / 定期检查已做（见上节）。剩 browserAction 弹窗（工具栏按钮）与 `onNewTab` 的真实 GeckoSession 对接；用户脚本与去广告暂由 Tampermonkey / uBlock Origin 拓展承接。
-4. 视频全屏时让应用自己的顶栏 / 底栏一并隐藏。
+1. **拓展工具栏按钮**：browserAction 弹窗（`ActionDelegate`）、拓展自己 `tabs.create` 的新标签（`TabDelegate`）；「拓展」页已支持商店搜索、导入、全部更新、启停 / 卸载 / 选项、定期检查更新。
+2. 大文件 / 未知长度下载仍不带 Cookie：计划经 WebExtension `cookies` API 取。

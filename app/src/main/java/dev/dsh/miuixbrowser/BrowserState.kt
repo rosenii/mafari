@@ -1403,6 +1403,55 @@ class BrowserTab(
 
     internal fun geckoLaunchExternal(uri: Uri) = launchExternalApp(uri)
 
+    /** PromptDelegate 弹对话框用 */
+    internal fun geckoActivity(): android.app.Activity? = resolveActivity()
+
+    internal fun geckoContext(): Context = appContext
+
+    /** 被拦截的无手势弹窗：与重定向拦截共用提示（去重 / 限频） */
+    internal fun geckoPopupBlocked(target: String) {
+        notifyRedirectBlocked(false, runCatching { Uri.parse(target).host }.getOrNull().orEmpty())
+    }
+
+    internal fun geckoBlobStart(name: String) {
+        onBlobStart?.invoke(name)
+    }
+
+    /**
+     * Gecko 版「网页重定向权限」，规则与 [interceptRedirect] 一致：只管页面自己发起的跨站主框架跳转
+     * （地址栏 / 前进后退 / 服务器 3xx / 有用户手势的点击都不管；同站跳转不管）。
+     * Gecko 取不到「触点下是不是 <a>」，所以有手势一律视为用户点击。
+     * @return true = 本次导航已被接管（调用方应 DENY）
+     */
+    internal fun geckoInterceptRedirect(target: String, direct: Boolean, hasGesture: Boolean, serverRedirect: Boolean): Boolean {
+        if (direct || hasGesture || serverRedirect) return false
+        val from = pageHost
+        if (from.isEmpty()) return false
+        val targetHost = runCatching { Uri.parse(target).host }.getOrNull().orEmpty()
+        if (targetHost.isNotEmpty() && isSameSite(targetHost, from)) return false
+        val open = onOpenInNewTab
+        when (redirectMode) {
+            1 -> {
+                if (open == null) return false
+                open(target)
+                return true
+            }
+            2 -> {
+                notifyRedirectBlocked(false, targetHost)
+                return true
+            }
+        }
+        if (redirectPromptPending) return true
+        askRedirect(from, "跳转到 ${targetHost.ifEmpty { target.take(60) }}") { allow ->
+            if (allow) open?.invoke(target) else notifyRedirectBlocked(false, targetHost)
+        }
+        return true
+    }
+
+    /** Gecko 视频全屏中：界面据此隐藏应用自己的顶栏 / 底栏 */
+    var geckoFullscreen by mutableStateOf(false)
+        private set
+
     internal fun geckoExternalBlocked() = notifyRedirectBlocked(true, "")
 
     internal fun geckoCloseRequest() {
@@ -1471,6 +1520,7 @@ class BrowserTab(
 
     /** Gecko 视频全屏：系统栏隐藏 + 横屏（页面本身由 Gecko 撑满 GeckoView） */
     internal fun geckoFullScreen(on: Boolean) {
+        geckoFullscreen = on
         val activity = resolveActivity() ?: return
         val controller = androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         if (on) {
@@ -1587,8 +1637,10 @@ class BrowserTab(
         notificationMode: Int = 0,
         redirectMode: Int = 0,
         blockTrackers: Boolean = false,
+        fingerprintProtect: Boolean = false,
     ) {
         gecko?.applyThirdPartyCookies(thirdPartyCookiesAllowed)
+        gecko?.applyPrivacy(blockTrackers, sendDnt, webrtcDisabled, fingerprintProtect)
         webViewOrNull?.let { wv ->
             runCatching {
                 CookieManager.getInstance().setAcceptCookie(!incognito)

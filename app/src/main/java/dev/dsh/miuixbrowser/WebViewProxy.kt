@@ -49,7 +49,7 @@ object WebViewProxy {
         authEnabled && host.isNotEmpty() && challengeHost.equals(host, ignoreCase = true)
 
     /** 去掉用户误填的协议头 / 路径 / 账号 / 「:端口」/ IPv6 方括号 */
-    internal fun normalizeHost(raw: String): String {
+    private fun normalizeHost(raw: String): String {
         var s = raw.trim().substringAfter("://").substringBefore('/').substringAfterLast('@').trim()
         if (s.startsWith("[")) {
             val e = s.indexOf(']')
@@ -96,6 +96,7 @@ object WebViewProxy {
         }
 
         if (!enabled || h.isEmpty() || port !in 1..65535) {
+            GeckoProxy.applyRule(null)
             closeRelay()
             if (applied != null) {
                 runCatching { controller.clearProxyOverride(directExecutor, Runnable { }) }
@@ -141,6 +142,8 @@ object WebViewProxy {
     }
 
     private fun install(controller: ProxyController, rule: String) {
+        // Gecko 标签用同一条规则（含 SOCKS5 认证用的本机中转），写进 network.proxy.*
+        GeckoProxy.applyRule(rule)
         if (rule == applied) {
             lastError = null
             return

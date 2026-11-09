@@ -250,6 +250,17 @@ fun BrowserScreen(
     val favorites = remember { FavoritesStore(context) }
     remember { Diag.log("BrowserScreen composed, favorites=" + favorites.items.size) }
     val menuOrder = remember { MenuOrderStore(context) }
+    // Gecko 拓展定期检查更新：应用在前台、Gecko 模式下，启动后稍等一会儿检查一次，之后每 6 小时看一次是否到点
+    LaunchedEffect(settings.geckoMode) {
+        if (!settings.geckoMode) return@LaunchedEffect
+        kotlinx.coroutines.delay(15_000)
+        while (true) {
+            runCatching { GeckoExtensionStore.maybeAutoUpdate(context) }
+            kotlinx.coroutines.delay(6 * 3_600_000L)
+        }
+    }
+    // 「拓展」菜单项：切到 Gecko 出现，切回 WebView 收起
+    LaunchedEffect(settings.geckoMode) { menuOrder.syncGecko(settings.geckoMode) }
     val wallpaperBitmap = rememberWallpaper(settings.wallpaper)
     // 模糊壁纸：读/写磁盘缓存里已模糊好的小图，不再实时渲染模糊
     val blurredWallpaper = rememberBlurredWallpaper(settings.wallpaper, settings.wallpaperBlur, settings.wallpaperVersion)
@@ -285,8 +296,6 @@ fun BrowserScreen(
     // 从其他应用点进来的链接：回到浏览页并新开标签（须在 popToBrowser 定义之后）
     // 由 MainActivity 传入；这里只负责导航与加载
     val extensions = remember { ExtensionStore(context) }
-    // Gecko 专属拓展（WebExtension）：只在 Gecko 标签下通过菜单里的「拓展」入口使用
-    val geckoExt = remember { GeckoExtensionStore(context) }
     // 旧版本放在脚本列表里的去广告订阅 → 迁移到「去广告」页；之后按设置的间隔在后台更新订阅
     remember {
         AdBlock.init(context)
@@ -334,23 +343,6 @@ fun BrowserScreen(
     }
     fun popToBrowser() {
         while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
-    }
-
-    // Gecko 拓展要求打开设置页 / 新标签（moz-extension:// 只有 Gecko 能加载）：回到浏览页，新开标签
-    SideEffect {
-        geckoExt.openUrl = { url ->
-            if (url.startsWith("moz-extension:", ignoreCase = true) && readBrowserEngine(context) != ENGINE_GECKO) {
-                android.widget.Toast.makeText(context, "请先在 设置 → 高级 → 浏览器内核 切到 Gecko，再打开拓展设置页", android.widget.Toast.LENGTH_LONG).show()
-            } else {
-                popToBrowser()
-                state.newTab(url, false, fromLink = true)
-            }
-        }
-    }
-    // 有 Gecko 标签（= Gecko 已启动）时，按「定期检查更新」的间隔检查拓展更新
-    val hasGeckoTab = state.tabs.any { it.isGecko }
-    LaunchedEffect(hasGeckoTab) {
-        if (hasGeckoTab) runCatching { geckoExt.autoUpdateIfDue() }
     }
 
     /** 应用内打开链接：切回浏览主界面并加载（设置/关于/书签等非网页页共用） */
@@ -735,6 +727,10 @@ fun BrowserScreen(
         settings.notificationPermission,
         settings.redirectPermission,
         settings.blockTrackingScripts,
+        AdBlock.fpCanvas,
+        AdBlock.fpWebgl,
+        AdBlock.fpAudio,
+        AdBlock.fpFonts,
     ) {
         tab.applyPrivacy(
             thirdPartyCookiesAllowed = settings.thirdPartyCookie == 0,
@@ -748,6 +744,7 @@ fun BrowserScreen(
             notificationMode = settings.notificationPermission,
             redirectMode = settings.redirectPermission,
             blockTrackers = settings.blockTrackingScripts,
+            fingerprintProtect = AdBlock.fpCanvas || AdBlock.fpWebgl || AdBlock.fpAudio || AdBlock.fpFonts,
         )
     }
 
@@ -765,25 +762,6 @@ fun BrowserScreen(
         settings.proxyPort,
     ) {
         WebViewProxy.applyFrom(settings)
-    }
-
-    // Gecko 与 WebView 共用同一套隐私 / 代理开关：设置变化时同步到 Gecko（Gecko 没启动则跳过，启动时会补一次）
-    LaunchedEffect(
-        settings.sendDnt,
-        settings.webrtcDisabled,
-        settings.proxyEnabled,
-        settings.proxyType,
-        settings.proxyHost,
-        settings.proxyPort,
-        settings.proxyAuth,
-        settings.proxyUser,
-        settings.proxyPass,
-        AdBlock.fpCanvas,
-        AdBlock.fpWebgl,
-        AdBlock.fpAudio,
-        AdBlock.fpFonts,
-    ) {
-        GeckoPrivacy.applyIfRunning(settings)
     }
 
     // WebView 不会把滚动事件抛给 Compose，这里轻量轮询页面滚动位置：
@@ -858,6 +836,11 @@ fun BrowserScreen(
         }
     }
 
+    // Gecko 视频全屏：应用自己的顶栏 / 底栏一并收起，退出全屏后恢复
+    LaunchedEffect(tab.id, tab.geckoFullscreen) {
+        barHidden = tab.geckoFullscreen
+    }
+
     LaunchedEffect(tab.id) {
         var last = 0
         var lastShow = 0
@@ -865,6 +848,10 @@ fun BrowserScreen(
         var scrollUpAccum = 0f
         while (true) {
             runCatching {
+                if (tab.geckoFullscreen) {
+                    barHidden = true
+                    return@runCatching
+                }
                 val offset = tab.scrollOffsetY.coerceAtLeast(0)
                 val dy = offset - last
                 when {
@@ -1621,11 +1608,6 @@ fun BrowserScreen(
 
 
             Sheet.Menu -> {
-                // Gecko 标签：出现「拓展」入口，Gecko 下不支持的入口置灰；WebView 标签：「拓展」整格收起
-                val geckoTab = tab.isGecko
-                val visibleOrder = menuOrder.order.filter { geckoTab || !it.geckoOnly }
-                val visibleHidden = menuOrder.hidden.filter { geckoTab || !it.geckoOnly }
-                val skippedActions = if (geckoTab) emptySet() else MenuAction.entries.filter { it.geckoOnly }.toSet()
                 MenuGrid(
                     labelFor = { action ->
                         if (action == MenuAction.Desktop) {
@@ -1642,10 +1624,16 @@ fun BrowserScreen(
                             else -> 0
                         }
                     },
-                    order = visibleOrder,
-                    hidden = visibleHidden,
-                    disabledFor = { action -> geckoTab && action.geckoUnsupportedHint != null },
-                    onDisabledClick = { action -> toastGeckoUnsupported(context, action.geckoUnsupportedHint.orEmpty()) },
+                    // Gecko 下不支持的功能置灰：脚本管理走全局设置（跟随「浏览器内核」），脚本菜单看当前标签
+                    lockedFor = { action ->
+                        when (action) {
+                            MenuAction.Extensions -> settings.geckoMode
+                            MenuAction.ScriptMenu -> tab.isGecko || settings.geckoMode
+                            else -> false
+                        }
+                    },
+                    order = menuOrder.order,
+                    hidden = menuOrder.hidden,
                     onAction = { action ->
                         sheet = Sheet.None
                         when (action) {
@@ -1698,7 +1686,7 @@ fun BrowserScreen(
                             MenuAction.CloseTab -> state.closeTab(state.activeIndex)
                         }
                     },
-                    onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex, skippedActions) },
+                    onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
                     incognitoActive = tab.incognito,
                 )
             }
@@ -1720,17 +1708,14 @@ fun BrowserScreen(
                     sheet = Sheet.None
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl))) }
                 }
-                // Gecko 标签：「标记为广告」依赖 WebView 的页面注入，置灰并提示替代方案（装 uBlock Origin）
-                if (settings.pageEnhancements || tab.isGecko) {
-                    GeckoGate(disabled = tab.isGecko, hint = "，可安装 uBlock Origin 拓展替代") {
-                        SheetRow(
-                            title = "标记为广告",
-                            subtitle = "选中这个广告位，可记住规则下次自动隐藏",
-                        ) {
-                            sheet = Sheet.None
-                            tab.markAdAtTouch {
-                                android.widget.Toast.makeText(context, "没找到可标记的元素", android.widget.Toast.LENGTH_SHORT).show()
-                            }
+                if (settings.pageEnhancements) {
+                    SheetRow(
+                        title = "标记为广告",
+                        subtitle = "选中这个广告位，可记住规则下次自动隐藏",
+                    ) {
+                        sheet = Sheet.None
+                        tab.markAdAtTouch {
+                            android.widget.Toast.makeText(context, "没找到可标记的元素", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -1777,17 +1762,14 @@ fun BrowserScreen(
                         state.newTab(imageUrl, tab.incognito, fromLink = true)
                     }
                 }
-                // Gecko 标签：「标记为广告」依赖 WebView 的页面注入，置灰并提示替代方案（装 uBlock Origin）
-                if (settings.pageEnhancements || tab.isGecko) {
-                    GeckoGate(disabled = tab.isGecko, hint = "，可安装 uBlock Origin 拓展替代") {
-                        SheetRow(
-                            title = "标记为广告",
-                            subtitle = "选中这个广告位，可记住规则下次自动隐藏",
-                        ) {
-                            sheet = Sheet.None
-                            tab.markAdAtTouch {
-                                android.widget.Toast.makeText(context, "没找到可标记的元素", android.widget.Toast.LENGTH_SHORT).show()
-                            }
+                if (settings.pageEnhancements) {
+                    SheetRow(
+                        title = "标记为广告",
+                        subtitle = "选中这个广告位，可记住规则下次自动隐藏",
+                    ) {
+                        sheet = Sheet.None
+                        tab.markAdAtTouch {
+                            android.widget.Toast.makeText(context, "没找到可标记的元素", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -2221,13 +2203,14 @@ fun BrowserScreen(
             onApplyUserAgent = { state.applyUserAgent(it) },
             onOpenDownloads = { pushPage(AppRoute.Downloads) },
             onOpenScripts = { pushPage(AppRoute.Extensions) },
+            onOpenGeckoExtensions = { pushPage(AppRoute.GeckoExtensions) },
+            onOpenGeckoProtection = { pushPage(AppRoute.GeckoProtectionPage) },
             onOpenAdBlock = { pushPage(AppRoute.AdBlockPage) },
             onOpenFingerprint = { pushPage(AppRoute.FingerprintPage) },
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
             onOpenAbout = { pushPage(AppRoute.About) },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
             blurEnabled = settings.blurEnabled,
-            geckoActive = tab.isGecko,
         )
     }
     entry<AppRoute.About> {
@@ -2270,10 +2253,20 @@ fun BrowserScreen(
             blurEnabled = settings.blurEnabled,
         )
     }
+    entry<AppRoute.GeckoProtectionPage> {
+        GeckoProtectionScreen(
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
     entry<AppRoute.GeckoExtensions> {
         GeckoExtensionsScreen(
-            store = geckoExt,
             onBack = { popPage() },
+            // 拓展的「选项」页（moz-extension://…）在新标签里打开
+            onOpenUrl = { url ->
+                popToBrowser()
+                state.newTab(target = url, incognito = false)
+            },
             blurEnabled = settings.blurEnabled,
         )
     }
@@ -3892,12 +3885,11 @@ private fun MenuGrid(
     onMove: (MenuAction, Boolean, Int) -> Unit,
     incognitoActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
-    /** Gecko 下不支持的入口：置灰，点击不触发功能，只回调 [onDisabledClick]（弹 toast） */
-    disabledFor: (MenuAction) -> Boolean = { false },
-    onDisabledClick: (MenuAction) -> Unit = {},
+    lockedFor: (MenuAction) -> Boolean = { false },
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
+    val menuContext = LocalContext.current
     val cellHeight = 88.dp
     val dividerHeight = 30.dp
     val columns = 4
@@ -3953,16 +3945,17 @@ private fun MenuGrid(
                             action = action,
                             label = labelFor(action),
                             badge = badgeFor(action),
+                            locked = lockedFor(action),
                             cellHeight = cellHeight,
                             tint = if (action == MenuAction.Incognito && incognitoActive) purple
                             else MiuixTheme.colorScheme.onSurface,
                             dragged = dragAction == action,
                             dragOffset = { dragOffset },
                             dimmed = (dragAction != null && dragAction != action) || (inHidden && dragAction == null),
-                            unsupported = disabledFor(action),
                             onClick = {
                                 if (!editing) {
-                                    if (disabledFor(action)) onDisabledClick(action) else onAction(action)
+                                    // 置灰项（Gecko 下不支持）：只提示，不执行
+                                    if (lockedFor(action)) showGeckoUnsupportedToast(menuContext) else onAction(action)
                                 }
                             },
                             onDragStart = {
@@ -4068,6 +4061,7 @@ private fun MenuCell(
     action: MenuAction,
     label: String,
     badge: Int,
+    locked: Boolean,
     cellHeight: androidx.compose.ui.unit.Dp,
     tint: Color,
     dragged: Boolean,
@@ -4078,13 +4072,7 @@ private fun MenuCell(
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
-    /** Gecko 下不支持：整格置灰（点击由外层改成 toast） */
-    unsupported: Boolean = false,
 ) {
-    // 只在 Gecko 下出现的入口（拓展）：打开菜单时淡入 + 轻微放大，切回 WebView 后整格消失
-    var appeared by remember { mutableStateOf(!action.geckoOnly) }
-    LaunchedEffect(Unit) { appeared = true }
-    val appear by animateFloatAsState(if (appeared) 1f else 0f, tween(320), label = "menuCellAppear")
     val start by rememberUpdatedState(onDragStart)
     val drag by rememberUpdatedState(onDrag)
     val end by rememberUpdatedState(onDragEnd)
@@ -4099,11 +4087,8 @@ private fun MenuCell(
                     translationY = offset.y
                     scaleX = 1.08f
                     scaleY = 1.08f
-                } else if (appear < 1f) {
-                    scaleX = 0.85f + 0.15f * appear
-                    scaleY = 0.85f + 0.15f * appear
                 }
-                alpha = (if (dimmed) 0.6f else 1f) * (if (unsupported) GECKO_DISABLED_ALPHA else 1f) * appear
+                alpha = if (locked) GECKO_LOCKED_ALPHA else if (dimmed) 0.6f else 1f
             }
             .pointerInput(action) {
                 detectDragGesturesAfterLongPress(

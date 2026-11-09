@@ -1,13 +1,13 @@
 package dev.dsh.miuixbrowser
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
+import android.content.ContextWrapper
 import android.net.Uri
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.Dispatchers
@@ -16,365 +16,401 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
+import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.WebExtension
 import org.mozilla.geckoview.WebExtensionController
 import java.io.File
+import java.lang.reflect.Proxy
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
-/**
- * Gecko 专属「拓展」：对 GeckoView `WebExtensionController` 的封装。
- *
- * - 安装 / 卸载 / 启用 / 停用 / 更新 / 无痕允许 都走 WebExtensionController；
- * - 搜索走 Firefox 附加组件商店（AMO）公开 API，安装时把商店给的 xpi 直链交给 Gecko 下载并校验签名；
- * - 「安装 / 权限」确认由 [GeckoExtensionStore.prompt] 暴露给界面，界面决定后回调给 Gecko；
- * - 定期检查更新：按 [autoUpdate] 的间隔，在 Gecko 已经启动时于启动 / 打开拓展页时检查一次。
- *
- * 所有对 Gecko 的调用都必须在主线程发起（GeckoResult 的回调才会回到主线程）。
- */
-
-/** 已安装拓展的只读快照（界面用）。真正的 [WebExtension] 对象留在 store 内部按 id 索引。 */
-data class GeckoAddon(
+/** 已安装的拓展（界面用的快照） */
+data class GeckoExtItem(
     val id: String,
     val name: String,
     val version: String,
     val description: String,
     val enabled: Boolean,
-    val allowedInPrivate: Boolean,
-    val optionsUrl: String,
-    val homepageUrl: String,
-    val amoUrl: String,
-    val creator: String,
+    val optionsUrl: String?,
     val permissions: List<String>,
     val origins: List<String>,
-    val icon: ImageBitmap? = null,
+    val ext: WebExtension,
 )
 
-/** AMO 搜索结果 */
-data class AmoResult(
-    val guid: String,
+/** Firefox 拓展商店（AMO）搜索结果 */
+data class AmoAddon(
+    val id: Long,
+    val slug: String,
     val name: String,
     val summary: String,
     val iconUrl: String,
     val xpiUrl: String,
     val version: String,
-    val author: String,
     val users: Long,
-    val pageUrl: String,
+    val rating: Double,
 )
 
-/** 安装 / 更新时需要用户确认的权限请求 */
-class GeckoExtPrompt(
-    val name: String,
-    val permissions: List<String>,
-    val origins: List<String>,
-    val dataCollection: List<String>,
-    /** true = 更新带来了新权限；false = 首次安装 */
-    val isUpdate: Boolean,
-    private val onDecide: (granted: Boolean, privateAllowed: Boolean) -> Unit,
-) {
-    fun allow(privateAllowed: Boolean) = onDecide(true, privateAllowed)
-    fun deny() = onDecide(false, false)
-}
+/**
+ * Gecko WebExtension 的应用层封装：列表 / 安装 / 更新 + AMO 搜索。
+ *
+ * GeckoView 的 `WebExtensionController` 在不同 nightly 之间签名有过调整（install 的参数、提示委托的拆分），
+ * 所以安装与提示委托这两处按名字反射 / 动态代理，缺方法时报错而不是编译失败。
+ */
+object GeckoExtensionStore {
 
-class GeckoExtensionStore(context: Context) {
+    val items = mutableStateListOf<GeckoExtItem>()
+    val icons = mutableStateMapOf<String, ImageBitmap>()
+    val loading = mutableStateOf(false)
 
-    private val app = context.applicationContext
-    private val prefs = app.getSharedPreferences("mafari_gecko_ext", Context.MODE_PRIVATE)
+    /** 弹安装 / 权限确认框需要 Activity，由「拓展」页进入时登记 */
+    @Volatile
+    var activityProvider: (() -> Activity?)? = null
 
-    /** 已安装的拓展（不含内置拓展） */
-    val items = mutableStateListOf<GeckoAddon>()
+    private var delegateInstalled = false
 
-    /** 正在等待用户确认的权限请求（界面弹窗） */
-    var prompt by mutableStateOf<GeckoExtPrompt?>(null)
-        private set
+    private fun controller(context: Context) = GeckoRuntimeHolder.get(context).webExtensionController
 
-    /** 拓展页是否正在显示：不可见时的「更新带来新权限」直接拒绝，避免回调永远悬挂 */
-    var pageVisible = false
+    // ------------------------------------------------------------------ 列表
 
-    /** 拓展要求打开页面（设置页 / tabs.create）时调用，由 BrowserScreen 接到「新建标签」 */
-    var openUrl: ((String) -> Unit)? = null
-
-    /** 自动检查更新：0 手动 1 每天 2 每 3 天 3 每周（与脚本 / 去广告一致） */
-    var autoUpdate by mutableIntStateOf(prefs.getInt(KEY_AUTO, 1).coerceIn(0, 3))
-        private set
-
-    /** 上次检查更新的时间（毫秒），0 = 从未 */
-    var lastCheck by mutableLongStateOf(prefs.getLong(KEY_LAST, 0L))
-        private set
-
-    var loading by mutableStateOf(false)
-        private set
-
-    private val extensions = HashMap<String, WebExtension>()
-    private var attached = false
-
-    fun updateAutoUpdate(mode: Int) {
-        autoUpdate = mode.coerceIn(0, 3)
-        prefs.edit().putInt(KEY_AUTO, autoUpdate).apply()
-    }
-
-    /** Gecko 已经启动过（有 Gecko 标签）才算「可用」；不为了看一眼而启动 Gecko */
-    val runtimeReady: Boolean get() = GeckoRuntimeHolder.peek() != null
-
-    private fun controller(): WebExtensionController {
-        val controller = GeckoRuntimeHolder.get(app).webExtensionController
-        if (!attached) {
-            attached = true
-            controller.setPromptDelegate(promptDelegate)
-        }
-        return controller
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* 列表                                                                */
-    /* ------------------------------------------------------------------ */
-
-    /** 重新读取已安装拓展 */
-    suspend fun refresh() {
-        loading = true
+    suspend fun refresh(context: Context) {
+        loadPrefs(context)
+        loading.value = true
         try {
-            val list = controller().list().await().orEmpty().filter { !it.isBuiltIn }
-            extensions.clear()
-            list.forEach { ext ->
-                extensions[ext.id] = ext
-                bindDelegates(ext)
-            }
-            val old = items.associateBy { it.id }
-            val snapshot = list.map { ext -> snapshotOf(ext, old[ext.id]?.icon) }
+            val runtime = GeckoRuntimeHolder.get(context)
+            ensureDelegate(runtime)
+            val list = runtime.webExtensionController.list().await() ?: emptyList()
             items.clear()
-            items.addAll(snapshot.sortedBy { it.name.lowercase() })
-            // 图标异步补上
-            list.forEach { ext -> if (old[ext.id]?.icon == null) loadIcon(ext) }
+            items.addAll(list.filter { !it.isBuiltIn }.map { toItem(it) }.sortedBy { it.name.lowercase() })
+            items.forEach { loadIcon(it) }
         } finally {
-            loading = false
+            loading.value = false
         }
     }
 
-    private fun snapshotOf(ext: WebExtension, icon: ImageBitmap?): GeckoAddon {
-        val m = ext.metaData
-        return GeckoAddon(
+    private fun toItem(ext: WebExtension): GeckoExtItem {
+        val meta = ext.metaData
+        return GeckoExtItem(
             id = ext.id,
-            name = m.name?.takeIf { it.isNotBlank() } ?: ext.id,
-            version = m.version,
-            description = m.description.orEmpty(),
-            enabled = m.enabled,
-            allowedInPrivate = m.allowedInPrivateBrowsing,
-            optionsUrl = m.optionsPageUrl.orEmpty(),
-            homepageUrl = m.homepageUrl.orEmpty(),
-            amoUrl = m.amoListingUrl.orEmpty(),
-            creator = m.creatorName.orEmpty(),
-            permissions = m.requiredPermissions.toList(),
-            origins = m.requiredOrigins.toList(),
-            icon = icon,
+            name = meta?.name?.takeIf { it.isNotBlank() } ?: ext.id,
+            version = meta?.version.orEmpty(),
+            description = meta?.description.orEmpty(),
+            enabled = meta?.enabled ?: true,
+            optionsUrl = meta?.optionsPageUrl?.takeIf { it.isNotBlank() },
+            permissions = meta?.permissions?.toList().orEmpty(),
+            origins = meta?.origins?.toList().orEmpty(),
+            ext = ext,
         )
     }
 
-    private fun loadIcon(ext: WebExtension) {
+    private fun loadIcon(item: GeckoExtItem) {
+        if (icons.containsKey(item.id)) return
         runCatching {
-            ext.metaData.icon.getBitmap(96).accept({ bitmap ->
-                if (bitmap == null) return@accept
-                val index = items.indexOfFirst { it.id == ext.id }
-                if (index >= 0) items[index] = items[index].copy(icon = bitmap.asImageBitmap())
+            item.ext.metaData?.icon?.getBitmap(96)?.accept({ bmp ->
+                if (bmp != null) icons[item.id] = bmp.asImageBitmap()
             }, { })
         }
     }
 
-    /** 拓展自己要求开设置页 / 新标签：接到应用自己的标签页逻辑 */
-    private fun bindDelegates(ext: WebExtension) {
-        ext.setTabDelegate(object : WebExtension.TabDelegate {
-            override fun onNewTab(
-                source: WebExtension,
-                createDetails: WebExtension.CreateTabDetails,
-            ): GeckoResult<org.mozilla.geckoview.GeckoSession>? {
-                val url = createDetails.url
-                if (!url.isNullOrBlank()) openUrl?.invoke(url)
-                return null
-            }
+    // ------------------------------------------------------------------ 安装
 
-            override fun onOpenOptionsPage(source: WebExtension) {
-                val url = source.metaData.optionsPageUrl
-                if (!url.isNullOrBlank()) openUrl?.invoke(url)
-            }
-        })
+    /** 安装：uri 可以是 https 的 .xpi 链接或 file:// 本地文件；确认框由提示委托弹出 */
+    suspend fun install(context: Context, uri: String): Result<GeckoExtItem> = runCatching {
+        val runtime = GeckoRuntimeHolder.get(context)
+        ensureDelegate(runtime)
+        val controller = runtime.webExtensionController
+        val result = invokeInstall(controller, uri)
+        val ext = result.await() ?: error("安装失败")
+        refresh(context)
+        items.firstOrNull { it.id == ext.id } ?: toItem(ext)
+    }.recoverCatching { throw IllegalStateException(friendlyError(it)) }
+
+    private fun invokeInstall(controller: Any, uri: String): GeckoResult<WebExtension> {
+        val methods = controller.javaClass.methods.filter { it.name == "install" }
+        val two = methods.firstOrNull { it.parameterTypes.size == 2 && it.parameterTypes[0] == String::class.java }
+        val one = methods.firstOrNull { it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java }
+        @Suppress("UNCHECKED_CAST")
+        return when {
+            two != null -> two.invoke(controller, uri, null)
+            one != null -> one.invoke(controller, uri)
+            else -> error("当前 GeckoView 版本不支持安装拓展")
+        } as GeckoResult<WebExtension>
     }
 
-    /** 打开某个拓展的设置页（没有设置页返回 false） */
-    fun openOptions(addon: GeckoAddon): Boolean {
-        if (addon.optionsUrl.isBlank()) return false
-        openUrl?.invoke(addon.optionsUrl)
-        return addon.optionsUrl.isNotBlank()
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* 安装 / 卸载 / 开关                                                   */
-    /* ------------------------------------------------------------------ */
-
-    /** 从链接安装：AMO 页面 / xpi 直链都行（页面链接会先解析成 xpi 直链）。成功返回拓展名。 */
-    suspend fun installFromUrl(raw: String): Result<String> {
-        val url = raw.trim()
-        if (!url.startsWith("http://", true) && !url.startsWith("https://", true) && !url.startsWith("file:", true)) {
-            return Result.failure(IllegalArgumentException("请输入 http / https 链接"))
-        }
-        return runCatching {
-            val xpi = resolveXpiUrl(url)
-            val ext = controller().install(xpi).await() ?: error("安装失败")
-            refresh()
-            ext.metaData.name ?: ext.id
-        }.recoverCatching { throw IllegalStateException(friendly(it)) }
-    }
-
-    /** 从本地 .xpi 文件安装：先复制到缓存目录，再交给 Gecko（content:// 它读不到） */
-    suspend fun installFromFile(uri: Uri): Result<String> {
-        val file = File(app.cacheDir, "mafari_ext_${System.currentTimeMillis()}.xpi")
-        val copied = withContext(Dispatchers.IO) {
-            runCatching {
-                app.contentResolver.openInputStream(uri)?.use { input ->
-                    file.outputStream().use { out -> input.copyTo(out) }
-                } ?: error("读取文件失败")
-            }
-        }
-        copied.exceptionOrNull()?.let { return Result.failure(IllegalStateException("读取文件失败")) }
-        return try {
-            runCatching {
-                val ext = controller().install(Uri.fromFile(file).toString()).await() ?: error("安装失败")
-                refresh()
-                ext.metaData.name ?: ext.id
-            }.recoverCatching { throw IllegalStateException(friendly(it)) }
-        } finally {
-            runCatching { file.delete() }
+    private fun friendlyError(t: Throwable): String {
+        val raw = (t.cause?.message ?: t.message).orEmpty()
+        return when {
+            raw.contains("userCancelled", true) || raw.contains("cancel", true) -> "已取消安装"
+            raw.contains("signature", true) -> "拓展签名无效"
+            raw.contains("incompatible", true) -> "此拓展与当前内核不兼容"
+            raw.contains("networkFailure", true) || raw.contains("network", true) -> "下载失败，检查网络或链接"
+            raw.contains("corrupt", true) || raw.contains("invalid", true) -> "不是有效的拓展文件"
+            raw.isBlank() -> "安装失败"
+            else -> raw
         }
     }
 
-    suspend fun uninstall(addon: GeckoAddon): Result<Unit> = runCatching {
-        val ext = extensions[addon.id] ?: error("拓展不存在")
-        controller().uninstall(ext).await()
-        refresh()
-    }.recoverCatching { throw IllegalStateException(friendly(it)) }
+    /** 把用户选的本地文件拷到缓存后返回 file:// 地址（Gecko 只认文件路径） */
+    suspend fun stageFile(context: Context, source: Uri): String = withContext(Dispatchers.IO) {
+        val dir = File(context.cacheDir, "gecko_ext_import").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val target = File(dir, "import_${System.currentTimeMillis()}.xpi")
+        context.contentResolver.openInputStream(source)?.use { input ->
+            target.outputStream().use { input.copyTo(it) }
+        } ?: error("读取文件失败")
+        "file://" + target.absolutePath
+    }
 
-    suspend fun setEnabled(addon: GeckoAddon, enabled: Boolean): Result<Unit> = runCatching {
-        val ext = extensions[addon.id] ?: error("拓展不存在")
-        val c = controller()
-        if (enabled) {
-            c.enable(ext, WebExtensionController.EnableSource.USER).await()
-        } else {
-            c.disable(ext, WebExtensionController.EnableSource.USER).await()
-        }
-        refresh()
-    }.recoverCatching { throw IllegalStateException(friendly(it)) }
+    // ------------------------------------------------------------------ 更新
 
-    suspend fun setAllowedInPrivate(addon: GeckoAddon, allowed: Boolean): Result<Unit> = runCatching {
-        val ext = extensions[addon.id] ?: error("拓展不存在")
-        controller().setAllowedInPrivateBrowsing(ext, allowed).await()
-        refresh()
-    }.recoverCatching { throw IllegalStateException(friendly(it)) }
-
-    /* ------------------------------------------------------------------ */
-    /* 更新                                                                */
-    /* ------------------------------------------------------------------ */
-
-    /** 检查并更新单个拓展。返回 true = 有新版本并已更新，false = 已是最新。 */
-    suspend fun update(addon: GeckoAddon): Result<Boolean> = runCatching {
-        val ext = extensions[addon.id] ?: error("拓展不存在")
-        val before = ext.metaData.version
-        val updated = controller().update(ext).await()
-        refresh()
-        updated != null && updated.metaData.version != before
-    }.recoverCatching { throw IllegalStateException(friendly(it)) }
-
-    /** 全部更新，返回 (有更新的数量, 检查成功的数量, 总数)；同时记下检查时间 */
-    suspend fun updateAll(): Triple<Int, Int, Int> {
+    /** 检查并更新全部拓展，返回 (已更新数, 总数)；有权限变化的更新会弹确认框 */
+    suspend fun updateAll(context: Context): Pair<Int, Int> {
+        loadPrefs(context)
+        val controller = controller(context)
+        if (items.isEmpty()) refresh(context)
         var updated = 0
-        var checked = 0
-        val targets = items.toList()
-        for (addon in targets) {
-            val r = update(addon)
-            if (r.isSuccess) {
-                checked++
-                if (r.getOrDefault(false)) updated++
-            }
+        val snapshot = items.toList()
+        for (item in snapshot) {
+            val before = item.version
+            val after = runCatching { controller.update(item.ext).await() }.getOrNull()
+            val newVersion = after?.metaData?.version
+            if (after != null && !newVersion.isNullOrEmpty() && newVersion != before) updated++
         }
-        markChecked()
-        return Triple(updated, checked, targets.size)
+        markChecked(context)
+        refresh(context)
+        return updated to snapshot.size
     }
 
-    private fun markChecked() {
-        lastCheck = System.currentTimeMillis()
-        prefs.edit().putLong(KEY_LAST, lastCheck).apply()
+    // ------------------------------------------------------------------ 管理：启停 / 卸载 / 单个更新
+
+    suspend fun setEnabled(context: Context, item: GeckoExtItem, enabled: Boolean): Result<Unit> = runCatching {
+        val c = controller(context)
+        val r = if (enabled) c.enable(item.ext, WebExtensionController.EnableSource.USER)
+        else c.disable(item.ext, WebExtensionController.EnableSource.USER)
+        r.await()
+        refresh(context)
+    }.recoverCatching { throw IllegalStateException(if (enabled) "启用失败" else "停用失败") }
+
+    suspend fun uninstall(context: Context, item: GeckoExtItem): Result<Unit> = runCatching {
+        controller(context).uninstall(item.ext).await()
+        icons.remove(item.id)
+        refresh(context)
+    }.recoverCatching { throw IllegalStateException("卸载失败") }
+
+    /** 检查单个拓展的更新：true = 已更新到新版本，false = 已是最新 */
+    suspend fun updateOne(context: Context, item: GeckoExtItem): Result<Boolean> = runCatching {
+        val after = controller(context).update(item.ext).await()
+        val newVersion = after?.metaData?.version
+        val changed = after != null && !newVersion.isNullOrEmpty() && newVersion != item.version
+        if (changed) refresh(context)
+        changed
+    }.recoverCatching { throw IllegalStateException("检查更新失败，检查网络") }
+
+    // ------------------------------------------------------------------ 定期检查更新
+
+    /** 自动检查间隔：0 手动 / 1 每天 / 2 每 3 天 / 3 每周 */
+    val autoUpdate = mutableStateOf(1)
+
+    /** 上次检查更新的时间（毫秒，0 = 从未） */
+    val lastCheck = mutableStateOf(0L)
+
+    private var prefsLoaded = false
+    private val INTERVALS_MS = longArrayOf(0L, 24L * 3_600_000, 3 * 24L * 3_600_000, 7 * 24L * 3_600_000)
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences("mafari_gecko_ext", Context.MODE_PRIVATE)
+
+    private fun loadPrefs(context: Context) {
+        if (prefsLoaded) return
+        prefsLoaded = true
+        val p = prefs(context)
+        autoUpdate.value = p.getInt("auto_update", 1).coerceIn(0, 3)
+        lastCheck.value = p.getLong("last_check", 0L)
     }
 
-    /** 按设置的间隔检查更新；只在 Gecko 已经启动时进行（不为了检查更新而拉起 Gecko） */
-    suspend fun autoUpdateIfDue() {
-        val days = when (autoUpdate) {
-            1 -> 1
-            2 -> 3
-            3 -> 7
-            else -> return
-        }
-        if (!runtimeReady) return
-        if (System.currentTimeMillis() - lastCheck < days * 86_400_000L) return
-        runCatching {
-            refresh()
-            if (items.isNotEmpty()) updateAll() else markChecked()
-        }
+    fun updateAutoUpdate(context: Context, index: Int) {
+        loadPrefs(context)
+        autoUpdate.value = index.coerceIn(0, 3)
+        prefs(context).edit().putInt("auto_update", autoUpdate.value).apply()
     }
 
-    /* ------------------------------------------------------------------ */
-    /* AMO（Firefox 附加组件商店）                                          */
-    /* ------------------------------------------------------------------ */
+    private fun markChecked(context: Context) {
+        lastCheck.value = System.currentTimeMillis()
+        prefs(context).edit().putLong("last_check", lastCheck.value).apply()
+    }
 
-    /** 搜索商店里支持 Firefox for Android 的拓展 */
-    suspend fun search(query: String): Result<List<AmoResult>> = withContext(Dispatchers.IO) {
-        runCatching {
-            val q = URLEncoder.encode(query.trim().take(100), "UTF-8")
-            val text = httpGet("https://addons.mozilla.org/api/v5/addons/search/?q=$q&app=android&type=extension&sort=users&page_size=20&lang=zh-CN")
-            val results = JSONObject(text).optJSONArray("results") ?: return@runCatching emptyList()
-            buildList {
-                for (i in 0 until results.length()) {
-                    val o = results.optJSONObject(i) ?: continue
-                    val xpi = o.optJSONObject("current_version")?.optJSONObject("file")?.optString("url").orEmpty()
-                    val guid = o.optString("guid")
-                    if (xpi.isBlank() || guid.isBlank()) continue
-                    add(
-                        AmoResult(
-                            guid = guid,
-                            name = localized(o.opt("name")).ifBlank { guid },
-                            summary = localized(o.opt("summary")),
-                            iconUrl = o.optString("icon_url"),
-                            xpiUrl = xpi,
-                            version = o.optJSONObject("current_version")?.optString("version").orEmpty(),
-                            author = o.optJSONArray("authors")?.optJSONObject(0)?.optString("name").orEmpty(),
-                            users = o.optLong("average_daily_users"),
-                            pageUrl = o.optString("url"),
-                        ),
-                    )
+    /**
+     * 到点就静默检查全部拓展的更新（应用在前台期间每隔一段时间调用一次）。
+     * 新版本要求更多权限时需要确认：此时没有「拓展」页的 Activity 登记，提示会被拒绝，下次手动更新时再确认。
+     * @return 更新数；没到点 / 手动模式返回 null
+     */
+    suspend fun maybeAutoUpdate(context: Context): Int? {
+        loadPrefs(context)
+        val interval = INTERVALS_MS[autoUpdate.value]
+        if (interval == 0L) return null
+        if (System.currentTimeMillis() - lastCheck.value < interval) return null
+        if (GeckoRuntimeHolder.peek() == null) return null   // 没用过 Gecko 就不为了检查更新去启动它
+        val (updated, _) = updateAll(context)
+        return updated
+    }
+
+    // ------------------------------------------------------------------ 提示委托（安装 / 更新 / 可选权限确认）
+
+    private fun ensureDelegate(runtime: GeckoRuntime) {
+        if (delegateInstalled) return
+        val controller = runtime.webExtensionController
+        var installedAny = false
+        controller.javaClass.methods
+            .filter { it.name.startsWith("set") && it.name.endsWith("PromptDelegate") && it.parameterTypes.size == 1 && it.parameterTypes[0].isInterface }
+            .forEach { setter ->
+                runCatching {
+                    val iface = setter.parameterTypes[0]
+                    val proxy = Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
+                        when {
+                            method.name == "hashCode" -> System.identityHashCode(self)
+                            method.name == "equals" -> self === args?.firstOrNull()
+                            method.name == "toString" -> "GeckoExtensionPrompt"
+                            method.name.contains("Prompt") && GeckoResult::class.java.isAssignableFrom(method.returnType) ->
+                                askPermission(method.name, args)
+                            else -> null
+                        }
+                    }
+                    setter.invoke(controller, proxy)
+                    installedAny = true
                 }
             }
-        }.recoverCatching { throw IllegalStateException("搜索失败，检查网络（需要能访问 addons.mozilla.org）") }
+        delegateInstalled = installedAny
     }
 
-    /** 从商店结果安装 */
-    suspend fun installFromAmo(result: AmoResult): Result<String> = runCatching {
-        val ext = controller().install(result.xpiUrl).await() ?: error("安装失败")
-        refresh()
-        ext.metaData.name ?: result.name
-    }.recoverCatching { throw IllegalStateException(friendly(it)) }
+    private val PERMISSION_NAMES = mapOf(
+        "<all_urls>" to "访问所有网站的数据",
+        "tabs" to "查看标签页的标题和地址",
+        "activeTab" to "访问当前标签页",
+        "cookies" to "读写 Cookie",
+        "webRequest" to "监控网络请求",
+        "webRequestBlocking" to "拦截 / 修改网络请求",
+        "declarativeNetRequest" to "按规则拦截网络请求",
+        "storage" to "保存拓展自己的数据",
+        "unlimitedStorage" to "无限存储",
+        "downloads" to "管理下载",
+        "history" to "读取浏览历史",
+        "bookmarks" to "读写书签",
+        "clipboardRead" to "读取剪贴板",
+        "clipboardWrite" to "写入剪贴板",
+        "notifications" to "显示通知",
+        "nativeMessaging" to "与本机程序通信",
+        "geolocation" to "获取位置",
+        "contextMenus" to "添加右键菜单",
+        "proxy" to "控制代理设置",
+        "privacy" to "修改隐私设置",
+        "management" to "管理其他拓展",
+        "scripting" to "向网页注入脚本",
+        "webNavigation" to "监控页面跳转",
+    )
 
-    /** AMO 详情页链接 → 用 API 解析出 xpi 直链；其它链接原样返回 */
-    private suspend fun resolveXpiUrl(url: String): String {
-        val lower = url.lowercase()
-        if (!lower.contains("addons.mozilla.org") || lower.endsWith(".xpi") || lower.contains("/downloads/")) return url
-        // https://addons.mozilla.org/zh-CN/firefox/addon/<slug>/
-        val slug = Regex("/addon/([^/?#]+)").find(url)?.groupValues?.get(1) ?: return url
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                val text = httpGet("https://addons.mozilla.org/api/v5/addons/addon/$slug/")
-                JSONObject(text).optJSONObject("current_version")?.optJSONObject("file")?.optString("url")
-            }.getOrNull()?.takeIf { it.isNotBlank() } ?: url
+    /** 权限 / 可访问网站 → 中文说明（安装确认框与详情页共用） */
+    fun describePermissions(permissions: List<String>, origins: List<String>): List<String> = buildList {
+        permissions.forEach { add(PERMISSION_NAMES[it] ?: it) }
+        val allSites = origins.any { it == "<all_urls>" || it == "*://*/*" || it == "http://*/*" || it == "https://*/*" }
+        if (allSites) {
+            if ("<all_urls>" !in permissions) add(PERMISSION_NAMES.getValue("<all_urls>"))
+        } else {
+            origins.take(5).forEach { add("访问 $it") }
+            if (origins.size > 5) add("以及另外 ${origins.size - 5} 个网站")
         }
+    }
+
+    private fun askPermission(method: String, args: Array<Any?>?): GeckoResult<AllowOrDeny> {
+        val result = GeckoResult<AllowOrDeny>()
+        val ext = args?.firstOrNull { it is WebExtension } as? WebExtension
+        val arrays = args?.filterIsInstance<Array<*>>()?.map { arr -> arr.filterIsInstance<String>() }.orEmpty()
+        val permissions = arrays.getOrNull(0).orEmpty()
+        val origins = arrays.getOrNull(1).orEmpty()
+        val name = ext?.metaData?.name?.takeIf { it.isNotBlank() } ?: "此拓展"
+        val lines = describePermissions(permissions, origins).map { "· $it" }
+        val title = when {
+            method.contains("Update") -> "更新「$name」？"
+            method.contains("Optional") -> "「$name」请求更多权限"
+            else -> "添加「$name」？"
+        }
+        val message = if (lines.isEmpty()) "此拓展不需要额外权限。" else "此拓展将可以：\n" + lines.joinToString("\n")
+        val activity = activityProvider?.invoke()
+        if (activity == null || activity.isFinishing || activity.isDestroyed) {
+            result.complete(AllowOrDeny.DENY)
+            return result
+        }
+        activity.runOnUiThread {
+            runCatching {
+                AlertDialog.Builder(activity)
+                    .setTitle(title)
+                    .setMessage(message)
+                    .setPositiveButton(if (method.contains("Install")) "添加" else "允许") { _, _ -> result.complete(AllowOrDeny.ALLOW) }
+                    .setNegativeButton("取消") { _, _ -> result.complete(AllowOrDeny.DENY) }
+                    .setOnCancelListener { result.complete(AllowOrDeny.DENY) }
+                    .show()
+            }.onFailure { result.complete(AllowOrDeny.DENY) }
+        }
+        return result
+    }
+
+    // ------------------------------------------------------------------ AMO（addons.mozilla.org）
+
+    private const val AMO_API = "https://addons.mozilla.org/api/v5/addons"
+
+    suspend fun searchAmo(query: String): Result<List<AmoAddon>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = "$AMO_API/search/?app=android&type=extension&sort=users&page_size=20&lang=zh-CN&q=" +
+                URLEncoder.encode(query, "UTF-8")
+            val results = JSONObject(httpGet(url)).optJSONArray("results") ?: return@runCatching emptyList()
+            (0 until results.length()).mapNotNull { parseAddon(results.getJSONObject(it)) }
+        }.recoverCatching { throw IllegalStateException(netMessage(it)) }
+    }
+
+    /** 把 addons.mozilla.org 的商店页面链接解析成拓展信息（取 xpi 下载地址）；不是商店页面返回 null */
+    suspend fun resolveAmoPage(url: String): Result<AmoAddon?> = withContext(Dispatchers.IO) {
+        runCatching {
+            val uri = Uri.parse(url)
+            val host = uri.host.orEmpty()
+            if (!host.endsWith("addons.mozilla.org")) return@runCatching null
+            val slug = Regex("/addon/([^/?#]+)").find(uri.path.orEmpty())?.groupValues?.get(1)
+                ?: return@runCatching null
+            parseAddon(JSONObject(httpGet("$AMO_API/addon/${URLEncoder.encode(slug, "UTF-8")}/?lang=zh-CN")))
+                ?: error("商店里找不到这个拓展")
+        }.recoverCatching { throw IllegalStateException(netMessage(it)) }
+    }
+
+    private fun netMessage(t: Throwable) =
+        t.message?.takeIf { it.startsWith("服务器返回") || it.startsWith("商店") } ?: "访问商店失败，检查网络"
+
+    /** AMO 的多语言字段：带 lang 参数时是字符串，否则是 {语言: 文本} */
+    private fun localized(o: JSONObject, key: String): String {
+        val v = o.opt(key)
+        return when (v) {
+            is String -> v
+            is JSONObject -> v.optString("zh-CN").ifBlank { v.optString("en-US") }.ifBlank {
+                v.keys().asSequence().firstOrNull()?.let { v.optString(it) }.orEmpty()
+            }
+            else -> ""
+        }
+    }
+
+    private fun parseAddon(o: JSONObject): AmoAddon? {
+        val current = o.optJSONObject("current_version") ?: return null
+        val xpi = current.optJSONObject("file")?.optString("url")?.takeIf { it.isNotBlank() }
+            ?: current.optJSONArray("files")?.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
+            ?: return null
+        return AmoAddon(
+            id = o.optLong("id"),
+            slug = o.optString("slug"),
+            name = localized(o, "name").ifBlank { o.optString("slug") },
+            summary = localized(o, "summary").replace(Regex("<[^>]+>"), "").trim(),
+            iconUrl = o.optString("icon_url"),
+            xpiUrl = xpi,
+            version = current.optString("version"),
+            users = o.optLong("average_daily_users"),
+            rating = o.optJSONObject("ratings")?.optDouble("average", 0.0) ?: 0.0,
+        )
     }
 
     private fun httpGet(url: String): String {
@@ -386,188 +422,29 @@ class GeckoExtensionStore(context: Context) {
             setRequestProperty("Accept", "application/json")
         }
         try {
-            if (c.responseCode !in 200..299) error("HTTP ${c.responseCode}")
+            val code = c.responseCode
+            if (code !in 200..299) error("服务器返回 HTTP $code")
             return c.inputStream.bufferedReader().readText()
         } finally {
             c.disconnect()
         }
     }
-
-    /** AMO 的多语言字段：带 lang 时是字符串；不带时是 {locale: text} 对象 */
-    private fun localized(v: Any?): String = when (v) {
-        is String -> v
-        is JSONObject -> v.optString("zh-CN").ifBlank { v.optString("en-US") }
-            .ifBlank { v.keys().asSequence().firstNotNullOfOrNull { k -> v.optString(k).takeIf { s -> s.isNotBlank() } }.orEmpty() }
-        else -> ""
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* 权限确认                                                            */
-    /* ------------------------------------------------------------------ */
-
-    private val promptDelegate = object : WebExtensionController.PromptDelegate {
-        override fun onInstallPromptRequest(
-            extension: WebExtension,
-            permissions: Array<String>,
-            origins: Array<String>,
-            dataCollectionPermissions: Array<String>,
-        ): GeckoResult<WebExtension.PermissionPromptResponse>? {
-            val result = GeckoResult<WebExtension.PermissionPromptResponse>()
-            val shown = showPrompt(
-                GeckoExtPrompt(
-                    name = extension.metaData.name ?: extension.id,
-                    permissions = permissions.toList(),
-                    origins = origins.toList(),
-                    dataCollection = dataCollectionPermissions.toList(),
-                    isUpdate = false,
-                    onDecide = { granted, privateAllowed ->
-                        prompt = null
-                        result.complete(WebExtension.PermissionPromptResponse(granted, privateAllowed, false))
-                    },
-                ),
-            )
-            if (!shown) result.complete(WebExtension.PermissionPromptResponse(false, false, false))
-            return result
-        }
-
-        override fun onUpdatePrompt(
-            extension: WebExtension,
-            newPermissions: Array<String>,
-            newOrigins: Array<String>,
-            newDataCollectionPermissions: Array<String>,
-        ): GeckoResult<AllowOrDeny>? {
-            val result = GeckoResult<AllowOrDeny>()
-            val shown = showPrompt(
-                GeckoExtPrompt(
-                    name = extension.metaData.name ?: extension.id,
-                    permissions = newPermissions.toList(),
-                    origins = newOrigins.toList(),
-                    dataCollection = newDataCollectionPermissions.toList(),
-                    isUpdate = true,
-                    onDecide = { granted, _ ->
-                        prompt = null
-                        result.complete(if (granted) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
-                    },
-                ),
-            )
-            if (!shown) result.complete(AllowOrDeny.DENY)
-            return result
-        }
-
-        override fun onOptionalPrompt(
-            extension: WebExtension,
-            permissions: Array<String>,
-            origins: Array<String>,
-            dataCollectionPermissions: Array<String>,
-        ): GeckoResult<AllowOrDeny>? {
-            // 拓展运行中申请的「可选权限」：同样交给用户确认
-            val result = GeckoResult<AllowOrDeny>()
-            val shown = showPrompt(
-                GeckoExtPrompt(
-                    name = extension.metaData.name ?: extension.id,
-                    permissions = permissions.toList(),
-                    origins = origins.toList(),
-                    dataCollection = dataCollectionPermissions.toList(),
-                    isUpdate = true,
-                    onDecide = { granted, _ ->
-                        prompt = null
-                        result.complete(if (granted) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
-                    },
-                ),
-            )
-            if (!shown) result.complete(AllowOrDeny.DENY)
-            return result
-        }
-    }
-
-    /** 拓展页不在前台、或已有一个确认弹窗时返回 false（调用方按「拒绝」处理） */
-    private fun showPrompt(p: GeckoExtPrompt): Boolean {
-        if (!pageVisible || prompt != null) return false
-        prompt = p
-        return true
-    }
-
-    /** 报错信息本地化：不把 Gecko 的英文异常直接甩给用户 */
-    private fun friendly(t: Throwable): String {
-        val msg = t.message.orEmpty()
-        return when {
-            msg.contains("CANCELED", true) || msg.contains("cancel", true) -> "已取消安装"
-            msg.contains("NETWORK", true) || msg.contains("Unable to resolve", true) -> "下载失败，检查网络"
-            msg.contains("SIGNEDSTATE", true) || msg.contains("signature", true) -> "拓展未通过签名校验"
-            msg.contains("INCOMPATIBLE", true) -> "该拓展与当前 Gecko 版本不兼容"
-            msg.contains("BLOCKLISTED", true) -> "该拓展已被 Mozilla 屏蔽"
-            msg.contains("CORRUPT", true) || msg.contains("INVALID", true) -> "不是有效的拓展文件（.xpi）"
-            msg.isNotBlank() && msg.any { it.code > 127 } -> msg // 已经是中文提示
-            else -> "操作失败" + if (msg.isNotBlank()) "：" + msg.take(60) else ""
-        }
-    }
-
-    private companion object {
-        const val KEY_AUTO = "auto_update"
-        const val KEY_LAST = "last_check"
-    }
 }
 
-/** GeckoResult → 协程挂起；必须在带 Looper 的线程（主线程）调用 */
-private suspend fun <T> GeckoResult<T>.await(): T? = suspendCancellableCoroutine { cont ->
-    accept({ value -> if (cont.isActive) cont.resume(value) }, { error ->
-        if (cont.isActive) cont.resumeWithException(error ?: RuntimeException("unknown"))
-    })
+/** GeckoResult → 协程；值可能为 null */
+suspend fun <T> GeckoResult<T>.await(): T? = suspendCancellableCoroutine { cont ->
+    accept(
+        { value -> if (cont.isActive) cont.resume(value) },
+        { error -> if (cont.isActive) cont.resumeWith(Result.failure(error ?: IllegalStateException("操作失败"))) },
+    )
 }
 
-/** 权限名 → 中文说明（没有收录的直接显示原名） */
-fun describePermission(name: String): String = when (name) {
-    "activeTab" -> "访问当前打开的标签页"
-    "tabs" -> "读取标签页的网址和标题"
-    "tabHide" -> "隐藏和显示标签页"
-    "bookmarks" -> "读取和修改书签"
-    "history" -> "读取浏览历史"
-    "cookies" -> "读取和修改 Cookie"
-    "storage", "unlimitedStorage" -> "保存拓展自己的数据"
-    "downloads" -> "管理下载"
-    "downloads.open" -> "下载并打开文件"
-    "clipboardRead" -> "读取剪贴板"
-    "clipboardWrite" -> "写入剪贴板"
-    "notifications" -> "显示通知"
-    "webRequest", "webRequestBlocking" -> "监视并拦截网络请求"
-    "webNavigation" -> "访问浏览过程中的导航信息"
-    "contextMenus", "menus" -> "添加长按菜单项"
-    "nativeMessaging" -> "与设备上的其它程序通信"
-    "geolocation" -> "获取你的位置"
-    "privacy" -> "读取和修改隐私设置"
-    "proxy" -> "控制浏览器的代理设置"
-    "management" -> "管理其它拓展"
-    "search" -> "使用搜索引擎"
-    "topSites" -> "读取常用网站"
-    "find" -> "在页面中查找内容"
-    "scripting" -> "在网页中运行脚本"
-    "declarativeNetRequest", "declarativeNetRequestWithHostAccess", "declarativeNetRequestFeedback" -> "拦截和修改网络请求"
-    "dns" -> "解析域名"
-    "identity" -> "登录账号（OAuth）"
-    "alarms" -> "定时运行"
-    "idle" -> "检测设备是否空闲"
-    "sessions" -> "读取最近关闭的标签页"
-    "theme" -> "修改浏览器主题"
-    "browserSettings" -> "修改浏览器设置"
-    "captivePortal" -> "检测网络登录门户"
-    "technicalAndInteraction" -> "收集技术和交互数据"
-    "locationInfo" -> "收集位置信息"
-    "browsingActivity" -> "收集浏览活动"
-    "searchTerms" -> "收集搜索词"
-    "websiteContent" -> "收集网站内容"
-    "websiteActivity" -> "收集网站活动"
-    "personallyIdentifyingInfo" -> "收集个人身份信息"
-    "healthInfo" -> "收集健康信息"
-    "financialAndPaymentInfo" -> "收集财务和支付信息"
-    "authenticationInfo" -> "收集身份验证信息"
-    "personalCommunications" -> "收集个人通讯内容"
-    else -> name
-}
-
-/** 站点匹配 → 中文说明 */
-fun describeOrigin(origin: String): String = when {
-    origin == "<all_urls>" || origin == "*://*/*" || origin == "http://*/*" || origin == "https://*/*" ||
-        origin == "*://*/" -> "访问你在所有网站上的数据"
-    else -> "访问 " + origin.removePrefix("*://").removePrefix("https://").removePrefix("http://")
-        .removeSuffix("/*").removeSuffix("/") + " 的数据"
+/** Compose 的 context 常是 ContextWrapper，剥到 Activity */
+fun Context.findActivity(): Activity? {
+    var c: Context? = this
+    while (c is ContextWrapper) {
+        if (c is Activity) return c
+        c = c.baseContext
+    }
+    return null
 }

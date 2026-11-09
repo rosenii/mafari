@@ -87,14 +87,14 @@ fun SettingsScreen(
     onApplyUserAgent: (String) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenScripts: () -> Unit,
+    onOpenGeckoExtensions: () -> Unit = {},
+    onOpenGeckoProtection: () -> Unit = {},
     onOpenAdBlock: () -> Unit,
     onOpenFingerprint: () -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
-    /** 当前标签是 Gecko 内核：依赖 WebView 专有 API 的功能置灰，点击只弹 toast（见 docs/GECKO.md 适配矩阵） */
-    geckoActive: Boolean = false,
 ) {
     val context = LocalContext.current
     var showUa by remember { mutableStateOf(false) }
@@ -321,7 +321,7 @@ fun SettingsScreen(
                         backdrop = if (glass) backdrop else null,
                         title = "浏览器内核",
                         summary = if (settings.browserEngine == ENGINE_GECKO) {
-                            "Gecko：新建标签页生效，已打开的标签保持原内核 · Gecko 标签下不支持的功能会置灰，菜单里出现「拓展」"
+                            "Gecko：新建标签页生效，已打开的标签保持原内核 · 脚本 / 去广告暂不可用，可用扩展替代"
                         } else {
                             "系统 WebView：新建标签页生效，已打开的标签保持原内核"
                         },
@@ -340,7 +340,34 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    GeckoGate(geckoActive, "，可在「拓展」安装 Tampermonkey、uBlock Origin 替代") {
+                    // 拓展栏：切到 Gecko 自动展开，切回 WebView 收起（WebExtension 只有 Gecko 才有）
+                    AnimatedVisibility(
+                        visible = settings.geckoMode,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                        SettingsRow(
+                            title = "拓展",
+                            summary = "Firefox 扩展：搜索 / 导入 / 管理 · 可用 uBlock Origin、Violentmonkey 等替代去广告与脚本",
+                            onClick = onOpenGeckoExtensions,
+                        )
+                    }
+                    AnimatedVisibility(
+                        visible = settings.geckoMode,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                        SettingsRow(
+                            title = "Gecko 高级保护",
+                            summary = GeckoProtection.activeCount().let {
+                                if (it == 0) "反追踪 · 指纹保护 · 安全 DNS · HTTPS-Only"
+                                else "已开启 $it 项 · 反追踪 · 指纹保护 · 安全 DNS"
+                            },
+                            onClick = onOpenGeckoProtection,
+                        )
+                    }
+                    // Gecko 下这三项依赖 WebView 专有 API（脚本注入 / 请求拦截），置灰；改用拓展栏里的扩展替代
+                    GeckoLocked(locked = settings.geckoMode) {
                         AppSwitchPreference(
                             title = "网页增强",
                             summary = "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告",
@@ -352,7 +379,7 @@ fun SettingsScreen(
                             },
                         )
                     }
-                    GeckoGate(geckoActive, "，可安装 uBlock Origin 拓展替代") {
+                    GeckoLocked(locked = settings.geckoMode) {
                         SettingsRow(
                             title = "去广告",
                             summary = if (AdBlock.enabled) {
@@ -363,7 +390,7 @@ fun SettingsScreen(
                             onClick = onOpenAdBlock,
                         )
                     }
-                    GeckoGate(geckoActive, "，可安装 Tampermonkey / Violentmonkey 拓展替代") {
+                    GeckoLocked(locked = settings.geckoMode) {
                         SettingsRow(
                             title = "脚本管理",
                             summary = "用户脚本 / 油猴脚本",
@@ -570,7 +597,7 @@ fun SettingsScreen(
                     }
                     if (proxyAuth && proxyType == 1) {
                         Text(
-                            text = "SOCKS5 认证由应用内本机中转（127.0.0.1 随机端口）完成，WebView 和 Gecko 自身都不支持 SOCKS5 认证。",
+                            text = "SOCKS5 认证由应用内本机中转（127.0.0.1 随机端口）完成，WebView 自身不支持 SOCKS5 认证。",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(top = 4.dp),
@@ -676,15 +703,18 @@ fun SettingsScreen(
                         Triple("网站媒体发声", settings.mediaAutoplay, settings::updateMediaAutoplay),
                         Triple("网页重定向", settings.redirectPermission, settings::updateRedirectPermission),
                     ).forEach { (label, current, update) ->
-                        AppDropdownPreference(
-                            title = label,
-                            items = permOptions,
-                            selectedIndex = current.coerceIn(0, 2),
-                            onSelectedIndexChange = { update(it) },
-                            backdrop = if (glass) backdrop else null,
-                            visuals = popupVisuals,
-                            insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                        )
+                        // 这三项在 WebView 里靠注入 JS 实现，Gecko 走自己的权限系统：置灰
+                        GeckoLocked(locked = settings.geckoMode && label in GECKO_UNSUPPORTED_PERMISSIONS) {
+                            AppDropdownPreference(
+                                title = label,
+                                items = permOptions,
+                                selectedIndex = current.coerceIn(0, 2),
+                                onSelectedIndexChange = { update(it) },
+                                backdrop = if (glass) backdrop else null,
+                                visuals = popupVisuals,
+                                insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -798,6 +828,9 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
         }
     }
 }
+
+/** Gecko 下不适用的网站权限项（WebView 靠注入 JS 实现） */
+private val GECKO_UNSUPPORTED_PERMISSIONS = setOf("网站通知", "剪贴板读写", "网站媒体发声")
 
 @Composable
 private fun SettingsRow(title: String, summary: String, onClick: () -> Unit) {
