@@ -137,6 +137,8 @@ object GeckoExtensionStore {
         val runtime = GeckoRuntimeHolder.get(context)
         ensureDelegate(runtime)
         val controller = runtime.webExtensionController
+        promptFailure = null
+        Diag.log("ext: install $uri")
         val result = invokeInstall(controller, uri)
         // 兜底超时：提示框被系统回收 / 内核没回调时，界面不会永远停在「安装中」
         val ext = withTimeoutOrNull(INSTALL_TIMEOUT_MS) { result.await() ?: error("安装失败") }
@@ -158,6 +160,7 @@ object GeckoExtensionStore {
     }
 
     private fun friendlyError(t: Throwable): String {
+        promptFailure?.let { promptFailure = null; return it }
         val raw = (t.cause?.message ?: t.message).orEmpty()
         return when {
             raw.contains("userCancelled", true) || raw.contains("cancel", true) -> "已取消安装"
@@ -297,8 +300,10 @@ object GeckoExtensionStore {
                     }
                     setter.invoke(controller, proxy)
                     installedAny = true
-                }
+                    Diag.log("ext: prompt delegate installed via ${setter.name}(${iface.simpleName})")
+                }.onFailure { Diag.log("ext: ${setter.name} failed: $it") }
             }
+        if (!installedAny) Diag.log("ext: no PromptDelegate setter found on WebExtensionController")
         delegateInstalled = installedAny
     }
 
@@ -319,16 +324,33 @@ object GeckoExtensionStore {
         return null
     }
 
-    /** PermissionPromptResponse(是否同意权限, 是否允许在无痕窗口运行, 是否同意收集技术与交互数据…)：不同版本布尔参数个数不同，取参数最多的构造函数 */
-    private fun buildPromptResponse(cls: Class<*>, allow: Boolean): Any? {
+    /**
+     * PermissionPromptResponse(是否同意权限, 是否允许在无痕窗口运行, 是否同意收集技术与交互数据)。
+     * 新版（GV 144+，旧的原始类型构造函数已被删除）参数是装箱的 `Boolean`，最后一个还可以为 null；
+     * 旧版是原始类型 `boolean`。两种都要认，否则找不到构造函数 → 回不了结果 → 安装一直卡在「安装中」。
+     */
+    private fun buildPromptResponse(cls: Class<*>, allow: Boolean, dataGranted: Boolean?): Any? {
         return try {
+            fun isBool(t: Class<*>) = t == java.lang.Boolean.TYPE || t == Boolean::class.javaObjectType
             val ctor = cls.constructors
-                .filter { c -> c.parameterTypes.isNotEmpty() && c.parameterTypes.all { it == java.lang.Boolean.TYPE } }
+                .filter { c -> c.parameterTypes.isNotEmpty() && c.parameterTypes.all { isBool(it) } }
                 .maxByOrNull { it.parameterTypes.size }
-                ?: return null
-            val values = Array<Any?>(ctor.parameterTypes.size) { i -> if (i == 0) allow else false }
+            if (ctor == null) {
+                Diag.log("ext: no Boolean ctor on ${cls.name}: " + cls.constructors.joinToString { c -> c.parameterTypes.joinToString(prefix = "(", postfix = ")") { it.simpleName } })
+                return null
+            }
+            val values = Array<Any?>(ctor.parameterTypes.size) { i ->
+                val primitive = ctor.parameterTypes[i].isPrimitive
+                when (i) {
+                    0 -> allow
+                    1 -> false
+                    2 -> dataGranted ?: if (primitive) false else null
+                    else -> if (primitive) false else null
+                }
+            }
             ctor.newInstance(*values)
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            Diag.log("ext: build PermissionPromptResponse failed: $t")
             null
         }
     }
@@ -386,29 +408,43 @@ object GeckoExtensionStore {
         }
     }
 
+    /** 最近一次确认框回结果失败的原因（构造 PermissionPromptResponse 失败等） */
+    @Volatile
+    private var promptFailure: String? = null
+
     private fun askPermission(method: Method, args: Array<Any?>?): GeckoResult<Any?> {
         val name = method.name
         val result = GeckoResult<Any?>()
         val responseClass = promptResponseClass(method)
         val done = AtomicBoolean(false)
 
-        /** 只回一次；类型按内核要求的来（见 [promptResponseClass]） */
-        fun finish(allow: Boolean) {
-            if (!done.compareAndSet(false, true)) return
-            if (responseClass == null) {
-                result.complete(if (allow) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
-            } else {
-                val response = buildPromptResponse(responseClass, allow)
-                if (response != null) result.complete(response)
-                else result.completeExceptionally(IllegalStateException("当前 GeckoView 版本的安装确认接口不兼容"))
-            }
-        }
-
         val ext = args?.firstOrNull { it is WebExtension } as? WebExtension
         val arrays = args?.filterIsInstance<Array<*>>()?.map { arr -> arr.filterIsInstance<String>() }.orEmpty()
         val permissions = arrays.getOrNull(0).orEmpty()
         val origins = arrays.getOrNull(1).orEmpty()
         val dataCollection = arrays.getOrNull(2).orEmpty().filter { it != "none" }
+        Diag.log("ext: prompt $name ret=${responseClass?.simpleName ?: "AllowOrDeny"} perms=$permissions origins=${origins.size} data=$dataCollection")
+
+        /** 只回一次；类型按内核要求的来（见 [promptResponseClass]） */
+        fun finish(allow: Boolean) {
+            if (!done.compareAndSet(false, true)) return
+            Diag.log("ext: prompt $name answered allow=$allow")
+            if (responseClass == null) {
+                result.complete(if (allow) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
+            } else {
+                val dataRequested = "technicalAndInteraction" in dataCollection
+                val dataGranted: Boolean? = if (dataRequested) allow else null
+                val response = buildPromptResponse(responseClass, allow, dataGranted)
+                if (response != null) {
+                    result.complete(response)
+                } else {
+                    // 回不了结果时 Gecko 会一直等：明确按拒绝收尾，并记下原因给界面提示
+                    if (allow) promptFailure = "当前 GeckoView 版本的安装确认接口不兼容（详见 diag.txt）"
+                    result.complete(null)
+                }
+            }
+        }
+
         val extName = ext?.metaData?.name?.takeIf { it.isNotBlank() } ?: "此拓展"
         val lines = (describePermissions(permissions, origins) + dataCollection.map { "收集" + (DATA_NAMES[it] ?: it) })
             .map { "· $it" }
