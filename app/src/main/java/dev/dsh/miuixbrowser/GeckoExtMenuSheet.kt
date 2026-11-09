@@ -21,6 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,13 +62,45 @@ fun GeckoExtMenuSheet(
     }
 
     val running = store.items.filter { it.enabled }
+    val popup = store.popup.value
 
+    // 点了拓展按钮后，若一小段时间内 Gecko 没要求弹出页（按钮只是触发拓展的 onClicked），就收起菜单
+    var clickTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(clickTick) {
+        if (clickTick == 0) return@LaunchedEffect
+        delay(900)
+        if (store.popup.value == null) onDismiss()
+    }
+    // 弹出页关闭后（或菜单本身被关）清掉残留的弹出页
+    LaunchedEffect(show) {
+        if (!show) store.closePopup()
+    }
+
+    // 只用一层 sheet：列表与弹出页在同一层里切换（两层 sheet 同时切换时，后一层可能被宿主吞掉）
     AppBottomSheet(
-        show = show,
-        title = null,
+        show = show || popup != null,
+        title = popup?.name,
         backdrop = backdrop,
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (store.popup.value != null) store.closePopup()
+            onDismiss()
+        },
     ) {
+        if (popup != null) {
+            AndroidView(
+                factory = { ctx ->
+                    GeckoView(ctx).apply {
+                        setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+                        setSession(popup.session)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(460.dp)
+                    .navigationBarsPadding(),
+            )
+            return@AppBottomSheet
+        }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -121,7 +158,7 @@ fun GeckoExtMenuSheet(
                                 .clip(RoundedCornerShape(14.dp))
                                 .clickable {
                                     if (store.clickAction(item.id)) {
-                                        onDismiss()
+                                        clickTick++
                                     } else {
                                         Toast.makeText(context, "该拓展没有快捷菜单", Toast.LENGTH_SHORT).show()
                                     }
@@ -167,30 +204,6 @@ fun GeckoExtMenuSheet(
                     }
                 }
             }
-        }
-    }
-
-    // ---- 第二层：拓展的弹出页（功能菜单）。Gecko 要求弹出页时才会有值
-    val popup = store.popup.value
-    AppBottomSheet(
-        show = popup != null,
-        title = popup?.name ?: "",
-        backdrop = backdrop,
-        onDismissRequest = { store.closePopup() },
-    ) {
-        if (popup != null) {
-            AndroidView(
-                factory = { ctx ->
-                    GeckoView(ctx).apply {
-                        setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
-                        setSession(popup.session)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(460.dp)
-                    .navigationBarsPadding(),
-            )
         }
     }
 }

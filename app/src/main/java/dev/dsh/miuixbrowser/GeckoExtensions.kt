@@ -419,6 +419,7 @@ object GeckoExtensionStore {
                     method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
                     method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionAction"
                     method.name == "onBrowserAction" -> {
+                        Diag.log("ext: onBrowserAction session=${args?.getOrNull(1) != null}")
                         // (extension, session, action)：session 为 null 的是默认按钮（非某个标签专属）
                         val e = args?.getOrNull(0) as? WebExtension
                         val session = args?.getOrNull(1)
@@ -426,8 +427,14 @@ object GeckoExtensionStore {
                         if (e != null && action != null && session == null) storeAction(e, action)
                         null
                     }
-                    method.name == "onOpenPopup" || method.name == "onTogglePopup" -> openPopup(args)
-                    else -> null
+                    method.name == "onOpenPopup" || method.name == "onTogglePopup" -> {
+                        Diag.log("ext: ${method.name} called")
+                        openPopup(args)
+                    }
+                    else -> {
+                        Diag.log("ext: action delegate ${method.name} ignored")
+                        null
+                    }
                 }
             }
             setter.invoke(ext, proxy)
@@ -456,13 +463,19 @@ object GeckoExtensionStore {
                 popup.value?.session?.let { runCatching { it.close() } }
                 popup.value = GeckoPopup(ext.id, name, session)
             }
+            Diag.log("ext: popup session opened for ${ext.id}")
             GeckoResult.fromValue(session)
         }.onFailure { Diag.log("ext: open popup failed: $it") }.getOrNull()
     }
 
     /** 点击拓展的工具栏按钮；该拓展没有按钮时返回 false */
     fun clickAction(extId: String): Boolean {
-        val action = actions[extId]?.raw ?: return false
+        val action = actions[extId]?.raw
+        if (action == null) {
+            Diag.log("ext: no browser action known for $extId (known: ${actions.keys})")
+            return false
+        }
+        Diag.log("ext: click action $extId")
         return runCatching {
             action.javaClass.getMethod("click").invoke(action)
             true
