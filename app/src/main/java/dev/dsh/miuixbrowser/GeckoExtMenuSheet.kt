@@ -1,0 +1,196 @@
+package dev.dsh.miuixbrowser
+
+import android.widget.Toast
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import org.mozilla.geckoview.GeckoView
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.blur.Backdrop
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+private val RunningGreen = Color(0xFF34C759)
+
+/**
+ * 拓展快捷菜单（底部 Sheet，对应 WebView 下的「脚本快捷菜单」）。
+ * 列出正在运行（已启用）的拓展；点某一项会点击它的工具栏按钮，拓展的弹出页（功能菜单）
+ * 随即在第二层 sheet 里显示。
+ */
+@Composable
+fun GeckoExtMenuSheet(
+    show: Boolean,
+    backdrop: Backdrop?,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val store = GeckoExtensionStore
+
+    LaunchedEffect(show) {
+        if (show) runCatching { store.refresh(context) }
+    }
+
+    val running = store.items.filter { it.enabled }
+
+    AppBottomSheet(
+        show = show,
+        title = null,
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 16.dp),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) {
+                Text(
+                    text = "拓展快捷菜单",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.size(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (running.isNotEmpty()) RunningGreen
+                                else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
+                            ),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (running.isNotEmpty()) "${running.size}个拓展运行中" else "没有运行中的拓展",
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+
+            if (running.isEmpty()) {
+                Text(
+                    text = if (store.loading.value) "正在读取…" else "还没有启用的拓展。长按菜单里的「拓展」图标可进入拓展页安装。",
+                    fontSize = 14.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
+                )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    running.forEach { item ->
+                        val action = store.actions[item.id]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable {
+                                    if (store.clickAction(item.id)) {
+                                        onDismiss()
+                                    } else {
+                                        Toast.makeText(context, "该拓展没有快捷菜单", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val bmp = store.icons[item.id]
+                            val shape = RoundedCornerShape(8.dp)
+                            if (bmp != null) {
+                                Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(30.dp).clip(shape))
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(shape)
+                                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.name,
+                                    fontSize = 16.sp,
+                                    color = MiuixTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = when {
+                                        action == null -> "没有快捷菜单"
+                                        action.badge.isNotBlank() -> "角标 ${action.badge}"
+                                        action.title.isNotBlank() && action.title != item.name -> action.title
+                                        else -> "点击打开功能菜单"
+                                    },
+                                    fontSize = 12.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- 第二层：拓展的弹出页（功能菜单）。Gecko 要求弹出页时才会有值
+    val popup = store.popup.value
+    AppBottomSheet(
+        show = popup != null,
+        title = popup?.name ?: "",
+        backdrop = backdrop,
+        onDismissRequest = { store.closePopup() },
+    ) {
+        if (popup != null) {
+            AndroidView(
+                factory = { ctx ->
+                    GeckoView(ctx).apply {
+                        setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+                        setSession(popup.session)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(460.dp)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
+}

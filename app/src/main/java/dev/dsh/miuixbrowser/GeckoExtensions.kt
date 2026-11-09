@@ -60,6 +60,24 @@ data class GeckoExtItem(
     val permissions: List<String>,
     val origins: List<String>,
     val ext: WebExtension,
+    val allowedInPrivate: Boolean = false,
+    val author: String = "",
+    val homepage: String = "",
+)
+
+/** 拓展的工具栏按钮（browser action）快照，点击会触发它的弹出页 */
+data class GeckoExtAction(
+    val title: String,
+    val badge: String,
+    val enabled: Boolean,
+    val raw: Any,
+)
+
+/** 正在显示的拓展弹出页：session 由 Gecko 通过 onOpenPopup 要求我们创建 */
+data class GeckoPopup(
+    val extId: String,
+    val name: String,
+    val session: org.mozilla.geckoview.GeckoSession,
 )
 
 /** Firefox 拓展商店（AMO）搜索结果 */
@@ -126,6 +144,7 @@ object GeckoExtensionStore {
             items.clear()
             items.addAll(list.filter { !it.isBuiltIn }.map { toItem(it) }.sortedBy { it.name.lowercase() })
             items.forEach { loadIcon(it) }
+            items.forEach { attachActionDelegate(it.ext) }
         } finally {
             loading.value = false
         }
@@ -143,7 +162,16 @@ object GeckoExtensionStore {
             permissions = metaStrings(meta, "requiredPermissions", "permissions"),
             origins = metaStrings(meta, "requiredOrigins", "origins"),
             ext = ext,
+            allowedInPrivate = metaField(meta, "allowedInPrivateBrowsing") as? Boolean ?: false,
+            author = (metaField(meta, "creatorName") as? String).orEmpty(),
+            homepage = (metaField(meta, "homepageUrl") as? String).orEmpty(),
         )
+    }
+
+    /** 按名字读 MetaData 的字段（不同 GeckoView 版本字段有增减），读不到返回 null */
+    private fun metaField(meta: Any?, name: String): Any? {
+        if (meta == null) return null
+        return runCatching { meta.javaClass.getField(name).get(meta) }.getOrNull()
     }
 
     /** MetaData 的权限字段在不同 GeckoView 版本里叫法不同（permissions / requiredPermissions…），按名字反射读取 */
@@ -358,6 +386,107 @@ object GeckoExtensionStore {
         val (updated, _) = updateAll(context)
         return updated
     }
+
+    // ------------------------------------------------------------------ 工具栏按钮（browser action）与弹出页
+
+    /** 各拓展当前的工具栏按钮（key = 拓展 id） */
+    val actions = mutableStateMapOf<String, GeckoExtAction>()
+
+    /** 当前要显示的弹出页；界面据此弹 sheet，关闭时调 [closePopup] */
+    val popup = mutableStateOf<GeckoPopup?>(null)
+
+    private val actionDelegateAttached = java.util.Collections.synchronizedSet(mutableSetOf<WebExtension>())
+
+    private fun fieldOf(obj: Any?, name: String): Any? {
+        if (obj == null) return null
+        return runCatching { obj.javaClass.getField(name).get(obj) }.getOrNull()
+    }
+
+    /**
+     * 给拓展挂 ActionDelegate：Gecko 通过它把工具栏按钮的标题 / 角标交给我们，
+     * 并在按钮被点击、需要弹出页时要一个 GeckoSession 来装弹出页。
+     * 用动态代理实现，回调签名在不同版本间的小差异不会导致编译失败。
+     */
+    private fun attachActionDelegate(ext: WebExtension) {
+        if (!actionDelegateAttached.add(ext)) return
+        runCatching {
+            val setter = ext.javaClass.methods.firstOrNull { it.name == "setActionDelegate" && it.parameterTypes.size == 1 && it.parameterTypes[0].isInterface }
+                ?: return
+            val iface = setter.parameterTypes[0]
+            val proxy = Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
+                when {
+                    method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
+                    method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
+                    method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionAction"
+                    method.name == "onBrowserAction" -> {
+                        // (extension, session, action)：session 为 null 的是默认按钮（非某个标签专属）
+                        val e = args?.getOrNull(0) as? WebExtension
+                        val session = args?.getOrNull(1)
+                        val action = args?.getOrNull(2)
+                        if (e != null && action != null && session == null) storeAction(e, action)
+                        null
+                    }
+                    method.name == "onOpenPopup" || method.name == "onTogglePopup" -> openPopup(args)
+                    else -> null
+                }
+            }
+            setter.invoke(ext, proxy)
+        }.onFailure { Diag.log("ext: setActionDelegate failed: $it") }
+    }
+
+    private fun storeAction(ext: WebExtension, action: Any) {
+        val title = (fieldOf(action, "title") as? String).orEmpty()
+        val badge = (fieldOf(action, "badgeText") as? String).orEmpty()
+        val enabled = fieldOf(action, "enabled") as? Boolean ?: true
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            actions[ext.id] = GeckoExtAction(title, badge, enabled, action)
+        }
+    }
+
+    /** Gecko 要显示弹出页：建一个 session 交给它，同时通知界面去装它 */
+    private fun openPopup(args: Array<Any?>?): Any? {
+        val ext = args?.firstOrNull { it is WebExtension } as? WebExtension
+        val runtime = GeckoRuntimeHolder.peek()
+        if (ext == null || runtime == null) return null
+        return runCatching {
+            val session = org.mozilla.geckoview.GeckoSession()
+            session.open(runtime)
+            val name = ext.metaData?.name?.takeIf { it.isNotBlank() } ?: ext.id
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                popup.value?.session?.let { runCatching { it.close() } }
+                popup.value = GeckoPopup(ext.id, name, session)
+            }
+            GeckoResult.fromValue(session)
+        }.onFailure { Diag.log("ext: open popup failed: $it") }.getOrNull()
+    }
+
+    /** 点击拓展的工具栏按钮；该拓展没有按钮时返回 false */
+    fun clickAction(extId: String): Boolean {
+        val action = actions[extId]?.raw ?: return false
+        return runCatching {
+            action.javaClass.getMethod("click").invoke(action)
+            true
+        }.getOrElse {
+            Diag.log("ext: click action failed: $it")
+            false
+        }
+    }
+
+    fun closePopup() {
+        val p = popup.value ?: return
+        popup.value = null
+        runCatching { p.session.close() }
+    }
+
+    /** 「在隐私浏览中运行」开关 */
+    suspend fun setAllowedInPrivate(context: Context, item: GeckoExtItem, allowed: Boolean): Result<Unit> = runCatching {
+        val c = controller(context)
+        val m = c.javaClass.methods.firstOrNull { it.name == "setAllowedInPrivateBrowsing" && it.parameterTypes.size == 2 }
+            ?: error("当前内核不支持")
+        @Suppress("UNCHECKED_CAST")
+        (m.invoke(c, item.ext, allowed) as GeckoResult<WebExtension>).await()
+        refresh(context)
+    }.recoverCatching { throw IllegalStateException("设置失败") }
 
     // ------------------------------------------------------------------ 提示委托（安装 / 更新 / 可选权限确认）
 

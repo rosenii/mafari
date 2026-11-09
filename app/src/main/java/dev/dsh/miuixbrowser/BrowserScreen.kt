@@ -362,6 +362,7 @@ fun BrowserScreen(
 
     var pendingScript by remember { mutableStateOf<String?>(null) }
     var scriptSheetShow by remember { mutableStateOf(false) }
+    var geckoExtSheetShow by remember { mutableStateOf(false) }
     var scriptMenuItems by remember { mutableStateOf<List<ScriptMenuCommand>>(emptyList()) }
     var runningScripts by remember { mutableStateOf<List<RunningScript>>(emptyList()) }
     // 菜单面板右上角蓝标：当前页面运行的脚本数
@@ -1697,7 +1698,8 @@ fun BrowserScreen(
                             MenuAction.Home -> tab.goHome()
                             MenuAction.Downloads -> pushPage(AppRoute.Downloads)
                             MenuAction.Extensions -> pushPage(AppRoute.Extensions)
-                            MenuAction.GeckoExtensions -> pushPage(AppRoute.GeckoExtensions)
+                            // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
+                            MenuAction.GeckoExtensions -> geckoExtSheetShow = true
                             MenuAction.ScriptMenu -> {
                                 scriptSheetShow = true
                                 refreshScriptSheet()
@@ -1708,6 +1710,12 @@ fun BrowserScreen(
                         }
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
+                    onLongPressAction = { action ->
+                        if (action == MenuAction.GeckoExtensions) {
+                            sheet = Sheet.None
+                            pushPage(AppRoute.GeckoExtensions)
+                        }
+                    },
                     incognitoActive = tab.incognito,
                 )
             }
@@ -2051,6 +2059,12 @@ fun BrowserScreen(
                     .background(Color.Black),
             )
         }
+
+        GeckoExtMenuSheet(
+            show = geckoExtSheetShow,
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            onDismiss = { geckoExtSheetShow = false },
+        )
 
         ScriptMenuSheet(
             show = scriptSheetShow,
@@ -3914,6 +3928,7 @@ private fun MenuGrid(
     hidden: List<MenuAction>,
     onAction: (MenuAction) -> Unit,
     onMove: (MenuAction, Boolean, Int) -> Unit,
+    onLongPressAction: (MenuAction) -> Unit = {},
     incognitoActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
     lockedFor: (MenuAction) -> Boolean = { false },
@@ -4015,6 +4030,10 @@ private fun MenuGrid(
                                 if (editing && dragAction == action) {
                                     finishDrag(action, inHidden, row, col)
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                } else if (dragAction == null && !editing && pendingDrag.getDistance() < enterEditThresholdPx) {
+                                    // 长按后没有真正拖动：当作「长按」触发该项的长按功能
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onLongPressAction(action)
                                 }
                                 dragAction = null
                                 dragOffset = Offset.Zero

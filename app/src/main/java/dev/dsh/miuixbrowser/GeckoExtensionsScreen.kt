@@ -63,7 +63,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -71,10 +70,12 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.glass.GlassPopupItem
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.glass.Delete
 import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.glass.More
 import top.yukonga.miuix.kmp.icon.glass.Refresh
 import top.yukonga.miuix.kmp.icon.glass.Search
+import top.yukonga.miuix.kmp.icon.glass.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -110,6 +111,8 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
     var detailId by remember { mutableStateOf<String?>(null) }
     var uninstalling by remember { mutableStateOf<GeckoExtItem?>(null) }
     var busyIds by remember { mutableStateOf(setOf<String>()) }
+    var menuItem by remember { mutableStateOf<GeckoExtItem?>(null) }
+    var menuAnchor by remember { mutableStateOf(Rect.Zero) }
     val detail = detailId?.let { id -> store.items.firstOrNull { it.id == id } }
     val focus = remember { FocusRequester() }
 
@@ -331,6 +334,10 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                                 item = item,
                                 busy = item.id in busyIds,
                                 onOpen = { detailId = item.id },
+                                onMore = { bounds ->
+                                    menuAnchor = bounds
+                                    menuItem = item
+                                },
                                 onToggle = { on ->
                                     busyIds = busyIds + item.id
                                     scope.launch {
@@ -348,58 +355,26 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                         }
                     }
                 }
-            }
 
-            // 右上角更多菜单：与 Scaffold 同级、放在最后 → 位于最上层
-            AppGlassPopup(
-                show = showMore,
-                onDismissRequest = { showMore = false },
-                anchorBounds = Rect(moreAnchor.left, moreAnchor.bottom, moreAnchor.right, moreAnchor.bottom),
-                backdrop = if (glass) backdrop else null,
-            ) {
-                GlassPopupItem(
-                    text = "导入拓展",
-                    onClick = {
-                        showMore = false
-                        showImport = true
-                    },
-                    icon = MiuixIcons.Glass.Download,
-                )
-                GlassPopupItem(
-                    text = if (updatingAll) "更新中…" else "全部更新",
-                    enabled = !updatingAll,
-                    onClick = {
-                        showMore = false
-                        updatingAll = true
-                        scope.launch {
-                            runCatching { store.updateAll(context) }
-                                .onSuccess { (ok, total) ->
-                                    toast(
-                                        when {
-                                            total == 0 -> "没有已安装的拓展"
-                                            ok == 0 -> "全部拓展已是最新"
-                                            else -> "已更新 $ok/$total 个拓展"
-                                        },
-                                    )
-                                }
-                                .onFailure { toast("检查更新失败：${it.message}") }
-                            updatingAll = false
-                        }
-                    },
-                    icon = MiuixIcons.Glass.Refresh,
-                )
-            }
-
-            DetailSheet(
+            // 弹窗 / sheet 必须放在 Scaffold 的内容里：miuix 的 Overlay 弹层由 Scaffold 的弹层宿主渲染，放在 Scaffold 外面会一直不显示
+            ExtSettingsSheet(
                 item = detail,
                 backdrop = if (glass) backdrop else null,
                 busy = detail?.id in busyIds,
                 onDismiss = { detailId = null },
                 onToggle = { on ->
-                    val d = detail ?: return@DetailSheet
+                    val d = detail ?: return@ExtSettingsSheet
                     busyIds = busyIds + d.id
                     scope.launch {
                         store.setEnabled(context, d, on).onFailure { toast(it.message ?: "操作失败") }
+                        busyIds = busyIds - d.id
+                    }
+                },
+                onTogglePrivate = { on ->
+                    val d = detail ?: return@ExtSettingsSheet
+                    busyIds = busyIds + d.id
+                    scope.launch {
+                        store.setAllowedInPrivate(context, d, on).onFailure { toast(it.message ?: "设置失败") }
                         busyIds = busyIds - d.id
                     }
                 },
@@ -409,7 +384,7 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                     if (url != null) onOpenUrl(url)
                 },
                 onCheckUpdate = {
-                    val d = detail ?: return@DetailSheet
+                    val d = detail ?: return@ExtSettingsSheet
                     busyIds = busyIds + d.id
                     scope.launch {
                         store.updateOne(context, d)
@@ -468,6 +443,73 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                     }.onFailure { toast("无法打开文件选择器：${it.message}") }
                 },
             )
+            }
+
+            // 右上角更多菜单：与 Scaffold 同级、放在最后 → 位于最上层
+            AppGlassPopup(
+                show = showMore,
+                onDismissRequest = { showMore = false },
+                anchorBounds = Rect(moreAnchor.left, moreAnchor.bottom, moreAnchor.right, moreAnchor.bottom),
+                backdrop = if (glass) backdrop else null,
+            ) {
+                GlassPopupItem(
+                    text = "导入拓展",
+                    onClick = {
+                        showMore = false
+                        showImport = true
+                    },
+                    icon = MiuixIcons.Glass.Download,
+                )
+                GlassPopupItem(
+                    text = if (updatingAll) "更新中…" else "全部更新",
+                    enabled = !updatingAll,
+                    onClick = {
+                        showMore = false
+                        updatingAll = true
+                        scope.launch {
+                            runCatching { store.updateAll(context) }
+                                .onSuccess { (ok, total) ->
+                                    toast(
+                                        when {
+                                            total == 0 -> "没有已安装的拓展"
+                                            ok == 0 -> "全部拓展已是最新"
+                                            else -> "已更新 $ok/$total 个拓展"
+                                        },
+                                    )
+                                }
+                                .onFailure { toast("检查更新失败：${it.message}") }
+                            updatingAll = false
+                        }
+                    },
+                    icon = MiuixIcons.Glass.Refresh,
+                )
+            }
+
+            // 每个已安装拓展卡片上的「更多」菜单
+            AppGlassPopup(
+                show = menuItem != null,
+                onDismissRequest = { menuItem = null },
+                anchorBounds = Rect(menuAnchor.left, menuAnchor.bottom, menuAnchor.right, menuAnchor.bottom),
+                backdrop = if (glass) backdrop else null,
+            ) {
+                GlassPopupItem(
+                    text = "拓展设置",
+                    onClick = {
+                        detailId = menuItem?.id
+                        menuItem = null
+                    },
+                    icon = MiuixIcons.Glass.Settings,
+                )
+                GlassPopupItem(
+                    text = "删除",
+                    onClick = {
+                        uninstalling = menuItem
+                        menuItem = null
+                    },
+                    icon = MiuixIcons.Glass.Delete,
+                )
+            }
+
         }
     }
 }
@@ -590,7 +632,14 @@ private fun AddonCard(addon: AmoAddon, installed: Boolean, installing: Boolean, 
 }
 
 @Composable
-private fun InstalledCard(item: GeckoExtItem, busy: Boolean, onOpen: () -> Unit, onToggle: (Boolean) -> Unit) {
+private fun InstalledCard(
+    item: GeckoExtItem,
+    busy: Boolean,
+    onOpen: () -> Unit,
+    onMore: (Rect) -> Unit,
+    onToggle: (Boolean) -> Unit,
+) {
+    var moreBounds by remember { mutableStateOf(Rect.Zero) }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp),
         insideMargin = PaddingValues(14.dp),
@@ -626,10 +675,27 @@ private fun InstalledCard(item: GeckoExtItem, busy: Boolean, onOpen: () -> Unit,
                 }
             }
             Spacer(Modifier.width(8.dp))
-            Switch(
+            // 开关样式跟随「设置 → 高级 → 材质」
+            AppSwitch(
                 checked = item.enabled,
                 onCheckedChange = { if (!busy) onToggle(it) },
             )
+            Box(
+                modifier = Modifier
+                    .padding(start = 4.dp)
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .onGloballyPositioned { moreBounds = it.boundsInRoot() }
+                    .clickable { onMore(moreBounds) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.Glass.More,
+                    contentDescription = "更多",
+                    modifier = Modifier.size(22.dp),
+                    tint = MiuixTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }
@@ -660,14 +726,15 @@ private fun formatUsers(n: Long): String = when {
 private fun formatTime(ms: Long): String =
     java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
 
-/** 拓展详情：权限 + 启停 / 选项 / 检查更新 / 卸载 */
+/** 拓展设置 sheet：启用 / 隐私浏览 / 设置 / 详细信息 / 权限 / 移除（与 Firefox 的拓展设置页一致） */
 @Composable
-private fun DetailSheet(
+private fun ExtSettingsSheet(
     item: GeckoExtItem?,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     busy: Boolean,
     onDismiss: () -> Unit,
     onToggle: (Boolean) -> Unit,
+    onTogglePrivate: (Boolean) -> Unit,
     onOptions: () -> Unit,
     onCheckUpdate: () -> Unit,
     onUninstall: () -> Unit,
@@ -676,6 +743,8 @@ private fun DetailSheet(
     var last by remember { mutableStateOf<GeckoExtItem?>(null) }
     if (item != null) last = item
     val shown = item ?: last
+    // 0 = 主页，1 = 详细信息，2 = 权限
+    var page by remember(item?.id) { mutableStateOf(0) }
     AppBottomSheet(
         show = item != null,
         title = shown?.name ?: "",
@@ -684,50 +753,106 @@ private fun DetailSheet(
     ) {
         if (shown == null) return@AppBottomSheet
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
-            if (shown.version.isNotBlank()) {
-                Text(text = "版本 ${shown.version}", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            if (page != 0) {
+                SettingsRow(title = "‹ 返回", summary = if (page == 1) "详细信息" else "权限") { page = 0 }
             }
-            if (shown.description.isNotBlank()) {
-                Text(
-                    text = shown.description,
-                    fontSize = 14.sp,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-            }
-            val perms = GeckoExtensionStore.describePermissions(shown.permissions, shown.origins)
-            if (perms.isNotEmpty()) {
-                Text(
-                    text = "权限",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
-                )
-                perms.forEach {
-                    Text(text = "· $it", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurface)
+            when (page) {
+                0 -> {
+                    ToggleRow(title = "已启用", checked = shown.enabled, enabled = !busy, onChange = onToggle)
+                    ToggleRow(
+                        title = "在隐私浏览中运行",
+                        checked = shown.allowedInPrivate,
+                        enabled = !busy && shown.enabled,
+                        onChange = onTogglePrivate,
+                    )
+                    if (shown.optionsUrl != null) {
+                        SettingsRow(title = "设置", summary = "打开拓展自带的设置页", enabled = shown.enabled, onClick = onOptions)
+                    }
+                    SettingsRow(title = "详细信息", summary = "版本、作者、简介") { page = 1 }
+                    SettingsRow(title = "权限", summary = "拓展可访问的数据") { page = 2 }
+                    Spacer(Modifier.height(10.dp))
+                    AppTextButton(
+                        text = if (busy) "处理中…" else "检查更新",
+                        onClick = onCheckUpdate,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !busy,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    AppTextButton(text = "移除", onClick = onUninstall, modifier = Modifier.fillMaxWidth())
+                }
+                1 -> {
+                    DetailLine("名称", shown.name)
+                    if (shown.version.isNotBlank()) DetailLine("版本", shown.version)
+                    if (shown.author.isNotBlank()) DetailLine("作者", shown.author)
+                    if (shown.homepage.isNotBlank()) DetailLine("主页", shown.homepage)
+                    DetailLine("ID", shown.id)
+                    if (shown.description.isNotBlank()) DetailLine("简介", shown.description)
+                }
+                else -> {
+                    val perms = GeckoExtensionStore.describePermissions(shown.permissions, shown.origins)
+                    if (perms.isEmpty()) {
+                        Text(
+                            text = "此拓展不需要额外权限",
+                            fontSize = 14.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
+                        )
+                    } else {
+                        perms.forEach {
+                            Text(
+                                text = "· $it",
+                                fontSize = 14.sp,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+                            )
+                        }
+                    }
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(text = "启用", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                Switch(checked = shown.enabled, onCheckedChange = { if (!busy) onToggle(it) })
-            }
-            Spacer(Modifier.height(10.dp))
-            if (shown.optionsUrl != null) {
-                AppTextButton(text = "选项", onClick = onOptions, modifier = Modifier.fillMaxWidth(), enabled = shown.enabled)
-                Spacer(Modifier.height(8.dp))
-            }
-            AppTextButton(
-                text = if (busy) "处理中…" else "检查更新",
-                onClick = onCheckUpdate,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !busy,
-            )
-            Spacer(Modifier.height(8.dp))
-            AppTextButton(text = "卸载", onClick = onUninstall, modifier = Modifier.fillMaxWidth())
         }
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            fontSize = 16.sp,
+            color = MiuixTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f),
+            modifier = Modifier.weight(1f),
+        )
+        AppSwitch(checked = checked, onCheckedChange = { if (enabled) onChange(it) }, enabled = enabled)
+    }
+}
+
+@Composable
+private fun SettingsRow(title: String, summary: String, enabled: Boolean = true, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 4.dp),
+    ) {
+        Text(
+            text = title,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f),
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(text = summary, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    }
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 4.dp)) {
+        Text(text = label, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(text = value, fontSize = 15.sp, color = MiuixTheme.colorScheme.onSurface)
     }
 }
