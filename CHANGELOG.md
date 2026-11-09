@@ -2,6 +2,35 @@
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
 
+## [99.1.3]
+
+- 新增（Gecko）：「网页字体跟随系统」开关（Gecko 高级保护 → 其他）—— `browser.display.use_document_fonts=0` + 各语言默认字体指向系统 sans-serif；关闭时清除用户值恢复默认（`GeckoPrefs.CLEAR`）
+- 修复：拓展详情读取权限不再依赖 `MetaData.permissions`（改为反射）；`GeckoFeatureGate` 去掉多余的 `matchParentSize` import
+
+
+- 新增（Gecko）：「Gecko 高级保护」页（设置 → 高级，Gecko 模式下出现）—— 增强型跟踪保护（跟随隐私设置 / 关闭 / 标准 / 严格）、清理网址跟踪参数、弹跳跟踪保护、定期清理跟踪者数据、指纹保护、强力抗指纹、GPC / DNT、精简 Referer、防 WebRTC 泄露 IP、严格第一方隔离、仅 HTTPS、安全 DNS（DoH：Cloudflare / 阿里 / DNSPod / Google / Quad9 / 自定义，优先或仅 DoH）、ECH、禁用预取 / 预连接、禁用 WebGL，支持一键恢复默认（`GeckoProtection.kt` / `GeckoProtectionScreen.kt`）
+- 变更（Gecko）：`applyPrivacy` 改为经 `GeckoProtection` 与高级保护页合并后写入（ETP 档位以高级页为准；GPC / WebRTC / 指纹取并集）；Gecko 运行时创建时一并写入全部保护设置
+
+
+
+- 新增（Gecko）：拓展管理 —— 已安装拓展卡片带启用开关；点开详情 sheet 可看版本 / 描述 / 权限，并「启用 / 停用」「选项」（moz-extension 选项页在新标签打开）「检查更新」「卸载」（二次确认）
+- 新增（Gecko）：定期检查更新 —— 「自动检查更新」手动 / 每天 / 每 3 天 / 每周（默认每天），显示上次检查时间；Gecko 模式下应用在前台时启动 15 秒后检查一次、此后每 6 小时看是否到点；没用过 Gecko 时不会为检查更新去启动它。新版本需要新增权限的更新在后台会被拒绝，留待手动「全部更新」时确认
+
+
+- 新增（Gecko）：「拓展」页（`GeckoExtensionsScreen.kt` / `GeckoExtensions.kt`）—— 沿用脚本页的玻璃顶栏与卡片样式；右上角「搜索」「更多」：搜索在顶栏下方展开输入框，向 Firefox 拓展商店（AMO）搜索，结果显示在列表最上方，可直接「添加」；更多菜单含「导入」（底部 sheet：从链接 / 从文件，支持商店页面链接、.xpi 直链、本地 .xpi）与「全部更新」；下方列出已安装拓展
+- 新增（Gecko）：安装 / 更新 / 可选权限的确认框（动态代理 `WebExtensionController` 的提示委托，权限译成中文）
+
+- 新增（Gecko）：拓展栏显隐 —— 切到 Gecko 内核时，设置 → 高级出现「拓展」行（展开动画），更多菜单出现「拓展」图标（排在「脚本」后）；切回 WebView 自动收起。菜单项只改内存列表不落盘，用户的排列不会因临时切换而丢失（`MenuAction.geckoOnly` / `MenuOrderStore.syncGecko`）
+- 新增：路由 `AppRoute.GeckoExtensions` 与「拓展」页骨架（`GeckoExtensionsScreen.kt`），拼图图标 `AppIcons.Puzzle`
+
+- 新增（Gecko）：功能置灰 —— 浏览器内核为 Gecko 时，设置里的「网页增强 / 去广告 / 脚本管理」、网站权限里的「网站通知 / 剪贴板读写 / 网站媒体发声」，以及更多菜单里的「脚本 / 脚本菜单」置灰且不可操作，点击弹 toast「该功能在 Gecko 下不支持或有替代方案」（`GeckoFeatureGate.kt` 的 `GeckoLocked`，`AppSettings.geckoMode`）
+
+- 新增（Gecko）：`GeckoPrompts.kt` 实现 PromptDelegate —— JS alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、弹窗拦截；文件选择 / 拍照上传包装成 WebView 同款 `FileChooserParams`，复用现有选择器与相机流程
+- 新增（Gecko）：隐私设置生效 —— 拦截跟踪脚本（ETP）、DNT / GPC、禁用 WebRTC、指纹保护（`GeckoPrefs.kt`，about:config 偏好，运行时创建后统一写入）
+- 新增（Gecko）：代理 —— `WebViewProxy` 的规则同步到 `network.proxy.*`（含 SOCKS5 认证本机中转）；HTTP 代理认证自动提交
+- 新增（Gecko）：网页重定向权限（`onLoadRequest`）；视频全屏同时收起应用顶栏 / 底栏
+- 修复（Gecko）：≤ 64 MB 的 http(s) 下载直接消费 Gecko 响应体，需要登录态的下载不再失败
+
 ## [1.8.25-dev]
 
 - 新增（Gecko）：「Gecko 高级保护」页（设置 → 高级，Gecko 模式下出现）—— 增强型跟踪保护（跟随隐私设置 / 关闭 / 标准 / 严格）、清理网址跟踪参数、弹跳跟踪保护、定期清理跟踪者数据、指纹保护、强力抗指纹、GPC / DNT、精简 Referer、防 WebRTC 泄露 IP、严格第一方隔离、仅 HTTPS、安全 DNS（DoH：Cloudflare / 阿里 / DNSPod / Google / Quad9 / 自定义，优先或仅 DoH）、ECH、禁用预取 / 预连接、禁用 WebGL，支持一键恢复默认（`GeckoProtection.kt` / `GeckoProtectionScreen.kt`）

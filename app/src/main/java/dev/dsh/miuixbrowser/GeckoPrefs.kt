@@ -18,7 +18,10 @@ object GeckoPrefs {
     private var lookedUp = false
     private var warned = false
 
-    /** 记录并（若 Gecko 已启动）立刻应用一项偏好。value 支持 Boolean / Int / String */
+    /** 作为 value 传入 [set]：清除用户值，恢复 Gecko 默认 */
+    val CLEAR = Any()
+
+    /** 记录并（若 Gecko 已启动）立刻应用一项偏好。value 支持 Boolean / Int / String / [CLEAR] */
     @Synchronized
     fun set(name: String, value: Any) {
         if (desired[name] == value) return
@@ -42,6 +45,13 @@ object GeckoPrefs {
     private fun push(name: String, value: Any) {
         runCatching {
             val cls = Class.forName("org.mozilla.geckoview.GeckoPreferenceController")
+            if (value === CLEAR) {
+                val clear = cls.methods.firstOrNull {
+                    it.name == "clearGeckoUserPref" && it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java
+                } ?: error("找不到 GeckoPreferenceController.clearGeckoUserPref")
+                clear.invoke(if (Modifier.isStatic(clear.modifiers)) null else cls.getDeclaredConstructor().newInstance(), name)
+                return@runCatching
+            }
             if (!lookedUp) {
                 lookedUp = true
                 branchUser = runCatching { cls.getField("PREF_BRANCH_USER").getInt(null) }.getOrDefault(1)
