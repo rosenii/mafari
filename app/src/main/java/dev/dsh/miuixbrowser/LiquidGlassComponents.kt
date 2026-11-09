@@ -447,6 +447,30 @@ object LiquidGlassMaterial : AppMaterial {
     }
 
     @Composable
+    override fun SmallButton(
+        onClick: () -> Unit, backdrop: LiquidBackdrop?, modifier: Modifier, size: Dp, enabled: Boolean,
+        inPage: Boolean, content: @Composable () -> Unit,
+    ) {
+        val pageBackdrop = backdrop ?: LocalLiquidBackdrop.current
+        if (pageBackdrop == null) {
+            MiuixGlassMaterial.SmallButton(onClick, backdrop, modifier, size, enabled, inPage, content)
+            return
+        }
+        val colors = MiuixTheme.colorScheme
+        LiquidGlassSurface(
+            onClick = onClick,
+            // 页面内的按钮位于采样层内部，不能采样页面层，用实色底
+            backdrop = if (inPage) null else pageBackdrop,
+            modifier = modifier.size(size),
+            tint = if (inPage) colors.surfaceVariant else colors.surfaceContainer,
+            tintAlpha = 0.35f,
+            enabled = enabled,
+            deformable = inPage,
+            content = content,
+        )
+    }
+
+    @Composable
     override fun FloatingButton(
         onClick: () -> Unit, backdrop: LiquidBackdrop?, modifier: Modifier, primary: Boolean,
         content: @Composable () -> Unit,

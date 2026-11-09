@@ -163,6 +163,21 @@ interface AppMaterial {
         content: @Composable () -> Unit,
     )
 
+    /**
+     * 小型圆形图标按钮（分组展开 / 收起、卡片「更多」等页面内的小控件）。
+     * [inPage] 为 true 表示按钮在页面内容里（位于液态玻璃采样层内部），液态材质下改用实色底，避免递归采样。
+     */
+    @Composable
+    fun SmallButton(
+        onClick: () -> Unit,
+        backdrop: LiquidBackdrop?,
+        modifier: Modifier,
+        size: Dp,
+        enabled: Boolean,
+        inPage: Boolean,
+        content: @Composable () -> Unit,
+    )
+
     @Composable
     fun FloatingButton(
         onClick: () -> Unit,
@@ -374,6 +389,26 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
     }
 
     @Composable
+    override fun SmallButton(
+        onClick: () -> Unit, backdrop: LiquidBackdrop?, modifier: Modifier, size: Dp, enabled: Boolean,
+        inPage: Boolean, content: @Composable () -> Unit,
+    ) {
+        val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+        top.yukonga.miuix.kmp.glass.GlassIconButton(
+            onClick = {
+                if (enabled) {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    onClick()
+                }
+            },
+            modifier = modifier.alpha(if (enabled) 1f else 0.4f),
+            size = size,
+            shadow = null,
+            content = content,
+        )
+    }
+
+    @Composable
     override fun FloatingButton(
         onClick: () -> Unit, backdrop: LiquidBackdrop?, modifier: Modifier, primary: Boolean,
         content: @Composable () -> Unit,
@@ -572,6 +607,18 @@ fun LiquidGlassButton(
 ) = currentMaterial().RoundButton(
     onClick, backdrop, modifier, size, tint, tintAlpha, coloredTint, enabled, surfaceVisible, content,
 )
+
+/** 小型圆形图标按钮（默认 28dp），背景随「高级材质」变化；页面列表里的小按钮传 inPage = true。 */
+@Composable
+fun AppSmallButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    backdrop: LiquidBackdrop? = null,
+    size: Dp = 28.dp,
+    enabled: Boolean = true,
+    inPage: Boolean = true,
+    content: @Composable () -> Unit,
+) = currentMaterial().SmallButton(onClick, backdrop, modifier, size, enabled, inPage, content)
 
 /** FAB：56dp 圆形 */
 @Composable

@@ -118,56 +118,166 @@ class FavoritesStore(context: Context) {
         persist()
     }
 
+    /** 导入结果：[found] 为文件里识别到的书签数，[added] 为实际新增数（其余是已存在的重复项）。 */
+    data class ImportResult(val found: Int, val added: Int)
+
+    /** 兼容旧调用：返回新增条数。 */
+    fun importNetscapeHtml(html: String): Int = importBookmarks(html).added
+
     /**
-     * 解析 Chrome / Firefox 导出的 Netscape Bookmark HTML。
-     * 返回写入的条数；非法输入返回 0。
+     * 导入书签文本。支持：
+     * - Chrome / Edge / Firefox / Safari 导出的 Netscape Bookmark HTML；
+     * - Firefox 备份 JSON、Chromium 的 Bookmarks JSON；
+     * - 纯文本里的 http(s) 链接（兜底）。
      */
-    fun importNetscapeHtml(html: String): Int {
-        if (html.isBlank() || !html.contains("HREF", ignoreCase = true)) return 0
+    fun importBookmarks(text: String): ImportResult {
+        val body = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+        if (body.isEmpty()) return ImportResult(0, 0)
+        var parsed: List<Triple<String, String, String>> = emptyList() // 名称、网址、分组
+        if (body.startsWith("{") || body.startsWith("[")) {
+            parsed = runCatching { parseJsonBookmarks(body) }.getOrDefault(emptyList())
+        }
+        if (parsed.isEmpty()) parsed = parseHtmlBookmarks(body)
+        if (parsed.isEmpty()) {
+            parsed = Regex("""https?://[^\s"'<>]+""").findAll(body).map {
+                val u = it.value
+                Triple(hostOf(u), u, Favorite.GROUP_PERSONAL)
+            }.toList()
+        }
         var added = 0
-        val h3 = Regex("""<H3[^>]*>(.*?)</H3>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val anchor = Regex("""<A\s[^>]*HREF\s*=\s*"([^"]+)"[^>]*>(.*?)</A>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val tagStrip = Regex("""<[^>]+>""")
-        // 按标签顺序线性扫描：H3 是文件夹名，紧随其后的 <DL> 开启该文件夹，</DL> 结束它；
-        // 书签归入「最内层有名字的文件夹」，不在任何文件夹里的归入默认组
-        val token = Regex(
-            """(<H3[^>]*>.*?</H3>)|(<A\s[^>]*HREF\s*=\s*"[^"]+"[^>]*>.*?</A>)|(</DL\s*>)|(<DL[^>]*>)""",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-        )
+        parsed.forEach { (title, href, folder) ->
+            val group = folder.ifBlank { Favorite.GROUP_PERSONAL }
+            val fixed = toUrl(href)
+            // 去重：同 URL 同组跳过
+            val exists = items.any { it.url == fixed && (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group }
+            if (!exists) {
+                items.add(Favorite(name = title.ifBlank { hostOf(fixed) }, url = fixed, group = group))
+                added++
+            }
+        }
+        if (added > 0) persist()
+        return ImportResult(parsed.size, added)
+    }
+
+    private fun skipUrl(href: String): Boolean {
+        val h = href.trim()
+        return h.isEmpty() || h.startsWith("javascript:", true) || h.startsWith("place:", true) || h == "#"
+    }
+
+    /**
+     * 手写的 Netscape HTML 扫描（不用大正则，避免大文件栈溢出 / 回溯卡死）：
+     * H3 是文件夹名，紧随其后的 DL 开启该文件夹，/DL 结束；书签归入最内层有名字的文件夹。
+     * href 兼容双引号 / 单引号 / 无引号，标签与属性名不区分大小写。
+     */
+    private fun parseHtmlBookmarks(html: String): List<Triple<String, String, String>> {
+        val out = ArrayList<Triple<String, String, String>>()
         val folders = ArrayList<String>()
         var pending = ""
-        token.findAll(html).forEach { m ->
-            val raw = m.value
-            when {
-                raw.startsWith("<H3", ignoreCase = true) ->
-                    pending = unescapeHtml(h3.find(raw)?.groupValues?.get(1)?.replace(tagStrip, "")?.trim().orEmpty())
-                raw.startsWith("</DL", ignoreCase = true) ->
+        val n = html.length
+        var i = 0
+        while (i < n) {
+            val lt = html.indexOf('<', i)
+            if (lt < 0) break
+            if (html.startsWith("<!--", lt)) {
+                val e = html.indexOf("-->", lt + 4)
+                i = if (e < 0) n else e + 3
+                continue
+            }
+            val gt = html.indexOf('>', lt)
+            if (gt < 0) break
+            val tag = html.substring(lt + 1, gt)
+            i = gt + 1
+            val closing = tag.startsWith("/")
+            val name = tag.trimStart('/').takeWhile { it.isLetterOrDigit() }.lowercase()
+            when (name) {
+                "h3" -> if (!closing) {
+                    val end = html.indexOf("</h3", i, ignoreCase = true).let { if (it < 0) n else it }
+                    pending = cleanText(html.substring(i, end))
+                    i = end
+                }
+                "dl" -> if (closing) {
                     if (folders.isNotEmpty()) folders.removeAt(folders.lastIndex)
-                raw.startsWith("<DL", ignoreCase = true) -> {
+                } else {
                     folders.add(pending)
                     pending = ""
                 }
-                else -> {
-                    val g = anchor.find(raw)
-                    val href = unescapeHtml(g?.groupValues?.get(1)?.trim().orEmpty())
-                    val title = unescapeHtml(g?.groupValues?.get(2)?.replace(tagStrip, "")?.trim().orEmpty())
-                    if (href.isNotBlank()) {
-                        val group = folders.lastOrNull { it.isNotBlank() } ?: Favorite.GROUP_PERSONAL
-                        val fixed = toUrl(href)
-                        // 去重：同 URL 同组跳过
-                        val exists = items.any {
-                            it.url == fixed && (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group
+                "a" -> if (!closing) {
+                    val href = unescapeHtml(attrValue(tag, "href")).trim()
+                    val end = html.indexOf("</a", i, ignoreCase = true)
+                    val title = if (end < 0) "" else cleanText(html.substring(i, end))
+                    if (end >= 0) i = end
+                    if (!skipUrl(href)) {
+                        out.add(Triple(title, href, folders.lastOrNull { it.isNotBlank() }.orEmpty()))
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    private fun attrValue(tag: String, attr: String): String {
+        var from = 0
+        while (true) {
+            val p = tag.indexOf(attr, from, ignoreCase = true)
+            if (p < 0) return ""
+            from = p + attr.length
+            if (p > 0 && !tag[p - 1].isWhitespace()) continue
+            var q = from
+            while (q < tag.length && tag[q].isWhitespace()) q++
+            if (q >= tag.length || tag[q] != '=') continue
+            q++
+            while (q < tag.length && tag[q].isWhitespace()) q++
+            if (q >= tag.length) return ""
+            val c = tag[q]
+            return if (c == '"' || c == '\'') {
+                val e = tag.indexOf(c, q + 1)
+                tag.substring(q + 1, if (e < 0) tag.length else e)
+            } else {
+                tag.substring(q).takeWhile { !it.isWhitespace() }
+            }
+        }
+    }
+
+    private fun cleanText(raw: String): String =
+        unescapeHtml(raw.replace(Regex("<[^>]*>"), "")).trim()
+
+    /** Firefox 备份（title / uri / children）与 Chromium Bookmarks（name / url / children）。 */
+    private fun parseJsonBookmarks(text: String): List<Triple<String, String, String>> {
+        val out = ArrayList<Triple<String, String, String>>()
+        fun folderTitle(o: JSONObject): String {
+            val t = o.optString("title").ifBlank { o.optString("name") }
+            return when (t) {
+                "bookmarksMenu" -> "书签菜单"
+                "bookmarksToolbar" -> "书签工具栏"
+                "unfiledBookmarks" -> "其他书签"
+                "mobileBookmarks" -> "移动设备书签"
+                else -> t
+            }
+        }
+        fun walk(node: Any?, folder: String) {
+            when (node) {
+                is JSONArray -> for (k in 0 until node.length()) walk(node.opt(k), folder)
+                is JSONObject -> {
+                    val url = node.optString("uri").ifBlank { node.optString("url") }
+                    if (url.isNotBlank() && node.optJSONArray("children") == null) {
+                        if (!skipUrl(url)) {
+                            out.add(Triple(node.optString("title").ifBlank { node.optString("name") }, url, folder))
                         }
-                        if (!exists) {
-                            items.add(Favorite(name = title.ifBlank { hostOf(fixed) }, url = fixed, group = group))
-                            added++
+                    } else {
+                        val kids = node.optJSONArray("children")
+                        if (kids != null) {
+                            walk(kids, folderTitle(node).ifBlank { folder })
+                        } else {
+                            // Chromium 根：{"roots":{"bookmark_bar":{...},"other":{...}}}
+                            val roots = node.optJSONObject("roots") ?: return
+                            roots.keys().forEach { key -> walk(roots.opt(key), folder) }
                         }
                     }
                 }
             }
         }
-        if (added > 0) persist()
-        return added
+        walk(if (text.startsWith("[")) JSONArray(text) else JSONObject(text), "")
+        return out
     }
 
     /** 导出为 Chrome / Firefox 可导入的 Netscape Bookmark HTML。 */
@@ -205,8 +315,13 @@ class FavoritesStore(context: Context) {
     }
 
     private fun unescapeHtml(s: String): String =
-        if ('&' !in s) s else s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
-            .replace("&#39;", "'").replace("&amp;", "&")
+        if ('&' !in s) s else s
+            .replace(Regex("&#(x?)([0-9a-fA-F]+);")) { m ->
+                val code = m.groupValues[2].toIntOrNull(if (m.groupValues[1].isEmpty()) 10 else 16)
+                if (code != null && code in 1..0x10FFFF) String(Character.toChars(code)) else m.value
+            }
+            .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+            .replace("&apos;", "'").replace("&amp;", "&")
 
     private fun escapeHtml(s: String): String = buildString(s.length) {
         s.forEach { c ->

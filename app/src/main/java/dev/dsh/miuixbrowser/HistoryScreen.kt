@@ -79,6 +79,7 @@ import top.yukonga.miuix.kmp.icon.glass.Close
 import top.yukonga.miuix.kmp.icon.glass.Delete
 import top.yukonga.miuix.kmp.icon.glass.Add
 import top.yukonga.miuix.kmp.icon.glass.Search
+import top.yukonga.miuix.kmp.icon.glass.ChevronBackward
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -151,15 +152,15 @@ fun LibraryScreen(
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         runCatching {
-            val html = context.contentResolver.openInputStream(uri)?.use {
-                it.readBytes().decodeToString()
-            } ?: return@rememberLauncherForActivityResult
-            val n = favorites.importNetscapeHtml(html)
-            Toast.makeText(
-                context,
-                if (n > 0) "已导入 $n 条书签" else "未识别到书签（支持 Chrome/Firefox 导出的 HTML）",
-                Toast.LENGTH_SHORT,
-            ).show()
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: error("无法读取所选文件")
+            val result = favorites.importBookmarks(decodeBookmarkText(bytes))
+            val msg = when {
+                result.added > 0 -> "已导入 ${result.added} 条书签"
+                result.found > 0 -> "识别到 ${result.found} 条书签，均已存在，无需重复导入"
+                else -> "未识别到书签（文件 ${bytes.size} 字节；支持 Chrome / Edge / Firefox 导出的 HTML 或 JSON）"
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
         }.onFailure {
             Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
         }
@@ -300,10 +301,10 @@ fun LibraryScreen(
                     )
                     GlassPopupItem(
                         text = "导入",
-                        summary = "Chrome / Firefox 书签 HTML",
+                        summary = "Chrome / Edge / Firefox 书签（HTML / JSON）",
                         onClick = {
                             showMenu = false
-                            importLauncher.launch(arrayOf("text/html", "text/plain", "*/*"))
+                            importLauncher.launch(arrayOf("*/*"))
                         },
                         icon = MiuixIcons.Glass.Download,
                     )
@@ -595,39 +596,46 @@ private fun BookmarksPage(
     }
 }
 
-/** 书签分组标题：点一下向下展开 / 收起该分组的书签。 */
+/** 书签分组标题：左侧分组名 + 数量，右侧靠右的小按钮点一下展开 / 收起（整行也可点击）。 */
 @Composable
 private fun BookmarkGroupHeader(name: String, count: Int, open: Boolean, onClick: () -> Unit) {
-    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 90f else 0f, label = "groupArrow")
+    // ChevronBackward 默认朝左：收起时转 180° 朝右（›），展开时转 270° 朝下
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupArrow")
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = name,
-            fontSize = 14.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-            color = MiuixTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = "$count",
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = "›",
-            fontSize = 18.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.graphicsLayer { rotationZ = angle },
-        )
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = name,
+                fontSize = 14.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "$count",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        AppSmallButton(onClick = onClick, inPage = true) {
+            Icon(
+                imageVector = MiuixIcons.Glass.ChevronBackward,
+                contentDescription = if (open) "收起" else "展开",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = angle },
+            )
+        }
     }
 }
 
@@ -732,6 +740,15 @@ private fun formatHistoryTime(time: Long): String {
 }
 
 /** 写入系统 Download/mafari 并提示路径。 */
+/** 书签文件解码：处理 UTF-8 / UTF-16 的 BOM，避免 UTF-16 文件被当 UTF-8 读成乱码而识别不到。 */
+private fun decodeBookmarkText(b: ByteArray): String = when {
+    b.size >= 2 && b[0] == 0xFF.toByte() && b[1] == 0xFE.toByte() -> String(b, 2, b.size - 2, Charsets.UTF_16LE)
+    b.size >= 2 && b[0] == 0xFE.toByte() && b[1] == 0xFF.toByte() -> String(b, 2, b.size - 2, Charsets.UTF_16BE)
+    b.size >= 3 && b[0] == 0xEF.toByte() && b[1] == 0xBB.toByte() && b[2] == 0xBF.toByte() ->
+        String(b, 3, b.size - 3, Charsets.UTF_8)
+    else -> b.decodeToString()
+}
+
 private fun exportBookmarks(context: android.content.Context, html: String) {
     runCatching {
         val name = "mafari-bookmarks-" +
