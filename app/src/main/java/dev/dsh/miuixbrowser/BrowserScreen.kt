@@ -2736,6 +2736,10 @@ private fun AddressField(
                 text = "搜索或输入网址",
                 fontSize = 15.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                // 回主页时地址栏宽度还在弹簧动画里：占位文字必须单行不换行，否则会先折成多行再展开
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
             )
         }
         BasicTextField(
