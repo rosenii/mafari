@@ -390,6 +390,11 @@ class GeckoTabEngine(
                     tab.onUserScriptLink?.invoke(target)
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
+                // 拓展安装包（.xpi / AMO 下载链接）：不当普通下载，直接弹安装确认
+                if (isXpiUrl(target)) {
+                    tab.geckoExtensionLink(target)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
                 val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
                 if (scheme == null || scheme in INTERNAL_SCHEMES) {
                     // 网页重定向权限：页面自己发起（无手势、非地址栏、非服务器 3xx）的跨站跳转
@@ -475,6 +480,11 @@ class GeckoTabEngine(
                     isUserScriptUrl(uri) -> {
                         runCatching { response.body?.close() }
                         tab.onUserScriptLink?.invoke(uri)
+                    }
+                    // 服务器按拓展包类型返回（重定向后的下载地址没有 .xpi 后缀也能识别）
+                    isXpiUrl(uri) || mime.equals("application/x-xpinstall", ignoreCase = true) -> {
+                        runCatching { response.body?.close() }
+                        tab.geckoExtensionLink(uri)
                     }
                     // blob：HTTP 下载器拉不到，直接把 Gecko 给的响应体落到缓存文件
                     uri.startsWith("blob:", ignoreCase = true) -> spoolBody(response, uri, disposition, mime)

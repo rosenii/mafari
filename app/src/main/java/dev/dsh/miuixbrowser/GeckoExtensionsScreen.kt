@@ -119,7 +119,8 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
     // 安装确认框要 Activity；页面存在期间登记，离开时撤销
     DisposableEffect(Unit) {
         store.activityProvider = { context.findActivity() }
-        onDispose { store.activityProvider = null }
+        // 不在离开页面时清掉：浏览页里点 .xpi 链接同样需要弹确认框（由 MainActivity 统一维护）
+        onDispose { }
     }
     LaunchedEffect(Unit) { runCatching { store.refresh(context) }.onFailure { toast("读取拓展失败：${it.message}") } }
     LaunchedEffect(searchOpen) {

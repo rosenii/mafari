@@ -287,6 +287,13 @@ class BrowserTab(
     /** 遇到 .user.js 链接 */
     var onUserScriptLink: ((String) -> Unit)? = null
 
+    /** 遇到拓展安装包链接（.xpi）：Gecko 内核下由界面弹出安装确认 */
+    var onExtensionLink: ((String) -> Unit)? = null
+
+    internal fun geckoExtensionLink(link: String) {
+        onExtensionLink?.invoke(link)
+    }
+
     /** 网页重定向 / window.open 被允许后，在新标签页打开（由 BrowserState 注入） */
     var onOpenInNewTab: ((String) -> Unit)? = null
 

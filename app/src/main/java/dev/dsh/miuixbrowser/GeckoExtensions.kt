@@ -30,6 +30,21 @@ import java.net.URL
 import java.net.URLEncoder
 import kotlin.coroutines.resume
 
+/**
+ * 是不是拓展安装包链接：以 .xpi 结尾（忽略查询串），或 AMO 的下载链接（downloads/file、downloads/latest）。
+ * 只认 http(s) 与本地 file://。
+ */
+fun isXpiUrl(url: String): Boolean {
+    val u = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+    val scheme = u.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https" && scheme != "file") return false
+    val path = u.path.orEmpty().lowercase()
+    if (path.endsWith(".xpi")) return true
+    val host = u.host.orEmpty().lowercase()
+    val amo = host == "addons.mozilla.org" || host.endsWith(".addons.mozilla.org")
+    return amo && Regex("/downloads/(file|latest)/").containsMatchIn(path)
+}
+
 /** 已安装的拓展（界面用的快照） */
 data class GeckoExtItem(
     val id: String,
@@ -73,6 +88,15 @@ object GeckoExtensionStore {
     var activityProvider: (() -> Activity?)? = null
 
     private var delegateInstalled = false
+
+    /** 正在安装的链接：网页里重复点同一个 .xpi 不会叠出多个确认框 */
+    private val installingLinks = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    fun beginLinkInstall(uri: String): Boolean = installingLinks.add(uri)
+
+    fun endLinkInstall(uri: String) {
+        installingLinks.remove(uri)
+    }
 
     private const val INSTALL_TIMEOUT_MS = 180_000L
 

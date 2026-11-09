@@ -795,6 +795,27 @@ fun BrowserScreen(
             tab.refresh()
         }
         tab.onUserScriptLink = { url -> pendingScript = url }
+        tab.onExtensionLink = { link ->
+            val store = GeckoExtensionStore
+            if (store.beginLinkInstall(link)) {
+                android.widget.Toast.makeText(context, "正在安装拓展…", android.widget.Toast.LENGTH_SHORT).show()
+                scope.launch {
+                    try {
+                        store.install(context, link)
+                            .onSuccess {
+                                android.widget.Toast.makeText(context, "已添加 ${it.name}", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            .onFailure {
+                                if (it.message != "已取消安装") {
+                                    android.widget.Toast.makeText(context, it.message ?: "安装失败", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                    } finally {
+                        store.endLinkInstall(link)
+                    }
+                }
+            }
+        }
         tab.onDownload = { url, ua, disposition, mime ->
             // blob/data 由 BrowserState 抽取后走 onBlobReady
             if (!url.startsWith("blob:", ignoreCase = true) && !url.startsWith("data:", ignoreCase = true)) {

@@ -111,6 +111,9 @@ class MainActivity : ComponentActivity() {
             consumeViewIntent(intent)
         }
         dev.dsh.miuixbrowser.Diag.init(this)
+        // 拓展安装确认框需要 Activity；弱引用，避免静态持有 Activity
+        val self = java.lang.ref.WeakReference(this)
+        GeckoExtensionStore.activityProvider = { self.get() }
         dev.dsh.miuixbrowser.Diag.log("MainActivity.onCreate")
         AdBlock.init(this)
         CacheCleaner.runOnColdStart(this)
