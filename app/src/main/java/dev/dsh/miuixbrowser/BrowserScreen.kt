@@ -929,7 +929,13 @@ fun BrowserScreen(
         label = "statusInset",
     )
     // 弹簧会过冲到负值，padding 不允许负数
-    val contentTopPadding = animatedTopPadding.coerceAtLeast(0.dp)
+    // Gecko：留白随底栏收起而变化会让 GeckoView 在滑动途中逐帧重新布局 / 调整视口（掉帧主因），
+    // 默认固定为状态栏高度；「Gecko 调试 → 状态栏留白随滚动收起」打开后才恢复动画。
+    val contentTopPadding = if (tab.isGecko && GeckoDebug.fixedInset) {
+        statusBarHeight
+    } else {
+        animatedTopPadding.coerceAtLeast(0.dp)
+    }
 
     val hide by animateFloatAsState(
         targetValue = if (barHidden && sheet == Sheet.None) 1f else 0f,

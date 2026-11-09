@@ -6,6 +6,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.Surface
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
@@ -44,10 +47,11 @@ object GeckoRuntimeHolder {
         runtime?.let { return it }
         synchronized(this) {
             runtime?.let { return it }
+            GeckoDebug.load(context)
             val settings = GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
-                .aboutConfigEnabled(true)
-                .remoteDebuggingEnabled(dev.dsh.miuixbrowser.BuildConfig.DEBUG)
+                .aboutConfigEnabled(GeckoDebug.aboutConfig)
+                .remoteDebuggingEnabled(GeckoDebug.remoteDebug)
                 .build()
             val created = GeckoRuntime.create(context.applicationContext, settings)
             runtime = created
@@ -55,6 +59,7 @@ object GeckoRuntimeHolder {
             GeckoProtection.load(context)
             GeckoProtection.pushAll()
             CookieControl.pushGecko(context)
+            GeckoDebug.pushPrefs()
             GeckoPrefs.flush()
             CookieControl.runPendingGeckoColdClear()
             return created
@@ -124,6 +129,59 @@ class GeckoTabEngine(
         // 网页区域不需要被毛玻璃采样，因此无需 TextureView。
         view.setSession(session)
         installTouchListener()
+        view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = applyFrameRateHint()
+            override fun onViewDetachedFromWindow(v: View) {}
+        })
+        applyFrameRateHint()
+    }
+
+    // ---------------------------------------------------------------- SurfaceView 帧率声明 / 诊断
+    //
+    // SurfaceView 的内容由 Gecko 的合成器直接送显，UI 线程在滑动时几乎不出帧；部分系统（自适应刷新率）
+    // 会因此把窗口压到低刷新率，表现成「滑动掉帧」。给 Surface 声明期望帧率，让系统按屏幕最高刷新率合成。
+    // 同时在「Gecko 调试 → 运行日志」开启时记录 Surface 的创建 / 变化 / 销毁，方便区分
+    // 「Gecko 没画」和「画了但系统没显示」。
+
+    private var surfaceCallback: SurfaceHolder.Callback? = null
+
+    private fun findSurfaceView(v: View): SurfaceView? {
+        if (v is SurfaceView) return v
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) findSurfaceView(v.getChildAt(i))?.let { return it }
+        }
+        return null
+    }
+
+    private fun hintFrameRate(surface: Surface) {
+        if (!surface.isValid) return
+        val rate = if (GeckoDebug.highRefresh) GeckoDebug.maxRefreshRate(context) else 0f
+        runCatching { surface.setFrameRate(rate, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) }
+    }
+
+    /** 挂上 Surface 回调（只挂一次）并立即声明一次帧率；设置里切换开关时由 [GeckoViewLifecycle.applyFrameRate] 重新调用 */
+    fun applyFrameRateHint() {
+        val sv = findSurfaceView(view) ?: return
+        if (surfaceCallback == null) {
+            val cb = object : SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: SurfaceHolder) {
+                    if (Diag.enabled) Diag.log("gecko surfaceCreated")
+                    hintFrameRate(holder.surface)
+                }
+
+                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                    if (Diag.enabled) Diag.log("gecko surfaceChanged ${width}x$height")
+                    hintFrameRate(holder.surface)
+                }
+
+                override fun surfaceDestroyed(holder: SurfaceHolder) {
+                    if (Diag.enabled) Diag.log("gecko surfaceDestroyed")
+                }
+            }
+            surfaceCallback = cb
+            sv.holder.addCallback(cb)
+        }
+        hintFrameRate(sv.holder.surface)
     }
 
     // ---------------------------------------------------------------- 基础操作
@@ -153,7 +211,8 @@ class GeckoTabEngine(
 
     // ---------------------------------------------------------------- 前后台切换：防止切回应用时网页黑屏
     //
-    // （仅 TextureView 后端才会走到这里；现在用 SurfaceView，findTextureView 为 null，以下逻辑自然跳过。）
+    // 现在是 SurfaceView 后端：下面的截图 / 盖图逻辑只对 TextureView 生效，SurfaceView 下 findTextureView 为 null 自然跳过；
+    // SurfaceView 的恢复靠 onAppForeground 里的 setActive / setFocused（Surface 由系统在后台销毁、回前台重建）。
     // 旧：GeckoView 用 TextureView 后端（为了能被毛玻璃采样）。应用退到后台后，TextureView 的缓冲会被系统回收，
     // 切回来时 Gecko 要重新建合成面再画一帧，这几秒里显示的是黑底。
     // 做法：退到后台前把当前画面抓成一张小图 → 完全停止（onStop）后盖在 GeckoView 上 →
@@ -681,6 +740,8 @@ object GeckoViewLifecycle {
     }
 
     private fun snapshot(): List<GeckoTabEngine> = synchronized(engines) { engines.toList() }
+
+    fun applyFrameRate() = snapshot().forEach { it.applyFrameRateHint() }
 
     fun onPause() = snapshot().forEach { it.captureFrameForBackground() }
 

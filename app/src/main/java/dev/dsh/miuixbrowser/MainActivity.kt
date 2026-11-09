@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
             consumeOpenDownloads(intent)
             consumeViewIntent(intent)
         }
+        GeckoDebug.load(this)
         dev.dsh.miuixbrowser.Diag.init(this)
         // 拓展安装确认框需要 Activity；弱引用，避免静态持有 Activity
         val self = java.lang.ref.WeakReference(this)
