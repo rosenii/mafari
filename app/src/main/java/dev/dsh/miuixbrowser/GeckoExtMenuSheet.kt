@@ -23,11 +23,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -63,7 +67,12 @@ fun GeckoExtMenuSheet(
         if (show) runCatching { store.refresh(context) }
     }
 
-    val running = store.items.filter { it.enabled }
+    val scope = rememberCoroutineScope()
+    val all = store.items.toList()
+    val running = all.filter { it.enabled }
+    // 总开关：全部已启用才算「开」；切换时对所有拓展一起启用 / 停用
+    val allOn = all.isNotEmpty() && running.size == all.size
+    var bulkBusy by remember { mutableStateOf(false) }
     val popup = store.popup.value
 
     // 点了拓展按钮后，若一小段时间内 Gecko 没要求弹出页（按钮只是触发拓展的 onClicked），就收起菜单
@@ -109,37 +118,58 @@ fun GeckoExtMenuSheet(
                 .navigationBarsPadding()
                 .padding(bottom = 16.dp),
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) {
-                Text(
-                    text = "拓展快捷菜单",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MiuixTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.size(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (running.isNotEmpty()) RunningGreen
-                                else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
-                            ),
-                    )
-                    Spacer(Modifier.width(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = if (running.isNotEmpty()) "${running.size}个拓展运行中" else "没有运行中的拓展",
-                        fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        text = "拓展快捷菜单",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.size(3.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (running.isNotEmpty()) RunningGreen
+                                    else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
+                                ),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = if (running.isNotEmpty()) "${running.size}个拓展运行中" else "没有运行中的拓展",
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+                if (all.isNotEmpty()) {
+                    AppSwitch(
+                        checked = allOn,
+                        enabled = !bulkBusy,
+                        onCheckedChange = { on ->
+                            bulkBusy = true
+                            scope.launch {
+                                try {
+                                    all.filter { it.enabled != on }.forEach { store.setEnabled(context, it, on) }
+                                } finally {
+                                    bulkBusy = false
+                                }
+                            }
+                        },
                     )
                 }
             }
             Spacer(Modifier.size(8.dp))
 
-            if (running.isEmpty()) {
+            if (all.isEmpty()) {
                 Text(
-                    text = if (store.loading.value) "正在读取…" else "还没有启用的拓展。长按菜单里的「拓展」图标可进入拓展页安装。",
+                    text = if (store.loading.value) "正在读取…" else "还没有安装拓展。长按菜单里的「拓展」图标可进入拓展页安装。",
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
@@ -152,13 +182,14 @@ fun GeckoExtMenuSheet(
                         .heightIn(max = 380.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    running.forEach { item ->
+                    all.forEach { item ->
                         val action = store.actions[item.id]
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .clickable {
+                                .alpha(if (item.enabled) 1f else 0.45f)
+                                .clickable(enabled = item.enabled) {
                                     if (store.clickAction(item.id)) {
                                         clickTick++
                                     } else {
@@ -191,6 +222,7 @@ fun GeckoExtMenuSheet(
                                 )
                                 Text(
                                     text = when {
+                                        !item.enabled -> "已停用"
                                         action == null -> "没有快捷菜单"
                                         action.badge.isNotBlank() -> "角标 ${action.badge}"
                                         action.title.isNotBlank() && action.title != item.name -> action.title
@@ -202,6 +234,14 @@ fun GeckoExtMenuSheet(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                            Spacer(Modifier.width(8.dp))
+                            AppSwitch(
+                                checked = item.enabled,
+                                enabled = !bulkBusy,
+                                onCheckedChange = { on ->
+                                    scope.launch { store.setEnabled(context, item, on) }
+                                },
+                            )
                         }
                     }
                 }

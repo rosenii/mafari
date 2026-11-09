@@ -409,6 +409,9 @@ object GeckoExtensionStore {
     private val sessionActions =
         java.util.WeakHashMap<org.mozilla.geckoview.GeckoSession, MutableMap<String, Any>>()
 
+    @Volatile
+    private var actionClassDumped = false
+
     private val actionProxy: Any? by lazy { createActionProxy() }
 
     private fun fieldOf(obj: Any?, name: String): Any? {
@@ -465,6 +468,9 @@ object GeckoExtensionStore {
     /** ActionDelegate 的动态代理（扩展级与 session 级共用同一个实现） */
     private fun createActionProxy(): Any? = runCatching {
         val iface = Class.forName("org.mozilla.geckoview.WebExtension\$ActionDelegate")
+        Diag.log("ext: ActionDelegate methods: " + iface.methods.joinToString { m ->
+            m.name + m.parameterTypes.joinToString(prefix = "(", postfix = ")") { it.simpleName } + ":" + m.returnType.simpleName
+        })
         Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
             when {
                 method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
@@ -551,9 +557,23 @@ object GeckoExtensionStore {
             Diag.log("ext: no browser action known for $extId (known: ${actions.keys})")
             return false
         }
-        Diag.log("ext: click action $extId")
+        Diag.log("ext: click action $extId (tabAction=${tabAction != null}, activeSession=${activeSession != null})")
+        if (!actionClassDumped) {
+            actionClassDumped = true
+            Diag.log("ext: Action class ${action.javaClass.name} methods: " +
+                action.javaClass.declaredMethods.joinToString { m ->
+                    m.name + m.parameterTypes.joinToString(prefix = "(", postfix = ")") { it.simpleName }
+                })
+            Diag.log("ext: Action fields: " + action.javaClass.declaredFields.joinToString { f ->
+                f.name + ":" + f.type.simpleName + (runCatching { f.isAccessible = true; "=" + f.get(action) }.getOrNull()?.take(60) ?: "")
+            })
+            val rt = GeckoRuntimeHolder.peek()
+            if (rt != null) Diag.log("ext: runtime controller delegate setters: " +
+                rt.webExtensionController.javaClass.methods.filter { it.name.contains("Delegate") }.joinToString { it.name })
+        }
         return runCatching {
-            action.javaClass.getMethod("click").invoke(action)
+            val r = action.javaClass.getMethod("click").invoke(action)
+            Diag.log("ext: click() returned $r")
             true
         }.getOrElse {
             Diag.log("ext: click action failed: $it")
