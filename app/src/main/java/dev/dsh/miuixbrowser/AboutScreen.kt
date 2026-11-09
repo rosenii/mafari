@@ -81,6 +81,7 @@ fun AboutScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val kernel = webViewVersion() ?: "未知"
+    val geckoKernel = remember { geckoViewVersion() }
     val ua = remember { runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault("未知") }
     val dependencyGroups = remember { parseDependencyVersions(BuildConfig.DEP_VERSIONS) }
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -241,7 +242,8 @@ fun AboutScreen(
                         selectedIndex = updateChannel.coerceIn(0, 1),
                         onSelectedIndexChange = onUpdateChannelChange,
                     )
-                    AboutRow("内核版本", kernel)
+                    AboutRow("WebView 内核版本", kernel)
+                    AboutRow("GeckoView 内核版本", geckoKernel ?: "未知")
                 }
 
                 SmallTitle(text = "依赖版本")
@@ -529,3 +531,14 @@ private fun DependencyCell(name: String, version: String, modifier: Modifier = M
         )
     }
 }
+
+/**
+ * GeckoView 版本：读库自带的 org.mozilla.geckoview.BuildConfig（MOZ_APP_VERSION + 构建号）。
+ * 用反射读取，不会启动 Gecko；设备不支持（非 arm64）或读不到时返回 null。
+ */
+private fun geckoViewVersion(): String? = runCatching {
+    val cls = Class.forName("org.mozilla.geckoview.BuildConfig")
+    val ver = cls.getField("MOZ_APP_VERSION").get(null) as? String
+    val build = runCatching { cls.getField("MOZ_APP_BUILDID").get(null) as? String }.getOrNull()
+    if (ver.isNullOrBlank()) null else if (build.isNullOrBlank()) ver else "$ver ($build)"
+}.getOrNull()
