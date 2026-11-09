@@ -254,6 +254,8 @@ fun BrowserScreen(
         }
     }
     val favorites = remember { FavoritesStore(context) }
+    // 首页收藏栏：只取「个人收藏」分组（读取 items 让列表变化时自动重组）
+    val homeFavEntries = favorites.homeEntries()
     remember { Diag.log("BrowserScreen composed, favorites=" + favorites.items.size) }
     val menuOrder = remember { MenuOrderStore(context) }
     // Gecko 拓展定期检查更新：应用在前台、Gecko 模式下，启动后稍等一会儿检查一次，之后每 6 小时看一次是否到点
@@ -1104,7 +1106,7 @@ fun BrowserScreen(
                         wallpaper = wallpaperBitmap,
                         wallpaperBackdrop = wallpaperBackdrop,
                         blurEnabled = settings.blurEnabled,
-                        favorites = favorites.items.take(HOME_FAV_MAX),
+                        favorites = homeFavEntries.map { it.second },
                         showFavorites = settings.homeShowFavorites,
                         showPrivacy = settings.homeShowPrivacy,
                         showRecent = settings.homeShowRecent && !tab.incognito,
@@ -1123,11 +1125,16 @@ fun BrowserScreen(
                         editing = favEditing,
                         onOpen = { state.openOrReuse(it, tab.incognito, fromStartPage = true) },
                         onToggleEdit = { favEditing = !favEditing },
-                        onRemove = { favorites.remove(it) },
-                        onMove = { from, to -> favorites.move(from, to) },
-                        onEdit = { index ->
-                            editingFavIndex = index
-                            showFavEditor = true
+                        // 首页只显示「个人收藏」分组：回调里的下标是首页列表里的位置，要换算回总列表的下标
+                        onRemove = { pos -> homeFavEntries.getOrNull(pos)?.let { favorites.remove(it.first) } },
+                        onMove = { from, to ->
+                            val a = homeFavEntries.getOrNull(from)?.first
+                            val b = homeFavEntries.getOrNull(to)?.first
+                            if (a != null && b != null) favorites.move(a, b)
+                        },
+                        onEdit = { pos ->
+                            editingFavIndex = homeFavEntries.getOrNull(pos)?.first ?: -1
+                            showFavEditor = editingFavIndex >= 0
                         },
                         onAdd = {
                             editingFavIndex = -1

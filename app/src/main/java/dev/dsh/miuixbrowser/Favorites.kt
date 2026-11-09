@@ -69,6 +69,28 @@ class FavoritesStore(context: Context) {
     fun itemsIn(group: String): List<Favorite> =
         items.filter { (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group }
 
+    /**
+     * 首页收藏：只取「个人收藏」分组的书签，最多 [HOME_FAV_MAX] 个。
+     * 返回 (在总列表 [items] 里的下标, 书签)，首页的删除 / 排序 / 编辑都靠这个下标回到总列表。
+     */
+    fun homeEntries(): List<Pair<Int, Favorite>> =
+        items.withIndex()
+            .filter { (_, f) -> f.group.ifBlank { Favorite.GROUP_PERSONAL } == Favorite.GROUP_PERSONAL }
+            .take(HOME_FAV_MAX)
+            .map { it.index to it.value }
+
+    /** 「个人收藏」是系统保留分组：不能删除。 */
+    fun isProtectedGroup(group: String): Boolean =
+        group.ifBlank { Favorite.GROUP_PERSONAL } == Favorite.GROUP_PERSONAL
+
+    /** 删除一个分组及其中的全部书签；「个人收藏」拒绝删除，返回 false。 */
+    fun removeGroup(group: String): Boolean {
+        if (isProtectedGroup(group)) return false
+        val removed = items.removeAll { it.group.ifBlank { Favorite.GROUP_PERSONAL } == group }
+        if (removed) persist()
+        return removed
+    }
+
     fun add(name: String, url: String, group: String = Favorite.GROUP_PERSONAL) {
         if (url.isBlank()) return
         val fixed = toUrl(url)

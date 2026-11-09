@@ -115,7 +115,7 @@ fun GeckoExtMenuSheet(
             AndroidView(
                 factory = { ctx ->
                     GeckoView(ctx).apply {
-                        setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+                        setViewBackend(GeckoView.BACKEND_SURFACE_VIEW)
                         setSession(popup.session)
                     }
                 },

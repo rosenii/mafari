@@ -119,8 +119,11 @@ class GeckoTabEngine(
         session.open(runtime)
         // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate
         GeckoExtensionStore.registerSession(session)
-        // TextureView 后端：支持 alpha / 位移，且能被毛玻璃背景采样；SurfaceView 会在叠加层下面「穿洞」
-        view.setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
+        // SurfaceView 后端（GeckoView 默认）：独立硬件图层直接上屏，滑动跟手、帧率正常，
+        // 且系统不会在闲置时回收缓冲（TextureView 后端会：多一次 GPU 拷贝导致掉帧，
+        // 一段时间不触摸后合成面被回收，整页变黑）。网页状态下本来就不采集 WebView 做毛玻璃，
+        // 所以不再需要 TextureView；底栏等 Compose 叠加层画在窗口层，仍然显示在网页上方。
+        view.setViewBackend(GeckoView.BACKEND_SURFACE_VIEW)
         view.setSession(session)
         installTouchListener()
     }
@@ -152,7 +155,8 @@ class GeckoTabEngine(
 
     // ---------------------------------------------------------------- 前后台切换：防止切回应用时网页黑屏
     //
-    // GeckoView 用 TextureView 后端（为了能被毛玻璃采样）。应用退到后台后，TextureView 的缓冲会被系统回收，
+    // （仅 TextureView 后端才会走到这里；现在用 SurfaceView，findTextureView 为 null，以下逻辑自然跳过。）
+    // 旧：GeckoView 用 TextureView 后端（为了能被毛玻璃采样）。应用退到后台后，TextureView 的缓冲会被系统回收，
     // 切回来时 Gecko 要重新建合成面再画一帧，这几秒里显示的是黑底。
     // 做法：退到后台前把当前画面抓成一张小图 → 完全停止（onStop）后盖在 GeckoView 上 →
     // 切回来后轻推一下 Gecko 重绘，等 TextureView 里重新有内容了（或超时）再撤掉这张图。
@@ -204,6 +208,11 @@ class GeckoTabEngine(
             // 只是失焦又回来（没经过 onStop）：不需要盖图，丢掉抓到的图
             frozenBitmap?.let { runCatching { it.recycle() } }
             frozenBitmap = null
+            // 切回前台时确保合成器恢复渲染，避免长时间后台后画面不刷新
+            if (sessionActive) {
+                runCatching { session.setActive(true) }
+                runCatching { session.setFocused(true) }
+            }
             return
         }
         // 轻推一下：恢复渲染 / 焦点，并让 TextureView 重新布局重绘
