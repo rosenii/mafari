@@ -95,6 +95,7 @@ fun SettingsScreen(
     onOpenBookmarks: () -> Unit,
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
+    onEngineScripts: (resume: Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
@@ -330,6 +331,14 @@ fun SettingsScreen(
                                 Toast.makeText(context, "当前设备不是 arm64-v8a，无法使用 Gecko 内核", Toast.LENGTH_SHORT).show()
                             } else if (index != settings.browserEngine) {
                                 settings.updateBrowserEngine(index)
+                                // 切 Gecko：记住当前状态并关闭去广告 / 脚本 / 网页增强 / 隐私增强保护；切回 WebView：恢复切换前状态
+                                if (index == ENGINE_GECKO) {
+                                    settings.suspendForGecko()
+                                    onEngineScripts(false)
+                                } else {
+                                    settings.resumeFromGecko()
+                                    onEngineScripts(true)
+                                }
                                 Toast.makeText(
                                     context,
                                     "新建的标签页将使用 " + (if (index == ENGINE_GECKO) "Gecko" else "WebView") + " 内核",

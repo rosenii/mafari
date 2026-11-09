@@ -2275,6 +2275,7 @@ fun BrowserScreen(
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
             onOpenAbout = { pushPage(AppRoute.About) },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
+            onEngineScripts = { if (it) extensions.resumeAll() else extensions.suspendAll() },
             blurEnabled = settings.blurEnabled,
         )
     }
@@ -3744,7 +3745,7 @@ private fun FavoriteGrid(
                                 dragPos = Offset((i % 3) * (cellWPx + gapPx), (i / 3) * (tileHPx + gapPx))
                                 val completed = drag(down.id) { change ->
                                     change.consume()
-                                    dragPos += change.positionChange()
+                                    dragPos += change.position - change.previousPosition
                                     val order = liveOrder ?: return@drag
                                     val centerX = dragPos.x + cellWPx / 2f
                                     val centerY = dragPos.y + tileHPx / 2f
