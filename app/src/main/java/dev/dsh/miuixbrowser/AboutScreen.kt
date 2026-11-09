@@ -238,8 +238,8 @@ fun AboutScreen(
                         backdrop = if (glass) pageBackdrop else null,
                         title = "Mafari",
                         summary = BuildConfig.VERSION_NAME,
-                        items = listOf("stable", "dev"),
-                        selectedIndex = updateChannel.coerceIn(0, 1),
+                        items = listOf("stable", "dev", "gecko"),
+                        selectedIndex = updateChannel.coerceIn(0, 2),
                         onSelectedIndexChange = onUpdateChannelChange,
                     )
                     AboutRow("WebView 内核版本", kernel)
@@ -373,17 +373,26 @@ private const val PROJECT_URL = "https://github.com/rosenii/mafari"
 private const val COPYRIGHT = "Copyright © 2026 rosenii. All rights reserved."
 private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/releases?per_page=30"
 
+/** gecko 分支预发布的 tag：gecko-<CI 构建号> */
+private val GECKO_TAG = Regex("^gecko-(\\d+)$")
+
+/** gecko 预发布 tag 里的构建号；不是 gecko tag 返回 0 */
+internal fun geckoBuildOf(tag: String): Int = GECKO_TAG.matchEntire(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
 /** 预览类后缀；带这些后缀的 tag 归入 dev 分支（-dev 为主，其余预览后缀一并算 dev） */
 private val PRE_TAG = Regex("(dev|alpha|beta|rc|snapshot)", RegexOption.IGNORE_CASE)
 
 /** tag 是否属于指定分支：0=stable（-stable 或无预览后缀） 1=dev（带预览后缀） */
 internal fun tagMatchesChannel(tag: String, channel: Int): Boolean {
+    // gecko 分支的预发布 tag（gecko-<构建号>）只属于 gecko 渠道，不混进 stable / dev
+    if (GECKO_TAG.matches(tag)) return channel == 2
+    if (channel == 2) return false
     val isPre = PRE_TAG.containsMatchIn(tag)
     return if (channel == 1) isPre else !isPre
 }
 
 /**
- * 拉取指定分支（0=stable 1=dev）的最新 release：版本号、页面地址、APK 直链。
+ * 拉取指定分支（0=stable 1=dev 2=gecko 预发布）的最新 release：版本号、页面地址、APK 直链。
  * 取最近 30 个 release，只保留 tag 后缀匹配分支、非草稿的，再按版本号取最高者。
  * 直连 + 公共 GitHub 加速镜像并发探测，连通者优先。
  */
@@ -414,6 +423,8 @@ private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? = runCat
             if (o.optBoolean("draft", false)) continue
             val tag = o.optString("tag_name", "")
             if (tag.isBlank() || !tagMatchesChannel(tag, channel)) continue
+            // gecko 渠道：只看 GitHub 标为「预发布」的
+            if (channel == 2 && !o.optBoolean("prerelease", false)) continue
             val pageUrl = o.optString("html_url", "").ifBlank { PROJECT_URL + "/releases" }
             var apkUrl: String? = null
             val assets = o.optJSONArray("assets")
@@ -433,7 +444,12 @@ private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? = runCat
                 notes = o.optString("body", "").trim(),
             )
             val current = best
-            if (current == null || isNewerVersion(candidate.version, current.version)) best = candidate
+            val newer = if (channel == 2) {
+                current == null || geckoBuildOf(candidate.version) > geckoBuildOf(current.version)
+            } else {
+                current == null || isNewerVersion(candidate.version, current.version)
+            }
+            if (newer) best = candidate
         }
         best
     } finally {

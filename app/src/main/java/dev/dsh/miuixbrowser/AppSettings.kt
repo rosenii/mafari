@@ -116,10 +116,12 @@ class AppSettings(context: Context) {
         prefs.edit().putString(KEY_IGNORED_UPDATE, version).apply()
     }
 
-    /** 更新分支：0=stable 1=dev。未设置过时跟随当前安装包的版本后缀（-dev → dev，否则 stable） */
+    /** 更新分支：0=stable 1=dev 2=gecko（gecko 分支的预发布）。未设置过时跟随当前安装包 */
     var updateChannel by mutableStateOf(
         if (prefs.contains(KEY_UPDATE_CHANNEL)) {
-            prefs.getInt(KEY_UPDATE_CHANNEL, 0).coerceIn(0, 1)
+            prefs.getInt(KEY_UPDATE_CHANNEL, 0).coerceIn(0, 2)
+        } else if (BuildConfig.GECKO_BUILD > 0) {
+            2
         } else if (BuildConfig.VERSION_NAME.contains("dev", ignoreCase = true)) {
             1
         } else {
@@ -129,7 +131,7 @@ class AppSettings(context: Context) {
         private set
 
     fun updateUpdateChannel(channel: Int) {
-        updateChannel = channel.coerceIn(0, 1)
+        updateChannel = channel.coerceIn(0, 2)
         prefs.edit().putInt(KEY_UPDATE_CHANNEL, updateChannel).apply()
     }
 

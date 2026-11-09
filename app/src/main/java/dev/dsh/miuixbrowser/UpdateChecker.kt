@@ -34,7 +34,10 @@ object UpdateChecker {
     /** 有可提示的新版本则返回，否则 null（网络失败、已是最新、已被用户忽略都返回 null）。 */
     fun findPending(ignored: String, channel: Int): AppRelease? {
         val rel = fetchLatestRelease(channel) ?: return null
-        if (!isNewerVersion(rel.version, BuildConfig.VERSION_NAME)) return null
+        // gecko 预发布按 CI 构建号比较（本机不是 gecko 构建时为 0，任何 gecko 预发布都算新）
+        val newer = if (channel == 2) geckoBuildOf(rel.version) > BuildConfig.GECKO_BUILD
+        else isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
+        if (!newer) return null
         if (rel.version.removePrefix("v") == ignored.removePrefix("v")) return null
         return rel
     }
@@ -115,7 +118,11 @@ fun UpdateSheet(
                 .padding(bottom = 16.dp),
         ) {
             Text(
-                text = "${BuildConfig.VERSION_NAME}  →  ${release.version}",
+                text = (if (geckoBuildOf(release.version) > 0 && BuildConfig.GECKO_BUILD > 0) {
+                    "gecko-${BuildConfig.GECKO_BUILD}"
+                } else {
+                    BuildConfig.VERSION_NAME
+                }) + "  →  " + release.version,
                 fontSize = 15.sp,
                 color = MiuixTheme.colorScheme.onSurface,
             )
