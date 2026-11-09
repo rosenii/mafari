@@ -508,6 +508,7 @@ object GeckoExtensionStore {
      * 还要挂到每个标签页的 session 上（见 [registerSession]）。
      */
     private fun attachActionDelegate(ext: WebExtension) {
+        attachTabDelegate(ext)
         attachToAllSessions(ext)
         if (!actionDelegateAttached.add(ext)) return
         val proxy = actionProxy ?: return
@@ -528,6 +529,96 @@ object GeckoExtensionStore {
         }
     }
 
+    /** 由界面登记：在浏览器里新开标签打开网址（弹出页里的链接 / tabs.create 都走它） */
+    @Volatile
+    var openUrl: ((String) -> Unit)? = null
+
+    /** 弹出页里要打开网页：收起弹出页，交给浏览器开新标签 */
+    private fun openInBrowser(url: String) {
+        if (url.isBlank() || url == "about:blank") return
+        Diag.log("ext: open in browser tab: $url")
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            closePopup()
+            openUrl?.invoke(url)
+        }
+    }
+
+    /** 弹出页用的 session：网页链接（点击 / target=_blank / window.open）一律改为在浏览器新标签里打开 */
+    private fun newPopupSession(runtime: GeckoRuntime): org.mozilla.geckoview.GeckoSession {
+        val session = org.mozilla.geckoview.GeckoSession()
+        session.navigationDelegate = object : org.mozilla.geckoview.GeckoSession.NavigationDelegate {
+            override fun onLoadRequest(
+                session: org.mozilla.geckoview.GeckoSession,
+                request: org.mozilla.geckoview.GeckoSession.NavigationDelegate.LoadRequest,
+            ): GeckoResult<AllowOrDeny>? {
+                val scheme = runCatching { Uri.parse(request.uri).scheme?.lowercase() }.getOrNull()
+                if (scheme == "http" || scheme == "https") {
+                    openInBrowser(request.uri)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
+                return GeckoResult.fromValue(AllowOrDeny.ALLOW)
+            }
+
+            override fun onNewSession(
+                session: org.mozilla.geckoview.GeckoSession,
+                uri: String,
+            ): GeckoResult<org.mozilla.geckoview.GeckoSession>? {
+                openInBrowser(uri)
+                return null
+            }
+        }
+        session.open(runtime)
+        return session
+    }
+
+    private val tabDelegateAttached = java.util.Collections.synchronizedSet(mutableSetOf<WebExtension>())
+
+    /**
+     * 拓展自己要开页面（tabs.create / runtime.openOptionsPage，比如 Tampermonkey 的「新建脚本」、
+     * uBlock 的设置页）时 Gecko 问 TabDelegate；没挂的话这些点击会被静默丢掉。
+     */
+    private fun attachTabDelegate(ext: WebExtension) {
+        if (!tabDelegateAttached.add(ext)) return
+        runCatching {
+            val setter = ext.javaClass.methods.firstOrNull {
+                it.name == "setTabDelegate" && it.parameterTypes.size == 1 && it.parameterTypes[0].isInterface
+            } ?: run {
+                Diag.log("ext: WebExtension.setTabDelegate not found")
+                return
+            }
+            val iface = setter.parameterTypes[0]
+            Diag.log("ext: TabDelegate methods: " + iface.methods.joinToString { m ->
+                m.name + m.parameterTypes.joinToString(prefix = "(", postfix = ")") { it.simpleName }
+            })
+            val proxy = Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
+                when {
+                    method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
+                    method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
+                    method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionTab"
+                    method.name == "onNewTab" -> {
+                        val url = fieldOf(args?.getOrNull(1), "url") as? String
+                        Diag.log("ext: onNewTab url=$url")
+                        if (!url.isNullOrBlank()) openInBrowser(url)
+                        null
+                    }
+                    method.name == "onOpenOptionsPage" -> {
+                        val e = args?.getOrNull(0) as? WebExtension
+                        val url = e?.metaData?.optionsPageUrl?.takeIf { it.isNotBlank() }
+                        Diag.log("ext: onOpenOptionsPage url=$url")
+                        if (url != null) openInBrowser(url)
+                        null
+                    }
+                    else -> {
+                        Diag.log("ext: tab delegate ${method.name} ignored")
+                        null
+                    }
+                }
+            }
+            setter.invoke(ext, proxy)
+            Diag.log("ext: tab delegate attached for ${ext.id}")
+        }.onFailure { Diag.log("ext: setTabDelegate failed: $it") }
+    }
+
     /** Gecko 要显示弹出页：建一个 session 交给它，同时通知界面去装它 */
     private fun openPopup(args: Array<Any?>?): Any? {
         val ext = args?.firstOrNull { it is WebExtension } as? WebExtension
@@ -537,8 +628,7 @@ object GeckoExtensionStore {
             return null
         }
         return runCatching {
-            val session = org.mozilla.geckoview.GeckoSession()
-            session.open(runtime)
+            val session = newPopupSession(runtime)
             val name = ext.metaData?.name?.takeIf { it.isNotBlank() } ?: ext.id
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 popup.value?.session?.let { runCatching { it.close() } }
@@ -615,8 +705,7 @@ object GeckoExtensionStore {
         val url = base.trimEnd('/') + "/" + path.trimStart('/')
         return withContext(Dispatchers.Main) {
             runCatching {
-                val session = org.mozilla.geckoview.GeckoSession()
-                session.open(runtime)
+                val session = newPopupSession(runtime)
                 session.loadUri(url)
                 popup.value?.session?.let { runCatching { it.close() } }
                 popup.value = GeckoPopup(extId, item.name, session)

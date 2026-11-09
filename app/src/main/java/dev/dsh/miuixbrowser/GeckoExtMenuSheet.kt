@@ -57,11 +57,19 @@ fun GeckoExtMenuSheet(
     show: Boolean,
     backdrop: Backdrop?,
     activeSession: org.mozilla.geckoview.GeckoSession? = null,
+    onOpenUrl: (String) -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val store = GeckoExtensionStore
 
+    // 弹出页里的网页链接 / 拓展要开的页面：在浏览器新标签里打开，并收起菜单
+    androidx.compose.runtime.SideEffect {
+        store.openUrl = { url ->
+            onOpenUrl(url)
+            onDismiss()
+        }
+    }
     LaunchedEffect(show, activeSession) {
         store.activeSession = activeSession
         store.markActiveTab()

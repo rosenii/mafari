@@ -2066,6 +2066,7 @@ fun BrowserScreen(
             show = geckoExtSheetShow,
             backdrop = if (homeBlurAvailable) homeBackdrop else null,
             activeSession = state.activeTab.geckoSession,
+            onOpenUrl = { url -> state.newTab(url, tab.incognito) },
             onDismiss = { geckoExtSheetShow = false },
         )
 
