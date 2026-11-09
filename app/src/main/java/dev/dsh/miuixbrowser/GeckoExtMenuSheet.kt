@@ -64,6 +64,7 @@ fun GeckoExtMenuSheet(
 
     LaunchedEffect(show, activeSession) {
         store.activeSession = activeSession
+        store.markActiveTab()
         if (show) runCatching { store.refresh(context) }
     }
 
@@ -77,10 +78,15 @@ fun GeckoExtMenuSheet(
 
     // 点了拓展按钮后，若一小段时间内 Gecko 没要求弹出页（按钮只是触发拓展的 onClicked），就收起菜单
     var clickTick by remember { mutableIntStateOf(0) }
+    var lastClickedId by remember { mutableStateOf("") }
     LaunchedEffect(clickTick) {
         if (clickTick == 0) return@LaunchedEffect
-        delay(900)
-        if (store.popup.value == null) onDismiss()
+        delay(700)
+        if (store.popup.value == null) {
+            // Gecko 没回调弹出页：自己加载 manifest 里的 default_popup；没有弹出页才收起菜单
+            val ok = runCatching { store.openPopupFallback(context, lastClickedId) }.getOrDefault(false)
+            if (!ok && store.popup.value == null) onDismiss()
+        }
     }
     // 弹出页关闭后（或菜单本身被关）清掉残留的弹出页
     LaunchedEffect(show) {
@@ -191,6 +197,7 @@ fun GeckoExtMenuSheet(
                                 .alpha(if (item.enabled) 1f else 0.45f)
                                 .clickable(enabled = item.enabled) {
                                     if (store.clickAction(item.id)) {
+                                        lastClickedId = item.id
                                         clickTick++
                                     } else {
                                         Toast.makeText(context, "该拓展没有快捷菜单", Toast.LENGTH_SHORT).show()

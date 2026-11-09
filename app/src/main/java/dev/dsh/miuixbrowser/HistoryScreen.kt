@@ -39,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
@@ -439,18 +440,18 @@ fun LibraryScreen(
                     editingFav = null
                 }
             },
-            onConfirm = { name, url ->
+            onConfirm = { name, url, group ->
                 if (editingFav != null) {
                     val idx = favorites.items.indexOfFirst {
                         it.url == editingFav!!.url && it.name == editingFav!!.name
                     }
                     if (idx >= 0) {
-                        favorites.update(idx, name, url, editingFav!!.group)
+                        favorites.update(idx, name, url, group)
                     } else {
-                        favorites.add(name, url, editingFav!!.group)
+                        favorites.add(name, url, group)
                     }
                 } else {
-                    favorites.add(name, url)
+                    favorites.add(name, url, group)
                 }
                 creatingFav = false
                 editingFav = null
@@ -471,6 +472,9 @@ private fun BookmarksPage(
 ) {
     val groups = favorites.groups()
     val q = query.trim()
+    // 分组默认折叠（只有一个分组时默认展开）；搜索时自动展开有匹配的分组
+    val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val onlyOneGroup = groups.count { favorites.itemsIn(it).isNotEmpty() } <= 1
     val noMatch = q.isNotEmpty() && favorites.items.none {
         it.name.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
     }
@@ -506,9 +510,16 @@ private fun BookmarksPage(
                 q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
             }
             if (list.isEmpty()) return@forEach
+            val open = q.isNotEmpty() || (expanded[group] ?: onlyOneGroup)
             item(key = "g-$group") {
-                SmallTitle(text = group)
+                BookmarkGroupHeader(
+                    name = group,
+                    count = list.size,
+                    open = open,
+                    onClick = { expanded[group] = !open },
+                )
             }
+            if (!open) return@forEach
             items(list.size, key = { i -> "$group-${list[i].url}-$i" }) { i ->
                 val fav = list[i]
                 Card(
@@ -581,6 +592,42 @@ private fun BookmarksPage(
                 }
             }
         }
+    }
+}
+
+/** 书签分组标题：点一下向下展开 / 收起该分组的书签。 */
+@Composable
+private fun BookmarkGroupHeader(name: String, count: Int, open: Boolean, onClick: () -> Unit) {
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 90f else 0f, label = "groupArrow")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = name,
+            fontSize = 14.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "$count",
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = "›",
+            fontSize = 18.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.graphicsLayer { rotationZ = angle },
+        )
     }
 }
 
@@ -715,11 +762,12 @@ private fun FavoriteEditorDialog(
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     liquidBackdrop: com.kyant.backdrop.Backdrop?,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, url: String) -> Unit,
+    onConfirm: (name: String, url: String, group: String) -> Unit,
     onDelete: (() -> Unit)? = null,
 ) {
     var name by remember(initial, show) { mutableStateOf(initial?.name ?: "") }
     var url by remember(initial, show) { mutableStateOf(initial?.url ?: "") }
+    var group by remember(initial, show) { mutableStateOf(initial?.group ?: "") }
     AppGlassDialog(
         show = show,
         title = if (initial == null) "新建书签" else "编辑书签",
@@ -741,6 +789,15 @@ private fun FavoriteEditorDialog(
                 onValueChange = { url = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = "网址",
+                useLabelAsPlaceholder = true,
+                singleLine = true,
+            )
+            Spacer(Modifier.height(10.dp))
+            top.yukonga.miuix.kmp.basic.TextField(
+                value = group,
+                onValueChange = { group = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = "分组（留空为${Favorite.GROUP_PERSONAL}，输入新名字即新建分组）",
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
@@ -767,7 +824,7 @@ private fun FavoriteEditorDialog(
                 }
                 LiquidGlassPillButton(
                     text = "保存",
-                    onClick = { if (url.isNotBlank()) onConfirm(name, url) },
+                    onClick = { if (url.isNotBlank()) onConfirm(name, url, group.trim()) },
                     backdrop = liquidBackdrop,
                     modifier = Modifier.weight(1f),
                     role = LiquidRole.Primary,

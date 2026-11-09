@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.blur
 
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -1098,7 +1099,7 @@ fun BrowserScreen(
                         wallpaper = wallpaperBitmap,
                         wallpaperBackdrop = wallpaperBackdrop,
                         blurEnabled = settings.blurEnabled,
-                        favorites = favorites.items,
+                        favorites = favorites.items.take(HOME_FAV_MAX),
                         showFavorites = settings.homeShowFavorites,
                         showPrivacy = settings.homeShowPrivacy,
                         showRecent = settings.homeShowRecent && !tab.incognito,
@@ -1118,6 +1119,7 @@ fun BrowserScreen(
                         onOpen = { state.openOrReuse(it, tab.incognito, fromStartPage = true) },
                         onToggleEdit = { favEditing = !favEditing },
                         onRemove = { favorites.remove(it) },
+                        onMove = { from, to -> favorites.move(from, to) },
                         onEdit = { index ->
                             editingFavIndex = index
                             showFavEditor = true
@@ -3071,6 +3073,7 @@ private fun StartPage(
     onOpen: (String) -> Unit,
     onToggleEdit: () -> Unit,
     onRemove: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
     onEdit: (Int) -> Unit,
     onAdd: () -> Unit,
 ) {
@@ -3176,6 +3179,7 @@ private fun StartPage(
                                 onOpen = onOpen,
                                 onToggleEdit = onToggleEdit,
                                 onRemove = onRemove,
+                                onMove = onMove,
                                 onEdit = onEdit,
                                 onAdd = onAdd,
                             )
@@ -3265,6 +3269,7 @@ private fun FavoritesBlock(
     onOpen: (String) -> Unit,
     onToggleEdit: () -> Unit,
     onRemove: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
     onEdit: (Int) -> Unit,
     onAdd: () -> Unit,
 ) {
@@ -3300,34 +3305,21 @@ private fun FavoritesBlock(
 
         Spacer(Modifier.height(6.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            favorites.chunked(3).forEachIndexed { rowIndex, rowItems ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    rowItems.forEachIndexed { colIndex, favorite ->
-                        val index = rowIndex * 3 + colIndex
-                        FavoriteTile(
-                            favorite = favorite,
-                            wallpaper = wallpaper,
-                            wallpaperBackdrop = wallpaperBackdrop,
-                            liquidBackdrop = liquidBackdrop,
-                            blurEnabled = blurEnabled,
-                            editing = editing,
-                            modifier = Modifier.weight(1f),
-                            onClick = guard {
-                                if (editing) onEdit(index) else onOpen(favorite.url)
-                            },
-                            onLongPress = {
-                                if (!editing) onToggleEdit()
-                            },
-                            onRemove = { onRemove(index) },
-                        )
-                    }
-                    repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
-            if (editing) {
+            FavoriteGrid(
+                favorites = favorites,
+                wallpaper = wallpaper,
+                wallpaperBackdrop = wallpaperBackdrop,
+                liquidBackdrop = liquidBackdrop,
+                blurEnabled = blurEnabled,
+                editing = editing,
+                guard = guard,
+                onOpen = onOpen,
+                onToggleEdit = onToggleEdit,
+                onRemove = onRemove,
+                onMove = onMove,
+                onEdit = onEdit,
+            )
+            if (editing && favorites.size < HOME_FAV_MAX) {
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(
                         modifier = Modifier
@@ -3636,6 +3628,115 @@ private fun PrivacyStat(value: String, label: String, modifier: Modifier = Modif
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** 收藏磁贴网格（每行 3 个）：长按磁贴后拖动可排序，其余磁贴实时让位。 */
+@Composable
+private fun FavoriteGrid(
+    favorites: List<Favorite>,
+    wallpaper: ImageBitmap?,
+    wallpaperBackdrop: LayerBackdrop?,
+    liquidBackdrop: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    editing: Boolean,
+    guard: (() -> Unit) -> (() -> Unit),
+    onOpen: (String) -> Unit,
+    onToggleEdit: () -> Unit,
+    onRemove: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onEdit: (Int) -> Unit,
+) {
+    val density = LocalDensity.current
+    val gapPx = with(density) { 10.dp.toPx() }
+    val tileHPx = with(density) { 58.dp.toPx() }
+    val count = favorites.size
+    val rows = (count + 2) / 3
+    var liveOrder by remember { mutableStateOf<List<Int>?>(null) }
+    var dragIndex by remember { mutableIntStateOf(-1) }
+    var dragPos by remember { mutableStateOf(Offset.Zero) }
+    val countNow by rememberUpdatedState(count)
+    val onMoveNow by rememberUpdatedState(onMove)
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (rows == 0) 0.dp else 58.dp * rows + 10.dp * (rows - 1)),
+    ) {
+        val cellWPx = (with(density) { maxWidth.toPx() } - 2 * gapPx) / 3f
+        val cellW = with(density) { cellWPx.toDp() }
+        favorites.forEachIndexed { index, favorite ->
+            key(favorite) {
+                val indexNow by rememberUpdatedState(index)
+                val slot = liveOrder?.indexOf(index) ?: index
+                val target = IntOffset(
+                    ((slot % 3) * (cellWPx + gapPx)).roundToInt(),
+                    ((slot / 3) * (tileHPx + gapPx)).roundToInt(),
+                )
+                val animated by animateIntOffsetAsState(target, spring(stiffness = Spring.StiffnessMediumLow), label = "favSlot")
+                val dragging = dragIndex == index
+                FavoriteTile(
+                    favorite = favorite,
+                    wallpaper = wallpaper,
+                    wallpaperBackdrop = wallpaperBackdrop,
+                    liquidBackdrop = liquidBackdrop,
+                    blurEnabled = blurEnabled,
+                    editing = editing,
+                    modifier = Modifier
+                        .width(cellW)
+                        .offset { if (dragging) IntOffset(dragPos.x.roundToInt(), dragPos.y.roundToInt()) else animated }
+                        .zIndex(if (dragging) 1f else 0f)
+                        .graphicsLayer {
+                            val sc = if (dragging) 1.05f else 1f
+                            scaleX = sc
+                            scaleY = sc
+                        }
+                        .pointerInput(Unit) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    val i = indexNow
+                                    dragIndex = i
+                                    liveOrder = List(countNow) { it }
+                                    dragPos = Offset((i % 3) * (cellWPx + gapPx), (i / 3) * (tileHPx + gapPx))
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    dragPos += amount
+                                    val order = liveOrder ?: return@detectDragGesturesAfterLongPress
+                                    val centerX = dragPos.x + cellWPx / 2f
+                                    val centerY = dragPos.y + tileHPx / 2f
+                                    val lastRow = (countNow - 1) / 3
+                                    val col = (centerX / (cellWPx + gapPx)).toInt().coerceIn(0, 2)
+                                    val row = (centerY / (tileHPx + gapPx)).toInt().coerceIn(0, lastRow)
+                                    val to = (row * 3 + col).coerceIn(0, countNow - 1)
+                                    val from = order.indexOf(dragIndex)
+                                    if (from >= 0 && to != from) {
+                                        liveOrder = order.toMutableList().also { it.removeAt(from); it.add(to, dragIndex) }
+                                    }
+                                },
+                                onDragEnd = {
+                                    val from = dragIndex
+                                    val to = liveOrder?.indexOf(from) ?: -1
+                                    dragIndex = -1
+                                    liveOrder = null
+                                    if (from >= 0 && to >= 0 && to != from) onMoveNow(from, to)
+                                },
+                                onDragCancel = {
+                                    dragIndex = -1
+                                    liveOrder = null
+                                },
+                            )
+                        },
+                    onClick = guard {
+                        if (editing) onEdit(indexNow) else onOpen(favorite.url)
+                    },
+                    onLongPress = {
+                        if (!editing) onToggleEdit()
+                    },
+                    onRemove = { onRemove(indexNow) },
+                )
+            }
+        }
     }
 }
 

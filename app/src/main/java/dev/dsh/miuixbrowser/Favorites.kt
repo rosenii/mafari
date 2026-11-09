@@ -7,6 +7,9 @@ import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** 首页收藏最多显示的个数；其余只出现在书签页里。 */
+const val HOME_FAV_MAX = 12
+
 data class Favorite(
     val name: String,
     val url: String,
@@ -90,6 +93,13 @@ class FavoritesStore(context: Context) {
         persist()
     }
 
+    /** 拖动排序：把 from 位置的项移到 to 位置（首页只显示前 [HOME_FAV_MAX] 项，下标与总列表一致）。 */
+    fun move(from: Int, to: Int) {
+        if (from !in items.indices || to !in items.indices || from == to) return
+        items.add(to, items.removeAt(from))
+        persist()
+    }
+
     fun remove(index: Int) {
         if (index in items.indices) {
             items.removeAt(index)
@@ -114,41 +124,44 @@ class FavoritesStore(context: Context) {
      */
     fun importNetscapeHtml(html: String): Int {
         if (html.isBlank() || !html.contains("HREF", ignoreCase = true)) return 0
-        var group = Favorite.GROUP_PERSONAL
         var added = 0
-        // 逐行/逐块扫描：H3 开组，A 入条
-        val h3 = Regex("""<H3[^>]*>(.*?)</H3>""", RegexOption.IGNORE_CASE)
-        val anchor = Regex("""<A\s[^>]*HREF\s*=\s*"([^"]+)"[^>]*>(.*?)</A>""", RegexOption.IGNORE_CASE)
+        val h3 = Regex("""<H3[^>]*>(.*?)</H3>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val anchor = Regex("""<A\s[^>]*HREF\s*=\s*"([^"]+)"[^>]*>(.*?)</A>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         val tagStrip = Regex("""<[^>]+>""")
-        // 按标签顺序线性扫描，保持分组上下文
+        // 按标签顺序线性扫描：H3 是文件夹名，紧随其后的 <DL> 开启该文件夹，</DL> 结束它；
+        // 书签归入「最内层有名字的文件夹」，不在任何文件夹里的归入默认组
         val token = Regex(
-            """(<H3[^>]*>.*?</H3>)|(<A\s[^>]*HREF\s*=\s*"[^"]+"[^>]*>.*?</A>)""",
+            """(<H3[^>]*>.*?</H3>)|(<A\s[^>]*HREF\s*=\s*"[^"]+"[^>]*>.*?</A>)|(</DL\s*>)|(<DL[^>]*>)""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
         )
+        val folders = ArrayList<String>()
+        var pending = ""
         token.findAll(html).forEach { m ->
             val raw = m.value
-            if (raw.startsWith("<H3", ignoreCase = true)) {
-                val g = h3.find(raw)?.groupValues?.get(1)?.replace(tagStrip, "")?.trim().orEmpty()
-                group = g.ifBlank { Favorite.GROUP_PERSONAL }
-            } else {
-                val href = anchor.find(raw)?.groupValues?.get(1)?.trim().orEmpty()
-                val title = anchor.find(raw)?.groupValues?.get(2)?.replace(tagStrip, "")?.trim().orEmpty()
-                if (href.isNotBlank()) {
-                    val fixed = toUrl(href)
-                    // 去重：同 URL 同组跳过
-                    val exists = items.any {
-                        it.url == fixed &&
-                            (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group
-                    }
-                    if (!exists) {
-                        items.add(
-                            Favorite(
-                                name = title.ifBlank { hostOf(fixed) },
-                                url = fixed,
-                                group = group,
-                            ),
-                        )
-                        added++
+            when {
+                raw.startsWith("<H3", ignoreCase = true) ->
+                    pending = unescapeHtml(h3.find(raw)?.groupValues?.get(1)?.replace(tagStrip, "")?.trim().orEmpty())
+                raw.startsWith("</DL", ignoreCase = true) ->
+                    if (folders.isNotEmpty()) folders.removeAt(folders.lastIndex)
+                raw.startsWith("<DL", ignoreCase = true) -> {
+                    folders.add(pending)
+                    pending = ""
+                }
+                else -> {
+                    val g = anchor.find(raw)
+                    val href = unescapeHtml(g?.groupValues?.get(1)?.trim().orEmpty())
+                    val title = unescapeHtml(g?.groupValues?.get(2)?.replace(tagStrip, "")?.trim().orEmpty())
+                    if (href.isNotBlank()) {
+                        val group = folders.lastOrNull { it.isNotBlank() } ?: Favorite.GROUP_PERSONAL
+                        val fixed = toUrl(href)
+                        // 去重：同 URL 同组跳过
+                        val exists = items.any {
+                            it.url == fixed && (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group
+                        }
+                        if (!exists) {
+                            items.add(Favorite(name = title.ifBlank { hostOf(fixed) }, url = fixed, group = group))
+                            added++
+                        }
                     }
                 }
             }
@@ -190,6 +203,10 @@ class FavoritesStore(context: Context) {
         }
         prefs.edit().putString(KEY, array.toString()).apply()
     }
+
+    private fun unescapeHtml(s: String): String =
+        if ('&' !in s) s else s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+            .replace("&#39;", "'").replace("&amp;", "&")
 
     private fun escapeHtml(s: String): String = buildString(s.length) {
         s.forEach { c ->

@@ -549,6 +549,86 @@ object GeckoExtensionStore {
         }.onFailure { Diag.log("ext: open popup failed: $it") }.getOrNull()
     }
 
+    /**
+     * 告诉 Gecko 哪个 session 是当前活动标签：工具栏按钮的点击 / 弹出页要靠它找到「当前标签」，
+     * 没登记时点击会被 Gecko 静默丢掉。
+     */
+    fun markActiveTab() {
+        val rt = GeckoRuntimeHolder.peek() ?: return
+        val active = activeSession
+        runCatching {
+            val c = rt.webExtensionController
+            val m = c.javaClass.methods.firstOrNull { it.name == "setTabActive" && it.parameterTypes.size == 2 }
+            if (m == null) {
+                Diag.log("ext: setTabActive not found; tab methods: " +
+                    c.javaClass.methods.map { it.name }.filter { it.contains("Tab", true) }.distinct())
+                return
+            }
+            val snapshot = synchronized(sessions) { sessions.toList() }
+            snapshot.forEach { sess -> m.invoke(c, sess, sess === active) }
+            Diag.log("ext: setTabActive done (active=${active != null}, sessions=${snapshot.size})")
+        }.onFailure { Diag.log("ext: setTabActive failed: $it") }
+    }
+
+    private val manifestCache = mutableMapOf<String, String?>()
+
+    /** 在应用数据目录里找拓展包（<id>.xpi 或解包目录），读出 manifest 里声明的弹出页路径 */
+    private suspend fun popupPathFromManifest(context: Context, extId: String): String? = withContext(Dispatchers.IO) {
+        if (manifestCache.containsKey(extId)) return@withContext manifestCache[extId]
+        val found = runCatching {
+            val file = context.filesDir.walkTopDown().maxDepth(7).firstOrNull {
+                (it.isFile && it.name == "$extId.xpi") ||
+                    (it.isDirectory && it.name == extId && File(it, "manifest.json").exists())
+            }
+            if (file == null) {
+                Diag.log("ext: package for $extId not found under filesDir")
+                return@runCatching null
+            }
+            val text = if (file.isDirectory) File(file, "manifest.json").readText()
+            else java.util.zip.ZipFile(file).use { z ->
+                val e = z.getEntry("manifest.json") ?: return@runCatching null
+                z.getInputStream(e).bufferedReader().readText()
+            }
+            val mf = JSONObject(text)
+            listOf("action", "browser_action").firstNotNullOfOrNull { key ->
+                mf.optJSONObject(key)?.optString("default_popup")?.takeIf { it.isNotBlank() }
+            }
+        }.onFailure { Diag.log("ext: read manifest failed: $it") }.getOrNull()
+        Diag.log("ext: popup path for $extId = $found")
+        manifestCache[extId] = found
+        found
+    }
+
+    /**
+     * 兜底：Gecko 没有回调 onOpenPopup / onTogglePopup 时，自己把拓展的弹出页（moz-extension://…）
+     * 加载进一个新 session 交给界面。返回 false 表示这个拓展没有弹出页或找不到。
+     */
+    suspend fun openPopupFallback(context: Context, extId: String): Boolean {
+        val item = items.firstOrNull { it.id == extId } ?: return false
+        val runtime = GeckoRuntimeHolder.peek() ?: return false
+        val base = (fieldOf(item.ext.metaData, "baseUrl") as? String)?.takeIf { it.isNotBlank() }
+        if (base == null) {
+            Diag.log("ext: MetaData.baseUrl unavailable")
+            return false
+        }
+        val path = popupPathFromManifest(context, extId) ?: return false
+        val url = base.trimEnd('/') + "/" + path.trimStart('/')
+        return withContext(Dispatchers.Main) {
+            runCatching {
+                val session = org.mozilla.geckoview.GeckoSession()
+                session.open(runtime)
+                session.loadUri(url)
+                popup.value?.session?.let { runCatching { it.close() } }
+                popup.value = GeckoPopup(extId, item.name, session)
+                Diag.log("ext: fallback popup loaded $url")
+                true
+            }.getOrElse {
+                Diag.log("ext: fallback popup failed: $it")
+                false
+            }
+        }
+    }
+
     /** 点击拓展的工具栏按钮；该拓展没有按钮时返回 false */
     fun clickAction(extId: String): Boolean {
         val tabAction = activeSession?.let { sess -> synchronized(sessionActions) { sessionActions[sess]?.get(extId) } }
@@ -571,6 +651,7 @@ object GeckoExtensionStore {
             if (rt != null) Diag.log("ext: runtime controller delegate setters: " +
                 rt.webExtensionController.javaClass.methods.filter { it.name.contains("Delegate") }.joinToString { it.name })
         }
+        markActiveTab()
         return runCatching {
             val r = action.javaClass.getMethod("click").invoke(action)
             Diag.log("ext: click() returned $r")
