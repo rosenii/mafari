@@ -7,6 +7,7 @@
 - 修复（Gecko）：从其他应用切回 Mafari 时网页黑几秒 —— 退到后台前抓一帧当前画面，完全停止后盖在 GeckoView 上，切回后推一下重绘，等 TextureView 重新有内容再撤掉（`GeckoViewLifecycle` / `GeckoTabEngine.captureFrameForBackground`）
 - 修复（Gecko）：安装拓展时点「添加 / 取消」后一直「安装中」—— 新版 GeckoView 的安装确认（`onInstallPromptRequest`）要求回 `PermissionPromptResponse`，之前一律回 `AllowOrDeny`，内核收不到结果就挂住；现按方法的泛型返回类型回对应类型，提示框以任何方式关闭都会回结果；安装加 3 分钟超时兜底，「安装中」状态放进 finally 一定释放
 - 修复（Gecko）：拓展页「更多 → 导入」点了没反应 —— 菜单收起与导入 sheet 弹出同一帧冲突，改为菜单收起后再弹；重复点同一个正在安装的拓展不再静默忽略，会提示「正在安装中」
+- 修复：stable / dev 分支「检查更新」提示检查失败 —— 之前只取最近 30 条 release，gecko 分支每次构建都发一条预发布，把 stable / dev 的 release 挤出了窗口，找不到就当失败；改为每页 100 条、最多翻 6 页，找到本分支的就停；整体等待上限 8s → 15s
 
 ## [99.1.3]
 

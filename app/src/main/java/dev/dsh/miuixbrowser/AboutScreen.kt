@@ -373,7 +373,10 @@ data class AppRelease(
 
 private const val PROJECT_URL = "https://github.com/rosenii/mafari"
 private const val COPYRIGHT = "Copyright © 2026 rosenii. All rights reserved."
-private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/releases?per_page=30"
+private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/releases?per_page=100"
+
+/** 最多翻几页：gecko 分支每次构建都发一个预发布，stable / dev 的 release 会被挤到很靠后的页里 */
+private const val RELEASES_MAX_PAGES = 6
 
 /** gecko 分支预发布的 tag：gecko-<CI 构建号> */
 private val GECKO_TAG = Regex("^gecko-(\\d+)$")
@@ -395,7 +398,8 @@ internal fun tagMatchesChannel(tag: String, channel: Int): Boolean {
 
 /**
  * 拉取指定分支（0=stable 1=dev 2=gecko 预发布）的最新 release：版本号、页面地址、APK 直链。
- * 取最近 30 个 release，只保留 tag 后缀匹配分支、非草稿的，再按版本号取最高者。
+ * 按页（每页 100 条、最多 6 页）从新到旧找，只保留 tag 后缀匹配分支、非草稿的，再按版本号取最高者；
+ * 找到匹配分支的 release 就不再往后翻（gecko 预发布刷屏时，stable 的 release 可能在第 2 页以后）。
  * 直连 + 公共 GitHub 加速镜像并发探测，连通者优先。
  */
 internal fun fetchLatestRelease(channel: Int): AppRelease? {
@@ -405,48 +409,23 @@ internal fun fetchLatestRelease(channel: Int): AppRelease? {
             fetchReleaseFrom(api, channel)
         }
     }
-    return GitHubAccelerate.raceFirst(8000, fetchers)
+    return GitHubAccelerate.raceFirst(15000, fetchers)
 }
 
-private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? = runCatching {
-    val connection = (java.net.URL(apiUrl).openConnection() as java.net.HttpURLConnection).apply {
-        connectTimeout = 6000
-        readTimeout = 6000
-        instanceFollowRedirects = true
-        setRequestProperty("User-Agent", "mafari")
-        setRequestProperty("Accept", "application/vnd.github+json")
-    }
-    try {
-        if (connection.responseCode !in 200..299) return@runCatching null
-        val array = org.json.JSONArray(connection.inputStream.bufferedReader().readText())
-        var best: AppRelease? = null
+private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? {
+    var best: AppRelease? = null
+    for (page in 1..RELEASES_MAX_PAGES) {
+        val pageUrl = if (page == 1) apiUrl else apiUrl + (if (apiUrl.contains('?')) "&" else "?") + "page=$page"
+        val array = fetchReleasePage(pageUrl)
+        if (array == null) {
+            // 第一页就失败 = 这条线路不通；后面的页失败就用已找到的
+            return best
+        }
+        var matchedInPage = false
         for (i in 0 until array.length()) {
             val o = array.optJSONObject(i) ?: continue
-            if (o.optBoolean("draft", false)) continue
-            val tag = o.optString("tag_name", "")
-            if (tag.isBlank() || !tagMatchesChannel(tag, channel)) continue
-            // gecko 渠道：只看 GitHub 标为「预发布」的
-            if (channel == 2 && !o.optBoolean("prerelease", false)) continue
-            val pageUrl = o.optString("html_url", "").ifBlank { PROJECT_URL + "/releases" }
-            var apkUrl: String? = null
-            val assets = o.optJSONArray("assets")
-            if (assets != null) {
-                for (j in 0 until assets.length()) {
-                    val link = assets.optJSONObject(j)?.optString("browser_download_url", "").orEmpty()
-                    if (link.endsWith(".apk", ignoreCase = true)) {
-                        apkUrl = link
-                        break
-                    }
-                }
-            }
-            val candidate = AppRelease(
-                version = tag,
-                pageUrl = pageUrl,
-                apkUrl = apkUrl,
-                notes = o.optString("body", "").trim(),
-                publishedAt = runCatching { java.time.Instant.parse(o.optString("published_at", "")).toEpochMilli() }
-                    .getOrDefault(0L),
-            )
+            val candidate = parseRelease(o, channel) ?: continue
+            matchedInPage = true
             val current = best
             val newer = if (channel == 2) {
                 current == null || geckoBuildOf(candidate.version) > geckoBuildOf(current.version)
@@ -455,11 +434,56 @@ private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? = runCat
             }
             if (newer) best = candidate
         }
-        best
+        // 已找到本分支的 release，或者已经是最后一页（不足一整页）
+        if (matchedInPage || array.length() < 100) break
+    }
+    return best
+}
+
+private fun fetchReleasePage(url: String): org.json.JSONArray? = runCatching {
+    val connection = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+        connectTimeout = 6000
+        readTimeout = 6000
+        instanceFollowRedirects = true
+        setRequestProperty("User-Agent", "mafari")
+        setRequestProperty("Accept", "application/vnd.github+json")
+    }
+    try {
+        if (connection.responseCode !in 200..299) return@runCatching null
+        org.json.JSONArray(connection.inputStream.bufferedReader().readText())
     } finally {
         connection.disconnect()
     }
 }.getOrNull()
+
+/** 一条 release → AppRelease；草稿 / 不属于该分支的返回 null */
+private fun parseRelease(o: org.json.JSONObject, channel: Int): AppRelease? {
+    if (o.optBoolean("draft", false)) return null
+    val tag = o.optString("tag_name", "")
+    if (tag.isBlank() || !tagMatchesChannel(tag, channel)) return null
+    // gecko 渠道：只看 GitHub 标为「预发布」的
+    if (channel == 2 && !o.optBoolean("prerelease", false)) return null
+    val pageUrl = o.optString("html_url", "").ifBlank { PROJECT_URL + "/releases" }
+    var apkUrl: String? = null
+    val assets = o.optJSONArray("assets")
+    if (assets != null) {
+        for (j in 0 until assets.length()) {
+            val link = assets.optJSONObject(j)?.optString("browser_download_url", "").orEmpty()
+            if (link.endsWith(".apk", ignoreCase = true)) {
+                apkUrl = link
+                break
+            }
+        }
+    }
+    return AppRelease(
+        version = tag,
+        pageUrl = pageUrl,
+        apkUrl = apkUrl,
+        notes = o.optString("body", "").trim(),
+        publishedAt = runCatching { java.time.Instant.parse(o.optString("published_at", "")).toEpochMilli() }
+            .getOrDefault(0L),
+    )
+}
 
 @Composable
 private fun AboutRow(title: String, value: String) {
