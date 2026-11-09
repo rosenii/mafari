@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -359,14 +358,10 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                 backdrop = if (glass) backdrop else null,
             ) {
                 GlassPopupItem(
-                    text = "导入",
+                    text = "导入拓展",
                     onClick = {
                         showMore = false
-                        // 等菜单的收起动画结束再弹导入 sheet：两个浮层同一帧一收一开，sheet 会被菜单的关闭一并吞掉
-                        scope.launch {
-                            delay(220)
-                            showImport = true
-                        }
+                        showImport = true
                     },
                     icon = MiuixIcons.Glass.Download,
                 )
@@ -458,22 +453,19 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                 }
             }
 
-            ImportSheet(
+            GeckoImportDialog(
                 show = showImport,
                 backdrop = if (glass) backdrop else null,
                 onDismiss = { showImport = false },
-                onLink = {
+                onLink = { link ->
                     showImport = false
-                    importLink(it)
+                    importLink(link)
                 },
-                onFile = {
+                onPickFile = {
                     showImport = false
-                    scope.launch {
-                        delay(150)
-                        runCatching {
-                            filePicker.launch(arrayOf("application/x-xpinstall", "application/zip", "application/octet-stream", "*/*"))
-                        }.onFailure { toast("无法打开文件选择器：${it.message}") }
-                    }
+                    runCatching {
+                        filePicker.launch(arrayOf("application/x-xpinstall", "application/zip", "application/octet-stream", "*/*"))
+                    }.onFailure { toast("无法打开文件选择器：${it.message}") }
                 },
             )
         }
@@ -490,61 +482,53 @@ private fun HintText(text: String) {
     )
 }
 
-/** 底部 sheet：选择「从链接」或「从文件」导入 */
+/** 导入拓展弹窗（与脚本页的导入弹窗一致）：填链接导入，或点「从本地文件导入」选 .xpi */
 @Composable
-private fun ImportSheet(
+private fun GeckoImportDialog(
     show: Boolean,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     onDismiss: () -> Unit,
     onLink: (String) -> Unit,
-    onFile: () -> Unit,
+    onPickFile: () -> Unit,
 ) {
-    var linkMode by remember(show) { mutableStateOf(false) }
     var link by remember(show) { mutableStateOf("") }
-    AppBottomSheet(
+    AppGlassDialog(
         show = show,
         title = "导入拓展",
+        summary = "支持拓展商店页面链接、.xpi 直链，或本地 .xpi 文件",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
-            if (!linkMode) {
-                SheetRow("从链接", "拓展商店页面链接，或 .xpi 直链") { linkMode = true }
-                SheetRow("从文件", "选择本地 .xpi 文件", onFile)
-            } else {
-                TextField(
-                    value = link,
-                    onValueChange = { link = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = "链接（addons.mozilla.org 页面或 .xpi）",
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(onGo = { if (link.isNotBlank()) onLink(link) }),
-                )
-                Spacer(Modifier.height(14.dp))
-                AppTextButton(
-                    text = "导入",
-                    onClick = { if (link.isNotBlank()) onLink(link) },
-                    modifier = Modifier.fillMaxWidth(),
-                    primary = true,
-                )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            TextField(
+                value = link,
+                onValueChange = { link = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = "拓展链接（http / https）",
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { if (link.isNotBlank()) onLink(link.trim()) }),
+            )
+            Spacer(Modifier.height(10.dp))
+            AppTextButton(
+                text = "从本地文件导入",
+                onClick = onPickFile,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                }
+                AppDialogButton(
+                    onClick = { if (link.isNotBlank()) onLink(link.trim()) },
+                    modifier = Modifier.weight(1f),
+                    role = GlassDialogButtonRole.Primary,
+                ) {
+                    Text(text = "导入", style = MiuixTheme.textStyles.button)
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun SheetRow(title: String, summary: String, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-    ) {
-        Text(text = title, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurface)
-        Spacer(Modifier.height(2.dp))
-        Text(text = summary, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
