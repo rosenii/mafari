@@ -136,6 +136,30 @@ class GeckoTabEngine(
         applyFrameRateHint()
     }
 
+    // ---------------------------------------------------------------- 原生沉浸
+    //
+    // GeckoView 保持整块内容区大小不变，状态栏留白由界面层「平移」出来；页面底部被推出屏幕的那一截
+    // 通过 setVerticalClipping 告诉 Gecko，底部固定元素才不会被裁掉。setDynamicToolbarMaxHeight 声明可收起区域的最大高度。
+    // 先设最大高度、再设裁剪量（Gecko 在改最大高度时会把裁剪量清零）。必须在主线程。
+
+    private var immersiveMax = 0
+    private var immersiveClip = 0
+
+    fun applyImmersive(maxPx: Int, clipPx: Int) {
+        runCatching {
+            if (maxPx != immersiveMax) {
+                immersiveMax = maxPx
+                immersiveClip = -1
+                view.setDynamicToolbarMaxHeight(maxPx)
+            }
+            val clip = clipPx.coerceIn(0, maxPx)
+            if (clip != immersiveClip) {
+                immersiveClip = clip
+                view.setVerticalClipping(clip)
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- SurfaceView 帧率声明 / 诊断
     //
     // SurfaceView 的内容由 Gecko 的合成器直接送显，UI 线程在滑动时几乎不出帧；部分系统（自适应刷新率）

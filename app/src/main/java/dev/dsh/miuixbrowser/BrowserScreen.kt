@@ -931,10 +931,24 @@ fun BrowserScreen(
     // 弹簧会过冲到负值，padding 不允许负数
     // Gecko：留白随底栏收起而变化会让 GeckoView 在滑动途中逐帧重新布局 / 调整视口（掉帧主因），
     // 默认固定为状态栏高度；「Gecko 调试 → 状态栏留白随滚动收起」打开后才恢复动画。
-    val contentTopPadding = if (tab.isGecko && GeckoDebug.fixedInset) {
+    val contentTopPadding = if (tab.isGecko && !GeckoDebug.nativeImmersive) {
         statusBarHeight
     } else {
         animatedTopPadding.coerceAtLeast(0.dp)
+    }
+    // Gecko 原生沉浸（仅网页状态；主页仍按普通留白排版）：GeckoView 占满内容区、尺寸恒定，
+    // 状态栏留白用 offset 平移出来（只改位置、不触发 Gecko 重新布局），并把被推出屏幕的高度告诉 Gecko。
+    val nativeInset = tab.isGecko && GeckoDebug.nativeImmersive && tab.url.isNotEmpty()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val statusBarPx = with(density) { statusBarHeight.roundToPx() }
+    LaunchedEffect(tab.id, nativeInset, statusBarPx) {
+        if (!nativeInset) {
+            tab.geckoApplyImmersive(0, 0)
+        } else {
+            androidx.compose.runtime.snapshotFlow {
+                with(density) { animatedTopPadding.coerceAtLeast(0.dp).roundToPx() }
+            }.collect { tab.geckoApplyImmersive(statusBarPx, it) }
+        }
     }
 
     val hide by animateFloatAsState(
@@ -1053,7 +1067,7 @@ fun BrowserScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = contentTopPadding),
+                    .padding(top = if (nativeInset) 0.dp else contentTopPadding),
             ) {
                 key(tab.id) {
                     AndroidView(
@@ -1098,6 +1112,15 @@ fun BrowserScreen(
                         },
                         modifier = Modifier
                             .fillMaxSize()
+                            .then(
+                                if (nativeInset) {
+                                    Modifier.offset {
+                                        IntOffset(0, animatedTopPadding.coerceAtLeast(0.dp).roundToPx())
+                                    }
+                                } else {
+                                    Modifier
+                                },
+                            )
                             .onSizeChanged { size ->
                                 // Compose 的尺寸才是当前沉浸式内容区域的真实可用尺寸。
                                 // 尺寸有效后让 WebView 重新布局，再通知页面重新计算响应式布局。
@@ -2288,6 +2311,7 @@ fun BrowserScreen(
             onOpenScripts = { pushPage(AppRoute.Extensions) },
             onOpenGeckoExtensions = { pushPage(AppRoute.GeckoExtensions) },
             onOpenGeckoProtection = { pushPage(AppRoute.GeckoProtectionPage) },
+            onOpenGeckoDebug = { pushPage(AppRoute.GeckoDebugPage) },
             onOpenAdBlock = { pushPage(AppRoute.AdBlockPage) },
             onOpenCookies = { pushPage(AppRoute.CookiePage) },
             onOpenPrivacyEnhance = { pushPage(AppRoute.PrivacyEnhancePage) },
@@ -2349,6 +2373,12 @@ fun BrowserScreen(
     }
     entry<AppRoute.GeckoProtectionPage> {
         GeckoProtectionScreen(
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.GeckoDebugPage> {
+        GeckoDebugScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )

@@ -1328,6 +1328,11 @@ class BrowserTab(
         gecko?.setActive(active)
     }
 
+    /** Gecko 原生沉浸：最大可收起高度 + 当前底部被推出屏幕的高度（像素）；WebView 标签无操作 */
+    fun geckoApplyImmersive(maxPx: Int, clipPx: Int) {
+        gecko?.applyImmersive(maxPx, clipPx)
+    }
+
     // ======================================================================
     // Gecko 回调 → 标签状态（由 GeckoTabEngine 调用，均在主线程）
     // ======================================================================

@@ -89,6 +89,7 @@ fun SettingsScreen(
     onOpenScripts: () -> Unit,
     onOpenGeckoExtensions: () -> Unit = {},
     onOpenGeckoProtection: () -> Unit = {},
+    onOpenGeckoDebug: () -> Unit = {},
     onOpenAdBlock: () -> Unit,
     onOpenPrivacyEnhance: () -> Unit,
     onOpenCookies: () -> Unit = {},
@@ -320,9 +321,9 @@ fun SettingsScreen(
                         backdrop = if (glass) backdrop else null,
                         title = "浏览器内核",
                         summary = if (settings.browserEngine == ENGINE_GECKO) {
-                            "Gecko：新建标签页生效，已打开的标签保持原内核 · 设置里仅显示 Gecko 适用的项目，脚本 / 去广告请用拓展替代"
+                            "Gecko · 新建标签页生效"
                         } else {
-                            "系统 WebView：新建标签页生效，已打开的标签保持原内核"
+                            "系统 WebView · 新建标签页生效"
                         },
                         items = listOf("WebView（系统）", "GeckoView（Nightly）"),
                         selectedIndex = settings.browserEngine.coerceIn(0, 1),
@@ -351,8 +352,15 @@ fun SettingsScreen(
                     EngineRow(visible = settings.geckoMode) {
                         SettingsRow(
                             title = "拓展",
-                            summary = "Firefox 扩展：搜索 / 导入 / 管理 · 可用 uBlock Origin、Violentmonkey 等替代去广告与脚本",
+                            summary = "管理 Firefox 扩展",
                             onClick = onOpenGeckoExtensions,
+                        )
+                    }
+                    EngineRow(visible = settings.geckoMode) {
+                        SettingsRow(
+                            title = "Gecko 调试",
+                            summary = "渲染信息 · 沉浸模式 · 性能叠层 · 运行日志",
+                            onClick = onOpenGeckoDebug,
                         )
                     }
                     EngineRow(visible = !settings.geckoMode) {
@@ -419,61 +427,6 @@ fun SettingsScreen(
                             }
                         },
                     )
-                }
-
-                // Gecko 调试：仅 Gecko 模式显示；调试项默认全关，避免日常使用白白消耗性能
-                EngineRow(visible = settings.geckoMode) {
-                    Column {
-                        SmallTitle(text = "Gecko 调试")
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp),
-                            insideMargin = PaddingValues(0.dp),
-                        ) {
-                            SettingsRow(
-                                title = "渲染信息",
-                                summary = GeckoDebug.infoSummary(context),
-                                onClick = {},
-                            )
-                            AppSwitchPreference(
-                                title = "请求高刷新率",
-                                summary = "给 Gecko 的 SurfaceView 声明屏幕最高刷新率，避免系统因 UI 线程没有帧而降低刷新率（滑动掉帧时先试这项）",
-                                checked = GeckoDebug.highRefresh,
-                                onCheckedChange = { GeckoDebug.updateHighRefresh(it) },
-                            )
-                            AppSwitchPreference(
-                                title = "状态栏留白随滚动收起",
-                                summary = "默认关闭：网页上方留白固定，滑动时 GeckoView 不再重新布局。打开后更沉浸，但底栏收起 / 展开时会掉帧",
-                                checked = !GeckoDebug.fixedInset,
-                                onCheckedChange = { GeckoDebug.updateFixedInset(!it) },
-                            )
-                            AppSwitchPreference(
-                                title = "渲染性能叠层",
-                                summary = "显示 WebRender 的帧率 / 耗时叠层（gfx.webrender.debug.profiler），用来判断瓶颈在合成还是页面；仅调试，会增加开销",
-                                checked = GeckoDebug.profiler,
-                                onCheckedChange = { GeckoDebug.updateProfiler(it) },
-                            )
-                            AppSwitchPreference(
-                                title = "运行日志",
-                                summary = "把 Surface 创建 / 销毁等运行记录写到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭",
-                                checked = GeckoDebug.diagLog,
-                                onCheckedChange = { GeckoDebug.updateDiagLog(context, it) },
-                            )
-                            AppSwitchPreference(
-                                title = "USB 远程调试",
-                                summary = "允许桌面 Firefox（about:debugging）通过 USB 连接并检查页面；立即生效",
-                                checked = GeckoDebug.remoteDebug,
-                                onCheckedChange = { GeckoDebug.updateRemoteDebug(it) },
-                            )
-                            AppSwitchPreference(
-                                title = "允许 about:config",
-                                summary = "允许在 Gecko 里打开 about:config 手动修改偏好；立即生效，误改可能导致网页异常",
-                                checked = GeckoDebug.aboutConfig,
-                                onCheckedChange = { GeckoDebug.updateAboutConfig(it) },
-                            )
-                        }
-                    }
                 }
 
                 SmallTitle(text = "关于")

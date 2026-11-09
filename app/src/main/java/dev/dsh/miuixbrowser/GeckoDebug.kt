@@ -17,7 +17,8 @@ import androidx.compose.runtime.setValue
  * - [profiler]：WebRender 性能叠层（gfx.webrender.debug.profiler，nightly 偏好名可能变；不存在时无副作用）
  * - [diagLog]：写 diag.txt 运行日志（含 SurfaceView 创建 / 销毁），同时作用于 [Diag]
  * - [highRefresh]：给 Gecko 的 SurfaceView 声明高刷新率，避免系统因 UI 线程没有帧而把窗口降到低刷新率
- * - [fixedInset]：Gecko 网页上方的状态栏留白保持固定。留白随底栏收起而变化会让 GeckoView 在滑动途中重新布局 / 调整视口，是掉帧来源
+ * - [nativeImmersive]：Gecko 原生沉浸。GeckoView 尺寸固定为整个内容区，状态栏留白靠「平移 + setVerticalClipping /
+ *   setDynamicToolbarMaxHeight」实现，收起 / 展开时不再重新布局 / 调整视口；关闭则留白固定、不随滚动收起（最稳）
  */
 object GeckoDebug {
 
@@ -29,7 +30,7 @@ object GeckoDebug {
     var profiler by mutableStateOf(false); private set
     var diagLog by mutableStateOf(false); private set
     var highRefresh by mutableStateOf(true); private set
-    var fixedInset by mutableStateOf(true); private set
+    var nativeImmersive by mutableStateOf(true); private set
 
     fun load(context: Context) {
         if (prefs != null) return
@@ -40,7 +41,7 @@ object GeckoDebug {
         profiler = p.getBoolean("profiler", false)
         diagLog = p.getBoolean("diag", false)
         highRefresh = p.getBoolean("high_refresh", true)
-        fixedInset = p.getBoolean("fixed_inset", true)
+        nativeImmersive = p.getBoolean("native_immersive", true)
     }
 
     private inline fun save(block: SharedPreferences.Editor.() -> Unit) {
@@ -72,8 +73,8 @@ object GeckoDebug {
         GeckoViewLifecycle.applyFrameRate()
     }
 
-    fun updateFixedInset(v: Boolean) {
-        fixedInset = v; save { putBoolean("fixed_inset", v) }
+    fun updateNativeImmersive(v: Boolean) {
+        nativeImmersive = v; save { putBoolean("native_immersive", v) }
     }
 
     /** Gecko 运行时创建后调用：把需要写进 about:config 的调试项补上（只在开启时写，关闭时什么都不碰） */
@@ -88,14 +89,23 @@ object GeckoDebug {
         d.supportedModes.maxOfOrNull { it.refreshRate } ?: d.refreshRate
     }.getOrDefault(0f)
 
-    /** 设置页展示用：Gecko 版本 / 渲染后端 / 刷新率 */
-    fun infoSummary(context: Context): String {
-        val ver = runCatching {
-            val c = Class.forName("org.mozilla.geckoview.BuildConfig")
-            c.getField("MOZ_APP_VERSION").get(null).toString() + " (" + c.getField("MOZ_APP_BUILDID").get(null) + ")"
-        }.getOrDefault("未知")
+    /** 调试页「渲染信息」：标签 → 值（点击整块复制） */
+    fun infoLines(context: Context): List<Pair<String, String>> {
+        val bc = runCatching { Class.forName("org.mozilla.geckoview.BuildConfig") }.getOrNull()
+        fun field(name: String) = runCatching { bc?.getField(name)?.get(null)?.toString() }.getOrNull() ?: "未知"
         val hz = maxRefreshRate(context)
-        return "GeckoView $ver · SurfaceView 后端 · 屏幕最高 ${if (hz > 0f) "%.0f".format(hz) else "?"} Hz"
+        val cur = runCatching {
+            (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+                .getDisplay(Display.DEFAULT_DISPLAY).refreshRate
+        }.getOrDefault(0f)
+        return listOf(
+            "GeckoView 版本" to field("MOZ_APP_VERSION"),
+            "构建 ID" to field("MOZ_APP_BUILDID"),
+            "渲染后端" to "SurfaceView（GeckoView 默认）",
+            "屏幕刷新率" to "当前 ${"%.0f".format(cur)} Hz / 最高 ${"%.0f".format(hz)} Hz",
+            "运行时" to if (GeckoRuntimeHolder.peek() != null) "已启动" else "未启动（打开 Gecko 标签后启动）",
+            "运行日志" to if (Diag.enabled) "已开启" else "关闭",
+        )
     }
 
     private const val PROFILER_PREF = "gfx.webrender.debug.profiler"

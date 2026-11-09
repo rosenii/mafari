@@ -22,6 +22,9 @@ sealed interface AppRoute : NavKey {
     /** Gecko 高级保护：ETP / 指纹 / 安全 DNS 等 */
     data object GeckoProtectionPage : AppRoute
 
+    /** 设置 → 高级 → Gecko 调试 */
+    data object GeckoDebugPage : AppRoute
+
     /** 设置 → 高级 → 去广告 */
     data object AdBlockPage : AppRoute
 
