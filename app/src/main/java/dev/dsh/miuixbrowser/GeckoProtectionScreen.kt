@@ -98,7 +98,7 @@ fun GeckoProtectionScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 backdrop = bd,
                                 title = "增强型跟踪保护",
                                 summary = "标准：拦截广告 / 统计 / 社交跟踪；严格：另拦截更多内容跟踪，个别网页可能异常",
-                                items = listOf("跟随隐私设置", "关闭", "标准", "严格"),
+                                items = listOf("默认（标准）", "关闭", "标准", "严格"),
                                 selectedIndex = p.etp,
                                 onSelectedIndexChange = { p.updateEtp(it) },
                             )
@@ -161,6 +161,12 @@ fun GeckoProtectionScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 summary = "只使用默认出口地址，不向网页暴露内网 / 多网卡地址（视频通话仍可用）",
                                 checked = p.webrtcLeak,
                                 onCheckedChange = { p.updateWebrtcLeak(it) },
+                            )
+                            AppSwitchPreference(
+                                title = "禁用 WebRTC",
+                                summary = "彻底关闭 WebRTC 接口，不再泄露真实 IP（视频通话 / 在线会议将不可用）",
+                                checked = p.webrtcOff,
+                                onCheckedChange = { p.updateWebrtcOff(it) },
                             )
                             AppSwitchPreference(
                                 title = "严格第一方隔离",
@@ -249,10 +255,8 @@ fun GeckoProtectionScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             text = "恢复默认",
                             onClick = { resetAsk = true },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            inPage = true, // 页面内按钮不能采样页面层，否则液态玻璃下递归采样闪退
                         )
-                    }
-                    item {
-                        Hint("「全局隐私控制」「防 WebRTC 泄露」等与「设置 → 隐私」里的同类开关取并集：任一开启即生效。")
                     }
                 }
             }

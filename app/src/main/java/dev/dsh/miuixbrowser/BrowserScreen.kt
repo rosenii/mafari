@@ -716,7 +716,7 @@ fun BrowserScreen(
     LaunchedEffect(
         tab.id,
         tab.incognito,
-        settings.thirdPartyCookie,
+        settings.cookieMode,
         settings.sendDnt,
         settings.webrtcDisabled,
         settings.clipboardPermission,
@@ -733,7 +733,7 @@ fun BrowserScreen(
         AdBlock.fpFonts,
     ) {
         tab.applyPrivacy(
-            thirdPartyCookiesAllowed = settings.thirdPartyCookie == 0,
+            cookieMode = settings.cookieMode,
             sendDnt = settings.sendDnt,
             webrtcDisabled = settings.webrtcDisabled,
             clipboardMode = settings.clipboardPermission,
@@ -2206,7 +2206,8 @@ fun BrowserScreen(
             onOpenGeckoExtensions = { pushPage(AppRoute.GeckoExtensions) },
             onOpenGeckoProtection = { pushPage(AppRoute.GeckoProtectionPage) },
             onOpenAdBlock = { pushPage(AppRoute.AdBlockPage) },
-            onOpenFingerprint = { pushPage(AppRoute.FingerprintPage) },
+            onOpenCookies = { pushPage(AppRoute.CookiePage) },
+            onOpenPrivacyEnhance = { pushPage(AppRoute.PrivacyEnhancePage) },
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
             onOpenAbout = { pushPage(AppRoute.About) },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
@@ -2239,8 +2240,17 @@ fun BrowserScreen(
             blurEnabled = settings.blurEnabled,
         )
     }
-    entry<AppRoute.FingerprintPage> {
-        FingerprintScreen(
+    entry<AppRoute.CookiePage> {
+        CookieScreen(
+            settings = settings,
+            currentUrl = tab.url,
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.PrivacyEnhancePage> {
+        PrivacyEnhanceScreen(
+            settings = settings,
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )

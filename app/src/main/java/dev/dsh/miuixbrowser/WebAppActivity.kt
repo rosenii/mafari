@@ -280,8 +280,8 @@ class WebAppActivity : ComponentActivity() {
             }
         }
         CookieManager.getInstance().apply {
-            setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, settings.thirdPartyCookie == 0)
+            setAcceptCookie(settings.cookieMode != 3)
+            setAcceptThirdPartyCookies(webView, settings.cookieMode == 0)
         }
 
         webView.webViewClient = object : WebViewClient() {

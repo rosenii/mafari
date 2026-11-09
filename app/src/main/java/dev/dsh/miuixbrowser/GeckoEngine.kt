@@ -49,7 +49,9 @@ object GeckoRuntimeHolder {
             // 「Gecko 高级保护」里的设置（ETP 档位 / 安全 DNS…）+ 之前记下的 about:config 偏好，此刻统一写入
             GeckoProtection.load(context)
             GeckoProtection.pushAll()
+            CookieControl.pushGecko(context)
             GeckoPrefs.flush()
+            CookieControl.runPendingGeckoColdClear()
             return created
         }
     }
@@ -163,25 +165,25 @@ class GeckoTabEngine(
         }
     }
 
-    /** 第三方 Cookie（运行时级别） */
-    fun applyThirdPartyCookies(allowed: Boolean) {
+    /** Cookie 策略（运行时级别，官方 ContentBlocking API）：普通 / 无痕窗口一致 */
+    fun applyCookieMode(mode: Int) {
         runCatching {
-            runtime.settings.contentBlocking.setCookieBehavior(
-                if (allowed) ContentBlocking.CookieBehavior.ACCEPT_ALL else ContentBlocking.CookieBehavior.ACCEPT_FIRST_PARTY,
-            )
+            val behavior = when (mode) {
+                1 -> ContentBlocking.CookieBehavior.ACCEPT_NON_TRACKERS
+                2 -> ContentBlocking.CookieBehavior.ACCEPT_FIRST_PARTY
+                3 -> ContentBlocking.CookieBehavior.ACCEPT_NONE
+                else -> ContentBlocking.CookieBehavior.ACCEPT_ALL
+            }
+            val cb = runtime.settings.contentBlocking
+            cb.setCookieBehavior(behavior)
+            cb.setCookieBehaviorPrivateMode(behavior)
         }
     }
 
-    /**
-     * 隐私 / 跟踪：与 WebView 版同一组设置。
-     * - 跟踪拦截：Gecko 自带 Enhanced Tracking Protection 分类列表（取代 shouldInterceptRequest）
-     * - DNT / GPC、WebRTC、指纹保护：没有专用 Java API，走 about:config 偏好（[GeckoPrefs]）
-     * 具体合并逻辑在 [GeckoProtection]。
-     */
-    fun applyPrivacy(blockTrackers: Boolean, sendDnt: Boolean, webrtcDisabled: Boolean, fingerprint: Boolean) {
-        // 与「Gecko 高级保护」页合并后统一写入（ETP 档位、DNT/GPC、WebRTC、指纹）
+    /** 隐私 / 跟踪：全部由「Gecko 高级保护」决定（[GeckoProtection]），这里只确保已加载并写入。 */
+    fun applyPrivacy() {
         GeckoProtection.load(context)
-        GeckoProtection.pushApp(blockTrackers, sendDnt, webrtcDisabled, fingerprint)
+        GeckoProtection.pushAll()
     }
 
     fun find(text: String) {

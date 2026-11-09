@@ -361,13 +361,31 @@ class AppSettings(context: Context) {
         prefs.edit().putBoolean(KEY_WEBRTC, enabled).apply()
     }
 
-    /** 第三方 Cookie：0=允许 1=拒绝 */
-    var thirdPartyCookie by mutableStateOf(prefs.getInt(KEY_3P_COOKIE, 0))
+    /**
+     * Cookie 接受策略（两个内核共用）：0 允许全部 / 1 拒绝跟踪者 / 2 拒绝第三方 / 3 拒绝全部。
+     * 旧版「第三方 Cookie」开关（0 允许 / 1 拒绝）迁移为 0 / 2。
+     */
+    var cookieMode by mutableStateOf(
+        if (prefs.contains(KEY_COOKIE_MODE)) prefs.getInt(KEY_COOKIE_MODE, 0).coerceIn(0, 3)
+        else if (prefs.getInt(KEY_3P_COOKIE, 0) == 1) 2 else 0,
+    )
         private set
 
-    fun updateThirdPartyCookie(mode: Int) {
-        thirdPartyCookie = mode.coerceIn(0, 1)
-        prefs.edit().putInt(KEY_3P_COOKIE, thirdPartyCookie).apply()
+    fun updateCookieMode(mode: Int) {
+        cookieMode = mode.coerceIn(0, 3)
+        prefs.edit().putInt(KEY_COOKIE_MODE, cookieMode).apply()
+    }
+
+    /** 是否放行第三方 Cookie：只有「允许全部」放行（WebView 没有跟踪者名单，「拒绝跟踪者」按拒绝第三方处理） */
+    val thirdPartyCookiesAllowed: Boolean get() = cookieMode == 0
+
+    /** 启动时清理：0 不清理 / 1 清除 Cookie / 2 清除 Cookie 与网站存储 */
+    var cookieClearOnLaunch by mutableStateOf(prefs.getInt(KEY_COOKIE_CLEAR, 0).coerceIn(0, 2))
+        private set
+
+    fun updateCookieClearOnLaunch(mode: Int) {
+        cookieClearOnLaunch = mode.coerceIn(0, 2)
+        prefs.edit().putInt(KEY_COOKIE_CLEAR, cookieClearOnLaunch).apply()
     }
 
     /** 网页权限：摄像头 0=每次使用时询问 1=总是允许 2=总是拒绝 */
@@ -530,6 +548,8 @@ class AppSettings(context: Context) {
         const val KEY_DNT = "send_dnt"
         const val KEY_WEBRTC = "webrtc_disabled"
         const val KEY_3P_COOKIE = "third_party_cookie"
+        const val KEY_COOKIE_MODE = "cookie_mode"
+        const val KEY_COOKIE_CLEAR = "cookie_clear_on_launch"
         const val KEY_CAM = "perm_camera"
         const val KEY_MIC = "perm_mic"
         const val KEY_LOC = "perm_location"

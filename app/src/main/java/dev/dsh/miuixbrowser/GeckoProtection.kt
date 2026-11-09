@@ -10,17 +10,15 @@ import org.mozilla.geckoview.ContentBlocking
 /**
  * 「Gecko 高级保护」：把 Gecko 自带的隐私 / 安全能力集中到一处设置，并与应用原有的隐私开关合并生效。
  *
- * 合并规则（避免两处设置互相覆盖）：
- * - 增强型跟踪保护（ETP）：「跟随隐私设置」时由「拦截跟踪脚本」决定；其余档位以本页为准
- * - DNT / GPC、WebRTC、指纹保护：应用设置与本页任一开启即生效（取「或」）
- * - 其余项（Referer、跟踪参数、HTTPS-Only、安全 DNS…）只由本页决定
+ * Gecko 的隐私设置只由本页决定，不再与 WebView 的「隐私增强保护」合并
+ * （两个内核各用各的入口，设置页里按当前内核只显示其中一个）。
  *
  * 所有值落在 SharedPreferences，改动立即经 [GeckoPrefs] / ContentBlocking 写入 Gecko；
  * Gecko 还没启动时只记录，运行时创建后由 [pushAll] 一次性写入。
  */
 object GeckoProtection {
 
-    /** ETP 档位：0 跟随隐私设置 / 1 关闭 / 2 标准 / 3 严格 */
+    /** ETP 档位：0 默认（标准）/ 1 关闭 / 2 标准 / 3 严格 */
     var etp by mutableStateOf(0)
         private set
 
@@ -36,6 +34,10 @@ object GeckoProtection {
 
     /** 防 WebRTC 泄露真实 IP：只用默认出口地址，不暴露内网 / 多网卡地址 */
     var webrtcLeak by mutableStateOf(false)
+        private set
+
+    /** 彻底禁用 WebRTC（原先在 WebView 隐私设置里共用，现在 Gecko 自己管） */
+    var webrtcOff by mutableStateOf(false)
         private set
 
     var trimReferrer by mutableStateOf(false)
@@ -93,12 +95,6 @@ object GeckoProtection {
         DohProvider("自定义", ""),
     )
 
-    // 应用「隐私设置」里的值，由 GeckoTabEngine.applyPrivacy 传入
-    private var appBlockTrackers = false
-    private var appDnt = false
-    private var appWebrtcOff = false
-    private var appFingerprint = false
-
     private var prefs: SharedPreferences? = null
 
     fun load(context: Context) {
@@ -110,6 +106,7 @@ object GeckoProtection {
         resistFingerprint = p.getBoolean("rfp", false)
         gpc = p.getBoolean("gpc", false)
         webrtcLeak = p.getBoolean("webrtc_leak", false)
+        webrtcOff = p.getBoolean("webrtc_off", false)
         trimReferrer = p.getBoolean("referrer", false)
         stripTracking = p.getBoolean("strip", false)
         bounceTracking = p.getBoolean("bounce", false)
@@ -137,6 +134,7 @@ object GeckoProtection {
     fun updateResistFingerprint(v: Boolean) { resistFingerprint = v; edit { putBoolean("rfp", v) } }
     fun updateGpc(v: Boolean) { gpc = v; edit { putBoolean("gpc", v) } }
     fun updateWebrtcLeak(v: Boolean) { webrtcLeak = v; edit { putBoolean("webrtc_leak", v) } }
+    fun updateWebrtcOff(v: Boolean) { webrtcOff = v; edit { putBoolean("webrtc_off", v) } }
     fun updateTrimReferrer(v: Boolean) { trimReferrer = v; edit { putBoolean("referrer", v) } }
     fun updateStripTracking(v: Boolean) { stripTracking = v; edit { putBoolean("strip", v) } }
     fun updateBounceTracking(v: Boolean) { bounceTracking = v; edit { putBoolean("bounce", v) } }
@@ -153,7 +151,7 @@ object GeckoProtection {
 
     /** 全部恢复默认 */
     fun reset() {
-        etp = 0; fingerprint = false; resistFingerprint = false; gpc = false; webrtcLeak = false
+        etp = 0; fingerprint = false; resistFingerprint = false; gpc = false; webrtcLeak = false; webrtcOff = false
         trimReferrer = false; stripTracking = false; bounceTracking = false; purgeTrackers = false
         firstPartyIsolate = false; httpsOnly = false; noPrefetch = false; disableWebgl = false
         dohMode = 0; dohProvider = 0; dohCustom = ""; ech = false; systemFont = false
@@ -163,7 +161,7 @@ object GeckoProtection {
 
     /** 已开启的保护项数量（设置页行的摘要用） */
     fun activeCount(): Int = listOf(
-        etp >= 2, fingerprint, resistFingerprint, gpc, webrtcLeak, trimReferrer, stripTracking,
+        etp >= 2, fingerprint, resistFingerprint, gpc, webrtcLeak, webrtcOff, trimReferrer, stripTracking,
         bounceTracking, purgeTrackers, firstPartyIsolate, httpsOnly, noPrefetch, disableWebgl,
         dohMode > 0, ech,
     ).count { it }
@@ -173,17 +171,6 @@ object GeckoProtection {
         if (dohProvider == DOH_PROVIDERS.lastIndex) dohCustom.takeIf { it.startsWith("https://") }
         else DOH_PROVIDERS[dohProvider].url
 
-    // ------------------------------------------------------------------ 与应用隐私设置合并
-
-    /** [GeckoTabEngine.applyPrivacy] 调用：记下应用侧的开关并重新合并写入 */
-    fun pushApp(blockTrackers: Boolean, dnt: Boolean, webrtcDisabled: Boolean, fingerprintOn: Boolean) {
-        appBlockTrackers = blockTrackers
-        appDnt = dnt
-        appWebrtcOff = webrtcDisabled
-        appFingerprint = fingerprintOn
-        pushAll()
-    }
-
     /** 把所有设置写入 Gecko（Gecko 未启动时偏好只记录，ETP 档位等运行时创建后再次调用即可） */
     fun pushAll() {
         // 增强型跟踪保护
@@ -192,25 +179,25 @@ object GeckoProtection {
                 1 -> ContentBlocking.AntiTracking.NONE
                 2 -> ContentBlocking.AntiTracking.DEFAULT
                 3 -> ContentBlocking.AntiTracking.STRICT
-                else -> if (appBlockTrackers) ContentBlocking.AntiTracking.DEFAULT else ContentBlocking.AntiTracking.NONE
+                else -> ContentBlocking.AntiTracking.DEFAULT
             }
             runCatching { rt.settings.contentBlocking.setAntiTracking(flags) }
         }
 
         // 指纹
-        val fpp = fingerprint || appFingerprint
+        val fpp = fingerprint
         GeckoPrefs.set("privacy.fingerprintingProtection", fpp)
         GeckoPrefs.set("privacy.trackingprotection.fingerprinting.enabled", fpp || etp == 3)
         GeckoPrefs.set("privacy.resistFingerprinting", resistFingerprint)
 
         // DNT / GPC
-        val sendGpc = gpc || appDnt
+        val sendGpc = gpc
         GeckoPrefs.set("privacy.donottrackheader.enabled", sendGpc)
         GeckoPrefs.set("privacy.globalprivacycontrol.enabled", sendGpc)
         GeckoPrefs.set("privacy.globalprivacycontrol.functionality.enabled", true)
 
-        // WebRTC：应用设置「禁用」= 整个关掉；本页「防泄露」= 只走默认出口
-        GeckoPrefs.set("media.peerconnection.enabled", !appWebrtcOff)
+        // WebRTC：「禁用」= 整个关掉；「防泄露」= 只走默认出口
+        GeckoPrefs.set("media.peerconnection.enabled", !webrtcOff)
         GeckoPrefs.set("media.peerconnection.ice.default_address_only", webrtcLeak)
         GeckoPrefs.set("media.peerconnection.ice.no_host", webrtcLeak)
 

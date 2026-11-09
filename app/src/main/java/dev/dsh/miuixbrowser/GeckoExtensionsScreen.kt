@@ -580,6 +580,7 @@ private fun AddonCard(addon: AmoAddon, installed: Boolean, installing: Boolean, 
                 enabled = !installed && !installing,
                 primary = !installed,
                 minWidth = 64.dp,
+                inPage = true, // 位于采样层内部，必须用实色底，否则液态玻璃下递归采样闪退
             )
         }
     }

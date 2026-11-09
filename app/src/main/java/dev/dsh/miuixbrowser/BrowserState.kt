@@ -1619,14 +1619,14 @@ class BrowserTab(
 
     /**
      * 应用隐私与权限设置（当前标签成为活动标签、或设置变化时调用）。
-     * - 第三方 Cookie：CookieManager 按 WebView 设置；Cookie 总开关随标签是否无痕切换。
+     * - Cookie：CookieManager 按 WebView 设置第三方开关；总开关随标签是否无痕 / 策略「拒绝全部」切换。
      * - DNT：请求头（地址栏 / 链接点击的主框架导航）+ navigator.doNotTrack / globalPrivacyControl。
      * - WebRTC / 剪贴板 / 媒体静音：document-start 脚本注入所有框架，刷新页面后生效。
      * - 摄像头 / 麦克风 / 定位：在 WebChromeClient 里按「询问 / 允许 / 拒绝」处理。
      * - 跟踪脚本：shouldInterceptRequest 拦截第三方统计域名（由去广告总开关控制，见 AdBlock）。
      */
     fun applyPrivacy(
-        thirdPartyCookiesAllowed: Boolean,
+        cookieMode: Int,
         sendDnt: Boolean,
         webrtcDisabled: Boolean,
         clipboardMode: Int = 0,
@@ -1639,12 +1639,13 @@ class BrowserTab(
         blockTrackers: Boolean = false,
         fingerprintProtect: Boolean = false,
     ) {
-        gecko?.applyThirdPartyCookies(thirdPartyCookiesAllowed)
-        gecko?.applyPrivacy(blockTrackers, sendDnt, webrtcDisabled, fingerprintProtect)
+        gecko?.applyCookieMode(cookieMode)
+        gecko?.applyPrivacy()
         webViewOrNull?.let { wv ->
             runCatching {
-                CookieManager.getInstance().setAcceptCookie(!incognito)
-                CookieManager.getInstance().setAcceptThirdPartyCookies(wv, thirdPartyCookiesAllowed)
+                // 官方 CookieManager：总开关（无痕 / 拒绝全部时关）+ 按 WebView 的第三方开关
+                CookieManager.getInstance().setAcceptCookie(!incognito && cookieMode != 3)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(wv, cookieMode == 0)
             }
         }
         dntEnabled = sendDnt

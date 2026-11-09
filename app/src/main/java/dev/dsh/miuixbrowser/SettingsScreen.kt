@@ -90,7 +90,8 @@ fun SettingsScreen(
     onOpenGeckoExtensions: () -> Unit = {},
     onOpenGeckoProtection: () -> Unit = {},
     onOpenAdBlock: () -> Unit,
-    onOpenFingerprint: () -> Unit,
+    onOpenPrivacyEnhance: () -> Unit,
+    onOpenCookies: () -> Unit = {},
     onOpenBookmarks: () -> Unit,
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
@@ -275,39 +276,36 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
-                    // Cookie 直接外部 dropdown，不再进 sheet
-                    AppDropdownPreference(
-                        backdrop = if (glass) backdrop else null,
+                    SettingsRow(
                         title = "Cookie 管理",
-                        items = listOf("允许第三方 Cookie", "拒绝第三方 Cookie"),
-                        selectedIndex = settings.thirdPartyCookie.coerceIn(0, 1),
-                        onSelectedIndexChange = { settings.updateThirdPartyCookie(it) },
+                        summary = COOKIE_MODE_NAMES[settings.cookieMode.coerceIn(0, 3)] +
+                            (if (settings.cookieClearOnLaunch > 0) " · 启动时清理" else "") +
+                            " · 接受策略 · 自动清理 · 清除数据",
+                        onClick = onOpenCookies,
                     )
                     SettingsRow(
                         title = "网站权限管理",
                         summary = "摄像头 · 麦克风 · 定位 · 网站通知 · 剪贴板 · 媒体发声 · 网页重定向",
                         onClick = { showPermSheet = true },
                     )
-                    SettingsRow(
-                        title = "指纹保护",
-                        summary = AdBlock.let { ab ->
-                            val n = listOf(ab.fpCanvas, ab.fpWebgl, ab.fpAudio, ab.fpFonts).count { it }
-                            if (n == 0) "已关闭 · Canvas · WebGL · Audio · Fonts" else "已开启 $n / 4 项 · Canvas · WebGL · Audio · Fonts"
-                        },
-                        onClick = onOpenFingerprint,
-                    )
-                    AppSwitchPreference(
-                        title = "发送禁止跟踪请求",
-                        summary = "地址栏与链接导航附带 DNT / Sec-GPC 头，并设置 navigator.doNotTrack",
-                        checked = settings.sendDnt,
-                        onCheckedChange = { settings.updateSendDnt(it) },
-                    )
-                    AppSwitchPreference(
-                        title = "禁用 WebRTC",
-                        summary = "移除 RTCPeerConnection 等接口，防止泄露真实 IP（刷新页面后生效）",
-                        checked = settings.webrtcDisabled,
-                        onCheckedChange = { settings.updateWebrtcDisabled(it) },
-                    )
+                    // 隐私增强保护：WebView 专属（Gecko 对应的是并列的「Gecko 高级保护」）
+                    EngineRow(visible = !settings.geckoMode) {
+                        SettingsRow(
+                            title = "隐私增强保护",
+                            summary = privacyEnhanceSummary(settings),
+                            onClick = onOpenPrivacyEnhance,
+                        )
+                    }
+                    EngineRow(visible = settings.geckoMode) {
+                        SettingsRow(
+                            title = "Gecko 高级保护",
+                            summary = GeckoProtection.activeCount().let {
+                                if (it == 0) "反追踪 · 指纹保护 · 安全 DNS · HTTPS-Only"
+                                else "已开启 $it 项 · 反追踪 · 指纹保护 · 安全 DNS"
+                            },
+                            onClick = onOpenGeckoProtection,
+                        )
+                    }
                 }
 
                 SmallTitle(text = "高级")
@@ -321,7 +319,7 @@ fun SettingsScreen(
                         backdrop = if (glass) backdrop else null,
                         title = "浏览器内核",
                         summary = if (settings.browserEngine == ENGINE_GECKO) {
-                            "Gecko：新建标签页生效，已打开的标签保持原内核 · 脚本 / 去广告暂不可用，可用扩展替代"
+                            "Gecko：新建标签页生效，已打开的标签保持原内核 · 设置里仅显示 Gecko 适用的项目，脚本 / 去广告请用拓展替代"
                         } else {
                             "系统 WebView：新建标签页生效，已打开的标签保持原内核"
                         },
@@ -340,34 +338,15 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    // 拓展栏：切到 Gecko 自动展开，切回 WebView 收起（WebExtension 只有 Gecko 才有）
-                    AnimatedVisibility(
-                        visible = settings.geckoMode,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut(),
-                    ) {
+                    // 按内核显示：拓展属于 Gecko；网页增强 / 去广告 / 脚本依赖 WebView 专有 API
+                    EngineRow(visible = settings.geckoMode) {
                         SettingsRow(
                             title = "拓展",
                             summary = "Firefox 扩展：搜索 / 导入 / 管理 · 可用 uBlock Origin、Violentmonkey 等替代去广告与脚本",
                             onClick = onOpenGeckoExtensions,
                         )
                     }
-                    AnimatedVisibility(
-                        visible = settings.geckoMode,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut(),
-                    ) {
-                        SettingsRow(
-                            title = "Gecko 高级保护",
-                            summary = GeckoProtection.activeCount().let {
-                                if (it == 0) "反追踪 · 指纹保护 · 安全 DNS · HTTPS-Only"
-                                else "已开启 $it 项 · 反追踪 · 指纹保护 · 安全 DNS"
-                            },
-                            onClick = onOpenGeckoProtection,
-                        )
-                    }
-                    // Gecko 下这三项依赖 WebView 专有 API（脚本注入 / 请求拦截），置灰；改用拓展栏里的扩展替代
-                    GeckoLocked(locked = settings.geckoMode) {
+                    EngineRow(visible = !settings.geckoMode) {
                         AppSwitchPreference(
                             title = "网页增强",
                             summary = "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告",
@@ -379,7 +358,7 @@ fun SettingsScreen(
                             },
                         )
                     }
-                    GeckoLocked(locked = settings.geckoMode) {
+                    EngineRow(visible = !settings.geckoMode) {
                         SettingsRow(
                             title = "去广告",
                             summary = if (AdBlock.enabled) {
@@ -390,7 +369,7 @@ fun SettingsScreen(
                             onClick = onOpenAdBlock,
                         )
                     }
-                    GeckoLocked(locked = settings.geckoMode) {
+                    EngineRow(visible = !settings.geckoMode) {
                         SettingsRow(
                             title = "脚本管理",
                             summary = "用户脚本 / 油猴脚本",
@@ -703,8 +682,8 @@ fun SettingsScreen(
                         Triple("网站媒体发声", settings.mediaAutoplay, settings::updateMediaAutoplay),
                         Triple("网页重定向", settings.redirectPermission, settings::updateRedirectPermission),
                     ).forEach { (label, current, update) ->
-                        // 这三项在 WebView 里靠注入 JS 实现，Gecko 走自己的权限系统：置灰
-                        GeckoLocked(locked = settings.geckoMode && label in GECKO_UNSUPPORTED_PERMISSIONS) {
+                        // 这三项在 WebView 里靠注入 JS 实现，Gecko 走自己的权限系统：Gecko 下隐藏
+                        if (!(settings.geckoMode && label in GECKO_UNSUPPORTED_PERMISSIONS)) {
                             AppDropdownPreference(
                                 title = label,
                                 items = permOptions,
@@ -831,6 +810,22 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
 
 /** Gecko 下不适用的网站权限项（WebView 靠注入 JS 实现） */
 private val GECKO_UNSUPPORTED_PERMISSIONS = setOf("网站通知", "剪贴板读写", "网站媒体发声")
+
+/** 按内核显示 / 隐藏一行：切换内核时带展开 / 收起动画 */
+@Composable
+private fun EngineRow(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically() + fadeIn(),
+        exit = shrinkVertically() + fadeOut(),
+    ) { Column { content() } }
+}
+
+private fun privacyEnhanceSummary(settings: AppSettings): String {
+    val fp = AdBlock.let { listOf(it.fpCanvas, it.fpWebgl, it.fpAudio, it.fpFonts).count { on -> on } }
+    val n = (if (settings.sendDnt) 1 else 0) + (if (settings.webrtcDisabled) 1 else 0) + (if (fp > 0) 1 else 0)
+    return if (n == 0) "禁止跟踪请求 · 指纹保护 · 禁用 WebRTC" else "已开启 $n / 3 项 · 禁止跟踪请求 · 指纹保护 · 禁用 WebRTC"
+}
 
 @Composable
 private fun SettingsRow(title: String, summary: String, onClick: () -> Unit) {
