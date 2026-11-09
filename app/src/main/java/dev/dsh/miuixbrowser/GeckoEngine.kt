@@ -117,6 +117,8 @@ class GeckoTabEngine(
         GeckoViewLifecycle.register(this)
         installDelegates()
         session.open(runtime)
+        // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate
+        GeckoExtensionStore.registerSession(session)
         // TextureView 后端：支持 alpha / 位移，且能被毛玻璃背景采样；SurfaceView 会在叠加层下面「穿洞」
         view.setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
         view.setSession(session)

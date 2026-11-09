@@ -2063,6 +2063,7 @@ fun BrowserScreen(
         GeckoExtMenuSheet(
             show = geckoExtSheetShow,
             backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            activeSession = state.activeTab.geckoSession,
             onDismiss = { geckoExtSheetShow = false },
         )
 

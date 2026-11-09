@@ -314,6 +314,9 @@ class BrowserTab(
     private val gecko: GeckoTabEngine? =
         if (engineKind == EngineKind.GECKO) GeckoTabEngine(appContext, startIncognito, this) else null
 
+    /** Gecko 标签的 session（非 Gecko 内核为 null）：拓展弹出页按它路由 */
+    val geckoSession: org.mozilla.geckoview.GeckoSession? get() = gecko?.session
+
     /** 挂到界面里的内容视图：WebView 或 GeckoView */
     val contentView: View
         get() = gecko?.view ?: webView

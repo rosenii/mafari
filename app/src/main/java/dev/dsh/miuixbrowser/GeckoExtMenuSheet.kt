@@ -52,12 +52,14 @@ private val RunningGreen = Color(0xFF34C759)
 fun GeckoExtMenuSheet(
     show: Boolean,
     backdrop: Backdrop?,
+    activeSession: org.mozilla.geckoview.GeckoSession? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val store = GeckoExtensionStore
 
-    LaunchedEffect(show) {
+    LaunchedEffect(show, activeSession) {
+        store.activeSession = activeSession
         if (show) runCatching { store.refresh(context) }
     }
 

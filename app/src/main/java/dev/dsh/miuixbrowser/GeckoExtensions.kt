@@ -397,46 +397,97 @@ object GeckoExtensionStore {
 
     private val actionDelegateAttached = java.util.Collections.synchronizedSet(mutableSetOf<WebExtension>())
 
+    /** 所有标签页的 session（弱引用）：弹出页请求是按「当前标签页的 session」路由的，所以每个 session 都要挂 delegate */
+    private val sessions: MutableSet<org.mozilla.geckoview.GeckoSession> =
+        java.util.Collections.newSetFromMap(java.util.WeakHashMap<org.mozilla.geckoview.GeckoSession, Boolean>())
+
+    /** 菜单打开时的当前标签 session：点击按钮时优先用它专属的 action，弹出页才会回到这个标签的 delegate */
+    @Volatile
+    var activeSession: org.mozilla.geckoview.GeckoSession? = null
+
+    /** 各 session 专属的 action（key = session → 拓展 id → action） */
+    private val sessionActions =
+        java.util.WeakHashMap<org.mozilla.geckoview.GeckoSession, MutableMap<String, Any>>()
+
+    private val actionProxy: Any? by lazy { createActionProxy() }
+
     private fun fieldOf(obj: Any?, name: String): Any? {
         if (obj == null) return null
         return runCatching { obj.javaClass.getField(name).get(obj) }.getOrNull()
     }
 
-    /**
-     * 给拓展挂 ActionDelegate：Gecko 通过它把工具栏按钮的标题 / 角标交给我们，
-     * 并在按钮被点击、需要弹出页时要一个 GeckoSession 来装弹出页。
-     * 用动态代理实现，回调签名在不同版本间的小差异不会导致编译失败。
-     */
-    private fun attachActionDelegate(ext: WebExtension) {
-        if (!actionDelegateAttached.add(ext)) return
+    /** 标签页创建时登记：给它挂上所有已知拓展的 ActionDelegate */
+    fun registerSession(session: org.mozilla.geckoview.GeckoSession) {
+        synchronized(sessions) { sessions.add(session) }
+        items.forEach { attachSessionDelegate(session, it.ext) }
+    }
+
+    private fun attachSessionDelegate(session: org.mozilla.geckoview.GeckoSession, ext: WebExtension) {
+        val proxy = actionProxy ?: return
         runCatching {
-            val setter = ext.javaClass.methods.firstOrNull { it.name == "setActionDelegate" && it.parameterTypes.size == 1 && it.parameterTypes[0].isInterface }
-                ?: return
-            val iface = setter.parameterTypes[0]
-            val proxy = Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
-                when {
-                    method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
-                    method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
-                    method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionAction"
-                    method.name == "onBrowserAction" -> {
-                        Diag.log("ext: onBrowserAction session=${args?.getOrNull(1) != null}")
-                        // (extension, session, action)：session 为 null 的是默认按钮（非某个标签专属）
-                        val e = args?.getOrNull(0) as? WebExtension
-                        val session = args?.getOrNull(1)
-                        val action = args?.getOrNull(2)
-                        if (e != null && action != null && session == null) storeAction(e, action)
-                        null
+            val m = session.javaClass.methods.firstOrNull {
+                it.name == "setWebExtensionActionDelegate" && it.parameterTypes.size == 2 &&
+                    it.parameterTypes[0] == WebExtension::class.java && it.parameterTypes[1].isInstance(proxy)
+            } ?: run {
+                Diag.log("ext: GeckoSession.setWebExtensionActionDelegate not found")
+                return
+            }
+            m.invoke(session, ext, proxy)
+        }.onFailure { Diag.log("ext: session setWebExtensionActionDelegate failed: $it") }
+    }
+
+    private fun attachToAllSessions(ext: WebExtension) {
+        val snapshot = synchronized(sessions) { sessions.toList() }
+        snapshot.forEach { attachSessionDelegate(it, ext) }
+    }
+
+    /** ActionDelegate 的动态代理（扩展级与 session 级共用同一个实现） */
+    private fun createActionProxy(): Any? = runCatching {
+        val iface = Class.forName("org.mozilla.geckoview.WebExtension\$ActionDelegate")
+        Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
+            when {
+                method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
+                method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
+                method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionAction"
+                method.name == "onBrowserAction" -> {
+                    // (extension, session, action)：session 为 null 的是默认按钮
+                    val e = args?.getOrNull(0) as? WebExtension
+                    val session = args?.getOrNull(1) as? org.mozilla.geckoview.GeckoSession
+                    val action = args?.getOrNull(2)
+                    Diag.log("ext: onBrowserAction session=${session != null}")
+                    if (e != null && action != null) {
+                        if (session == null) storeAction(e, action)
+                        else synchronized(sessionActions) {
+                            sessionActions.getOrPut(session) { mutableMapOf() }[e.id] = action
+                        }
                     }
-                    method.name == "onOpenPopup" || method.name == "onTogglePopup" -> {
-                        Diag.log("ext: ${method.name} called")
-                        openPopup(args)
-                    }
-                    else -> {
-                        Diag.log("ext: action delegate ${method.name} ignored")
-                        null
-                    }
+                    null
+                }
+                method.name == "onOpenPopup" || method.name == "onTogglePopup" -> {
+                    Diag.log("ext: ${method.name} called")
+                    openPopup(args)
+                }
+                else -> {
+                    Diag.log("ext: action delegate ${method.name} ignored")
+                    null
                 }
             }
+        }
+    }.onFailure { Diag.log("ext: create action delegate failed: $it") }.getOrNull()
+
+    /**
+     * 给拓展挂 ActionDelegate：Gecko 通过它把工具栏按钮的标题 / 角标交给我们。
+     * 弹出页请求（onOpenPopup / onTogglePopup）按当前标签页的 session 路由，所以同一个 delegate
+     * 还要挂到每个标签页的 session 上（见 [registerSession]）。
+     */
+    private fun attachActionDelegate(ext: WebExtension) {
+        attachToAllSessions(ext)
+        if (!actionDelegateAttached.add(ext)) return
+        val proxy = actionProxy ?: return
+        runCatching {
+            val setter = ext.javaClass.methods.firstOrNull {
+                it.name == "setActionDelegate" && it.parameterTypes.size == 1 && it.parameterTypes[0].isInstance(proxy)
+            } ?: return
             setter.invoke(ext, proxy)
         }.onFailure { Diag.log("ext: setActionDelegate failed: $it") }
     }
@@ -454,7 +505,10 @@ object GeckoExtensionStore {
     private fun openPopup(args: Array<Any?>?): Any? {
         val ext = args?.firstOrNull { it is WebExtension } as? WebExtension
         val runtime = GeckoRuntimeHolder.peek()
-        if (ext == null || runtime == null) return null
+        if (ext == null || runtime == null) {
+            Diag.log("ext: openPopup skipped ext=${ext?.id} runtime=${runtime != null}")
+            return null
+        }
         return runCatching {
             val session = org.mozilla.geckoview.GeckoSession()
             session.open(runtime)
@@ -470,7 +524,8 @@ object GeckoExtensionStore {
 
     /** 点击拓展的工具栏按钮；该拓展没有按钮时返回 false */
     fun clickAction(extId: String): Boolean {
-        val action = actions[extId]?.raw
+        val tabAction = activeSession?.let { sess -> synchronized(sessionActions) { sessionActions[sess]?.get(extId) } }
+        val action = tabAction ?: actions[extId]?.raw
         if (action == null) {
             Diag.log("ext: no browser action known for $extId (known: ${actions.keys})")
             return false
