@@ -32,12 +32,9 @@ object UpdateChecker {
     var checkedThisProcess = false
 
     /** 有可提示的新版本则返回，否则 null（网络失败、已是最新、已被用户忽略都返回 null）。 */
-    fun findPending(ignored: String, channel: Int): AppRelease? {
+    fun findPending(context: Context, ignored: String, channel: Int): AppRelease? {
         val rel = fetchLatestRelease(channel) ?: return null
-        // gecko 预发布按 CI 构建号比较（本机不是 gecko 构建时为 0，任何 gecko 预发布都算新）
-        val newer = if (channel == 2) geckoBuildOf(rel.version) > BuildConfig.GECKO_BUILD
-        else isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
-        if (!newer) return null
+        if (!isUpdateAvailable(context, rel, channel)) return null
         if (rel.version.removePrefix("v") == ignored.removePrefix("v")) return null
         return rel
     }
@@ -75,6 +72,29 @@ object UpdateChecker {
         }.start()
     }
 }
+
+/**
+ * 是否有可更新的版本（启动自动检查与「检查更新」按钮共用）：
+ * - stable / dev：按版本号逐段比较；
+ * - gecko 预发布：tag 是 CI 构建号（gecko-123），不能和 v99.x 的版本号比（构建号一过 99 就永远「更新」）。
+ *   本机有构建号（BuildConfig.GECKO_BUILD）时比构建号；老包没有构建号时，看安装时间是否晚于该预发布的发布时间。
+ */
+fun isUpdateAvailable(context: Context, rel: AppRelease, channel: Int): Boolean {
+    if (channel != 2) return isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
+    val remote = geckoBuildOf(rel.version)
+    if (remote == 0) return false
+    if (BuildConfig.GECKO_BUILD > 0) return remote > BuildConfig.GECKO_BUILD
+    if (rel.publishedAt == 0L) return false
+    val installedAt = runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+    }.getOrDefault(0L)
+    return rel.publishedAt > installedAt
+}
+
+/** 「已是最新版本」提示里显示的当前版本 */
+fun currentVersionLabel(channel: Int): String =
+    if (channel == 2 && BuildConfig.GECKO_BUILD > 0) "gecko-${BuildConfig.GECKO_BUILD}"
+    else BuildConfig.VERSION_NAME.removePrefix("v")
 
 /**
  * 版本比较：按数字段逐段比较（v1.3.10 > v1.3.9）。

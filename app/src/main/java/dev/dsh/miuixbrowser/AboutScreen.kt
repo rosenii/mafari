@@ -203,9 +203,9 @@ fun AboutScreen(
                                 if (result == null) {
                                     Toast.makeText(context, "检查失败，请稍后再试", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    val current = BuildConfig.VERSION_NAME.removePrefix("v")
+                                    val current = currentVersionLabel(updateChannel)
                                     val latest = result.version.removePrefix("v")
-                                    if (!isNewerVersion(result.version, BuildConfig.VERSION_NAME)) {
+                                    if (!isUpdateAvailable(context, result, updateChannel)) {
                                         Toast.makeText(context, "已是最新版本 $current", Toast.LENGTH_SHORT).show()
                                     } else if (result.apkUrl.isNullOrBlank()) {
                                         // 无 APK 资产时在应用内浏览页打开发布页
@@ -367,6 +367,8 @@ data class AppRelease(
     val pageUrl: String,
     val apkUrl: String?,
     val notes: String = "",
+    /** GitHub 发布时间（毫秒）；未知为 0 */
+    val publishedAt: Long = 0L,
 )
 
 private const val PROJECT_URL = "https://github.com/rosenii/mafari"
@@ -442,6 +444,8 @@ private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? = runCat
                 pageUrl = pageUrl,
                 apkUrl = apkUrl,
                 notes = o.optString("body", "").trim(),
+                publishedAt = runCatching { java.time.Instant.parse(o.optString("published_at", "")).toEpochMilli() }
+                    .getOrDefault(0L),
             )
             val current = best
             val newer = if (channel == 2) {
