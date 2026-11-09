@@ -1059,8 +1059,20 @@ fun BrowserScreen(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                 )
-                                androidx.core.view.ViewCompat.requestApplyInsets(this)
-                                requestLayout()
+                                // Insets 只在 View 首次附着时请求一次。不要在每次 Compose
+                                // factory/update 中重复 requestLayout，避免打断 Gecko 的帧提交。
+                                if (isAttachedToWindow) {
+                                    androidx.core.view.ViewCompat.requestApplyInsets(this)
+                                } else {
+                                    val target = this
+                                    addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+                                        override fun onViewAttachedToWindow(v: android.view.View) {
+                                            v.removeOnAttachStateChangeListener(this)
+                                            androidx.core.view.ViewCompat.requestApplyInsets(target)
+                                        }
+                                        override fun onViewDetachedFromWindow(v: android.view.View) = Unit
+                                    })
+                                }
                             }
                         },
                         update = { view ->
@@ -1075,14 +1087,8 @@ fun BrowserScreen(
                                 android.view.View.VISIBLE
                             }
                             if (view.visibility != wantedVisibility) view.visibility = wantedVisibility
-                            // update 在 View 已进入 AndroidView 容器后执行；此时重新请求 Insets
-                            // 才能确保 WebView 获得当前 Window 的真实可用区域。
-                            view.post {
-                                if (view.isAttachedToWindow) {
-                                    androidx.core.view.ViewCompat.requestApplyInsets(view)
-                                    view.requestLayout()
-                                }
-                            }
+                            // AndroidView 自己负责尺寸/布局同步。这里仅同步可见性，禁止每次
+                            // Compose 重组都 post requestApplyInsets + requestLayout。
                         },
                         modifier = Modifier
                             .fillMaxSize()

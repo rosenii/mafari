@@ -1299,6 +1299,10 @@ class BrowserTab(
 
     /** 可见区域尺寸变化后：让内容视图重新布局，并通知页面重新计算响应式布局 */
     fun onViewportChanged() {
+        // GeckoView 由 AndroidView/自身的 View 测量流程接收 Surface 尺寸变化；
+        // GeckoSession 没有 WebView 式 evaluateJavascript，这里再 requestLayout/invalidate
+        // 只会制造重复布局，不会给 Gecko 页面带来有效的 resize 通知。
+        if (gecko != null) return
         val v = contentView
         v.post {
             if (!v.isAttachedToWindow) return@post
