@@ -94,6 +94,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         GeckoViewLifecycle.onResume()
+        GeckoDebug.refreshSystemFont()
     }
 
     override fun onStop() {

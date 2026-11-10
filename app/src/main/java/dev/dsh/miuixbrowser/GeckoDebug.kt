@@ -25,11 +25,13 @@ import androidx.compose.runtime.setValue
  * - [systemFont]：网页字体跟随系统字体。把浏览器「默认字体」从 Gecko 自带字体改成系统字体：
  *   未指定字体的网页默认用无衬线，且各语言的 sans-serif 通用族指向系统的 sans-serif（含用户在系统里换的字体）。
  *   不再屏蔽网页自己指定的字体（旧版 use_document_fonts=0 会让图标字体失效，已弃用并在启动时清掉）
+ *   系统字体的识别与「让 Gecko 枚举得到」见 [GeckoSystemFont]；更换系统字体后重启应用即可同步
  */
 object GeckoDebug {
 
     private const val FILE = "mafari_gecko_debug"
     private var prefs: SharedPreferences? = null
+    private var appCtx: Context? = null
 
     var remoteDebug by mutableStateOf(false); private set
     var aboutConfig by mutableStateOf(false); private set
@@ -44,6 +46,7 @@ object GeckoDebug {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         prefs = p
+        appCtx = context.applicationContext
         remoteDebug = p.getBoolean("remote_debug", false)
         aboutConfig = p.getBoolean("about_config", false)
         profiler = p.getBoolean("profiler", false)
@@ -120,7 +123,37 @@ object GeckoDebug {
 
     fun updateSystemFont(v: Boolean) {
         systemFont = v; save { putBoolean("system_font", v) }
+        prepareSystemFont(force = true)
+    }
+
+    /**
+     * 在创建 Gecko 运行时之前调用（[GeckoRuntimeHolder.get]）：重新读取系统字体，把字体文件以软链接放进 Gecko profile，
+     * 再记下字体偏好。Gecko 只在启动时枚举字体，所以必须赶在运行时创建前把软链接建好。
+     */
+    fun prepareSystemFont(force: Boolean = false) {
+        val ctx = appCtx ?: return
+        val sys = if (systemFont) GeckoSystemFont.resolve(force) else null
+        val created = GeckoSystemFont.syncProfileFonts(ctx, sys)
+        if (created > 0 && GeckoRuntimeHolder.peek() != null) {
+            Diag.log("system font: new font files linked, restart app to let Gecko enumerate them")
+        }
         applyFonts()
+    }
+
+    /**
+     * 回到前台时调用：系统字体变了（换字体后进程没被杀的情况）就重新同步字体偏好；
+     * 同时补建软链接（首次安装时 Gecko 的 profile 目录要等运行时第一次启动后才有，此时才能建，重启应用后生效）。
+     */
+    fun refreshSystemFont() {
+        val ctx = appCtx ?: return
+        if (!systemFont) return
+        val before = GeckoSystemFont.resolve()?.signature
+        val sys = GeckoSystemFont.resolve(force = true)
+        GeckoSystemFont.syncProfileFonts(ctx, sys)
+        if (before != sys?.signature) {
+            Diag.log("system font: changed, re-apply prefs")
+            applyFonts()
+        }
     }
 
     private val FONT_LANGS = listOf(
@@ -194,6 +227,11 @@ object GeckoDebug {
                 else -> if (r) "运行中" else "关闭"
             },
             "运行日志" to if (Diag.enabled) "已开启" else "关闭",
+            "跟随的系统字体" to when {
+                !systemFont -> "未开启"
+                GeckoProtection.resistFingerprint -> GeckoSystemFont.describe() + "；强力抗指纹已开启，Gecko 只会向网页暴露基础字体"
+                else -> GeckoSystemFont.describe()
+            },
         )
     }
 

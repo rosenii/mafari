@@ -53,6 +53,8 @@ object GeckoRuntimeHolder {
                 .aboutConfigEnabled(GeckoDebug.aboutConfig)
                 .remoteDebuggingEnabled(GeckoDebug.remoteDebug)
             GeckoDebug.applyIsolation(builder)
+            // Gecko 只在启动时枚举字体：赶在运行时创建前，把系统字体文件的软链接放进 profile/fonts
+            GeckoDebug.prepareSystemFont()
             val settings = builder.build()
             val created = GeckoRuntime.create(context.applicationContext, settings)
             runtime = created
