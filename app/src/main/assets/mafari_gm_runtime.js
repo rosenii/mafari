@@ -40,7 +40,8 @@
   var _clearInterval = W.clearInterval.bind(W);
 
   var bridge = null;
-  try { bridge = W.MafariGM || null; } catch (e) { bridge = null; }
+  // Gecko：由 GeckoGm 在外层闭包里传入 __mafariBridge（页面拿不到）；WebView：window.MafariGM
+  try { bridge = (typeof __mafariBridge !== 'undefined' && __mafariBridge) || W.MafariGM || null; } catch (e) { bridge = null; }
 
   function log(level, msg) {
     try { console[level]('[Mafari] ' + META.name + ': ' + msg); } catch (e) {}
@@ -124,6 +125,8 @@
   }
   if (!shouldRun(W.location.href)) return;
   (W.__mafariRan || (W.__mafariRan = {}))[META.id] = 1;
+  // Gecko 没有 evaluateJavascript 可供原生来问：上报「本页真正运行了哪些脚本」（WebView 的桥没有该方法，忽略）
+  try { if (bridge && typeof bridge.ran === 'function') bridge.ran(META.id); } catch (e) {}
 
   // ------------------------------------------------------------------ helpers
   function whenRoot(cb) {
@@ -835,9 +838,14 @@
       accessKey: optsObj && optsObj.accessKey ? String(optsObj.accessKey) : null,
       autoClose: !!(optsObj && optsObj.autoClose)
     };
+    notifyMenu();
     return id;
   }
-  function GM_unregisterMenuCommand(id) { delete menu.cmds[id]; }
+  function GM_unregisterMenuCommand(id) { delete menu.cmds[id]; notifyMenu(); }
+  // Gecko 没有 evaluateJavascript 可供原生来问，菜单变化时主动上报（WebView 的桥没有该方法，直接忽略）
+  function notifyMenu() {
+    try { if (bridge && typeof bridge.menuChanged === 'function') bridge.menuChanged(); } catch (e) {}
+  }
 
   // ------------------------------------------------------------------ tabs
   var tabObj = {};
@@ -869,6 +877,13 @@
     list: function (details, cb) {
       details = details || {};
       var url = details.url || W.location.href;
+      if (bridge && typeof bridge.cookieListAsync === 'function') {
+        bridge.cookieListAsync(url, function (arr) {
+          if (details.name) arr = arr.filter(function (c) { return c.name === details.name; });
+          safeCall(cb, null, [arr, undefined]);
+        });
+        return;
+      }
       if (bridge && typeof bridge.cookieList === 'function') {
         try {
           var raw = bridge.cookieList(url);

@@ -131,6 +131,8 @@ class GeckoTabEngine(
     init {
         GeckoViewLifecycle.register(this)
         installDelegates()
+        GeckoGm.ensureInstalled(context, tab.userScripts, tab.gmScriptsEnabled())
+        GeckoGm.attachSession(session, tab)
         if (!isAdopted) session.open(runtime)
         // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate / TabDelegate
         GeckoExtensionStore.registerSession(session)
@@ -222,7 +224,8 @@ class GeckoTabEngine(
 
     fun loadUri(uri: String) {
         lastDirectLoadAt = SystemClock.uptimeMillis()
-        session.loadUri(uri)
+        // 油猴脚本经内置扩展注册，注册是异步的：脚本还没生效时把首次导航推迟到「已同步」（最多 2s）
+        GeckoGm.whenReady { if (!tab.closed) session.loadUri(uri) }
     }
 
     /**
@@ -473,6 +476,7 @@ class GeckoTabEngine(
     }
 
     fun destroy() {
+        GeckoGm.detachSession(session)
         GeckoViewLifecycle.unregister(this)
         clearFreeze()
         runCatching { view.releaseSession() }

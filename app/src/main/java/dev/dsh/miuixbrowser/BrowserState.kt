@@ -1163,7 +1163,8 @@ class BrowserTab(
      * 脚本列表 / 缓存资源变化时重建；系统不支持该特性时由 injectMissingUserScripts 兜底。
      */
     private fun syncUserScripts() {
-        // 用户脚本依赖 WebView 的 document-start 注入；Gecko 内核需要走 WebExtension（见 docs/GECKO.md）
+        // Gecko 内核：走内置 WebExtension（GeckoGm），与 WebView 共用同一份运行时（见 docs/GECKO_GM.md）
+        if (isGecko) { syncGeckoScripts(); return }
         if (destroyed || webViewOrNull == null) return
         if (!scriptsActive()) {
             scriptHandlers.forEach { handler -> runCatching { handler.remove() } }
@@ -1206,6 +1207,45 @@ class BrowserTab(
         Diag.log("userscript: document-start handlers=${scriptHandlers.size}/${enabled.size}")
     }
 
+    internal fun gmScriptsEnabled(): Boolean = pageEnhancements && scriptsEnabled
+
+    /** Gecko：注册是全局的（不是按标签），所以这里只汇报「当前脚本集 + 总开关」，无痕范围由扩展的「允许在无痕中运行」决定 */
+    private fun syncGeckoScripts() {
+        if (destroyed) return
+        val enabledAll = pageEnhancements && scriptsEnabled
+        GeckoGm.remember(userScripts, enabledAll)
+        val needFetch = userScripts.filter { it.enabled && ScriptResources.missing(appContext, it.code).isNotEmpty() }
+        if (needFetch.isNotEmpty() && !prefetchingScripts) {
+            prefetchingScripts = true
+            Thread {
+                val changed = needFetch.map { ScriptResources.prefetch(appContext, it.code) }.any { it }
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    prefetchingScripts = false
+                    if (changed) syncGeckoScripts()
+                }
+            }.start()
+        }
+        GeckoGm.update(appContext, userScripts, enabledAll)
+    }
+
+    /** Gecko 主框架上报的菜单命令 JSON 与端口（navigation 时清空） */
+    @Volatile private var gmMenuJson: String = "[]"
+    @Volatile private var gmMenuPort: org.mozilla.geckoview.WebExtension.Port? = null
+    private val gmRan = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    internal fun gmMenuReported(json: String, port: org.mozilla.geckoview.WebExtension.Port) {
+        gmMenuJson = json
+        gmMenuPort = port
+    }
+
+    internal fun gmRanReported(id: String) { gmRan.add(id) }
+
+    internal fun gmResetPage() {
+        gmMenuJson = "[]"
+        gmMenuPort = null
+        gmRan.clear()
+    }
+
     /**
      * 兜底：页面加载完后问一下页面里已经「见过」哪些脚本（运行时一进来就登记），
      * 没见过的（特性不支持、或 handler 安装晚于本次导航）再用 evaluateJavascript 补注入主框架。
@@ -1231,6 +1271,16 @@ class BrowserTab(
 
     /** 当前页面里脚本通过 GM_registerMenuCommand 注册的命令（仅主框架） */
     fun queryMenuCommands(onResult: (List<ScriptMenuCommand>) -> Unit) {
+        if (isGecko) {
+            onResult(runCatching {
+                val array = org.json.JSONArray(gmMenuJson)
+                (0 until array.length()).map { i ->
+                    val o = array.getJSONObject(i)
+                    ScriptMenuCommand(o.optString("id"), o.optString("title"), o.optString("script"))
+                }
+            }.getOrDefault(emptyList()))
+            return
+        }
         val js = "(function(){try{return window.__mafariMenuList?window.__mafariMenuList():'[]'}catch(e){return '[]'}})()"
         evaluateJs(js) { raw ->
             val list = runCatching {
@@ -1247,12 +1297,14 @@ class BrowserTab(
 
     /** 当前页面（主框架）里真正匹配并运行的脚本数量 */
     fun queryRunningScripts(onResult: (Int) -> Unit) {
+        if (isGecko) { onResult(gmRan.size); return }
         val js = "(function(){try{return Object.keys(window.__mafariRan||{}).length}catch(e){return 0}})()"
         evaluateJs(js) { raw -> onResult(raw?.trim()?.toIntOrNull() ?: 0) }
     }
 
     /** 当前页面（主框架）里真正匹配并运行的脚本 id */
     fun queryRunningScriptIds(onResult: (List<String>) -> Unit) {
+        if (isGecko) { onResult(gmRan.toList()); return }
         val js = "(function(){try{return JSON.stringify(Object.keys(window.__mafariRan||{}))}catch(e){return '[]'}})()"
         evaluateJs(js) { raw ->
             val ids = runCatching {
@@ -1265,6 +1317,7 @@ class BrowserTab(
     }
 
     fun runMenuCommand(id: String) {
+        if (isGecko) { gmMenuPort?.let { GeckoGm.runMenuCommand(it, id) }; return }
         evaluateJs(
             "(function(){try{window.__mafariMenuRun&&window.__mafariMenuRun(" + org.json.JSONObject.quote(id) + ")}catch(e){}})()",
             null,
@@ -1393,6 +1446,7 @@ class BrowserTab(
         pageHost = runCatching { Uri.parse(u).host }.getOrNull().orEmpty()
         loading = true
         errorText = null
+        gmResetPage()
         syncNav()
     }
 

@@ -141,7 +141,7 @@ object UserscriptEngine {
     }
 
     /** 用户在界面上手动填写、且与脚本头不同的匹配规则（逗号分隔）→ 覆盖脚本自带规则 */
-    private fun userMatchOverride(script: UserScript): List<String> {
+    internal fun userMatchOverride(script: UserScript): List<String> {
         val manual = script.match.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         if (manual.isEmpty()) return emptyList()
         val derived = parseUserScript(script.code).second

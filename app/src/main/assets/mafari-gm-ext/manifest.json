@@ -1,0 +1,27 @@
+{
+  "manifest_version": 2,
+  "name": "Mafari GM",
+  "version": "0.1.0",
+  "description": "Mafari 油猴运行时的 Gecko 适配层（与 WebView 共用同一份 mafari_gm_runtime.js）",
+  "browser_specific_settings": { "gecko": { "id": "gm@mafari.dev" } },
+  "permissions": [
+    "<all_urls>",
+    "cookies",
+    "storage",
+    "webRequest",
+    "webRequestBlocking",
+    "nativeMessaging",
+    "nativeMessagingFromContent",
+    "geckoViewAddons"
+  ],
+  "background": { "scripts": ["background.js"], "persistent": true },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["relay.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ]
+}
