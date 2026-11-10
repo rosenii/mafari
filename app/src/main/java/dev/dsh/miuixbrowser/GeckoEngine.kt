@@ -48,11 +48,12 @@ object GeckoRuntimeHolder {
         synchronized(this) {
             runtime?.let { return it }
             GeckoDebug.load(context)
-            val settings = GeckoRuntimeSettings.Builder()
+            val builder = GeckoRuntimeSettings.Builder()
                 .javaScriptEnabled(true)
                 .aboutConfigEnabled(GeckoDebug.aboutConfig)
                 .remoteDebuggingEnabled(GeckoDebug.remoteDebug)
-                .build()
+            GeckoDebug.applyIsolation(builder)
+            val settings = builder.build()
             val created = GeckoRuntime.create(context.applicationContext, settings)
             runtime = created
             // 「Gecko 高级保护」里的设置（ETP 档位 / 安全 DNS…）+ 之前记下的 about:config 偏好，此刻统一写入

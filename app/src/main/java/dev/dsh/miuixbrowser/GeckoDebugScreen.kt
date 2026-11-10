@@ -124,6 +124,21 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         }
                     }
 
+                    item { SmallTitle(text = "进程") }
+                    item {
+                        DebugGroup {
+                            AppSwitchPreference(
+                                title = "进程隔离",
+                                summary = "网页在独立隔离进程里运行，更安全。重启应用后生效。开启后可能无法播放视频（Gecko 已知问题：隔离进程无法启动系统解码服务），默认关闭",
+                                checked = d.isolatedProcess,
+                                onCheckedChange = {
+                                    d.updateIsolatedProcess(it)
+                                    Toast.makeText(context, "重启应用后生效", Toast.LENGTH_SHORT).show()
+                                },
+                            )
+                        }
+                    }
+
                     item { SmallTitle(text = "诊断") }
                     item {
                         DebugGroup {
