@@ -126,7 +126,7 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 onCheckedChange = { d.updateNativeImmersive(it) },
                             )
                             AppSwitchPreference(
-                                title = "网页字体跟随系统字体",
+                                title = "默认字体使用系统字体",
                                 summary = "用系统字体（含系统里换的主题字体）作为浏览器默认字体，不使用 Gecko 自带的默认字体；网页自己指定的字体不受影响。更换系统字体后重启应用生效；开启「强力抗指纹」时 Gecko 只暴露基础字体，此开关无效",
                                 checked = d.systemFont,
                                 onCheckedChange = { d.updateSystemFont(it) },

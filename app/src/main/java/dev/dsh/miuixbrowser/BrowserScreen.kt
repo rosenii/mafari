@@ -1747,7 +1747,14 @@ fun BrowserScreen(
                                 )
                             }
                             MenuAction.Favorite -> if (tab.url.isNotBlank()) {
-                                favorites.add(tab.title.ifBlank { hostOf(tab.url) }, tab.url)
+                                val favName = tab.title.ifBlank { hostOf(tab.url) }
+                                val msg = if (favorites.exists(favName, tab.url)) {
+                                    "已添加此书签"
+                                } else {
+                                    favorites.add(favName, tab.url)
+                                    "添加书签成功"
+                                }
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                             }
                             MenuAction.Share -> if (tab.url.isNotBlank()) {
                                 runCatching {

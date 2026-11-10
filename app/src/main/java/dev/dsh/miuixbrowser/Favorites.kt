@@ -106,6 +106,14 @@ class FavoritesStore(context: Context) {
         return changed
     }
 
+    /** 是否已有同名或同地址（忽略末尾斜杠）的书签 */
+    fun exists(name: String, url: String): Boolean {
+        fun norm(u: String) = toUrl(u).trimEnd('/').lowercase()
+        val n = name.trim()
+        val u = norm(url)
+        return items.any { (n.isNotEmpty() && it.name.trim() == n) || norm(it.url) == u }
+    }
+
     fun add(name: String, url: String, group: String = Favorite.GROUP_PERSONAL) {
         if (url.isBlank()) return
         val fixed = toUrl(url)

@@ -82,6 +82,7 @@ internal object GeckoSystemFont {
     @Volatile private var cached: Result? = null
     @Volatile private var done = false
     @Volatile private var lastNote = "未解析"
+    @Volatile private var reason = ""
 
     private val infoCache = HashMap<String, Info?>()
 
@@ -89,10 +90,13 @@ internal object GeckoSystemFont {
     @Synchronized
     fun resolve(force: Boolean = false): Result? {
         if (done && !force) return cached
+        reason = ""
         cached = runCatching { fromProcess() ?: fromFontsXml() }
-            .onFailure { Diag.log("system font: resolve failed ${it.message}") }
+            .onFailure { reason = "异常 ${it.javaClass.simpleName}: ${it.message}"; Diag.log("system font: resolve failed $reason") }
             .getOrNull()
-        lastNote = cached?.let { "${it.main}（${it.source}，${it.files.size} 个字体文件）" } ?: "未识别（退回 sans-serif）"
+        lastNote = cached?.let { "${it.main}（${it.source}，${it.files.size} 个字体文件）" }
+            ?: "未识别（退回 sans-serif）：$reason"
+        if (cached == null) Diag.log("system font: $lastNote")
         done = true
         return cached
     }
@@ -148,10 +152,15 @@ internal object GeckoSystemFont {
     // ───────────────────────── 来源 2：系统 fonts.xml ─────────────────────────
 
     private fun fromFontsXml(): Result? {
-        val families = CONFIGS.map(::File).firstOrNull { it.isFile && it.canRead() }?.let(::parse) ?: return null
-        val sans = families.firstOrNull { it.name == "sans-serif" } ?: return null
-        val regular = pickRegular(sans) ?: return null
-        val main = nameOf(regular) ?: return null
+        val cfg = CONFIGS.map(::File).firstOrNull { it.isFile && it.canRead() }
+        if (cfg == null) { reason = "读不到 fonts.xml"; return null }
+        val families = cfg.let(::parse)
+        val sans = families.firstOrNull { it.name == "sans-serif" }
+        if (sans == null) { reason = "fonts.xml 里没有 sans-serif"; return null }
+        val regular = pickRegular(sans)
+        if (regular == null) { reason = "sans-serif 没有字体文件"; return null }
+        val main = nameOf(regular)
+        if (main == null) { reason = "读不到 ${regular.file} 的族名"; return null }
         val cjk = LinkedHashMap<String, String>()
         for (lang in listOf("zh-Hans", "zh-Hant", "ja", "ko")) {
             val fam = families.firstOrNull { it.name == null && it.lang?.split(',', ' ')?.any { l -> l.trim().startsWith(lang) } == true }
@@ -190,7 +199,18 @@ internal object GeckoSystemFont {
                             val weight = p.getAttributeValue(null, "weight")?.toIntOrNull() ?: 400
                             val italic = p.getAttributeValue(null, "style") == "italic"
                             val index = p.getAttributeValue(null, "index")?.toIntOrNull() ?: 0
-                            val fileName = p.nextText().trim()
+                            // Android 12+ 的 <font> 里带 <axis> 子标签，nextText() 会抛异常，必须手动收集文本
+                            val sb = StringBuilder()
+                            var depth = 1
+                            while (depth > 0) {
+                                when (p.next()) {
+                                    XmlPullParser.TEXT -> if (depth == 1) sb.append(p.text)
+                                    XmlPullParser.START_TAG -> depth++
+                                    XmlPullParser.END_TAG -> depth--
+                                    XmlPullParser.END_DOCUMENT -> depth = 0
+                                }
+                            }
+                            val fileName = sb.toString().trim()
                             if (fileName.isNotEmpty()) files.add(FontRef(fileName, index, weight, italic))
                         }
                     }
@@ -204,8 +224,15 @@ internal object GeckoSystemFont {
         return out
     }
 
+    /** 系统字体 API（API 29+）列出的字体文件：覆盖 /data/fonts 等 fonts.xml 里没写全路径的位置 */
+    private val apiFonts: List<File> by lazy {
+        runCatching { android.graphics.fonts.SystemFonts.getAvailableFonts().mapNotNull { it.file } }
+            .getOrDefault(emptyList())
+    }
+
     private fun locate(ref: FontRef): File? =
         FONT_DIRS.map { File(it, ref.file) }.firstOrNull { it.isFile && it.canRead() }
+            ?: apiFonts.firstOrNull { it.name == ref.file && it.canRead() }
 
     private fun nameOf(ref: FontRef?): String? {
         ref ?: return null
