@@ -173,6 +173,21 @@ object GeckoProtection {
         if (disableWebgl) add("禁用 WebGL")
     }
 
+    /**
+     * 首页隐私报告用：固定几项最关键的保护 + 当前是否开启（反跟踪 / 指纹保护 / …）。
+     * 反跟踪：Gecko 默认就是标准档，只有手动关闭才算未开启。
+     */
+    fun reportItems(): List<Pair<String, Boolean>> = listOf(
+        "反跟踪" to (etp != 1),
+        "指纹保护" to (fingerprint || resistFingerprint),
+        "清理跟踪参数" to stripTracking,
+        "弹跳跟踪保护" to bounceTracking,
+        "WebRTC 防泄露" to (webrtcLeak || webrtcOff),
+        "仅 HTTPS" to httpsOnly,
+        "安全 DNS" to (dohMode > 0),
+        "GPC" to gpc,
+    )
+
     /** 已开启的保护项数量（设置页行的摘要用） */
     fun activeCount(): Int = activeLabels().size
 

@@ -947,7 +947,7 @@ internal fun PrivacyReportCard(
     }
 }
 
-/** Gecko 版隐私报告：一行摘要 + 已开启保护项的自动换行清单（无逐项卡片，尽量省高度） */
+/** Gecko 版隐私报告：关键保护项两列紧凑排布，每项「圆点 + 名称 + 已开启 / 未开启」，一行一对，尽量省高度 */
 @Composable
 private fun GeckoPrivacyReportCard(
     modifier: Modifier,
@@ -960,7 +960,7 @@ private fun GeckoPrivacyReportCard(
     onRemove: () -> Unit,
 ) {
     // 读取的是 GeckoProtection 里的 Compose 状态，设置页改动后回到首页会自动刷新
-    val labels = GeckoProtection.activeLabels()
+    val items = GeckoProtection.reportItems()
     HomeCard(
         modifier = modifier,
         title = "隐私报告",
@@ -972,34 +972,42 @@ private fun GeckoPrivacyReportCard(
         onClick = onClick,
         onRemove = onRemove,
     ) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                text = labels.size.toString(),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                text = "项 Gecko 高级保护已开启",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                maxLines = 1,
-                modifier = Modifier.padding(bottom = 3.dp),
-            )
+        items.chunked(2).forEachIndexed { index, pair ->
+            if (index > 0) Spacer(Modifier.height(5.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { (name, on) -> GeckoPrivacyStatusCell(name, on, Modifier.weight(1f)) }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
-        Spacer(Modifier.height(6.dp))
-        if (labels.isEmpty()) {
-            HomeEmptyText("尚未开启，可在 设置 → Gecko 高级保护 中开启")
-        } else {
-            Text(
-                text = labels.joinToString("  ·  "),
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                color = MiuixTheme.colorScheme.onSurface,
-            )
-        }
+    }
+}
+
+@Composable
+private fun GeckoPrivacyStatusCell(name: String, on: Boolean, modifier: Modifier = Modifier) {
+    val scheme = MiuixTheme.colorScheme
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(if (on) scheme.primary else scheme.onSurface.copy(alpha = 0.25f)),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = name,
+            fontSize = 12.sp,
+            color = if (on) scheme.onSurface else scheme.onSurfaceVariantSummary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            text = if (on) "已开启" else "未开启",
+            fontSize = 11.sp,
+            color = if (on) scheme.primary else scheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+            maxLines = 1,
+        )
     }
 }
 

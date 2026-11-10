@@ -348,10 +348,7 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                             )
                         }
                         item {
-                            HintText(
-                                "拓展由 Gecko 内核运行，可替代去广告与脚本（如 uBlock Origin、Violentmonkey）。" +
-                                    "应用在前台时会按上面的间隔自动检查更新。",
-                            )
+                            HintText("拓展由Gecko内核运行，搜索结果来源于Firefox拓展商店。")
                         }
                     }
                 }

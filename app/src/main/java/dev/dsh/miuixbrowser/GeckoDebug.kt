@@ -127,20 +127,35 @@ object GeckoDebug {
         "x-western", "x-cyrillic", "el", "he", "ar", "th", "x-unicode", "ja", "ko", "zh-CN", "zh-TW", "zh-HK",
     )
 
+    /** 语言 → 系统 fonts.xml 里对应的回退家族 lang 前缀（只有中日韩需要，其它语言走主字体 + Gecko 自己的回退） */
+    private fun cjkKey(lang: String): String? = when (lang) {
+        "zh-CN" -> "zh-Hans"
+        "zh-TW", "zh-HK" -> "zh-Hant"
+        "ja" -> "ja"
+        "ko" -> "ko"
+        else -> null
+    }
+
     /**
-     * 开：默认字体用无衬线，并让各语言的 sans-serif 通用族指向系统的 sans-serif 家族（由系统 fonts.xml 解析，
-     * 用户在系统里换了字体也跟着变），而不是 Gecko 偏好里写死的 Roboto / Noto 等。
+     * 开：默认字体用无衬线，并把各语言的 sans-serif 指向系统字体的「真实族名」。
+     * 族名由 [GeckoSystemFont] 读系统 fonts.xml + 字体文件 name 表得到（Gecko 的 font.name.* 要的是族名，
+     * 写成 "sans-serif" 它在 Android 上不一定认，会退回自带的 Roboto / Noto）。中日韩另把系统指定的回退家族写进
+     * font.name-list，汉字也跟着系统走。读不到系统字体（个别厂商主题字体不在 fonts.xml 里）时退回旧写法。
      * 关：清掉这些用户值回到 Gecko 默认；同时清掉旧版遗留的 use_document_fonts，避免升级后残留。
      */
     private fun applyFonts() {
         GeckoPrefs.set("browser.display.use_document_fonts", GeckoPrefs.CLEAR)
+        val sys = if (systemFont) GeckoSystemFont.resolve() else null
         FONT_LANGS.forEach { lang ->
             if (systemFont) {
                 GeckoPrefs.set("font.default.$lang", "sans-serif")
-                GeckoPrefs.set("font.name.sans-serif.$lang", "sans-serif")
+                GeckoPrefs.set("font.name.sans-serif.$lang", sys?.main ?: "sans-serif")
+                val extra = cjkKey(lang)?.let { sys?.cjk?.get(it) }?.takeIf { it != sys?.main }
+                GeckoPrefs.set("font.name-list.sans-serif.$lang", extra ?: GeckoPrefs.CLEAR)
             } else {
                 GeckoPrefs.set("font.default.$lang", GeckoPrefs.CLEAR)
                 GeckoPrefs.set("font.name.sans-serif.$lang", GeckoPrefs.CLEAR)
+                GeckoPrefs.set("font.name-list.sans-serif.$lang", GeckoPrefs.CLEAR)
             }
         }
     }
