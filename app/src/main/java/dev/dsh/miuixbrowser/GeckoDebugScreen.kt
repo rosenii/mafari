@@ -129,7 +129,7 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         DebugGroup {
                             AppSwitchPreference(
                                 title = "进程隔离",
-                                summary = "网页在独立隔离进程里运行，更安全。重启应用后生效。开启后可能无法播放视频（Gecko 已知问题：隔离进程无法启动系统解码服务），默认关闭",
+                                summary = "网页在独立隔离进程里运行。重启应用后生效。Gecko 已知问题（bug 2023367）：开启后 H.264 视频（多数 MP4）无法播放，AV1 等可播，暂无解决办法，需要看视频请保持关闭",
                                 checked = d.isolatedProcess,
                                 onCheckedChange = {
                                     d.updateIsolatedProcess(it)
