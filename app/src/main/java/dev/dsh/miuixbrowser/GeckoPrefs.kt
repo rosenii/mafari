@@ -42,13 +42,23 @@ object GeckoPrefs {
         else -> false
     }
 
+    // 反射结果缓存：Gecko 运行时刚创建时 flush() 会连续写入几十项偏好，
+    // 原来每项都重新 Class.forName + cls.methods（每次复制整份 Method 数组）再逐个匹配，
+    // 都发生在主线程、首个 Gecko 标签的启动路径上。这里按「值类型」只查一次。
+    private var prefCls: Class<*>? = null
+    private var clearMethod: java.lang.reflect.Method? = null
+    private val setMethods = HashMap<Class<*>, java.lang.reflect.Method>()
+
+    private fun controllerClass(): Class<*> =
+        prefCls ?: Class.forName("org.mozilla.geckoview.GeckoPreferenceController").also { prefCls = it }
+
     private fun push(name: String, value: Any) {
         runCatching {
-            val cls = Class.forName("org.mozilla.geckoview.GeckoPreferenceController")
+            val cls = controllerClass()
             if (value === CLEAR) {
-                val clear = cls.methods.firstOrNull {
+                val clear = clearMethod ?: (cls.methods.firstOrNull {
                     it.name == "clearGeckoUserPref" && it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java
-                } ?: error("找不到 GeckoPreferenceController.clearGeckoUserPref")
+                } ?: error("找不到 GeckoPreferenceController.clearGeckoUserPref")).also { clearMethod = it }
                 clear.invoke(if (Modifier.isStatic(clear.modifiers)) null else cls.getDeclaredConstructor().newInstance(), name)
                 return@runCatching
             }
@@ -56,9 +66,9 @@ object GeckoPrefs {
                 lookedUp = true
                 branchUser = runCatching { cls.getField("PREF_BRANCH_USER").getInt(null) }.getOrDefault(1)
             }
-            val m = cls.methods.firstOrNull {
+            val m = setMethods[value.javaClass] ?: (cls.methods.firstOrNull {
                 it.name == "setGeckoPref" && it.parameterTypes.size in 2..3 && accepts(it.parameterTypes[1], value)
-            } ?: error("找不到 GeckoPreferenceController.setGeckoPref")
+            } ?: error("找不到 GeckoPreferenceController.setGeckoPref")).also { setMethods[value.javaClass] = it }
             val target = if (Modifier.isStatic(m.modifiers)) null else cls.getDeclaredConstructor().newInstance()
             if (m.parameterTypes.size == 3) m.invoke(target, name, value, branchUser) else m.invoke(target, name, value)
         }.onFailure {

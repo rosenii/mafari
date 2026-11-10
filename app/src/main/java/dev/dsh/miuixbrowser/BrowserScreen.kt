@@ -937,10 +937,10 @@ fun BrowserScreen(
     // 弹簧会过冲到负值，padding 不允许负数
     // Gecko：留白随底栏收起而变化会让 GeckoView 在滑动途中逐帧重新布局 / 调整视口（掉帧主因），
     // 默认固定为状态栏高度；「Gecko 调试 → 状态栏留白随滚动收起」打开后才恢复动画。
-    val contentTopPadding = if (tab.isGecko && !GeckoDebug.nativeImmersive) {
-        statusBarHeight
-    } else {
-        animatedTopPadding.coerceAtLeast(0.dp)
+    val fixedContentTop = tab.isGecko && !GeckoDebug.nativeImmersive
+    // 只在布局阶段读取动画值（见 TopInset.kt）：滚动收起 / 回落的每一帧不再触发整个 BrowserScreen 重组
+    val contentTopPx: androidx.compose.ui.unit.Density.() -> Int = {
+        if (fixedContentTop) statusBarHeight.roundToPx() else animatedTopPadding.coerceAtLeast(0.dp).roundToPx()
     }
     // Gecko 原生沉浸（仅网页状态；主页仍按普通留白排版）：GeckoView 占满内容区、尺寸恒定，
     // 状态栏留白用 offset 平移出来（只改位置、不触发 Gecko 重新布局），并把被推出屏幕的高度告诉 Gecko。
@@ -962,6 +962,9 @@ fun BrowserScreen(
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
         label = "bottomBar",
     )
+    // 弹簧动画每帧都会改 hide；直接在组合里比较 hide < 0.995f 会让整个 BrowserScreen 逐帧重组。
+    // 包进 derivedStateOf 后只有「显示 / 不显示」这个结果翻转时才重组，位移 / 透明度仍在绘制阶段读取。
+    val barVisible by remember { androidx.compose.runtime.derivedStateOf { !barHidden || hide < 0.995f } }
 
     // 二级页面的返回（含预见性返回）由 NavDisplay 接管；这里只处理浏览主界面自己的返回。
     BackHandler(enabled = backStack.size <= 1) {
@@ -1073,7 +1076,7 @@ fun BrowserScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = if (nativeInset) 0.dp else contentTopPadding),
+                    .topInsetPx { if (nativeInset) 0 else contentTopPx() },
             ) {
                 key(tab.id) {
                     AndroidView(
@@ -1184,20 +1187,13 @@ fun BrowserScreen(
                     )
                 }
             }
-            if (tab.pullProgress > 0.05f) {
-                RefreshSpinner(
-                    progress = tab.pullProgress,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 18.dp),
-                )
-            }
+            PullSpinnerHost(tab)
             if (tab.loading) {
                 ProgressLine(
-                    progress = tab.progress,
+                    progress = { tab.progress },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = contentTopPadding),
+                        .topInsetPx(contentTopPx),
                 )
             }
         }
@@ -1258,7 +1254,7 @@ fun BrowserScreen(
 
             // 退出动画播放期间仍保留底栏；动画结束后直接从组合树移除，
             // 不留下透明/平移后的 Compose 节点拦截 WebView 的触摸事件。
-            if (!barHidden || hide < 0.995f) {
+            if (barVisible) {
                 // 缩小后的圆形搜索钮（弹性缩放入场）
                 if (barMinimized) {
                     val circleScale by animateFloatAsState(
@@ -2756,6 +2752,20 @@ internal fun fetchRemoteScript(url: String): String? = runCatching {
         connection.disconnect()
     }
 }.getOrNull()
+
+/** 下拉刷新指示器的宿主：pullProgress 每个触摸事件都在变，把读取隔离在这个小组合里，不让整个 BrowserScreen 跟着重组 */
+@Composable
+private fun BoxScope.PullSpinnerHost(tab: BrowserTab) {
+    val p = tab.pullProgress
+    if (p > 0.05f) {
+        RefreshSpinner(
+            progress = p,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 18.dp),
+        )
+    }
+}
 
 /** 顶部下拉刷新指示器：直接复用轻应用（WebAppActivity）的 RefreshSpinnerView，观感与动效完全一致 */
 @Composable

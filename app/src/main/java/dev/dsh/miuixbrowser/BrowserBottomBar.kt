@@ -698,21 +698,22 @@ internal fun BarButton(
 }
 
 
+/**
+ * 页面加载进度条。[progress] 是 lambda：进度每变一次（一次加载最多上百次）只在绘制阶段读取，
+ * 不会让调用它的整个界面重组，也不会触发重新测量。
+ */
 @Composable
-internal fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
+internal fun ProgressLine(progress: () -> Float, modifier: Modifier = Modifier) {
+    val primary = MiuixTheme.colorScheme.primary
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(2.5.dp)
-            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.15f)),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(progress.coerceIn(0.02f, 1f))
-                .height(2.5.dp)
-                .background(MiuixTheme.colorScheme.primary),
-        )
-    }
+            .background(primary.copy(alpha = 0.15f))
+            .drawBehind {
+                drawRect(primary, size = Size(size.width * progress().coerceIn(0.02f, 1f), size.height))
+            },
+    )
 }
 
 /* ------------------------------ 弹层行 ------------------------------ */
