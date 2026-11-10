@@ -80,8 +80,6 @@ object GeckoProtection {
     var ech by mutableStateOf(false)
         private set
 
-        private set
-
     data class DohProvider(val name: String, val url: String)
 
     val DOH_PROVIDERS = listOf(
