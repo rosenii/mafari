@@ -409,7 +409,7 @@ fun SettingsScreen(
                     EngineRow(visible = settings.geckoMode) {
                         SettingsRow(
                             title = "Gecko 调试",
-                            summary = "渲染信息 · 沉浸模式 · 性能叠层 · 运行日志",
+                            summary = "渲染信息 · 沉浸模式 · 系统字体 · 性能叠层 · 运行日志",
                             onClick = onOpenGeckoDebug,
                         )
                     }

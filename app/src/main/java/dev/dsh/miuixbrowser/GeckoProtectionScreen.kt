@@ -229,12 +229,6 @@ fun GeckoProtectionScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     item {
                         Group {
                             AppSwitchPreference(
-                                title = "网页字体跟随系统",
-                                summary = "忽略网页指定的字体，统一使用系统字体；个别依赖图标字体的网页图标可能显示异常",
-                                checked = p.systemFont,
-                                onCheckedChange = { p.updateSystemFont(it) },
-                            )
-                            AppSwitchPreference(
                                 title = "禁用预取 / 预连接",
                                 summary = "不提前解析、连接未打开的链接，减少对外暴露的请求（页面加载可能略慢）",
                                 checked = p.noPrefetch,

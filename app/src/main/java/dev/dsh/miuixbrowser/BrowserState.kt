@@ -770,8 +770,6 @@ class BrowserTab(
                 // 重定向 / 跳转后以最终地址为准更新页面主机名，去广告的第三方判定、白名单、$domain 都依赖它
                 updatePageHost(pageUrl)
                 installElementInspector(view)
-                // 稍等布局稳定再截标签缩略图
-                view.postDelayed({ captureThumbnail(view) }, 350)
             }
 
             override fun doUpdateVisitedHistory(view: WebView, pageUrl: String?, isReload: Boolean) {
@@ -1375,8 +1373,6 @@ class BrowserTab(
         if (success && !parked && visited.isNotEmpty() && !visited.startsWith("about:")) {
             onVisited?.invoke(visited, title)
         }
-        // 稍等布局稳定再截标签缩略图
-        gecko?.view?.postDelayed({ captureGeckoThumbnail() }, 350)
     }
 
     internal fun geckoNavChanged() {
@@ -2138,6 +2134,20 @@ class BrowserTab(
         if (text.isBlank()) webView.clearMatches() else webView.findAllAsync(text)
     }
 
+    private var lastThumbAt = 0L
+
+    /**
+     * 按需截取标签缩略图（主线程）：只在「切走这个标签」和「打开标签页面板」时调用，
+     * 页面加载完成不再自动截图。1 秒内重复调用直接跳过（打开面板后再选标签会连续触发）。
+     */
+    fun captureThumbnailNow() {
+        if (closed || destroyed || parked) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastThumbAt < 1000L) return
+        lastThumbAt = now
+        if (gecko != null) captureGeckoThumbnail() else captureThumbnail(webView)
+    }
+
     /** 截取当前页面作为标签缩略图（须在主线程调用） */
     private fun captureThumbnail(view: WebView) {
         if (closed || destroyed || url.isBlank() || url == "about:blank") return
@@ -2360,6 +2370,8 @@ class BrowserState(private val context: Context) {
             ).show()
             return
         }
+        // 切走前给当前标签拍一张缩略图
+        tabs.getOrNull(activeIndex)?.captureThumbnailNow()
         val tab = createTab(incognito, opener)
         tab.openedFromLink = fromLink && opener != null && target.isNotEmpty()
         tabs.add(tab)
@@ -2465,6 +2477,8 @@ class BrowserState(private val context: Context) {
     }
 
     fun select(index: Int) {
+        // 切走前给当前标签拍一张缩略图
+        if (index != activeIndex) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
         activate(index)
     }
 

@@ -22,6 +22,9 @@ import androidx.compose.runtime.setValue
  *   （Mozilla bug 1810736 / 1988531）。所以默认关闭
  * - [nativeImmersive]：Gecko 原生沉浸。GeckoView 尺寸固定为整个内容区，状态栏留白靠「平移 + setVerticalClipping /
  *   setDynamicToolbarMaxHeight」实现，收起 / 展开时不再重新布局 / 调整视口；关闭则留白固定、不随滚动收起（最稳）
+ * - [systemFont]：网页字体跟随系统字体。把浏览器「默认字体」从 Gecko 自带字体改成系统字体：
+ *   未指定字体的网页默认用无衬线，且各语言的 sans-serif 通用族指向系统的 sans-serif（含用户在系统里换的字体）。
+ *   不再屏蔽网页自己指定的字体（旧版 use_document_fonts=0 会让图标字体失效，已弃用并在启动时清掉）
  */
 object GeckoDebug {
 
@@ -35,6 +38,7 @@ object GeckoDebug {
     var highRefresh by mutableStateOf(true); private set
     var nativeImmersive by mutableStateOf(true); private set
     var isolatedProcess by mutableStateOf(false); private set
+    var systemFont by mutableStateOf(true); private set
 
     fun load(context: Context) {
         if (prefs != null) return
@@ -47,6 +51,8 @@ object GeckoDebug {
         highRefresh = p.getBoolean("high_refresh", true)
         nativeImmersive = p.getBoolean("native_immersive", true)
         isolatedProcess = p.getBoolean("isolated_process", false)
+        // 默认开启：从未设置过时跟随系统字体（旧版放在「Gecko 高级保护」里的同名开关不再沿用）
+        systemFont = p.getBoolean("system_font", true)
     }
 
     private inline fun save(block: SharedPreferences.Editor.() -> Unit) {
@@ -112,9 +118,37 @@ object GeckoDebug {
         nativeImmersive = v; save { putBoolean("native_immersive", v) }
     }
 
-    /** Gecko 运行时创建后调用：把需要写进 about:config 的调试项补上（只在开启时写，关闭时什么都不碰） */
+    fun updateSystemFont(v: Boolean) {
+        systemFont = v; save { putBoolean("system_font", v) }
+        applyFonts()
+    }
+
+    private val FONT_LANGS = listOf(
+        "x-western", "x-cyrillic", "el", "he", "ar", "th", "x-unicode", "ja", "ko", "zh-CN", "zh-TW", "zh-HK",
+    )
+
+    /**
+     * 开：默认字体用无衬线，并让各语言的 sans-serif 通用族指向系统的 sans-serif 家族（由系统 fonts.xml 解析，
+     * 用户在系统里换了字体也跟着变），而不是 Gecko 偏好里写死的 Roboto / Noto 等。
+     * 关：清掉这些用户值回到 Gecko 默认；同时清掉旧版遗留的 use_document_fonts，避免升级后残留。
+     */
+    private fun applyFonts() {
+        GeckoPrefs.set("browser.display.use_document_fonts", GeckoPrefs.CLEAR)
+        FONT_LANGS.forEach { lang ->
+            if (systemFont) {
+                GeckoPrefs.set("font.default.$lang", "sans-serif")
+                GeckoPrefs.set("font.name.sans-serif.$lang", "sans-serif")
+            } else {
+                GeckoPrefs.set("font.default.$lang", GeckoPrefs.CLEAR)
+                GeckoPrefs.set("font.name.sans-serif.$lang", GeckoPrefs.CLEAR)
+            }
+        }
+    }
+
+    /** Gecko 运行时创建后调用：把需要写进 about:config 的调试项补上（调试项只在开启时写；字体需要同步清理旧版遗留） */
     fun pushPrefs() {
         if (profiler) GeckoPrefs.set(PROFILER_PREF, true)
+        applyFonts()
     }
 
     /** 设备支持的最高刷新率（Hz）；取不到返回 0（= 不声明偏好） */
@@ -134,15 +168,15 @@ object GeckoDebug {
                 .getDisplay(Display.DEFAULT_DISPLAY).refreshRate
         }.getOrDefault(0f)
         return listOf(
-            "GeckoView 版本" to field("MOZ_APP_VERSION"),
+            "Gecko 版本" to field("MOZ_APP_VERSION"),
             "构建 ID" to field("MOZ_APP_BUILDID"),
             "渲染后端" to "SurfaceView（GeckoView 默认）",
             "屏幕刷新率" to "当前 ${"%.0f".format(cur)} Hz / 最高 ${"%.0f".format(hz)} Hz",
             "运行时" to if (GeckoRuntimeHolder.peek() != null) "已启动" else "未启动（打开 Gecko 标签后启动）",
             "进程隔离" to when (val r = runtimeIsolated()) {
-                null -> if (isolatedProcess) "已设置开启（运行时未启动或不可读）" else "关闭"
-                else -> (if (r) "运行中：开启" else "运行中：关闭") +
-                    if (r != isolatedProcess) "；设置为${if (isolatedProcess) "开启" else "关闭"}，重启应用后生效" else ""
+                // 以运行时实际状态为准：开启 = 运行中，否则 = 关闭；运行时未启动 / 读不到时按设置显示
+                null -> if (isolatedProcess) "运行中" else "关闭"
+                else -> if (r) "运行中" else "关闭"
             },
             "运行日志" to if (Diag.enabled) "已开启" else "关闭",
         )

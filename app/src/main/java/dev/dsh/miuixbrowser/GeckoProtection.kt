@@ -80,8 +80,6 @@ object GeckoProtection {
     var ech by mutableStateOf(false)
         private set
 
-    /** 网页字体跟随系统：忽略网页指定的字体，正文统一用系统无衬线字体（含系统设置的字体） */
-    var systemFont by mutableStateOf(false)
         private set
 
     data class DohProvider(val name: String, val url: String)
@@ -119,7 +117,6 @@ object GeckoProtection {
         dohProvider = p.getInt("doh_provider", 0).coerceIn(0, DOH_PROVIDERS.lastIndex)
         dohCustom = p.getString("doh_custom", "").orEmpty()
         ech = p.getBoolean("ech", false)
-        systemFont = p.getBoolean("system_font", false)
     }
 
     // ------------------------------------------------------------------ 修改（立即保存并写入 Gecko）
@@ -147,14 +144,13 @@ object GeckoProtection {
     fun updateDohProvider(v: Int) { dohProvider = v.coerceIn(0, DOH_PROVIDERS.lastIndex); edit { putInt("doh_provider", dohProvider) } }
     fun updateDohCustom(v: String) { dohCustom = v.trim(); edit { putString("doh_custom", dohCustom) } }
     fun updateEch(v: Boolean) { ech = v; edit { putBoolean("ech", v) } }
-    fun updateSystemFont(v: Boolean) { systemFont = v; edit { putBoolean("system_font", v) } }
 
     /** 全部恢复默认 */
     fun reset() {
         etp = 0; fingerprint = false; resistFingerprint = false; gpc = false; webrtcLeak = false; webrtcOff = false
         trimReferrer = false; stripTracking = false; bounceTracking = false; purgeTrackers = false
         firstPartyIsolate = false; httpsOnly = false; noPrefetch = false; disableWebgl = false
-        dohMode = 0; dohProvider = 0; dohCustom = ""; ech = false; systemFont = false
+        dohMode = 0; dohProvider = 0; dohCustom = ""; ech = false
         prefs?.edit()?.clear()?.apply()
         pushAll()
     }
@@ -223,17 +219,6 @@ object GeckoProtection {
         GeckoPrefs.set("network.http.speculative-parallel-limit", if (noPrefetch) 0 else 6)
 
         GeckoPrefs.set("webgl.disabled", disableWebgl)
-
-        // 网页字体跟随系统：use_document_fonts=0 让网页指定的字体失效，并把各语言默认字体指向系统 sans-serif；
-        // 关闭时清除用户值，回到 Gecko 默认
-        val fontLangs = listOf("x-western", "x-cyrillic", "el", "he", "ar", "th", "x-unicode", "ja", "ko", "zh-CN", "zh-TW", "zh-HK")
-        if (systemFont) {
-            GeckoPrefs.set("browser.display.use_document_fonts", 0)
-            fontLangs.forEach { GeckoPrefs.set("font.default.$it", "sans-serif") }
-        } else {
-            GeckoPrefs.set("browser.display.use_document_fonts", GeckoPrefs.CLEAR)
-            fontLangs.forEach { GeckoPrefs.set("font.default.$it", GeckoPrefs.CLEAR) }
-        }
 
         // 安全 DNS（DoH）：trr.mode 0 = 默认（关）/ 2 = 优先 / 3 = 仅 DoH
         val url = dohUrl()

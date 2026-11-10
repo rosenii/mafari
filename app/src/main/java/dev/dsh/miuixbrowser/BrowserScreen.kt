@@ -1421,6 +1421,8 @@ fun BrowserScreen(
                 },
                 onTabs = {
                     tabsPage = if (tab.incognito) 1 else 0
+                    // 打开标签页面板前刷新当前标签的缩略图
+                    tab.captureThumbnailNow()
                     sheet = Sheet.Tabs
                 },
                 onMore = { sheet = Sheet.Menu },

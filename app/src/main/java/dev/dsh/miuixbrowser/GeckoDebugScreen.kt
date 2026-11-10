@@ -126,16 +126,16 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 onCheckedChange = { d.updateNativeImmersive(it) },
                             )
                             AppSwitchPreference(
+                                title = "网页字体跟随系统字体",
+                                summary = "用系统字体作为浏览器默认字体，不使用 Gecko 自带的默认字体；网页自己指定的字体不受影响",
+                                checked = d.systemFont,
+                                onCheckedChange = { d.updateSystemFont(it) },
+                            )
+                            AppSwitchPreference(
                                 title = "请求高刷新率",
                                 summary = "向系统声明屏幕最高刷新率，避免滑动时被降到低刷新率",
                                 checked = d.highRefresh,
                                 onCheckedChange = { d.updateHighRefresh(it) },
-                            )
-                            AppSwitchPreference(
-                                title = "渲染性能叠层",
-                                summary = "在页面上显示 WebRender 帧率与耗时统计；仅用于排查，会增加开销",
-                                checked = d.profiler,
-                                onCheckedChange = { d.updateProfiler(it) },
                             )
                         }
                     }
@@ -158,6 +158,12 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     item { SmallTitle(text = "诊断") }
                     item {
                         DebugGroup {
+                            AppSwitchPreference(
+                                title = "渲染性能叠层",
+                                summary = "在页面上显示 WebRender 帧率与耗时统计；仅用于排查，会增加开销",
+                                checked = d.profiler,
+                                onCheckedChange = { d.updateProfiler(it) },
+                            )
                             AppSwitchPreference(
                                 title = "运行日志",
                                 summary = "记录 Surface 创建 / 销毁等到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭",
