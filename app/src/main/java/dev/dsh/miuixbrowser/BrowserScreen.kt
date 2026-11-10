@@ -1720,10 +1720,9 @@ fun BrowserScreen(
                             else -> 0
                         }
                     },
-                    // Gecko 下不支持的功能置灰：脚本管理走全局设置（跟随「浏览器内核」），脚本菜单看当前标签
+                    // 置灰：仅 Gecko 专属功能在 WebView 下不可用（脚本在两种内核下都可用）
                     lockedFor = { action ->
                         when (action) {
-                            MenuAction.ScriptMenu -> tab.isGecko || settings.geckoMode
                             // 拓展只在 Gecko 内核可用：WebView 下置灰，点击提示不可用
                             MenuAction.GeckoExtensions -> !settings.geckoMode
                             else -> false
@@ -1788,14 +1787,10 @@ fun BrowserScreen(
                     longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.GeckoExtensions),
                     onLongPressAction = { action ->
                         when (action) {
-                            MenuAction.ScriptMenu ->
-                                // 脚本管理在 Gecko 下不可用（与原「脚本」按钮一致）
-                                if (settings.geckoMode) {
-                                    showGeckoUnsupportedToast(context)
-                                } else {
-                                    sheet = Sheet.None
-                                    pushPage(AppRoute.Extensions)
-                                }
+                            MenuAction.ScriptMenu -> {
+                                sheet = Sheet.None
+                                pushPage(AppRoute.Extensions)
+                            }
                             MenuAction.Favorite -> {
                                 sheet = Sheet.None
                                 pushPage(AppRoute.Library(0))
@@ -2346,7 +2341,6 @@ fun BrowserScreen(
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
             onOpenAbout = { pushPage(AppRoute.About) },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
-            onEngineScripts = { if (it) extensions.resumeAll() else extensions.suspendAll() },
             blurEnabled = settings.blurEnabled,
         )
     }

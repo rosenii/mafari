@@ -530,7 +530,11 @@ class GeckoTabEngine(
                 request: GeckoSession.NavigationDelegate.LoadRequest,
             ): GeckoResult<AllowOrDeny>? {
                 val target = request.uri
-                // Gecko 下不识别 .user.js（脚本管理仅 WebView 可用）：按普通链接 / 下载处理，不弹导入对话框
+                // .user.js：与 WebView 一致，拦下并弹出「导入脚本」
+                if (isUserScriptUrl(target)) {
+                    tab.geckoUserScriptLink(target)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
                 // 拓展安装包（.xpi / AMO 下载链接）：不当普通下载，直接弹安装确认
                 if (isXpiUrl(target)) {
                     tab.geckoExtensionLink(target)
@@ -619,6 +623,11 @@ class GeckoTabEngine(
                 val mime = headerOf(headers, "content-type")?.substringBefore(';')?.trim()?.ifBlank { null }
                 val disposition = headerOf(headers, "content-disposition")
                 when {
+                    // 站点把 .user.js 以附件形式返回：改成「导入脚本」
+                    isUserScriptUrl(uri) -> {
+                        runCatching { response.body?.close() }
+                        tab.geckoUserScriptLink(uri)
+                    }
                     // 服务器按拓展包类型返回（重定向后的下载地址没有 .xpi 后缀也能识别）
                     isXpiUrl(uri) || mime.equals("application/x-xpinstall", ignoreCase = true) -> {
                         runCatching { response.body?.close() }

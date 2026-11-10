@@ -311,6 +311,12 @@ class BrowserTab(
     /** 遇到拓展安装包链接（.xpi）：Gecko 内核下由界面弹出安装确认 */
     var onExtensionLink: ((String) -> Unit)? = null
 
+    /** Gecko 内核遇到 .user.js 链接：与 WebView 一致，交给界面弹出「导入脚本」 */
+    internal fun geckoUserScriptLink(link: String) {
+        if (!isGecko) return
+        onUserScriptLink?.invoke(link)
+    }
+
     internal fun geckoExtensionLink(link: String) {
         // 拓展只属于 Gecko：WebView 标签不识别拓展链接
         if (!isGecko) return

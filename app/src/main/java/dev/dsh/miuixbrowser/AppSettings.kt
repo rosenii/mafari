@@ -151,17 +151,14 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_ENGINE, browserEngine).apply()
     }
 
-    /** 切到 Gecko 前的状态快照：网页增强 / 脚本 / 去广告 / DNT / 禁 WebRTC / 指纹保护 */
+    /** 切到 Gecko 前的状态快照：去广告 / DNT / 禁 WebRTC / 指纹保护（网页增强与脚本总开关两种内核通用，不动） */
     fun suspendForGecko() {
         if (!prefs.getBoolean("gk_saved", false)) {
             val fpOn = AdBlock.fpCanvas || AdBlock.fpWebgl || AdBlock.fpAudio || AdBlock.fpFonts
             prefs.edit().putBoolean("gk_saved", true)
-                .putBoolean("gk_enhance", pageEnhancements).putBoolean("gk_scripts", scriptsEnabled)
                 .putBoolean("gk_adblock", AdBlock.enabled).putBoolean("gk_dnt", sendDnt)
                 .putBoolean("gk_webrtc", webrtcDisabled).putBoolean("gk_fp", fpOn).apply()
         }
-        updatePageEnhancements(false)
-        updateScriptsEnabled(false)
         AdBlock.updateEnabled(false)
         updateSendDnt(false)
         updateWebrtcDisabled(false)
@@ -172,8 +169,6 @@ class AppSettings(context: Context) {
     fun resumeFromGecko() {
         val has = prefs.getBoolean("gk_saved", false)
         fun b(k: String) = !has || prefs.getBoolean(k, true)
-        updatePageEnhancements(b("gk_enhance"))
-        updateScriptsEnabled(b("gk_scripts"))
         AdBlock.updateEnabled(b("gk_adblock"))
         updateSendDnt(b("gk_dnt"))
         updateWebrtcDisabled(b("gk_webrtc"))

@@ -96,7 +96,6 @@ fun SettingsScreen(
     onOpenBookmarks: () -> Unit,
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
-    onEngineScripts: (resume: Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
@@ -341,13 +340,11 @@ fun SettingsScreen(
                                 Toast.makeText(context, "当前设备不是 arm64-v8a，无法使用 Gecko 内核", Toast.LENGTH_SHORT).show()
                             } else if (index != settings.browserEngine) {
                                 settings.updateBrowserEngine(index)
-                                // 切 Gecko：记住当前状态并关闭去广告 / 脚本 / 网页增强 / 隐私增强保护；切回 WebView：恢复切换前状态
+                                // 切 Gecko：记住当前状态并关闭去广告 / 隐私增强保护（脚本两种内核通用，保持不变）；切回 WebView：恢复切换前状态
                                 if (index == ENGINE_GECKO) {
                                     settings.suspendForGecko()
-                                    onEngineScripts(false)
                                 } else {
                                     settings.resumeFromGecko()
-                                    onEngineScripts(true)
                                 }
                                 Toast.makeText(
                                     context,
@@ -357,7 +354,7 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    // 按内核显示：拓展属于 Gecko；网页增强 / 去广告 / 脚本依赖 WebView 专有 API
+                    // 按内核显示：拓展属于 Gecko；去广告依赖 WebView 专有 API；网页增强（脚本总开关）/ 脚本管理两种内核通用
                     EngineRow(visible = settings.geckoMode) {
                         SettingsRow(
                             title = "拓展",
@@ -365,18 +362,21 @@ fun SettingsScreen(
                             onClick = onOpenGeckoExtensions,
                         )
                     }
-                    EngineRow(visible = !settings.geckoMode) {
-                        AppSwitchPreference(
-                            title = "网页增强",
-                            summary = "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告",
-                            checked = settings.pageEnhancements,
-                            onCheckedChange = {
-                                settings.updatePageEnhancements(it)
-                                onPageEnhancementsChange(it)
-                                AdBlock.updateEnabled(it)
-                            },
-                        )
-                    }
+                    AppSwitchPreference(
+                        title = "网页增强",
+                        summary = if (settings.geckoMode) {
+                            "总开关：同步启用 / 停用全部油猴脚本"
+                        } else {
+                            "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告"
+                        },
+                        checked = settings.pageEnhancements,
+                        onCheckedChange = {
+                            settings.updatePageEnhancements(it)
+                            onPageEnhancementsChange(it)
+                            // Gecko 下去广告不可用（由 Gecko 自己的保护 / 拓展负责），不跟着总开关走
+                            if (!settings.geckoMode) AdBlock.updateEnabled(it)
+                        },
+                    )
                     EngineRow(visible = !settings.geckoMode) {
                         SettingsRow(
                             title = "去广告",
@@ -388,13 +388,11 @@ fun SettingsScreen(
                             onClick = onOpenAdBlock,
                         )
                     }
-                    EngineRow(visible = !settings.geckoMode) {
-                        SettingsRow(
-                            title = "脚本管理",
-                            summary = "用户脚本 / 油猴脚本",
-                            onClick = onOpenScripts,
-                        )
-                    }
+                    SettingsRow(
+                        title = "脚本管理",
+                        summary = "用户脚本 / 油猴脚本",
+                        onClick = onOpenScripts,
+                    )
                     SettingsRow(
                         title = "代理",
                         summary = if (settings.proxyEnabled && settings.proxyHost.isNotBlank()) {
