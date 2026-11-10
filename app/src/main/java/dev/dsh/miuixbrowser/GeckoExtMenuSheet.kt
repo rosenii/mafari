@@ -79,8 +79,9 @@ fun GeckoExtMenuSheet(
     val scope = rememberCoroutineScope()
     val all = store.items.toList()
     val running = all.filter { it.enabled }
-    // 总开关：全部已启用才算「开」；切换时对所有拓展一起启用 / 停用
-    val allOn = all.isNotEmpty() && running.size == all.size
+    // 总开关：只要还有一个拓展在运行就显示「开」，全部停用后才显示「关」（单独停用某一个不改变总开关）；
+    // 点击时：开 → 停用所有运行中的拓展，关 → 启用全部
+    val allOn = running.isNotEmpty()
     var bulkBusy by remember { mutableStateOf(false) }
     val popup = store.popup.value
 
