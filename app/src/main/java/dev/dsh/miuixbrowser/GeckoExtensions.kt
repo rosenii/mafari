@@ -99,6 +99,21 @@ data class AmoAddon(
  * GeckoView 的 `WebExtensionController` 在不同 nightly 之间签名有过调整（install 的参数、提示委托的拆分），
  * 所以安装与提示委托这两处按名字反射 / 动态代理，缺方法时报错而不是编译失败。
  */
+/**
+ * 浏览器侧对「拓展操作标签页」的承接（tabs.create / tabs.update / tabs.remove），由 [BrowserState] 实现。
+ * GeckoView 里拓展的标签操作都要由嵌入方落实，没落实的调用会让拓展收到「Cannot create new tab」之类的错误。
+ */
+interface GeckoExtTabHost {
+    /** 用 Gecko 给拓展的 [session] 开一个浏览器标签；返回 false 表示没能创建 */
+    fun openExtensionTab(url: String, active: Boolean, session: org.mozilla.geckoview.GeckoSession): Boolean
+
+    fun closeExtensionTab(session: org.mozilla.geckoview.GeckoSession): Boolean
+
+    fun activateExtensionTab(session: org.mozilla.geckoview.GeckoSession): Boolean
+
+    fun loadInExtensionTab(session: org.mozilla.geckoview.GeckoSession, url: String): Boolean
+}
+
 object GeckoExtensionStore {
 
     val items = mutableStateListOf<GeckoExtItem>()
@@ -419,10 +434,106 @@ object GeckoExtensionStore {
         return runCatching { obj.javaClass.getField(name).get(obj) }.getOrNull()
     }
 
-    /** 标签页创建时登记：给它挂上所有已知拓展的 ActionDelegate */
+    /** 由 [BrowserState] 登记：拓展对标签页的操作交给它落实 */
+    @Volatile
+    var tabHost: GeckoExtTabHost? = null
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** 标签页创建时登记：给它挂上所有已知拓展的 ActionDelegate / SessionTabDelegate */
     fun registerSession(session: org.mozilla.geckoview.GeckoSession) {
         synchronized(sessions) { sessions.add(session) }
-        items.forEach { attachSessionDelegate(session, it.ext) }
+        items.forEach {
+            attachSessionDelegate(session, it.ext)
+            attachSessionTabDelegate(session, it.ext)
+        }
+    }
+
+    /** SessionTabDelegate 的动态代理：拓展对「已有标签」的 tabs.remove / tabs.update */
+    private val sessionTabProxy: Any? by lazy { createSessionTabProxy() }
+
+    private fun createSessionTabProxy(): Any? = runCatching {
+        val iface = Class.forName("org.mozilla.geckoview.WebExtension\$SessionTabDelegate")
+        Diag.log("ext: SessionTabDelegate methods: " + iface.methods.joinToString { m ->
+            m.name + m.parameterTypes.joinToString(prefix = "(", postfix = ")") { it.simpleName }
+        })
+        val allow = { GeckoResult.fromValue(AllowOrDeny.ALLOW) }
+        Proxy.newProxyInstance(iface.classLoader, arrayOf(iface)) { self, method, args ->
+            when {
+                method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
+                method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
+                method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionSessionTab"
+                // tabs.remove：关掉对应的浏览器标签（安装页装完后油猴会这样关掉它）
+                method.name == "onCloseTab" -> {
+                    val session = args?.firstOrNull { it is org.mozilla.geckoview.GeckoSession } as? org.mozilla.geckoview.GeckoSession
+                    Diag.log("ext: onCloseTab session=${session != null}")
+                    if (session != null) mainHandler.post { runCatching { tabHost?.closeExtensionTab(session) } }
+                    allow()
+                }
+                // tabs.update：切换到该标签 / 改地址；静音、置顶、高亮在移动端没有对应概念，直接接受
+                method.name == "onUpdateTab" -> {
+                    val session = args?.firstOrNull { it is org.mozilla.geckoview.GeckoSession } as? org.mozilla.geckoview.GeckoSession
+                    val details = args?.lastOrNull()
+                    val active = fieldOf(details, "active") as? Boolean
+                    val url = fieldOf(details, "url") as? String
+                    Diag.log("ext: onUpdateTab active=$active url=$url")
+                    if (session != null) {
+                        mainHandler.post {
+                            runCatching {
+                                if (!url.isNullOrBlank()) tabHost?.loadInExtensionTab(session, url)
+                                if (active == true) tabHost?.activateExtensionTab(session)
+                            }
+                        }
+                    }
+                    allow()
+                }
+                else -> {
+                    Diag.log("ext: session tab delegate ${method.name} ignored")
+                    null
+                }
+            }
+        }
+    }.onFailure { Diag.log("ext: create session tab delegate failed: $it") }.getOrNull()
+
+    /** session.webExtensionController.setTabDelegate(ext, delegate)（新版）；旧版 session.setWebExtensionTabDelegate */
+    private fun attachSessionTabDelegate(session: org.mozilla.geckoview.GeckoSession, ext: WebExtension) {
+        val proxy = sessionTabProxy ?: return
+        runCatching {
+            val ctrl = session.javaClass.methods
+                .firstOrNull { it.name == "getWebExtensionController" && it.parameterTypes.isEmpty() }
+                ?.invoke(session)
+            val target: Any
+            val m: Method
+            val withExt: Boolean
+            if (ctrl != null) {
+                target = ctrl
+                val two = ctrl.javaClass.methods.firstOrNull {
+                    it.name == "setTabDelegate" && it.parameterTypes.size == 2 &&
+                        it.parameterTypes[0].isInstance(ext) && it.parameterTypes[1].isInstance(proxy)
+                }
+                val one = ctrl.javaClass.methods.firstOrNull {
+                    it.name == "setTabDelegate" && it.parameterTypes.size == 1 && it.parameterTypes[0].isInstance(proxy)
+                }
+                m = two ?: one ?: run {
+                    Diag.log("ext: session controller has no setTabDelegate: " +
+                        ctrl.javaClass.methods.filter { it.name.contains("Delegate") }.joinToString { it.name })
+                    return
+                }
+                withExt = two != null
+            } else {
+                target = session
+                m = session.javaClass.methods.firstOrNull {
+                    it.name == "setWebExtensionTabDelegate" && it.parameterTypes.size == 2 &&
+                        it.parameterTypes[0].isInstance(ext) && it.parameterTypes[1].isInstance(proxy)
+                } ?: run {
+                    Diag.log("ext: no session-level tab delegate API found")
+                    return
+                }
+                withExt = true
+            }
+            if (withExt) m.invoke(target, ext, proxy) else m.invoke(target, proxy)
+            Diag.log("ext: session tab delegate attached for ${ext.id}")
+        }.onFailure { Diag.log("ext: session tab delegate failed: $it") }
     }
 
     private fun attachSessionDelegate(session: org.mozilla.geckoview.GeckoSession, ext: WebExtension) {
@@ -462,7 +573,10 @@ object GeckoExtensionStore {
 
     private fun attachToAllSessions(ext: WebExtension) {
         val snapshot = synchronized(sessions) { sessions.toList() }
-        snapshot.forEach { attachSessionDelegate(it, ext) }
+        snapshot.forEach {
+            attachSessionDelegate(it, ext)
+            attachSessionTabDelegate(it, ext)
+        }
     }
 
     /** ActionDelegate 的动态代理（扩展级与 session 级共用同一个实现） */
@@ -595,11 +709,26 @@ object GeckoExtensionStore {
                     method.name == "hashCode" && method.parameterTypes.isEmpty() -> System.identityHashCode(self)
                     method.name == "equals" && method.parameterTypes.size == 1 -> self === args?.firstOrNull()
                     method.name == "toString" && method.parameterTypes.isEmpty() -> "GeckoExtensionTab"
+                    // tabs.create：必须返回一个真实的 GeckoSession，Gecko 才会把它当作这个拓展新建的标签；
+                    // 返回 null 会让拓展收到 "Cannot create new tab"（油猴安装页因此无法完成安装）
                     method.name == "onNewTab" -> {
-                        val url = fieldOf(args?.getOrNull(1), "url") as? String
-                        Diag.log("ext: onNewTab url=$url")
-                        if (!url.isNullOrBlank()) openInBrowser(url)
-                        null
+                        val details = args?.getOrNull(1)
+                        val url = fieldOf(details, "url") as? String
+                        val active = fieldOf(details, "active") as? Boolean ?: true
+                        Diag.log("ext: onNewTab url=$url active=$active")
+                        val host = tabHost
+                        val session = if (host != null) newGeckoSession(false) else null
+                        val ok = session != null && runCatching { host!!.openExtensionTab(url.orEmpty(), active, session) }
+                            .onFailure { Diag.log("ext: openExtensionTab failed: $it") }
+                            .getOrDefault(false)
+                        if (ok) {
+                            closePopup()
+                            GeckoResult.fromValue(session)
+                        } else {
+                            // 没有可用的标签宿主（或创建失败）：退回旧做法，至少把页面在浏览器里打开
+                            if (!url.isNullOrBlank()) openInBrowser(url)
+                            null
+                        }
                     }
                     method.name == "onOpenOptionsPage" -> {
                         val e = args?.getOrNull(0) as? WebExtension

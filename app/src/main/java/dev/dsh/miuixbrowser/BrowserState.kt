@@ -145,6 +145,8 @@ class BrowserTab(
     val engineKind: EngineKind = EngineKind.WEBVIEW,
     /** 无痕标签：Gecko 的私有模式必须在会话创建时指定 */
     startIncognito: Boolean = false,
+    /** 拓展 tabs.create 时已交给 Gecko 的 session（仅 Gecko 内核）；普通标签为 null，由引擎自己创建 */
+    adoptedGeckoSession: org.mozilla.geckoview.GeckoSession? = null,
 ) {
 
     /** 每个标签的唯一 id，Compose 用它做 key。 */
@@ -314,7 +316,14 @@ class BrowserTab(
         get() = webViewOrNull ?: error("Gecko 标签没有 WebView，请使用与内核无关的接口")
 
     private val gecko: GeckoTabEngine? =
-        if (engineKind == EngineKind.GECKO) GeckoTabEngine(appContext, startIncognito, this) else null
+        if (engineKind == EngineKind.GECKO) GeckoTabEngine(appContext, startIncognito, this, adoptedGeckoSession) else null
+
+    /** 拓展 tabs.create 建出的标签：地址栏先显示目标地址，Gecko 没有自己加载时由引擎兜底加载一次 */
+    internal fun adoptExtensionUrl(target: String) {
+        parked = false
+        if (target.isNotBlank() && target != "about:blank") url = target
+        gecko?.ensureLoaded(target)
+    }
 
     /** Gecko 标签的 session（非 Gecko 内核为 null）：拓展弹出页按它路由 */
     val geckoSession: org.mozilla.geckoview.GeckoSession? get() = gecko?.session
@@ -2295,7 +2304,7 @@ class BrowserTab(
 }
 
 /** 多标签状态。 */
-class BrowserState(private val context: Context) {
+class BrowserState(private val context: Context) : GeckoExtTabHost {
 
     val tabs = mutableStateListOf<BrowserTab>()
 
@@ -2312,6 +2321,8 @@ class BrowserState(private val context: Context) {
         get() = tabs[activeIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))]
 
     init {
+        // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
+        GeckoExtensionStore.tabHost = this
         newTab()
     }
 
@@ -2324,20 +2335,85 @@ class BrowserState(private val context: Context) {
         recentIds.add(id)
         // Gecko 会话只有「当前标签」保持活动，后台标签停止渲染
         tabs.forEachIndexed { i, t -> t.setEngineActive(i == index) }
+        // 告诉拓展哪个是当前标签：tabs.query({active:true}) / 安装页等都依赖它，不能只在打开拓展菜单时才登记
+        GeckoExtensionStore.activeSession = tabs[index].geckoSession
+        GeckoExtensionStore.markActiveTab()
     }
 
-    private fun createTab(incognito: Boolean, opener: BrowserTab?): BrowserTab {
+    // ------------------------------------------------ GeckoExtTabHost：拓展对浏览器标签的操作
+
+    private fun indexOfGeckoSession(session: org.mozilla.geckoview.GeckoSession): Int =
+        tabs.indexOfFirst { it.geckoSession === session }
+
+    /** tabs.create：用 Gecko 给拓展的 session 开一个真正的浏览器标签（而不是返回 null 让拓展以为失败） */
+    override fun openExtensionTab(url: String, active: Boolean, session: org.mozilla.geckoview.GeckoSession): Boolean {
+        if (tabs.size >= MAX_TABS) return false
+        if (readBrowserEngine(context) != ENGINE_GECKO || !GeckoRuntimeHolder.supported()) return false
+        val opener = tabs.getOrNull(activeIndex)
+        val tab = runCatching { createTab(false, opener, session) }
+            .onFailure { Diag.log("ext: create extension tab failed: $it") }
+            .getOrNull() ?: return false
+        if (!tab.isGecko) {
+            tab.close()
+            return false
+        }
+        // 拓展页没有「主页」可回：第一页返回直接关闭并回到来源标签
+        tab.openedFromLink = opener != null
+        if (active) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
+        tabs.add(tab)
+        if (active) activate(tabs.lastIndex) else tab.setEngineActive(false)
+        tab.adoptExtensionUrl(url)
+        Diag.log("ext: extension tab opened url=$url active=$active tabs=${tabs.size}")
+        return true
+    }
+
+    /** tabs.remove / 安装完成后拓展自己关闭安装页 */
+    override fun closeExtensionTab(session: org.mozilla.geckoview.GeckoSession): Boolean {
+        val i = indexOfGeckoSession(session)
+        if (i < 0) return false
+        closeTab(i)
+        return true
+    }
+
+    /** tabs.update({active:true}) */
+    override fun activateExtensionTab(session: org.mozilla.geckoview.GeckoSession): Boolean {
+        val i = indexOfGeckoSession(session)
+        if (i < 0) return false
+        tabs.getOrNull(activeIndex)?.captureThumbnailNow()
+        activate(i)
+        return true
+    }
+
+    /** tabs.update({url}) */
+    override fun loadInExtensionTab(session: org.mozilla.geckoview.GeckoSession, url: String): Boolean {
+        val i = indexOfGeckoSession(session)
+        if (i < 0) return false
+        tabs[i].load(url)
+        return true
+    }
+
+    private fun createTab(
+        incognito: Boolean,
+        opener: BrowserTab?,
+        adoptedGeckoSession: org.mozilla.geckoview.GeckoSession? = null,
+    ): BrowserTab {
         val wantGecko = readBrowserEngine(context) == ENGINE_GECKO && GeckoRuntimeHolder.supported()
         val tab = (if (wantGecko) {
-            runCatching { BrowserTab(context, EngineKind.GECKO, incognito) }
+            runCatching { BrowserTab(context, EngineKind.GECKO, incognito, adoptedGeckoSession) }
                 .onFailure {
                     Diag.log("gecko tab create failed, fallback to WebView: ${it.message}")
-                    android.widget.Toast.makeText(context, "Gecko 内核启动失败，已改用 WebView", android.widget.Toast.LENGTH_SHORT).show()
+                    if (adoptedGeckoSession == null) {
+                        android.widget.Toast.makeText(context, "Gecko 内核启动失败，已改用 WebView", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
                 .getOrNull()
         } else {
             null
-        }) ?: BrowserTab(context, EngineKind.WEBVIEW, incognito)
+        }) ?: run {
+            // 拓展 session 只能由 Gecko 承载：Gecko 标签没建成就不能退回 WebView
+            if (adoptedGeckoSession != null) error("gecko tab for extension session unavailable")
+            BrowserTab(context, EngineKind.WEBVIEW, incognito)
+        }
         tab.customUserAgent = userAgent
         tab.applyUserAgent()
         tab.applyIncognito(incognito)

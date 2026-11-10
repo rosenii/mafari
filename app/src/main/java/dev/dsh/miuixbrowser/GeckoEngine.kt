@@ -78,6 +78,10 @@ object GeckoRuntimeHolder {
     }
 }
 
+/** 创建一个未打开的 session（普通标签自己 open；拓展 tabs.create 的由 Gecko 负责 open） */
+fun newGeckoSession(privateMode: Boolean = false): GeckoSession =
+    GeckoSession(GeckoSessionSettings.Builder().usePrivateMode(privateMode).build())
+
 /**
  * 一个标签页的 Gecko 内核：一个 [GeckoSession] + 一个 [GeckoView]。
  *
@@ -88,12 +92,17 @@ class GeckoTabEngine(
     private val context: Context,
     privateMode: Boolean,
     private val tab: BrowserTab,
+    /**
+     * 拓展 tabs.create 时由 [GeckoExtensionStore] 先建好并交给 Gecko 的 session。
+     * 这种 session 的 open() 由 Gecko 负责（回调还没返回时不能自己 open），所以这里只等它打开后再挂到视图上。
+     */
+    adopted: GeckoSession? = null,
 ) {
     private val runtime: GeckoRuntime = GeckoRuntimeHolder.get(context)
 
-    val session: GeckoSession = GeckoSession(
-        GeckoSessionSettings.Builder().usePrivateMode(privateMode).build(),
-    )
+    private val isAdopted = adopted != null
+
+    val session: GeckoSession = adopted ?: newGeckoSession(privateMode)
 
     val view: GeckoView = GeckoView(context)
 
@@ -122,13 +131,13 @@ class GeckoTabEngine(
     init {
         GeckoViewLifecycle.register(this)
         installDelegates()
-        session.open(runtime)
-        // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate
+        if (!isAdopted) session.open(runtime)
+        // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate / TabDelegate
         GeckoExtensionStore.registerSession(session)
         // 使用 GeckoView 默认渲染后端（SurfaceView）。不要在 session.open() 后调用
         // setViewBackend()：该方法会销毁并重建内部渲染 View，可能造成 Surface 生命周期错位。
         // 网页区域不需要被毛玻璃采样，因此无需 TextureView。
-        view.setSession(session)
+        if (isAdopted) attachAdoptedSession() else view.setSession(session)
         installTouchListener()
         view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) = applyFrameRateHint()
@@ -214,6 +223,44 @@ class GeckoTabEngine(
     fun loadUri(uri: String) {
         lastDirectLoadAt = SystemClock.uptimeMillis()
         session.loadUri(uri)
+    }
+
+    /**
+     * 拓展建的标签：等 Gecko 把 session 打开后再挂到 GeckoView 上；
+     * 超时仍未打开（旧版 GeckoView 不替我们 open）就自己打开。
+     */
+    private fun attachAdoptedSession() {
+        val deadline = SystemClock.uptimeMillis() + 2_000
+        lateinit var step: Runnable
+        step = Runnable {
+            if (tab.closed) return@Runnable
+            val open = runCatching { session.isOpen }.getOrDefault(false)
+            if (!open && SystemClock.uptimeMillis() < deadline) {
+                view.postDelayed(step, 25)
+                return@Runnable
+            }
+            if (!open) runCatching { session.open(runtime) }.onFailure { Diag.log("gecko: open adopted session failed: $it") }
+            runCatching { view.setSession(session) }.onFailure { Diag.log("gecko: setSession(adopted) failed: $it") }
+            // session 一旦可用就把「当前标签」告诉拓展（tabs.query / 安装页关闭等依赖它）
+            GeckoExtensionStore.markActiveTab()
+        }
+        view.post(step)
+    }
+
+    /**
+     * 拓展 tabs.create({url}) 通常由 Gecko 自己加载 url；个别版本不加载，这里兜底一次。
+     * 只在 Gecko 没有开始导航时才加载，避免同一个地址加载两次（比如油猴的安装页只能读取一次数据）。
+     */
+    fun ensureLoaded(uri: String) {
+        if (uri.isBlank() || uri == "about:blank") return
+        view.postDelayed({
+            if (tab.closed) return@postDelayed
+            val cur = lastUrl
+            if (cur.isEmpty() || cur == "about:blank") {
+                Diag.log("gecko: extension tab was not loaded by Gecko, loading $uri")
+                loadUri(uri)
+            }
+        }, 1_000)
     }
 
     fun reload() = session.reload()
