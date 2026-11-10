@@ -1165,6 +1165,7 @@ fun BrowserScreen(
                         favorites = homeFavEntries.map { it.second },
                         showFavorites = settings.homeShowFavorites,
                         showPrivacy = settings.homeShowPrivacy,
+                        geckoMode = tab.isGecko,
                         showRecent = settings.homeShowRecent && !tab.incognito,
                         showDownloads = settings.homeShowDownloads,
                         liquidBackdrop = if (settings.liquidGlass && wallpaperBitmap != null) wallpaperLiquidBackdrop else null,
@@ -1826,7 +1827,8 @@ fun BrowserScreen(
                     sheet = Sheet.None
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl))) }
                 }
-                if (settings.pageEnhancements) {
+                // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
+                if (settings.pageEnhancements && !tab.isGecko) {
                     SheetRow(
                         title = "标记为广告",
                         subtitle = "选中这个广告位，可记住规则下次自动隐藏",
@@ -1880,7 +1882,8 @@ fun BrowserScreen(
                         state.newTab(imageUrl, tab.incognito, fromLink = true)
                     }
                 }
-                if (settings.pageEnhancements) {
+                // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
+                if (settings.pageEnhancements && !tab.isGecko) {
                     SheetRow(
                         title = "标记为广告",
                         subtitle = "选中这个广告位，可记住规则下次自动隐藏",

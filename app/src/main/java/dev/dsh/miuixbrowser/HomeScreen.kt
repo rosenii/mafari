@@ -378,6 +378,8 @@ internal fun StartPage(
     onMove: (Int, Int) -> Unit,
     onEdit: (Int) -> Unit,
     onAdd: () -> Unit,
+    /** 当前标签是 Gecko 内核：隐私报告改为显示 Gecko 高级保护清单 */
+    geckoMode: Boolean = false,
 ) {
     val density = LocalDensity.current
     val gapPx = with(density) { 14.dp.toPx() }
@@ -486,6 +488,7 @@ internal fun StartPage(
                                 onAdd = onAdd,
                             )
                             HOME_PRIVACY -> PrivacyReportCard(
+                                geckoMode = geckoMode,
                                 modifier = itemMod.then(handle),
                                 wallpaperBackdrop = wallpaperBackdrop,
                                 liquidBackdrop = liquidBackdrop,
@@ -845,9 +848,13 @@ internal fun HomeRow(primary: String, secondary: String, onClick: () -> Unit) {
     }
 }
 
-/** 隐私报告：拦截广告数、处理指纹读取数、频繁获取敏感权限的网站提醒。 */
+/**
+ * 隐私报告：拦截广告数、处理指纹读取数、频繁获取敏感权限的网站提醒。
+ * Gecko 内核下去广告 / 指纹注入都不存在，改为显示已开启的 Gecko 高级保护清单（紧凑布局）。
+ */
 @Composable
 internal fun PrivacyReportCard(
+    geckoMode: Boolean = false,
     modifier: Modifier,
     wallpaperBackdrop: LayerBackdrop?,
     liquidBackdrop: com.kyant.backdrop.Backdrop?,
@@ -857,6 +864,19 @@ internal fun PrivacyReportCard(
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    if (geckoMode) {
+        GeckoPrivacyReportCard(
+            modifier = modifier,
+            wallpaperBackdrop = wallpaperBackdrop,
+            liquidBackdrop = liquidBackdrop,
+            blurEnabled = blurEnabled,
+            hasWallpaper = hasWallpaper,
+            showRemove = showRemove,
+            onClick = onClick,
+            onRemove = onRemove,
+        )
+        return
+    }
     val context = LocalContext.current
     // 拦截计数在后台线程累加、不是 Compose 状态：可见期间低频轮询
     val blocked by produceState(AdBlock.blockedTotal) {
@@ -909,6 +929,62 @@ internal fun PrivacyReportCard(
             if (frequent.size > 2) {
                 HomeEmptyText("另有 ${frequent.size - 2} 个网站")
             }
+        }
+    }
+}
+
+/** Gecko 版隐私报告：一行摘要 + 已开启保护项的自动换行清单（无逐项卡片，尽量省高度） */
+@Composable
+private fun GeckoPrivacyReportCard(
+    modifier: Modifier,
+    wallpaperBackdrop: LayerBackdrop?,
+    liquidBackdrop: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    hasWallpaper: Boolean,
+    showRemove: Boolean,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    // 读取的是 GeckoProtection 里的 Compose 状态，设置页改动后回到首页会自动刷新
+    val labels = GeckoProtection.activeLabels()
+    HomeCard(
+        modifier = modifier,
+        title = "隐私报告",
+        wallpaperBackdrop = wallpaperBackdrop,
+        liquidBackdrop = liquidBackdrop,
+        blurEnabled = blurEnabled,
+        hasWallpaper = hasWallpaper,
+        showRemove = showRemove,
+        onClick = onClick,
+        onRemove = onRemove,
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = labels.size.toString(),
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = "项 Gecko 高级保护已开启",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                modifier = Modifier.padding(bottom = 3.dp),
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        if (labels.isEmpty()) {
+            HomeEmptyText("尚未开启，可在 设置 → Gecko 高级保护 中开启")
+        } else {
+            Text(
+                text = labels.joinToString("  ·  "),
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
         }
     }
 }

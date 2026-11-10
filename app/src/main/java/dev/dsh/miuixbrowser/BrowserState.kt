@@ -1041,7 +1041,7 @@ class BrowserTab(
      * [onNotFound] 在没找到可标记元素时回调。
      */
     fun markAdAtTouch(onNotFound: () -> Unit) {
-        if (webViewOrNull == null) { onNotFound(); return }
+        if (isGecko || webViewOrNull == null) { onNotFound(); return }
         @Suppress("DEPRECATION")
         val scale = webView.scale.takeIf { it > 0f } ?: webView.context.resources.displayMetrics.density
         val cssX = lastTouchX / scale
