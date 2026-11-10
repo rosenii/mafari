@@ -36,19 +36,6 @@ import top.yukonga.miuix.kmp.blur.textureBlurEffect
 import top.yukonga.miuix.kmp.blur.highlight.Highlight
 
 
-
-        effects = {
-            textureBlurEffect(
-                blurRadiusX = radius.dp.toPx(),
-                blurRadiusY = radius.dp.toPx(),
-                noiseCoefficient = noise,
-            )
-        },
-        highlight = { highlight },
-    )
-    .background(if (tint == Color.Unspecified) Color.Transparent else tint, shape)
-
-
 /**
  * 页面顶部的 miuix 渐进模糊带（自上而下由强到弱），官方 glass demo 的同款写法。
  *
