@@ -28,6 +28,25 @@ import androidx.compose.runtime.setValue
 import java.net.URLEncoder
 
 private val SCHEME_REGEX = Regex("^[A-Za-z][A-Za-z0-9+.\\-]*://")
+/**
+ * assets 里的注入脚本只读一次：applyPrivacy 在每次切换标签 / 改设置时都会跑，
+ * 原来每次都在主线程重新打开 asset 并读全文。
+ */
+private object InjectAssets {
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun read(context: Context, name: String): String? {
+        cache[name]?.let { return it }
+        val text = runCatching {
+            context.applicationContext.assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }.getOrNull() ?: return null
+        cache[name] = text
+        return text
+    }
+}
+
+private val CHROME_MAJOR_REGEX = Regex("Chrome/(\\d+)")
+
 private val DOMAIN_REGEX = Regex("^[A-Za-z0-9\\-._~%]+(\\.[A-Za-z0-9\\-._~%]+)+$")
 private val IPV4_REGEX = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$")
 private val SINGLE_LABEL_REGEX = Regex("^[A-Za-z0-9][A-Za-z0-9\\-_]*$")
@@ -474,8 +493,6 @@ class BrowserTab(
         runCatching { cb?.onReceiveValue(null) }
     }
 
-    /** 是否正在全屏自定义视图 */
-    val isCustomViewShowing: Boolean get() = customView != null
 
     /** 退出视频全屏（返回键调用） */
     fun exitCustomView() {
@@ -644,6 +661,8 @@ class BrowserTab(
     private var adblockDocStart = false
 
     private fun initWebView() {
+        // 原生滚动回调（API 23+）：底栏收起 / 展开由滚动事件唤醒，不再靠定时轮询
+        webView.setOnScrollChangeListener { _, _, _, _, _ -> scrollSignal.trySend(Unit) }
         runCatching { webView.addJavascriptInterface(AdBlockBridge { !incognito || adblockInIncognito }, "MafariAdblock") }
         runCatching { webView.addJavascriptInterface(blobBridge, "MafariBlob") }
         // 仅降级路径：WebView 不支持 DOCUMENT_START_SCRIPT 时才安装无参的指纹桥；主路径不向页面暴露任何指纹接口
@@ -1282,6 +1301,12 @@ class BrowserTab(
     /** 强制刷新（下拉刷新 / 脚本开关后刷新）：不像 [reload] 那样在加载中变成「停止」 */
     fun refresh() = engineReload()
 
+    /**
+     * 滚动事件信号（WebView 的 OnScrollChangeListener / Gecko 的 ScrollDelegate 触发，CONFLATED 合并）。
+     * 底栏手势协程据此休眠 / 唤醒，页面静止时不再每 80ms 空转。
+     */
+    val scrollSignal = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
     /** 页面滚动位置（像素）：底栏自动收起 / 下拉刷新判断用 */
     val scrollOffsetY: Int
         get() = gecko?.scrollY ?: webViewOrNull?.scrollY ?: 0
@@ -1689,8 +1714,8 @@ class BrowserTab(
 
         val script = buildString {
             if (webrtcDisabled) {
-                runCatching {
-                    append(appContext.assets.open("mafari_no_webrtc.js").bufferedReader(Charsets.UTF_8).use { it.readText() })
+                InjectAssets.read(appContext, "mafari_no_webrtc.js")?.let {
+                    append(it)
                     append('\n')
                 }
             }
@@ -1722,6 +1747,9 @@ class BrowserTab(
                 )
             }
         }
+        // 切换标签 / 改无关设置也会走到这里；脚本内容没变就不要卸载再重新注册
+        if (script == appliedPrivacyScript) return
+        appliedPrivacyScript = script
         runCatching { privacyHandler?.remove() }
         privacyHandler = null
         if (script.isNotBlank() &&
@@ -1729,9 +1757,15 @@ class BrowserTab(
         ) {
             runCatching {
                 privacyHandler = androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
-            }.onFailure { Diag.log("privacy script install failed: ${it.message}") }
+            }.onFailure {
+                appliedPrivacyScript = null // 安装失败：下次允许重试
+                Diag.log("privacy script install failed: ${it.message}")
+            }
         }
     }
+
+    /** 上一次成功交给 WebView 的隐私脚本全文（null = 尚未安装 / 上次失败） */
+    private var appliedPrivacyScript: String? = null
 
     private var privacyHandler: androidx.webkit.ScriptHandler? = null
 
@@ -2085,7 +2119,7 @@ class BrowserTab(
 
     /** 与本机 WebView 内核主版本一致的桌面 Chrome UA（遵循 UA 精简格式 Chrome/主版本.0.0.0） */
     private fun desktopUserAgent(): String {
-        val major = Regex("Chrome/(\\d+)").find(defaultUserAgent)?.groupValues?.get(1)
+        val major = CHROME_MAJOR_REGEX.find(defaultUserAgent)?.groupValues?.get(1)
             ?: return DESKTOP_UA
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
@@ -2100,8 +2134,7 @@ class BrowserTab(
         if (!enabled) return
         if (!androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) return
         runCatching {
-            val script = appContext.assets.open("mafari_desktop.js")
-                .bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val script = InjectAssets.read(appContext, "mafari_desktop.js") ?: return@runCatching
             desktopHandler = androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
         }.onFailure { Diag.log("desktop script install failed: ${it.message}") }
     }
@@ -2517,10 +2550,6 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         }
     }
 
-    /** 当前标签是否无痕 */
-    val activeIncognito: Boolean
-        get() = activeTab.incognito
-
     /** 切换当前标签无痕状态（无痕时新开标签，已有无痕则关闭回普通） */
     fun toggleIncognito() {
         if (activeTab.incognito) {
@@ -2617,33 +2646,6 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         }
     }
 
-    /** 后台打开，返回目标标签下标（同站已有则复用，失败返回 -1）。无痕下打开的标签仍是无痕 */
-    fun newTabInBackground(target: String, incognito: Boolean = activeTab.incognito): Int {
-        // 同站已有标签：切换前不抢焦点，由调用方决定是否 select
-        val idx = findSiteTab(target, incognito)
-        if (idx >= 0) {
-            val existing = tabs[idx]
-            if (existing.url.isNotEmpty() && !isSiteRoot(toUrl(target)) &&
-                !existing.url.equals(toUrl(target), ignoreCase = true)
-            ) {
-                existing.load(target)
-            }
-            return idx
-        }
-        if (tabs.size >= MAX_TABS) {
-            android.widget.Toast.makeText(
-                context,
-                "最多同时打开 $MAX_TABS 个标签页",
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-            return -1
-        }
-        val tab = createTab(incognito, tabs.getOrNull(activeIndex))
-        tab.openedFromLink = true
-        tabs.add(tab)
-        tab.load(target)
-        return tabs.lastIndex
-    }
 
     /**
      * 清空某一栏的标签：[incognito] 为 true 清无痕栏，false 清普通栏，另一栏不受影响。
@@ -2665,12 +2667,6 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         }
     }
 
-    fun closeAll() {
-        tabs.forEach { it.close() }
-        tabs.clear()
-        recentIds.clear()
-        newTab()
-    }
 
     companion object {
         const val MAX_TABS = 99

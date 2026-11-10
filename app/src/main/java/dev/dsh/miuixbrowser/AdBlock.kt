@@ -332,7 +332,9 @@ object AdBlock {
     }
 
     /** 重新下载某个订阅，成功返回规则条数。 */
-    suspend fun refresh(id: String): Result<Int> {
+    suspend fun refresh(id: String): Result<Int> = refresh(id, rebuild = true)
+
+    private suspend fun refresh(id: String, rebuild: Boolean): Result<Int> {
         val sub = subsShadow.firstOrNull { it.id == id }
             ?: return Result.failure(IllegalStateException("订阅不存在"))
         if (sub.url.isBlank()) return Result.failure(IllegalStateException("本地导入的规则没有更新地址"))
@@ -354,7 +356,7 @@ object AdBlock {
                 error = "",
             )
         }
-        requestRebuild()
+        if (rebuild) requestRebuild()
         return Result.success(f.parsed.ruleCount)
     }
 
@@ -362,7 +364,9 @@ object AdBlock {
     suspend fun refreshAll(): Pair<Int, Int> {
         val targets = subsShadow.filter { it.enabled && it.url.isNotBlank() }
         var ok = 0
-        for (t in targets) if (refresh(t.id).isSuccess) ok++
+        // 每个订阅各自成功后都重建一次引擎会白白重复十几次（每次都要重新合并索引）；全部下载完只重建一次
+        for (t in targets) if (refresh(t.id, rebuild = false).isSuccess) ok++
+        if (ok > 0) requestRebuild()
         return ok to targets.size
     }
 
@@ -463,14 +467,14 @@ object AdBlock {
         persistAllow()
     }
 
-    fun isSiteAllowed(host: String): Boolean = hostAllowed(host)
 
     private fun hostAllowed(host: String): Boolean = hostIn(fastAllow, host)
 
     /** host 或其任一父域名在 [set] 中。 */
     private fun hostIn(set: Set<String>, host: String): Boolean {
         if (set.isEmpty() || host.isEmpty()) return false
-        var h = host.lowercase()
+        // 请求热路径每个子资源都会走到这里：已经是小写（绝大多数情况）就不再复制字符串
+        var h = if (host.any { it in 'A'..'Z' }) host.lowercase() else host
         while (true) {
             if (h in set) return true
             val dot = h.indexOf('.')
@@ -490,7 +494,8 @@ object AdBlock {
         val scheme = uri.scheme
         if (scheme != "http" && scheme != "https") return null
         val host = uri.host?.lowercase() ?: return null
-        val page = pageHost.lowercase()
+        // pageHost 来自 Uri.host，不保证小写；绝大多数情况已是小写，只在含大写时才复制字符串
+        val page = if (pageHost.any { it in 'A'..'Z' }) pageHost.lowercase() else pageHost
         if (hostAllowed(page)) return null
         val accept = request.requestHeaders?.get("Accept")
         val url = uri.toString().lowercase()

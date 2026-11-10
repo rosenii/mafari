@@ -61,15 +61,26 @@ class HistoryStore(context: Context) {
         persist()
     }
 
+    /** 主线程只拷一份快照（HistoryEntry 不可变），JSON 序列化与写 prefs 交给单线程后台，按提交顺序执行 */
     private fun persist() {
-        val array = JSONArray()
-        items.forEach {
-            array.put(JSONObject().put("url", it.url).put("title", it.title).put("time", it.time))
+        val snapshot = items.toList()
+        writer.execute {
+            runCatching {
+                val array = JSONArray()
+                for (e in snapshot) {
+                    array.put(JSONObject().put("url", e.url).put("title", e.title).put("time", e.time))
+                }
+                prefs.edit().putString(KEY, array.toString()).apply()
+            }
         }
-        prefs.edit().putString(KEY, array.toString()).apply()
     }
 
     private companion object {
         const val KEY = "entries"
+
+        private val writer: java.util.concurrent.ExecutorService =
+            java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                Thread(r, "mafari-history-writer").apply { isDaemon = true }
+            }
     }
 }

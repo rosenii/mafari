@@ -198,12 +198,3 @@ private fun DebugGroup(content: @Composable () -> Unit) {
     ) { Column { content() } }
 }
 
-@Composable
-private fun DebugHint(text: String) {
-    Text(
-        text = text,
-        fontSize = 12.sp,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
-    )
-}

@@ -146,10 +146,6 @@ class FavoritesStore(context: Context) {
         }
     }
 
-    fun removeAtUrl(url: String) {
-        val i = items.indexOfFirst { it.url == url }
-        if (i >= 0) remove(i)
-    }
 
     fun reset() {
         items.clear()
@@ -160,8 +156,6 @@ class FavoritesStore(context: Context) {
     /** 导入结果：[found] 为文件里识别到的书签数，[added] 为实际新增数（其余是已存在的重复项）。 */
     data class ImportResult(val found: Int, val added: Int)
 
-    /** 兼容旧调用：返回新增条数。 */
-    fun importNetscapeHtml(html: String): Int = importBookmarks(html).added
 
     /**
      * 导入书签文本。支持：

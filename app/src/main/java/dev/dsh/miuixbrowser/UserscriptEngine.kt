@@ -48,8 +48,27 @@ object UserscriptEngine {
     @Volatile
     private var templateCache: String? = null
 
+    private val WHITESPACE = Regex("\\s+")
+
+    /**
+     * 解析结果缓存（LRU 64 条，按脚本全文作 key）。
+     * syncUserScripts / ScriptResources.missing / cachedCount / buildSource / 脚本列表每一项都会解析同一份脚本，
+     * 且不少调用在主线程；脚本文本通常是同一个 String 实例，命中时只是一次引用比较。
+     * UserscriptMeta 全是只读集合，共享安全。
+     */
+    private val parseCache = object : LinkedHashMap<String, UserscriptMeta>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, UserscriptMeta>?): Boolean = size > 64
+    }
+
     /** 解析 ==UserScript== 区块 */
     fun parse(code: String): UserscriptMeta {
+        synchronized(parseCache) { parseCache[code]?.let { return it } }
+        val meta = parseUncached(code)
+        synchronized(parseCache) { parseCache[code] = meta }
+        return meta
+    }
+
+    private fun parseUncached(code: String): UserscriptMeta {
         val block = BLOCK.find(code)?.groupValues?.get(1).orEmpty()
         val values = LinkedHashMap<String, MutableList<String>>()
         block.lineSequence().forEach { rawLine ->
@@ -63,10 +82,10 @@ object UserscriptEngine {
 
         val resources = LinkedHashMap<String, String>()
         all("resource").forEach { entry ->
-            val parts = entry.split(Regex("\\s+"), limit = 2)
+            val parts = entry.split(WHITESPACE, limit = 2)
             if (parts.size == 2) resources[parts[0]] = normalizeUrl(parts[1])
         }
-        val grants = all("grant").flatMap { it.split(Regex("\\s+")) }.filter { it.isNotBlank() }
+        val grants = all("grant").flatMap { it.split(WHITESPACE) }.filter { it.isNotBlank() }
         return UserscriptMeta(
             name = first("name"),
             version = first("version"),

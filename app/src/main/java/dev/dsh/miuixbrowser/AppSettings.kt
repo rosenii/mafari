@@ -408,8 +408,6 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_COOKIE_MODE, cookieMode).apply()
     }
 
-    /** 是否放行第三方 Cookie：只有「允许全部」放行（WebView 没有跟踪者名单，「拒绝跟踪者」按拒绝第三方处理） */
-    val thirdPartyCookiesAllowed: Boolean get() = cookieMode == 0
 
     /** 启动时清理：0 不清理 / 1 清除 Cookie / 2 清除 Cookie 与网站存储 */
     var cookieClearOnLaunch by mutableStateOf(prefs.getInt(KEY_COOKIE_CLEAR, 0).coerceIn(0, 2))

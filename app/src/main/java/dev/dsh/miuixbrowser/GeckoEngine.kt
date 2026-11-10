@@ -583,6 +583,7 @@ class GeckoTabEngine(
         session.scrollDelegate = object : GeckoSession.ScrollDelegate {
             override fun onScrollChanged(session: GeckoSession, scrollX: Int, scrollY: Int) {
                 this@GeckoTabEngine.scrollY = scrollY
+                tab.scrollSignal.trySend(Unit)
             }
         }
 

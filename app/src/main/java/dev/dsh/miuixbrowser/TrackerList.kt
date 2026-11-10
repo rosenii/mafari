@@ -16,8 +16,20 @@ object TrackerList {
         "analytics.tiktok.com", "ads-api.tiktok.com", "log.byteoversea.com", "mon.zijieapi.com",
     ).toSet()
 
+    /**
+     * host 或其任一父域名在名单里。逐级去掉最左一段做哈希查找（一次请求最多几次 O(1)），
+     * 不再对每个请求遍历整张名单并拼接 ".域名" 字符串；调用方传入的 host 通常已是小写，避免重复 lowercase。
+     */
     fun matches(host: String): Boolean {
-        val h = host.lowercase()
-        return domains.any { h == it || h.endsWith(".$it") }
+        if (host.isEmpty()) return false
+        var h = host
+        if (h.any { it in 'A'..'Z' }) h = h.lowercase()
+        var off = 0
+        while (true) {
+            if ((if (off == 0) h else h.substring(off)) in domains) return true
+            val dot = h.indexOf('.', off)
+            if (dot < 0) return false
+            off = dot + 1
+        }
     }
 }

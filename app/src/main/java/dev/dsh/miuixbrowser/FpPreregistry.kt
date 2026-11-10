@@ -59,7 +59,6 @@ class OriginRule private constructor(
             return OriginRule(o.scheme, o.host, o.port, wildcard)
         }
 
-        fun exact(o: WebOrigin) = OriginRule(o.scheme, o.host, o.port, false)
     }
 }
 
