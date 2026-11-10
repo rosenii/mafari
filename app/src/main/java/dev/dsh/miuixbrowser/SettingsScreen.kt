@@ -222,7 +222,7 @@ fun SettingsScreen(
                         onSelectedIndexChange = { settings.updateTabsStyle(it) },
                     )
                     SettingsRow(
-                        title = "首页内容显示",
+                        title = "定制主页",
                         summary = homeContentSummary(settings),
                         onClick = { showHomeSheet = true },
                     )
@@ -657,13 +657,21 @@ fun SettingsScreen(
 
             AppBottomSheet(
                 show = showHomeSheet,
-                title = "首页内容显示",
+                title = "定制主页",
                 backdrop = if (glass) backdrop else null,
                 onDismissRequest = { showHomeSheet = false },
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
+                    AppDropdownPreference(
+                        title = "个人收藏",
+                        items = (1..HOME_FAV_ROWS_MAX).map { "显示${it}行" } + "不显示",
+                        selectedIndex = if (settings.homeFavRows == 0) HOME_FAV_ROWS_MAX else settings.homeFavRows - 1,
+                        onSelectedIndexChange = { settings.updateHomeFavRows(if (it >= HOME_FAV_ROWS_MAX) 0 else it + 1) },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
                     listOf(
-                        HOME_FAVORITES to "个人收藏",
                         HOME_PRIVACY to "隐私报告",
                         HOME_RECENT to "最近浏览",
                         HOME_DOWNLOADS to "下载项",
@@ -679,7 +687,7 @@ fun SettingsScreen(
                         )
                     }
                     Text(
-                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
+                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动；收藏超出所选行数时，最后一格显示「更多」，点击进入书签页）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
@@ -956,7 +964,7 @@ private fun SearchSheet(
 
 private fun homeContentSummary(settings: AppSettings): String {
     val shown = buildList {
-        if (settings.homeShowFavorites) add("收藏")
+        if (settings.homeShowFavorites) add("收藏${settings.homeFavRows}行")
         if (settings.homeShowPrivacy) add("隐私报告")
         if (settings.homeShowRecent) add("最近浏览")
         if (settings.homeShowDownloads) add("下载项")

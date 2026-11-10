@@ -362,6 +362,10 @@ internal fun StartPage(
     blurEnabled: Boolean,
     favorites: List<Favorite>,
     showFavorites: Boolean,
+    /** 个人收藏在首页显示的行数（每行 3 个） */
+    favRows: Int = HOME_FAV_ROWS_DEFAULT,
+    /** 点击「更多」：跳转书签页 */
+    onOpenBookmarks: () -> Unit = {},
     showPrivacy: Boolean,
     showRecent: Boolean,
     showDownloads: Boolean,
@@ -474,6 +478,8 @@ internal fun StartPage(
                                 modifier = itemMod,
                                 headerModifier = handle,
                                 favorites = favorites,
+                                rows = favRows,
+                                onOpenBookmarks = onOpenBookmarks,
                                 wallpaper = wallpaper,
                                 wallpaperBackdrop = wallpaperBackdrop,
                                 liquidBackdrop = liquidBackdrop,
@@ -565,6 +571,8 @@ internal fun FavoritesBlock(
     modifier: Modifier,
     headerModifier: Modifier,
     favorites: List<Favorite>,
+    rows: Int,
+    onOpenBookmarks: () -> Unit,
     wallpaper: ImageBitmap?,
     wallpaperBackdrop: LayerBackdrop?,
     liquidBackdrop: com.kyant.backdrop.Backdrop?,
@@ -609,9 +617,15 @@ internal fun FavoritesBlock(
         }
 
         Spacer(Modifier.height(6.dp))
+        // 容量 = 行数 × 3；超出时最后一格让给「更多」
+        val capacity = rows.coerceIn(1, HOME_FAV_ROWS_MAX) * 3
+        val overflow = favorites.size > capacity
+        val visibleFavorites = if (overflow) favorites.take(capacity - 1) else favorites
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             FavoriteGrid(
-                favorites = favorites,
+                favorites = visibleFavorites,
+                showMore = overflow,
+                onMore = onOpenBookmarks,
                 wallpaper = wallpaper,
                 wallpaperBackdrop = wallpaperBackdrop,
                 liquidBackdrop = liquidBackdrop,
@@ -624,7 +638,7 @@ internal fun FavoritesBlock(
                 onMove = onMove,
                 onEdit = onEdit,
             )
-            if (editing && favorites.size < HOME_FAV_MAX) {
+            if (editing && !overflow) {
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Box(
                         modifier = Modifier
@@ -1009,10 +1023,12 @@ internal fun PrivacyStat(value: String, label: String, modifier: Modifier = Modi
     }
 }
 
-/** 收藏磁贴网格（每行 3 个）：长按磁贴后拖动可排序，其余磁贴实时让位。 */
+/** 收藏磁贴网格（每行 3 个）：长按磁贴后拖动可排序，其余磁贴实时让位。[showMore] 时在最后一格追加「更多」（不参与排序）。 */
 @Composable
 internal fun FavoriteGrid(
     favorites: List<Favorite>,
+    showMore: Boolean = false,
+    onMore: () -> Unit = {},
     wallpaper: ImageBitmap?,
     wallpaperBackdrop: LayerBackdrop?,
     liquidBackdrop: com.kyant.backdrop.Backdrop?,
@@ -1029,7 +1045,7 @@ internal fun FavoriteGrid(
     val gapPx = with(density) { 10.dp.toPx() }
     val tileHPx = with(density) { 58.dp.toPx() }
     val count = favorites.size
-    val rows = (count + 2) / 3
+    val rows = (count + (if (showMore) 1 else 0) + 2) / 3
     var liveOrder by remember { mutableStateOf<List<Int>?>(null) }
     var dragIndex by remember { mutableIntStateOf(-1) }
     var dragPos by remember { mutableStateOf(Offset.Zero) }
@@ -1046,6 +1062,24 @@ internal fun FavoriteGrid(
     ) {
         val cellWPx = (with(density) { maxWidth.toPx() } - 2 * gapPx) / 3f
         val cellW = with(density) { cellWPx.toDp() }
+        if (showMore) {
+            val moreTap by rememberUpdatedState(guard { onMore() })
+            FavoriteMoreTile(
+                wallpaper = wallpaper,
+                wallpaperBackdrop = wallpaperBackdrop,
+                liquidBackdrop = liquidBackdrop,
+                blurEnabled = blurEnabled,
+                modifier = Modifier
+                    .width(cellW)
+                    .offset {
+                        IntOffset(
+                            ((count % 3) * (cellWPx + gapPx)).roundToInt(),
+                            ((count / 3) * (tileHPx + gapPx)).roundToInt(),
+                        )
+                    }
+                    .clickable { moreTap() },
+            )
+        }
         favorites.forEachIndexed { index, favorite ->
             key(favorite) {
                 val indexNow by rememberUpdatedState(index)
@@ -1120,6 +1154,32 @@ internal fun FavoriteGrid(
                 )
             }
         }
+    }
+}
+
+/** 「更多」磁贴：收藏数量超出所选行数时占据最后一格，点击进入书签页。 */
+@Composable
+internal fun FavoriteMoreTile(
+    wallpaper: ImageBitmap?,
+    wallpaperBackdrop: LayerBackdrop?,
+    liquidBackdrop: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .height(58.dp)
+            .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "更多",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+        HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = 16.dp)
     }
 }
 

@@ -11,6 +11,9 @@ val DOWNLOAD_THREAD_OPTIONS = listOf(4, 8, 16, 32, 64)
 /** 下载页「多线程阈值」档位（MB）：10 / 50 / 100 / 200 / 500 / 1G */
 val DOWNLOAD_MIN_MB_OPTIONS = listOf(10, 50, 100, 200, 500, 1024)
 
+/** 多线程阈值默认值（MB） */
+const val DOWNLOAD_MIN_MB_DEFAULT = 200
+
 /** 阈值档位的显示文字 */
 fun downloadThresholdLabel(mb: Int): String = if (mb >= 1024) "${mb / 1024} GB" else "$mb MB"
 
@@ -22,6 +25,10 @@ const val ENGINE_GECKO = 1
 const val BLUR_MIUIX = 0
 const val BLUR_LIQUID = 1
 const val BLUR_OFF = 2
+
+/** 首页个人收藏可选行数上限 / 默认行数 */
+const val HOME_FAV_ROWS_MAX = 5
+const val HOME_FAV_ROWS_DEFAULT = 4
 
 /** 首页内容块 */
 const val HOME_FAVORITES = 0
@@ -70,8 +77,23 @@ class AppSettings(context: Context) {
     val liquidGlass: Boolean get() = blurMode == BLUR_LIQUID
 
     /** 首页内容显示：收藏 / 隐私报告默认显示，最近浏览 / 下载项默认隐藏。 */
-    var homeShowFavorites by mutableStateOf(prefs.getBoolean(KEY_HOME_FAV, true))
+    /** 个人收藏在首页显示的行数：0=不显示，1..5=显示对应行数（每行 3 个）。默认 4 行（等同旧版上限 12 个）。 */
+    var homeFavRows by mutableStateOf(
+        if (prefs.contains(KEY_HOME_FAV_ROWS)) {
+            prefs.getInt(KEY_HOME_FAV_ROWS, HOME_FAV_ROWS_DEFAULT).coerceIn(0, HOME_FAV_ROWS_MAX)
+        } else if (!prefs.getBoolean(KEY_HOME_FAV, true)) {
+            0 // 旧版「隐藏」迁移为「不显示」
+        } else {
+            HOME_FAV_ROWS_DEFAULT
+        },
+    )
         private set
+    val homeShowFavorites: Boolean get() = homeFavRows > 0
+
+    fun updateHomeFavRows(rows: Int) {
+        homeFavRows = rows.coerceIn(0, HOME_FAV_ROWS_MAX)
+        prefs.edit().putInt(KEY_HOME_FAV_ROWS, homeFavRows).apply()
+    }
     var homeShowPrivacy by mutableStateOf(prefs.getBoolean(KEY_HOME_PRIVACY, true))
         private set
     var homeShowRecent by mutableStateOf(prefs.getBoolean(KEY_HOME_RECENT, false))
@@ -99,7 +121,7 @@ class AppSettings(context: Context) {
     fun updateHomeShow(kind: Int, show: Boolean) {
         val e = prefs.edit()
         when (kind) {
-            HOME_FAVORITES -> { homeShowFavorites = show; e.putBoolean(KEY_HOME_FAV, show) }
+            HOME_FAVORITES -> updateHomeFavRows(if (!show) 0 else if (homeFavRows == 0) HOME_FAV_ROWS_DEFAULT else homeFavRows)
             HOME_PRIVACY -> { homeShowPrivacy = show; e.putBoolean(KEY_HOME_PRIVACY, show) }
             HOME_RECENT -> { homeShowRecent = show; e.putBoolean(KEY_HOME_RECENT, show) }
             HOME_DOWNLOADS -> { homeShowDownloads = show; e.putBoolean(KEY_HOME_DOWNLOADS, show) }
@@ -186,14 +208,24 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_DL_THREADS, downloadThreads).apply()
     }
 
-    /** 多线程阈值：文件超过该大小（MB）才使用多线程下载 */
+    /** 多线程下载总开关：默认开启 */
+    var downloadMultiThread by mutableStateOf(prefs.getBoolean(KEY_DL_MULTI, true))
+        private set
+
+    fun updateDownloadMultiThread(enabled: Boolean) {
+        downloadMultiThread = enabled
+        Downloader.multiThreadEnabled = enabled
+        prefs.edit().putBoolean(KEY_DL_MULTI, enabled).apply()
+    }
+
+    /** 多线程阈值：文件超过该大小（MB）才使用多线程下载，默认 200 MB */
     var downloadMultiThreadMinMb by mutableStateOf(
-        prefs.getInt(KEY_DL_MIN_MB, 10).let { if (it in DOWNLOAD_MIN_MB_OPTIONS) it else 10 },
+        prefs.getInt(KEY_DL_MIN_MB, DOWNLOAD_MIN_MB_DEFAULT).let { if (it in DOWNLOAD_MIN_MB_OPTIONS) it else DOWNLOAD_MIN_MB_DEFAULT },
     )
         private set
 
     fun updateDownloadMultiThreadMinMb(mb: Int) {
-        downloadMultiThreadMinMb = if (mb in DOWNLOAD_MIN_MB_OPTIONS) mb else 10
+        downloadMultiThreadMinMb = if (mb in DOWNLOAD_MIN_MB_OPTIONS) mb else DOWNLOAD_MIN_MB_DEFAULT
         Downloader.segmentMinBytes = downloadMultiThreadMinMb * 1024L * 1024L
         prefs.edit().putInt(KEY_DL_MIN_MB, downloadMultiThreadMinMb).apply()
     }
@@ -201,6 +233,7 @@ class AppSettings(context: Context) {
     init {
         // 启动时把已保存的下载配置推给下载器
         Downloader.segments = downloadThreads
+        Downloader.multiThreadEnabled = downloadMultiThread
         Downloader.segmentMinBytes = downloadMultiThreadMinMb * 1024L * 1024L
     }
 
@@ -544,6 +577,7 @@ class AppSettings(context: Context) {
         const val KEY_BLUR = "blur"
         const val KEY_BLUR_MODE = "blur_mode"
         const val KEY_HOME_FAV = "home_show_favorites"
+        const val KEY_HOME_FAV_ROWS = "home_fav_rows"
         const val KEY_HOME_PRIVACY = "home_show_privacy"
         const val KEY_HOME_RECENT = "home_show_recent"
         const val KEY_HOME_DOWNLOADS = "home_show_downloads"
@@ -555,6 +589,7 @@ class AppSettings(context: Context) {
         const val KEY_ENGINE = "browser_engine"
         const val KEY_DL_THREADS = "download_threads"
         const val KEY_DL_MIN_MB = "download_multithread_min_mb"
+        const val KEY_DL_MULTI = "download_multithread_enabled"
         const val KEY_UA = "ua"
         const val KEY_THEME = "theme_mode"
         const val KEY_SEARCH = "search_index"

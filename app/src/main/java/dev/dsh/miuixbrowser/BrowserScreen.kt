@@ -1164,6 +1164,8 @@ fun BrowserScreen(
                         blurEnabled = settings.blurEnabled,
                         favorites = homeFavEntries.map { it.second },
                         showFavorites = settings.homeShowFavorites,
+                        favRows = settings.homeFavRows,
+                        onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
                         showPrivacy = settings.homeShowPrivacy,
                         geckoMode = tab.isGecko,
                         showRecent = settings.homeShowRecent && !tab.incognito,
@@ -1176,7 +1178,7 @@ fun BrowserScreen(
                         onHide = { kind ->
                             settings.updateHomeShow(kind, false)
                             android.widget.Toast.makeText(
-                                context, "已隐藏，可在 设置 → 布局 → 首页内容显示 中恢复", android.widget.Toast.LENGTH_SHORT,
+                                context, "已隐藏，可在 设置 → 布局 → 定制主页 中恢复", android.widget.Toast.LENGTH_SHORT,
                             ).show()
                         },
                         editing = favEditing,
@@ -2360,6 +2362,8 @@ fun BrowserScreen(
         DownloadsScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
+            multiThread = settings.downloadMultiThread,
+            onMultiThreadChange = { settings.updateDownloadMultiThread(it) },
             threads = settings.downloadThreads,
             onThreadsChange = { settings.updateDownloadThreads(it) },
             multiThreadMinMb = settings.downloadMultiThreadMinMb,

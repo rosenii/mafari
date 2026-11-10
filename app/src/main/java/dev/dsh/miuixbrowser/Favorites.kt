@@ -8,7 +8,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 首页收藏最多显示的个数；其余只出现在书签页里。 */
-const val HOME_FAV_MAX = 12
 
 data class Favorite(
     val name: String,
@@ -70,13 +69,12 @@ class FavoritesStore(context: Context) {
         items.filter { (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group }
 
     /**
-     * 首页收藏：只取「个人收藏」分组的书签，最多 [HOME_FAV_MAX] 个。
+     * 首页收藏：只取「个人收藏」分组的书签（全部返回，首页按「定制主页」里选的行数截取）。
      * 返回 (在总列表 [items] 里的下标, 书签)，首页的删除 / 排序 / 编辑都靠这个下标回到总列表。
      */
     fun homeEntries(): List<Pair<Int, Favorite>> =
         items.withIndex()
             .filter { (_, f) -> f.group.ifBlank { Favorite.GROUP_PERSONAL } == Favorite.GROUP_PERSONAL }
-            .take(HOME_FAV_MAX)
             .map { it.index to it.value }
 
     /** 「个人收藏」是系统保留分组：不能删除。 */
@@ -132,7 +130,7 @@ class FavoritesStore(context: Context) {
         persist()
     }
 
-    /** 拖动排序：把 from 位置的项移到 to 位置（首页只显示前 [HOME_FAV_MAX] 项，下标与总列表一致）。 */
+    /** 拖动排序：把 from 位置的项移到 to 位置（首页只显示靠前的若干项，下标与总列表一致）。 */
     fun move(from: Int, to: Int) {
         if (from !in items.indices || to !in items.indices || from == to) return
         items.add(to, items.removeAt(from))

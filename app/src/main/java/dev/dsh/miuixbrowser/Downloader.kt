@@ -228,7 +228,7 @@ object Downloader {
                 )
             }
             // 多线程分段下载（服务器支持 Range 且文件 > 1MB 时）
-            if (existing == 0L && append.not() && length > segmentMinBytes) {
+            if (multiThreadEnabled && existing == 0L && append.not() && length > segmentMinBytes) {
                 // 先放掉这条整文件连接，再探测 Range，避免对镜像同时开 N+2 条连接被限流
                 connection.disconnect()
                 if (supportsRange(task)) {
@@ -541,7 +541,11 @@ object Downloader {
     @Volatile
     var segments = 4
 
+    /** 多线程下载总开关（设置里可关闭，关闭后一律单线程） */
+    @Volatile
+    var multiThreadEnabled = true
+
     /** 文件超过该字节数才使用多线程分段下载 */
     @Volatile
-    var segmentMinBytes = 1024L * 1024
+    var segmentMinBytes = 200L * 1024 * 1024
 }
