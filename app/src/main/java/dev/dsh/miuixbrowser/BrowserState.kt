@@ -291,6 +291,8 @@ class BrowserTab(
     var onExtensionLink: ((String) -> Unit)? = null
 
     internal fun geckoExtensionLink(link: String) {
+        // 拓展只属于 Gecko：WebView 标签不识别拓展链接
+        if (!isGecko) return
         onExtensionLink?.invoke(link)
     }
 

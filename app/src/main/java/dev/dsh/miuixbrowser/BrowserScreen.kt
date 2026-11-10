@@ -128,6 +128,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
@@ -267,8 +268,6 @@ fun BrowserScreen(
             kotlinx.coroutines.delay(6 * 3_600_000L)
         }
     }
-    // 「拓展」菜单项：切到 Gecko 出现，切回 WebView 收起
-    LaunchedEffect(settings.geckoMode) { menuOrder.syncGecko(settings.geckoMode) }
     val wallpaperBitmap = rememberWallpaper(settings.wallpaper)
     // 模糊壁纸：读/写磁盘缓存里已模糊好的小图，不再实时渲染模糊
     val blurredWallpaper = rememberBlurredWallpaper(settings.wallpaper, settings.wallpaperBlur, settings.wallpaperVersion)
@@ -806,7 +805,8 @@ fun BrowserScreen(
         tab.onUserScriptLink = { url -> pendingScript = url }
         tab.onExtensionLink = { link ->
             val store = GeckoExtensionStore
-            if (store.beginLinkInstall(link)) {
+            // 拓展只属于 Gecko：WebView 标签不识别、不安装拓展链接
+            if (tab.isGecko && store.beginLinkInstall(link)) {
                 android.widget.Toast.makeText(context, "正在安装拓展…", android.widget.Toast.LENGTH_SHORT).show()
                 scope.launch {
                     try {
@@ -1696,8 +1696,12 @@ fun BrowserScreen(
                             MenuAction.Downloads ->
                                 Downloader.tasks.count { it.state == DownloadState.RUNNING }
                             MenuAction.ScriptMenu -> scriptRunCount
-                            MenuAction.GeckoExtensions -> GeckoExtensionStore.items.count {
-                                it.enabled && (!tab.incognito || it.allowedInPrivate)
+                            MenuAction.GeckoExtensions -> if (settings.geckoMode) {
+                                GeckoExtensionStore.items.count {
+                                    it.enabled && (!tab.incognito || it.allowedInPrivate)
+                                }
+                            } else {
+                                0
                             }
                             else -> 0
                         }
@@ -1706,6 +1710,8 @@ fun BrowserScreen(
                     lockedFor = { action ->
                         when (action) {
                             MenuAction.ScriptMenu -> tab.isGecko || settings.geckoMode
+                            // 拓展只在 Gecko 内核可用：WebView 下置灰，点击提示不可用
+                            MenuAction.GeckoExtensions -> !settings.geckoMode
                             else -> false
                         }
                     },
@@ -1764,7 +1770,7 @@ fun BrowserScreen(
                         }
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
-                    // 长按 1 秒（图标不动）：直接进入管理页；单击保持原有操作
+                    // 长按 0.65 秒（图标不动）：直接进入管理页；单击保持原有操作
                     longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.GeckoExtensions),
                     onLongPressAction = { action ->
                         when (action) {
@@ -1780,10 +1786,13 @@ fun BrowserScreen(
                                 sheet = Sheet.None
                                 pushPage(AppRoute.Library(0))
                             }
-                            MenuAction.GeckoExtensions -> {
-                                sheet = Sheet.None
-                                pushPage(AppRoute.GeckoExtensions)
-                            }
+                            MenuAction.GeckoExtensions ->
+                                if (!settings.geckoMode) {
+                                    showWebViewUnsupportedToast(context)
+                                } else {
+                                    sheet = Sheet.None
+                                    pushPage(AppRoute.GeckoExtensions)
+                                }
                             else -> Unit
                         }
                     },
@@ -4098,6 +4107,9 @@ private fun FindDialog(
  * 更多面板：图标 + 文字宫格。长按任一图标进入编辑：面板自动拉长，底部出现高光分割线，
  * 线下方是「隐藏的功能」区；把图标拖到线下方即从菜单隐藏，再拖回线上方即恢复。
  */
+/** 更多菜单里长按进入管理页（脚本 / 收藏 / 拓展）所需的按住时长，含系统长按判定时间 */
+private const val MENU_LONG_PRESS_MS = 650L
+
 @Composable
 private fun MenuGrid(
     labelFor: (MenuAction) -> String,
@@ -4119,7 +4131,8 @@ private fun MenuGrid(
     val columns = 4
     val purple = Color(0xFF9C27B0)
     val gridScope = rememberCoroutineScope()
-    // 长按计时：按下满 1 秒且手指没动（没进入拖动排序）才触发长按功能
+    // 长按计时：按下满 [MENU_LONG_PRESS_MS] 且手指没动（没进入拖动排序）才触发长按功能
+    val systemLongPressMs = LocalViewConfiguration.current.longPressTimeoutMillis
     var holdJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val longPressNow by rememberUpdatedState(onLongPressAction)
 
@@ -4183,16 +4196,24 @@ private fun MenuGrid(
                             onClick = {
                                 if (!editing) {
                                     // 置灰项（Gecko 下不支持）：只提示，不执行
-                                    if (lockedFor(action)) showGeckoUnsupportedToast(menuContext) else onAction(action)
+                                    if (lockedFor(action)) {
+                                        if (action == MenuAction.GeckoExtensions) {
+                                            showWebViewUnsupportedToast(menuContext)
+                                        } else {
+                                            showGeckoUnsupportedToast(menuContext)
+                                        }
+                                    } else {
+                                        onAction(action)
+                                    }
                                 }
                             },
                             onDragStart = {
                                 // 长按不进编辑；等 onDrag 出现真实位移再展开隐藏区。
-                                // 系统长按约 0.4s 后进入这里，再等 0.6s 凑够 1s
+                                // 系统长按（约 0.4s）后进入这里，再补足到 [MENU_LONG_PRESS_MS]（0.65s）
                                 holdJob?.cancel()
                                 if (action in longPressActions && !editing) {
                                     holdJob = gridScope.launch {
-                                        kotlinx.coroutines.delay(600)
+                                        kotlinx.coroutines.delay((MENU_LONG_PRESS_MS - systemLongPressMs).coerceAtLeast(0L))
                                         if (dragAction == null && !editing && pendingDrag.getDistance() < enterEditThresholdPx) {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             longPressNow(action)

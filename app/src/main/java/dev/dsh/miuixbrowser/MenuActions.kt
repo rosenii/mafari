@@ -24,8 +24,6 @@ enum class MenuAction(
     val id: String,
     val label: String,
     val icon: ImageVector,
-    /** 仅 Gecko 模式显示的菜单项（切回 WebView 时自动收起） */
-    val geckoOnly: Boolean = false,
 ) {
     NewTab("new_tab", "新建标签", MiuixIcons.Glass.Add),
     Incognito("incognito", "无痕浏览", MiuixIcons.Glass.Hide),
@@ -41,7 +39,7 @@ enum class MenuAction(
     Settings("settings", "设置", MiuixIcons.Glass.Settings),
     Home("home", "主页", MiuixIcons.Home),
     Downloads("downloads", "下载", MiuixIcons.Glass.Download),
-    GeckoExtensions("gecko_extensions", "拓展", AppIcons.Puzzle, geckoOnly = true),
+    GeckoExtensions("gecko_extensions", "拓展", AppIcons.Puzzle),
     ScriptMenu("script_menu", "脚本", AppIcons.Script),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
@@ -64,28 +62,13 @@ class MenuOrderStore(context: Context) {
                 .mapNotNull { id -> MenuAction.entries.firstOrNull { it.id == id } }
         hidden.addAll(read(KEY_HIDDEN).filter { it != MenuAction.Settings }.distinct())
         order.addAll(read(KEY).filter { it !in hidden }.distinct())
-        // geckoOnly 的项只在 Gecko 模式出现：初始化时先去掉，[syncGecko] 再按当前模式加回
-        listOf(order, hidden).forEach { list -> list.removeAll { it.geckoOnly } }
-        MenuAction.entries.forEach { if (!it.geckoOnly && it !in order && it !in hidden) order.add(it) }
-    }
-
-    /**
-     * 切到 Gecko 时「拓展」出现在「脚本」后面（上次用户把它拖进隐藏区则保持隐藏），切回 WebView 时收起。
-     * 只改内存里的列表、不落盘：这样用户上次的排列不会因为临时切回 WebView 而丢失。
-     */
-    fun syncGecko(geckoMode: Boolean) {
-        MenuAction.entries.filter { it.geckoOnly }.forEach { action ->
-            if (!geckoMode) {
-                order.remove(action)
-                hidden.remove(action)
-            } else if (action !in order && action !in hidden) {
-                if (prefs.getString(KEY_HIDDEN, null)?.split(",")?.contains(action.id) == true) {
-                    hidden.add(action)
-                } else {
-                    val after = order.indexOf(MenuAction.ScriptMenu)
-                    order.add(if (after >= 0) after + 1 else order.size, action)
-                }
-            }
+        // 新增的项补到末尾；「拓展」默认排在「脚本」后面（WebView 下同样显示，只是置灰，见 BrowserScreen 的 lockedFor）
+        MenuAction.entries.forEach {
+            if (it != MenuAction.GeckoExtensions && it !in order && it !in hidden) order.add(it)
+        }
+        if (MenuAction.GeckoExtensions !in order && MenuAction.GeckoExtensions !in hidden) {
+            val after = order.indexOf(MenuAction.ScriptMenu)
+            order.add(if (after >= 0) after + 1 else order.size, MenuAction.GeckoExtensions)
         }
     }
 
