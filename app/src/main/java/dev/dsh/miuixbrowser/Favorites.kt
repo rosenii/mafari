@@ -91,6 +91,23 @@ class FavoritesStore(context: Context) {
         return removed
     }
 
+    /** 重命名分组：「个人收藏」不可改名；新名字为空返回 false；与已有分组同名则合并。 */
+    fun renameGroup(old: String, newName: String): Boolean {
+        val target = newName.trim()
+        if (target.isEmpty() || isProtectedGroup(old)) return false
+        if (target == old) return true
+        var changed = false
+        for (i in items.indices) {
+            val f = items[i]
+            if (f.group.ifBlank { Favorite.GROUP_PERSONAL } == old) {
+                items[i] = f.copy(group = target)
+                changed = true
+            }
+        }
+        if (changed) persist()
+        return changed
+    }
+
     fun add(name: String, url: String, group: String = Favorite.GROUP_PERSONAL) {
         if (url.isBlank()) return
         val fixed = toUrl(url)

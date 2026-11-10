@@ -233,6 +233,15 @@ fun SettingsScreen(
                         checked = settings.sameSiteNewTab,
                         onCheckedChange = { settings.updateSameSiteNewTab(it) },
                     )
+                    // 与「Gecko 调试」里的原生沉浸是同一个开关（Gecko 专属）
+                    EngineRow(visible = settings.geckoMode) {
+                        AppSwitchPreference(
+                            title = "原生沉浸",
+                            summary = "状态栏、导航栏全沉浸浏览",
+                            checked = GeckoDebug.nativeImmersive,
+                            onCheckedChange = { GeckoDebug.updateNativeImmersive(it) },
+                        )
+                    }
                 }
 
                 SmallTitle(text = "浏览")
@@ -250,24 +259,24 @@ fun SettingsScreen(
                         onSelectedIndexChange = { settings.updateLinkOpenMode(it) },
                     )
                     SettingsRow(
-                        title = "搜索引擎",
-                        summary = SEARCH_ENGINES.getOrNull(settings.searchIndex)?.name ?: "自定义",
-                        onClick = { showSearch = true },
-                    )
-                    SettingsRow(
                         title = "书签与历史",
                         summary = "书签分组、浏览记录",
                         onClick = onOpenBookmarks,
                     )
                     SettingsRow(
-                        title = "UA 标识管理",
-                        summary = uaSummary(settings.userAgent),
-                        onClick = { showUa = true },
-                    )
-                    SettingsRow(
                         title = "下载",
                         summary = "查看已下载的文件",
                         onClick = onOpenDownloads,
+                    )
+                    SettingsRow(
+                        title = "搜索引擎",
+                        summary = SEARCH_ENGINES.getOrNull(settings.searchIndex)?.name ?: "自定义",
+                        onClick = { showSearch = true },
+                    )
+                    SettingsRow(
+                        title = "UA 标识管理",
+                        summary = uaSummary(settings.userAgent),
+                        onClick = { showUa = true },
                     )
                 }
 
@@ -356,13 +365,6 @@ fun SettingsScreen(
                             onClick = onOpenGeckoExtensions,
                         )
                     }
-                    EngineRow(visible = settings.geckoMode) {
-                        SettingsRow(
-                            title = "Gecko 调试",
-                            summary = "渲染信息 · 沉浸模式 · 性能叠层 · 运行日志",
-                            onClick = onOpenGeckoDebug,
-                        )
-                    }
                     EngineRow(visible = !settings.geckoMode) {
                         AppSwitchPreference(
                             title = "网页增强",
@@ -404,6 +406,13 @@ fun SettingsScreen(
                         },
                         onClick = { showProxyDialog = true },
                     )
+                    EngineRow(visible = settings.geckoMode) {
+                        SettingsRow(
+                            title = "Gecko 调试",
+                            summary = "渲染信息 · 沉浸模式 · 性能叠层 · 运行日志",
+                            onClick = onOpenGeckoDebug,
+                        )
+                    }
                     SettingsRow(
                         title = "清理缓存",
                         summary = "每次冷启动自动清理 · 同系统「清除缓存」范围，保留未完成的下载 · 当前可清理 " +

@@ -1,11 +1,11 @@
 package dev.dsh.miuixbrowser
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -32,7 +33,6 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -88,17 +88,33 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 ) {
                     item { SmallTitle(text = "渲染信息") }
                     item {
-                        DebugGroup {
-                            info.forEach { (label, value) ->
-                                ArrowPreference(
-                                    title = label,
-                                    summary = value,
-                                    onClick = { copyInfo(context, info) },
-                                )
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                info.forEach { (label, value) ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.Top,
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 13.sp,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.width(76.dp),
+                                        )
+                                        Text(
+                                            text = value,
+                                            fontSize = 13.sp,
+                                            color = MiuixTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                    item { DebugHint("点任意一行复制全部渲染信息，反馈问题时可以直接贴出来。") }
 
                     item { SmallTitle(text = "滚动与渲染") }
                     item {
@@ -165,15 +181,6 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 }
             }
         }
-    }
-}
-
-private fun copyInfo(context: Context, info: List<Pair<String, String>>) {
-    runCatching {
-        val text = info.joinToString("\n") { "${it.first}: ${it.second}" }
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("Gecko 渲染信息", text))
-        Toast.makeText(context, "已复制渲染信息", Toast.LENGTH_SHORT).show()
     }
 }
 

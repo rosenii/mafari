@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +51,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -143,6 +145,7 @@ fun LibraryScreen(
     var editingFav by remember { mutableStateOf<Favorite?>(null) }
     var creatingFav by remember { mutableStateOf(false) }
     var deletingGroup by remember { mutableStateOf<String?>(null) }
+    var renamingGroup by remember { mutableStateOf<String?>(null) }
     var showClearMenu by remember { mutableStateOf(false) }
     var clearAnchor by remember { mutableStateOf(Rect.Zero) }
     var clearRange by remember { mutableStateOf(ClearRange.All) }
@@ -250,7 +253,7 @@ fun LibraryScreen(
                             scrollBehavior = scrollBehavior,
                             onOpen = onOpen,
                             onEdit = { editingFav = it },
-                            onDeleteGroup = { deletingGroup = it },
+                            onGroupLongClick = { renamingGroup = it },
                             query = query,
                         )
 
@@ -371,24 +374,19 @@ fun LibraryScreen(
             }
         }
 
-        // 底部弹窗确认
+        // 清除历史确认：居中对话框
         val confirmCount = if (showClearConfirm) {
             clearRange.millis?.let { store.countWithin(it) } ?: store.items.size
         } else {
             0
         }
-        AppBottomSheet(
+        AppGlassDialog(
             show = showClearConfirm,
             title = "清除历史记录",
             backdrop = backdrop,
             onDismissRequest = { showClearConfirm = false },
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(bottom = 24.dp),
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = if (confirmCount > 0) {
                         "将删除${clearRange.label.removePrefix("清除")}共 $confirmCount 条历史记录，此操作无法撤销。"
@@ -397,7 +395,6 @@ fun LibraryScreen(
                     },
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 6.dp),
                 )
                 Spacer(Modifier.height(16.dp))
                 Row(
@@ -421,6 +418,60 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f),
                         enabled = confirmCount > 0,
                         role = LiquidRole.Destructive,
+                    )
+                }
+            }
+        }
+
+        // 分组管理（长按收起的分组行）：重命名；左下删除（再弹确认），右下保存
+        val groupToRename = renamingGroup
+        var renameText by remember(groupToRename) { mutableStateOf(groupToRename.orEmpty()) }
+        AppGlassDialog(
+            show = groupToRename != null,
+            title = "编辑分组",
+            backdrop = backdrop,
+            onDismissRequest = { renamingGroup = null },
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                top.yukonga.miuix.kmp.basic.TextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "分组名",
+                    useLabelAsPlaceholder = true,
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    LiquidGlassPillButton(
+                        text = "删除",
+                        onClick = {
+                            deletingGroup = groupToRename
+                            renamingGroup = null
+                        },
+                        backdrop = liquid,
+                        modifier = Modifier.weight(1f),
+                        role = LiquidRole.Destructive,
+                    )
+                    LiquidGlassPillButton(
+                        text = "保存",
+                        onClick = {
+                            val old = groupToRename
+                            if (old != null) {
+                                if (renameText.isBlank()) {
+                                    Toast.makeText(context, "分组名不能为空", Toast.LENGTH_SHORT).show()
+                                    return@LiquidGlassPillButton
+                                }
+                                favorites.renameGroup(old, renameText)
+                            }
+                            renamingGroup = null
+                        },
+                        backdrop = liquid,
+                        modifier = Modifier.weight(1f),
+                        role = LiquidRole.Primary,
                     )
                 }
             }
@@ -512,7 +563,7 @@ private fun BookmarksPage(
     scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior,
     onOpen: (String) -> Unit,
     onEdit: (Favorite) -> Unit,
-    onDeleteGroup: (String) -> Unit,
+    onGroupLongClick: (String) -> Unit,
     query: String = "",
 ) {
     val groups = favorites.groups()
@@ -563,7 +614,8 @@ private fun BookmarksPage(
                     count = list.size,
                     open = open,
                     onClick = { expanded[group] = !open },
-                    onDelete = if (favorites.isProtectedGroup(group)) null else ({ onDeleteGroup(group) }),
+                    // 仅收起状态下长按分组行可重命名 / 删除；「个人收藏」是保留分组，不可操作
+                    onLongClick = if (!open && !favorites.isProtectedGroup(group)) ({ onGroupLongClick(group) }) else null,
                 )
             }
             if (!open) return@forEach
@@ -642,23 +694,23 @@ private fun BookmarksPage(
     }
 }
 
-/** 书签分组标题：左侧分组名 + 数量，右侧靠右的小按钮点一下展开 / 收起（整行也可点击）。 */
+/** 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；收起时可长按管理分组）。 */
 @Composable
 private fun BookmarkGroupHeader(
     name: String,
     count: Int,
     open: Boolean,
     onClick: () -> Unit,
-    /** null = 不可删除（个人收藏） */
-    onDelete: (() -> Unit)? = null,
+    /** null = 不响应长按 */
+    onLongClick: (() -> Unit)? = null,
 ) {
     // ChevronBackward 默认朝左：收起时转 180° 朝右（›），展开时转 270° 朝下
     val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupArrow")
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(start = 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -667,7 +719,7 @@ private fun BookmarkGroupHeader(
         ) {
             Text(
                 text = name,
-                fontSize = 14.sp,
+                fontSize = 17.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                 color = MiuixTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -677,27 +729,16 @@ private fun BookmarkGroupHeader(
             Spacer(Modifier.width(8.dp))
             Text(
                 text = "$count",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
-        if (onDelete != null) {
-            Text(
-                text = "删除",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.error,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onDelete)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-            )
-        }
-        AppSmallButton(onClick = onClick, inPage = true) {
+        AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
             Icon(
                 imageVector = MiuixIcons.Glass.ChevronBackward,
                 contentDescription = if (open) "收起" else "展开",
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = angle },
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
             )
         }
     }
@@ -717,12 +758,20 @@ private fun HistoryPage(
         q.isEmpty() || it.title.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
     }
     if (entries.isEmpty()) {
-        Text(
-            text = if (store.items.isEmpty()) "还没有浏览记录" else "没有匹配的历史记录",
-            fontSize = 13.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.padding(24.dp),
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (store.items.isEmpty()) "还没有浏览记录" else "没有匹配的历史记录",
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(24.dp),
+            )
+        }
         return
     }
     LazyColumn(
