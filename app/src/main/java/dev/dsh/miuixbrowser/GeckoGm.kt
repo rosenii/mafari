@@ -4,12 +4,14 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.WebExtension
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
@@ -36,6 +38,45 @@ internal object GeckoGm {
 
     /** 单个脚本内联的值快照上限（字符数）。超出的键不进快照，脚本读不到——见文档「已知限制」 */
     private const val SNAPSHOT_CAP = 512 * 1024
+
+    // ---- 安全：每个脚本一个「能力令牌」（进程内随机，不落盘）
+    // 页面与脚本同处 MAIN 世界，页面能看到、伪造 DOM 事件，所以 shim ⇄ 中继走私有 MessageChannel，
+    // 令牌只在该通道里传；后台页 / 原生端对每条请求都校验 (脚本 id, 令牌)。脚本被停用 / 删除时令牌立刻作废，
+    // 已注入页面里的旧脚本从此无法再发起任何请求。
+    private val tokens = ConcurrentHashMap<String, String>()
+    private val rng = SecureRandom()
+
+    private fun tokenFor(id: String): String = tokens.getOrPut(id) {
+        val b = ByteArray(16)
+        rng.nextBytes(b)
+        b.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun authorized(o: JSONObject): Boolean {
+        val sid = o.optString("sid")
+        val tok = o.optString("tok")
+        val expect = tokens[sid] ?: return false
+        return MessageDigest.isEqual(expect.toByteArray(), tok.toByteArray())
+    }
+
+    // ---- 安全：每个脚本、每类能力的限频，防止脚本 / 被利用的脚本刷屏（弹标签、通知、下载、剪贴板…）
+    private class Bucket { var start = 0L; var count = 0 }
+    private val buckets = ConcurrentHashMap<String, Bucket>()
+
+    private fun allow(sid: String, kind: String, max: Int, windowMs: Long): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        val b = buckets.getOrPut("$sid|$kind") { Bucket() }
+        synchronized(b) {
+            if (now - b.start > windowMs) { b.start = now; b.count = 0 }
+            if (b.count >= max) return false
+            b.count++
+            return true
+        }
+    }
+
+    private const val MAX_VALUE_CHARS = 2_000_000
+    private const val MAX_KEY_CHARS = 256
+    private const val MAX_TEXT_CHARS = 1_000_000
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "gecko-gm").apply { isDaemon = true } }
@@ -112,6 +153,9 @@ internal object GeckoGm {
         val app = context.applicationContext
         initPrefs(app)
         val snapshot = if (enabled) scripts.filter { it.enabled } else emptyList()
+        // 停用 / 删除的脚本：令牌立即作废（已注入的旧页面从此被后台页和原生端拒绝）
+        val live = snapshot.map { it.id }.toSet()
+        tokens.keys.retainAll(live)
         // 多个标签会各自调用：输入没变就不重复拼源码（值变化走 force + valuesVersion）
         val sig = enabled.toString() + "#" + valuesVersion.get() + "#" + snapshot.joinToString("|") {
             "${it.id}:${it.code.hashCode()}:${it.match.hashCode()}:${ScriptResources.cachedCount(app, it.code)}"
@@ -177,7 +221,8 @@ internal object GeckoGm {
     /** 运行时 + @require（UserscriptEngine.buildSource）外面再包一层：把 shim 作为闭包变量 __mafariBridge 传入 */
     private fun buildSource(ctx: Context, script: UserScript): String {
         val runtime = UserscriptEngine.buildSource(ctx, script)
-        val snap = JSONObject().put("id", script.id).put("values", valuesJson(script.id)).toString()
+        val snap = JSONObject().put("id", script.id).put("tok", tokenFor(script.id))
+            .put("values", valuesJson(script.id)).toString()
         val tpl = template(ctx)
         val at = tpl.lastIndexOf(SNAPSHOT_MARK) // 只替换文末那一个，且不二次扫描 snap 的内容
         val shim = tpl.substring(0, at) + snap + tpl.substring(at + SNAPSHOT_MARK.length)
@@ -195,6 +240,8 @@ internal object GeckoGm {
             .put("matches", JSONArray(spec.first))
             .put("excludeMatches", JSONArray(spec.second))
             .put("noframes", meta.noFrames)
+            .put("tok", tokenFor(script.id))
+            .put("connect", JSONArray(meta.raw["connect"].orEmpty().map { it.trim() }.filter { it.isNotEmpty() }))
     }
 
     private fun sha1(s: String): String =
@@ -340,29 +387,47 @@ internal object GeckoGm {
 
     private fun handle(tab: BrowserTab, port: WebExtension.Port, o: JSONObject) {
         val app = appContext ?: return
+        // 没有有效令牌的消息一律丢弃（页面伪造的通道消息、已被停用 / 删除的脚本）
+        if (!authorized(o)) {
+            Diag.log("gm: rejected ${o.optString("t")} (bad token)")
+            return
+        }
+        val sid = o.optString("sid")
         when (o.optString("t")) {
             "set" -> {
-                val key = "${o.getString("id")}::${o.getString("k")}"
+                val k = o.getString("k")
+                val v = o.getString("v")
+                if (k.length > MAX_KEY_CHARS || v.length > MAX_VALUE_CHARS) { Diag.log("gm: set too large $sid"); return }
+                if (!allow(sid, "set", 600, 10_000)) return
+                val key = "$sid::$k"
                 writers[key] = o.optString("src")
-                prefs.edit().putString(key, o.getString("v")).apply()
+                prefs.edit().putString(key, v).apply()
             }
             "del" -> {
-                val key = "${o.getString("id")}::${o.getString("k")}"
+                val k = o.getString("k")
+                if (k.length > MAX_KEY_CHARS || !allow(sid, "set", 600, 10_000)) return
+                val key = "$sid::$k"
                 writers[key] = o.optString("src")
                 prefs.edit().remove(key).apply()
             }
-            "toast" -> main.post {
-                runCatching { android.widget.Toast.makeText(app, o.optString("msg"), android.widget.Toast.LENGTH_SHORT).show() }
+            "toast" -> {
+                if (!allow(sid, "toast", 10, 10_000)) return
+                val msg = o.optString("msg").take(500)
+                main.post { runCatching { android.widget.Toast.makeText(app, msg, android.widget.Toast.LENGTH_SHORT).show() } }
             }
-            "copy" -> main.post {
-                runCatching {
-                    val cm = app.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("Mafari", o.optString("text")))
+            "copy" -> {
+                if (!allow(sid, "copy", 10, 10_000)) return
+                val text = o.optString("text").take(MAX_TEXT_CHARS)
+                main.post {
+                    runCatching {
+                        val cm = app.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("Mafari", text))
+                    }
                 }
             }
-            "copyHtml" -> main.post {
+            "copyHtml" -> if (allow(sid, "copy", 10, 10_000)) main.post {
                 runCatching {
-                    val html = o.optString("html")
+                    val html = o.optString("html").take(MAX_TEXT_CHARS)
                     val plain = android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_COMPACT).toString()
                     val cm = app.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     cm.setPrimaryClip(android.content.ClipData.newHtmlText("Mafari", plain, html))
@@ -370,18 +435,22 @@ internal object GeckoGm {
             }
             "openTab" -> {
                 val url = o.optString("url")
-                if (!isHttp(url)) return
+                if (!isHttp(url) || url.length > 8192 || !allow(sid, "openTab", 5, 10_000)) return
                 val active = runCatching { JSONObject(o.optString("opts", "{}")).optBoolean("active", true) }.getOrDefault(true)
                 main.post { tab.onGmOpenTab?.invoke(o.optString("id"), url, active) }
             }
-            "closeTab" -> main.post { tab.onGmCloseTab?.invoke(o.optString("id")) }
+            "closeTab" -> main.post { tab.onGmCloseTab?.invoke(o.optString("id").take(100)) }
             "download" -> {
                 val url = o.optString("url")
-                val name = o.optString("name")
+                val name = o.optString("name").take(255)
                 val cbId = o.optString("cbId")
                 val fn = "__mafariDlCallback_$cbId"
-                if (!isHttp(url) || (cbId.isNotEmpty() && !SAFE_ID.matches(cbId))) {
+                if (!isHttp(url) || url.length > 8192 || (cbId.isNotEmpty() && !SAFE_ID.matches(cbId))) {
                     if (cbId.isNotEmpty() && SAFE_ID.matches(cbId)) cb(port, fn, false, "unsupported url")
+                    return
+                }
+                if (!allow(sid, "download", 5, 10_000)) {
+                    if (cbId.isNotEmpty()) cb(port, fn, false, "too many downloads")
                     return
                 }
                 main.post {
@@ -395,12 +464,12 @@ internal object GeckoGm {
             }
             "notify" -> {
                 val cbId = o.optString("cbId")
-                if (!SAFE_ID.matches(cbId)) return
+                if (!SAFE_ID.matches(cbId) || !allow(sid, "notify", 10, 60_000)) return
                 val n = JSONObject(o.optString("json"))
                 val fn = "__mafariNtfCallback_$cbId"
                 runCatching {
                     GmNotifications.post(
-                        context = app, title = n.optString("title"), text = n.optString("text"), tag = n.optString("tag"),
+                        context = app, title = n.optString("title").take(200), text = n.optString("text").take(2000), tag = n.optString("tag").take(100),
                         timeoutMs = n.optLong("timeout", 0L), silent = n.optBoolean("silent", false),
                     ) { kind -> cb(port, fn, kind) }
                 }.onFailure { // 无通知权限：与 WebView 一致退回 toast，不伪造 ondone
@@ -408,7 +477,7 @@ internal object GeckoGm {
                     main.post { runCatching { android.widget.Toast.makeText(app, if (t.isEmpty()) x else "$t：$x", android.widget.Toast.LENGTH_SHORT).show() } }
                 }
             }
-            "menu" -> tab.gmMenuReported(o.optString("list"), port)
+            "menu" -> tab.gmMenuReported(o.optString("list").take(100_000), port)
             "ran" -> tab.gmRanReported(o.optString("id"))
         }
     }

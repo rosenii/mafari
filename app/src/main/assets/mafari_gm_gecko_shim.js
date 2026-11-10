@@ -4,48 +4,72 @@
  * { id, values: { key: rawJsonString } }，并把本表达式的值作为 __mafariBridge 传给运行时。
  *
  *  - 读值：同步读内联快照（注册脚本时的值）；写值：先改本地快照（脚本立刻能读到自己写的），再异步交给原生
- *  - xhr / cookie：事件 → 中继 → 后台页；结果回来存进表里，xhrPoll 取走（运行时本来就是轮询）
- *  - 通知 / 下载 / 开标签 / 菜单 / 剪贴板：事件 → 中继 → 原生端口；回调以 {t:'cb', fn, args} 回来
- * 本文件不是严格模式，且只依赖 document 的事件，不碰 browser.* （MAIN 世界没有）。
+ *  - xhr / cookie：私有通道 → 中继 → 后台页；结果回来存进表里，xhrPoll 取走（运行时本来就是轮询）
+ *  - 通知 / 下载 / 开标签 / 菜单 / 剪贴板：私有通道 → 中继 → 原生端口；回调以 {t:'cb', fn, args} 回来
+ *
+ * 安全：MAIN 世界与页面共用，DOM 事件 / window.postMessage 页面都能监听和伪造，所以请求不走事件。
+ * 启动时（页面脚本还没跑）用 window.postMessage 把一个 MessageChannel 的 port2 交给中继，之后所有请求只走这条
+ * 页面拿不到的私有通道；每条请求另带 (脚本 id, 能力令牌)，后台页 / 原生端逐条校验，令牌只存在于本闭包里。
+ * 本文件不是严格模式，不碰 browser.* （MAIN 世界没有）。
  */
 (function (S) {
   var W = window, D = document;
-  var REQ = 'mafari-gm:req', RES = 'mafari-gm:res';
-  // 在 document-start 抓住原生函数，页面之后改写 dispatchEvent / JSON 也不影响我们
-  var dispatch = D.dispatchEvent.bind(D);
-  var CE = W.CustomEvent;
+  // 在 document-start 抓住原生函数，页面之后改写 postMessage / JSON / MessageChannel 也不影响我们
+  var postMsg = W.postMessage.bind(W);
+  var MC = W.MessageChannel;
+  var addWinListener = W.addEventListener.bind(W);
   var stringify = JSON.stringify.bind(JSON);
   var parse = JSON.parse.bind(JSON);
-  var SAFE = /^[A-Za-z0-9_]{1,80}$/;
+  var CB_FN = /^__mafari(?:Dl|Ntf)Callback_[A-Za-z0-9_]{1,80}$/;
+  var MARK = 'mafariGm';
 
   var iid = Math.random().toString(36).slice(2) + Date.now().toString(36);
   var values = Object.create(null);
   Object.keys(S.values || {}).forEach(function (k) { values[k] = S.values[k]; });
 
-  // 握手：同一 document-start 阶段 MAIN 脚本与中继谁先执行不保证。中继没就绪前的消息先排队，
-  // 收到中继的 ready（它启动时广播一次，并回应我们的 hi）后再冲出去。
-  var ready = false, queue = [];
+  // 握手：同一 document-start 阶段 MAIN 脚本与中继谁先执行不保证。
+  // shim 先发 hi（带新 port2）；中继晚到时会广播 ready，shim 再发一次。收到中继经该通道回的 ack 后才算接通，
+  // 之前的消息先排队。握手次数有上限，页面刷 ready 也不会无限建通道。
+  var port = null, queue = [], hellos = 0;
+  function onRes(raw) {
+    var m;
+    try { m = parse(raw); } catch (e) { return; }
+    if (m) handleRes(m);
+  }
+  function hello() {
+    if (port || hellos >= 8) return;
+    hellos++;
+    try {
+      var ch = new MC();
+      var mine = ch.port1;
+      mine.onmessage = function (ev) {
+        var d = ev.data;
+        if (d === 'ack') { if (!port) { port = mine; flush(); } return; }
+        if (port === mine && typeof d === 'string') onRes(d);
+      };
+      postMsg({ mafariGm: 'hi' }, '*', [ch.port2]);
+    } catch (e) {}
+  }
   function raw(o) {
-    try { dispatch(new CE(REQ, { detail: stringify(o) })); } catch (e) {}
+    try { o.sid = S.id; o.tok = S.tok; port.postMessage(stringify(o)); } catch (e) {}
   }
   function send(o) {
-    if (ready) { raw(o); return; }
+    if (port) { raw(o); return; }
     if (queue.length < 2000) queue.push(o);
   }
   function flush() {
-    ready = true;
     var q = queue; queue = [];
     for (var i = 0; i < q.length; i++) raw(q[i]);
   }
+  addWinListener('message', function (ev) {
+    var d = ev && ev.data;
+    if (ev.source === W && d && d.mafariGm === 'ready' && !port) hello();
+  }, true);
 
   var xhrs = Object.create(null), results = Object.create(null), cookieCbs = Object.create(null);
 
-  D.addEventListener(RES, function (ev) {
-    var m;
-    try { m = parse(ev.detail); } catch (e) { return; }
-    if (!m) return;
+  function handleRes(m) {
     switch (m.t) {
-      case 'ready': if (!ready) flush(); break;
       case 'xhrRes':
         if (xhrs[m.reqId]) results[m.reqId] = m.json;
         break;
@@ -54,8 +78,8 @@
         if (cb) { delete cookieCbs[m.cbId]; try { cb(m.arr || []); } catch (e) {} }
         break;
       }
-      case 'cb': // 对应 GmBridge.callJs：一次性全局回调
-        if (typeof m.fn === 'string' && SAFE.test(m.fn)) {
+      case 'cb': // 对应 GmBridge.callJs：只允许调用运行时自己注册的一次性回调（__mafariDlCallback_* / __mafariNtfCallback_*）
+        if (typeof m.fn === 'string' && CB_FN.test(m.fn)) {
           try { var f = W[m.fn]; if (typeof f === 'function') f.apply(W, m.args || []); } catch (e) {}
         }
         break;
@@ -71,14 +95,14 @@
         break;
       }
     }
-  }, true);
+  }
 
   function uuid() {
     try { if (W.crypto && W.crypto.randomUUID) return W.crypto.randomUUID(); } catch (e) {}
     return 'm' + Math.random().toString(36).slice(2) + Date.now().toString(36);
   }
 
-  raw({ t: 'hi' }); // 若中继已就绪，它会回 ready
+  hello(); // 中继若已就绪会 ack；没就绪则等它的 ready 再来一次
 
   var bridge = {
     // —— 值 ——

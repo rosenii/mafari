@@ -1,6 +1,7 @@
 # Mafari
 
-基于 **MIUIX Glass**（Compose Multiplatform）+ **系统 WebView** 的 Android 浏览器。不内嵌 Chromium 内核。
+基于 **miuix**（Compose Multiplatform）+ **系统 WebView** 的 Android 浏览器，不内嵌 Chromium 内核。
+**new：** Gecko分支内嵌gecko内核，支持双内核切换。
 
 ## 界面
 
@@ -46,6 +47,9 @@
 - 内置油猴脚本运行时，完美支持油猴脚本
 - 支持脚本注册油猴菜单命令
 - 支持从 URL/文件 导入脚本
+
+- Gecko 下同样可用（内置 WebExtension 运行时)
+- Gecko 脚本桥的安全模型：页面拿不到通道（私有 MessageChannel + 每脚本能力令牌，停用 / 删除后立即作废）；`GM_xmlhttpRequest` 按 `@connect` 限制目标主机（同站放行；未声明时放行公网、拒绝本机 / 局域网；声明后只放行所列主机，重定向逐跳检查），响应体 / 请求体有大小上限；`GM_cookie` 仅限同站或 `@connect` 明确列出的主机；私有标签页不代发请求、不读写 Cookie；弹标签 / 通知 / 下载 / 剪贴板有频率限制
 - 支持一键更新和定期更新
 - 支持自动识别 `.user.js` 链接并弹导入确认
 

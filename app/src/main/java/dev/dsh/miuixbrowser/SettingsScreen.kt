@@ -354,7 +354,7 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    // 按内核显示：拓展属于 Gecko；去广告依赖 WebView 专有 API；网页增强（脚本总开关）/ 脚本管理两种内核通用
+                    // 按内核显示：拓展属于 Gecko；网页增强 / 去广告依赖 WebView 专有 API；脚本管理两种内核通用
                     EngineRow(visible = settings.geckoMode) {
                         SettingsRow(
                             title = "拓展",
@@ -362,21 +362,19 @@ fun SettingsScreen(
                             onClick = onOpenGeckoExtensions,
                         )
                     }
-                    AppSwitchPreference(
-                        title = "网页增强",
-                        summary = if (settings.geckoMode) {
-                            "总开关：同步启用 / 停用全部油猴脚本"
-                        } else {
-                            "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告"
-                        },
-                        checked = settings.pageEnhancements,
-                        onCheckedChange = {
-                            settings.updatePageEnhancements(it)
-                            onPageEnhancementsChange(it)
-                            // Gecko 下去广告不可用（由 Gecko 自己的保护 / 拓展负责），不跟着总开关走
-                            if (!settings.geckoMode) AdBlock.updateEnabled(it)
-                        },
-                    )
+                    // 网页增强是 WebView 的总开关（脚本 + 去广告）；Gecko 下脚本只受脚本菜单里的开关控制
+                    EngineRow(visible = !settings.geckoMode) {
+                        AppSwitchPreference(
+                            title = "网页增强",
+                            summary = "总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告",
+                            checked = settings.pageEnhancements,
+                            onCheckedChange = {
+                                settings.updatePageEnhancements(it)
+                                onPageEnhancementsChange(it)
+                                AdBlock.updateEnabled(it)
+                            },
+                        )
+                    }
                     EngineRow(visible = !settings.geckoMode) {
                         SettingsRow(
                             title = "去广告",

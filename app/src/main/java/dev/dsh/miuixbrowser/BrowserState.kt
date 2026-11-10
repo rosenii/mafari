@@ -1213,12 +1213,13 @@ class BrowserTab(
         Diag.log("userscript: document-start handlers=${scriptHandlers.size}/${enabled.size}")
     }
 
-    internal fun gmScriptsEnabled(): Boolean = pageEnhancements && scriptsEnabled
+    /** Gecko 下没有「网页增强」总开关：只看脚本总开关（脚本菜单里的开关） */
+    internal fun gmScriptsEnabled(): Boolean = scriptsEnabled
 
     /** Gecko：注册是全局的（不是按标签），所以这里只汇报「当前脚本集 + 总开关」，无痕范围由扩展的「允许在无痕中运行」决定 */
     private fun syncGeckoScripts() {
         if (destroyed) return
-        val enabledAll = pageEnhancements && scriptsEnabled
+        val enabledAll = scriptsEnabled
         GeckoGm.remember(userScripts, enabledAll)
         val needFetch = userScripts.filter { it.enabled && ScriptResources.missing(appContext, it.code).isNotEmpty() }
         if (needFetch.isNotEmpty() && !prefetchingScripts) {
