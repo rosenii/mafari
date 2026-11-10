@@ -228,6 +228,8 @@ internal data class DownloadRequest(
     val dataUri: String? = null,
     /** 大 blob 分片写入的缓存临时文件路径，确认后拷到 Download/mafari */
     val tempPath: String? = null,
+    /** GM_download 要结果：取消 / 被顶替 → (false, ...)；确认后交给 Downloader 在终态回调 */
+    val onResult: ((ok: Boolean, error: String?) -> Unit)? = null,
 )
 
 /** 网页 <input type=file capture>：文件 / 拍照 / 录像 选择 */
@@ -833,6 +835,16 @@ fun BrowserScreen(
                     mime = mime,
                 )
             }
+        }
+        tab.onGmDownload = { url, name, onResult ->
+            pendingDownload?.onResult?.invoke(false, "superseded")
+            pendingDownload = DownloadRequest(
+                url = url,
+                userAgent = null,
+                fileName = Downloader.fileNameFrom(url, if (name.isBlank()) null else "attachment; filename=\"$name\""),
+                mime = null,
+                onResult = onResult,
+            )
         }
         tab.onBlobStart = {
             android.widget.Toast.makeText(context, "正在读取文件…", android.widget.Toast.LENGTH_SHORT).show()
@@ -1954,6 +1966,7 @@ fun BrowserScreen(
             backdrop = if (homeBlurAvailable) homeBackdrop else null,
             onDismissRequest = {
                 pendingDownload?.tempPath?.let { p -> runCatching { java.io.File(p).delete() } }
+                pendingDownload?.onResult?.invoke(false, "cancelled")
                 pendingDownload = null
             },
         ) {
@@ -1966,6 +1979,7 @@ fun BrowserScreen(
                         AppDialogButton(
                             onClick = {
                                 downloadRequest.tempPath?.let { p -> runCatching { java.io.File(p).delete() } }
+                                downloadRequest.onResult?.invoke(false, "cancelled")
                                 pendingDownload = null
                             },
                             modifier = Modifier.weight(1f),
@@ -1999,6 +2013,7 @@ fun BrowserScreen(
                                                     userAgent = req.userAgent,
                                                     fileName = req.fileName,
                                                     mimeType = req.mime,
+                                                    onComplete = req.onResult,
                                                 )
                                                 true
                                             }

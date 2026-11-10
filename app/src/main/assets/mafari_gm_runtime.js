@@ -1,9 +1,28 @@
 /*
- * Mafari userscript runtime.
+ * Mafari userscript runtime (v2).
  * Kotlin (UserscriptEngine.buildSource) substitutes three double-underscore placeholders, each exactly once:
  * the metadata JSON object, the inner function keyword (async for @top-level-await),
  * and the concatenated @require sources + userscript body.
  * This file is intentionally NOT strict-mode: userscripts are frequently sloppy-mode code.
+ *
+ * Native bridge surface this runtime understands (all optional except the base 5):
+ *   Required: getValue, setValue, deleteValue, listValues, toast
+ *   Optional (graceful fallback):
+ *     - xhrStart / xhrPoll / xhrAbort
+ *     - streamOpen / streamWrite / streamClose / streamAbort
+ *     - copy / copyHtml
+ *     - download(url, name)              fire-and-forget
+ *     - downloadAsync(url, name, cbId)   async; native calls
+ *                                        __mafariDlCallback_<cbId>(ok, err)
+ *     - openTab(url, optionsJson) -> id  optional id for close
+ *     - closeTab(id)
+ *     - cookies(url) -> raw cookie string
+ *     - cookieList(url) -> JSON array of {name,value,domain,path,httpOnly,secure,session,expirationDate}
+ *     - cookieSet(json)                  set full cookie via native
+ *     - notification(json, id)           native calls __mafariNtfCallback_<id>(kind),
+ *                                        kind = 'click' | 'close' | 'timeout'
+ *     - createBlobUrl(resourceName) -> blob: URL
+ *     - getValues(scriptId, namesJson) -> JSON { name: rawString }
  */
 (function () {
   var W = window;
@@ -16,8 +35,10 @@
   SEEN[META.id] = 1;
 
   var _setTimeout = W.setTimeout.bind(W);
+  var _clearTimeout = (W.clearTimeout || clearTimeout).bind(W);
   var _setInterval = W.setInterval.bind(W);
   var _clearInterval = W.clearInterval.bind(W);
+
   var bridge = null;
   try { bridge = W.MafariGM || null; } catch (e) { bridge = null; }
 
@@ -26,17 +47,28 @@
   }
 
   // ------------------------------------------------------------------ URL matching
-  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&'); }
+  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  var reCache = {};
+  function cachedRe(src, flags) {
+    var key = src + '\x00' + flags;
+    var r = reCache[key];
+    if (!r) r = reCache[key] = new RegExp(src, flags);
+    return r;
+  }
+
   function regexLiteral(p, url) {
     var m = /^\/([\s\S]+)\/([a-z]*)$/.exec(p);
     if (!m) return null;
-    try { return new RegExp(m[1], m[2]).test(url); } catch (e) { return false; }
+    // Strip g/y: they make .test() stateful via lastIndex.
+    var flags = m[2].replace(/[gy]/g, '');
+    try { return cachedRe(m[1], flags).test(url); } catch (e) { return false; }
   }
   function globTest(p, url) {
     var r = regexLiteral(p, url);
     if (r !== null) return r;
     if (p === '*') return true;
-    var re = new RegExp('^' + p.split('*').map(escRe).join('.*') + '$', 'i');
+    var re = cachedRe('^' + p.split('*').map(escRe).join('.*') + '$', 'i');
     return re.test(url) || re.test(url.replace(/#[\s\S]*$/, ''));
   }
   function matchPatternTest(p, href) {
@@ -52,7 +84,7 @@
     if (sch === '*') {
       if (proto !== 'http' && proto !== 'https') return false;
     } else if (sch.indexOf('*') >= 0) {
-      if (!new RegExp('^' + sch.split('*').map(escRe).join('.*') + '$').test(proto)) return false;
+      if (!cachedRe('^' + sch.split('*').map(escRe).join('.*') + '$', '').test(proto)) return false;
     } else if (sch !== proto) {
       return false;
     }
@@ -66,7 +98,7 @@
       var base = hp.slice(2);
       hostOk = host === base || host.slice(-(base.length + 1)) === '.' + base;
     } else if (hp.indexOf('*') >= 0) {
-      hostOk = new RegExp('^' + hp.split('*').map(escRe).join('.*') + '$').test(host);
+      hostOk = cachedRe('^' + hp.split('*').map(escRe).join('.*') + '$', '').test(host);
     } else hostOk = host === hp;
     if (!hostOk) return false;
     if (port && port !== '*') {
@@ -74,7 +106,7 @@
       if (up !== port) return false;
     }
     var pp = m[3] || '/*';
-    var re = new RegExp('^' + pp.split('*').map(escRe).join('.*') + '$');
+    var re = cachedRe('^' + pp.split('*').map(escRe).join('.*') + '$', '');
     var target = u.pathname + u.search;
     return re.test(target) || re.test(target + u.hash);
   }
@@ -91,7 +123,6 @@
     return anyOf(META.match, matchPatternTest, href) || anyOf(META.include, globTest, href);
   }
   if (!shouldRun(W.location.href)) return;
-  // 真正匹配并会在本页运行的脚本（__mafariSeen 是所有注入过的脚本，不能用来计数）
   (W.__mafariRan || (W.__mafariRan = {}))[META.id] = 1;
 
   // ------------------------------------------------------------------ helpers
@@ -128,26 +159,49 @@
     try { return fn.apply(thisArg, args); }
     catch (e) { log('error', (what || 'callback') + ' threw: ' + (e && e.message)); }
   }
+  function shallowCopy(o) {
+    var r = {};
+    if (o) Object.keys(o).forEach(function (k) { r[k] = o[k]; });
+    return r;
+  }
+  function setCb(name, fn) {
+    try { W[name] = fn; } catch (e) {}
+  }
+  function delCb(name) { try { delete W[name]; } catch (e) {} }
 
   // ------------------------------------------------------------------ values
   var mem = {};
+  var lastListedValues = null;
+
   function rawGet(k) {
-    try { if (bridge) return bridge.getValue(META.id, String(k)); } catch (e) {}
+    if (bridge) {
+      try {
+        var v = bridge.getValue(META.id, String(k));
+        return v;
+      } catch (e) {}
+    }
     return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null;
   }
   function rawSet(k, s) {
-    try { if (bridge) { bridge.setValue(META.id, String(k), s); return; } } catch (e) {}
+    if (bridge) {
+      try { bridge.setValue(META.id, String(k), s); return; } catch (e) {}
+    }
     mem[k] = s;
   }
   function rawDel(k) {
-    try { if (bridge) { bridge.deleteValue(META.id, String(k)); return; } } catch (e) {}
+    if (bridge) {
+      try { bridge.deleteValue(META.id, String(k)); return; } catch (e) {}
+    }
     delete mem[k];
   }
   function parseVal(raw, d) {
     if (raw === null || raw === undefined) return d;
     try { return JSON.parse(raw); } catch (e) { return raw; }
   }
+
   var listeners = {}, listenerSeq = 0, pollTimer = null, lastSeen = {};
+  var POLL_INTERVAL_MS = 1000;
+
   function fireChange(name, oldV, newV, remote) {
     var ids = Object.keys(listeners);
     for (var i = 0; i < ids.length; i++) {
@@ -155,21 +209,50 @@
       if (l && l.name === name) safeCall(l.cb, W, [name, oldV, newV, remote], 'value listener');
     }
   }
+  function pollTick() {
+    var names = {};
+    Object.keys(listeners).forEach(function (id) {
+      if (listeners[id]) names[listeners[id].name] = 1;
+    });
+    var nameList = Object.keys(names);
+    if (!nameList.length) {
+      if (pollTimer) { _clearInterval(pollTimer); pollTimer = null; }
+      return;
+    }
+    // Batch query when native supports it.
+    if (bridge && typeof bridge.getValues === 'function') {
+      var results = null;
+      try {
+        var rawJson = bridge.getValues(META.id, JSON.stringify(nameList));
+        if (rawJson !== null && rawJson !== undefined) results = JSON.parse(rawJson);
+      } catch (e) { results = null; }
+      if (results && typeof results === 'object') {
+        nameList.forEach(function (n) {
+          var raw = Object.prototype.hasOwnProperty.call(results, n) ? results[n] : null;
+          var prev = lastSeen[n];
+          if (raw !== prev) {
+            lastSeen[n] = raw;
+            fireChange(n, parseVal(prev, undefined), parseVal(raw, undefined), true);
+          }
+        });
+        return;
+      }
+    }
+    // Fallback: one-by-one.
+    nameList.forEach(function (n) {
+      var raw = rawGet(n);
+      if (raw !== lastSeen[n]) {
+        var oldV = parseVal(lastSeen[n], undefined);
+        lastSeen[n] = raw;
+        fireChange(n, oldV, parseVal(raw, undefined), true);
+      }
+    });
+  }
   function ensurePoll() {
     if (pollTimer) return;
-    pollTimer = _setInterval(function () {
-      var names = {};
-      Object.keys(listeners).forEach(function (id) { names[listeners[id].name] = 1; });
-      Object.keys(names).forEach(function (n) {
-        var raw = rawGet(n);
-        if (raw !== lastSeen[n]) {
-          var oldV = parseVal(lastSeen[n], undefined);
-          lastSeen[n] = raw;
-          fireChange(n, oldV, parseVal(raw, undefined), true);
-        }
-      });
-    }, 1000);
+    pollTimer = _setInterval(pollTick, POLL_INTERVAL_MS);
   }
+
   function GM_getValue(k, d) { return parseVal(rawGet(k), d); }
   function GM_setValue(k, v) {
     var oldRaw = rawGet(k);
@@ -182,15 +265,37 @@
     var newRaw = rawGet(k);
     lastSeen[k] = newRaw;
     if (oldRaw !== newRaw) fireChange(k, parseVal(oldRaw, undefined), parseVal(newRaw, undefined), false);
+    // Keep the list cache coherent with a successful bridge.
+    if (lastListedValues) {
+      if (newRaw === null) {
+        var ix = lastListedValues.indexOf(k);
+        if (ix >= 0) lastListedValues.splice(ix, 1);
+      } else if (lastListedValues.indexOf(k) < 0) {
+        lastListedValues.push(k);
+      }
+    }
   }
   function GM_deleteValue(k) {
     var oldRaw = rawGet(k);
     rawDel(k);
     lastSeen[k] = null;
     if (oldRaw !== null) fireChange(k, parseVal(oldRaw, undefined), undefined, false);
+    if (lastListedValues) {
+      var ix = lastListedValues.indexOf(k);
+      if (ix >= 0) lastListedValues.splice(ix, 1);
+    }
   }
   function GM_listValues() {
-    try { if (bridge) return JSON.parse(bridge.listValues(META.id)); } catch (e) {}
+    if (bridge) {
+      try {
+        var s = bridge.listValues(META.id);
+        if (s !== null && s !== undefined) {
+          var arr = JSON.parse(s);
+          if (Array.isArray(arr)) { lastListedValues = arr; return arr.slice(); }
+        }
+      } catch (e) {}
+    }
+    if (lastListedValues) return lastListedValues.slice();
     return Object.keys(mem);
   }
   function GM_getValues(keys) {
@@ -205,11 +310,17 @@
   function GM_addValueChangeListener(name, cb) {
     var id = ++listenerSeq;
     listeners[id] = { name: name, cb: cb };
-    lastSeen[name] = rawGet(name);
+    if (!Object.prototype.hasOwnProperty.call(lastSeen, name)) lastSeen[name] = rawGet(name);
     ensurePoll();
     return id;
   }
-  function GM_removeValueChangeListener(id) { delete listeners[id]; }
+  function GM_removeValueChangeListener(id) {
+    delete listeners[id];
+    if (pollTimer && !Object.keys(listeners).length) {
+      _clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
 
   // ------------------------------------------------------------------ styles / elements
   function GM_addStyle(css) {
@@ -249,14 +360,34 @@
     var r = resourceEntry(name);
     return r && r.data ? decodeText(b64ToBytes(r.data)) : null;
   }
+  var blobUrlCache = {};
   function GM_getResourceURL(name) {
     var r = resourceEntry(name);
-    return r && r.data ? 'data:' + (r.mime || 'application/octet-stream') + ';base64,' + r.data : (r ? r.url : null);
+    if (!r) return null;
+    if (!r.data) return r.url || null;
+    if (blobUrlCache[name]) return blobUrlCache[name];
+    // 1) Prefer native blob URL (zero-copy, short lived string).
+    if (bridge && typeof bridge.createBlobUrl === 'function') {
+      try {
+        var u = bridge.createBlobUrl(name);
+        if (u) { blobUrlCache[name] = u; return u; }
+      } catch (e) {}
+    }
+    // 2) Blob + URL.createObjectURL.
+    try {
+      var bytes = b64ToBytes(r.data);
+      var blob = new Blob([bytes], { type: r.mime || 'application/octet-stream' });
+      var url = URL.createObjectURL(blob);
+      blobUrlCache[name] = url;
+      return url;
+    } catch (e) {}
+    // 3) Fallback: inline data URI.
+    return 'data:' + (r.mime || 'application/octet-stream') + ';base64,' + r.data;
   }
 
   // ------------------------------------------------------------------ xmlHttpRequest
   function headerValue(rawHeaders, name) {
-    var re = new RegExp('^' + name + ':\\s*(.*)$', 'im');
+    var re = cachedRe('^' + escRe(name) + ':\\s*(.*)$', 'im');
     var m = re.exec(rawHeaders || '');
     return m ? m[1].trim() : '';
   }
@@ -285,7 +416,6 @@
       var req = new Request(W.location.href, { method: 'POST', body: d });
       return req.arrayBuffer().then(function (buf) {
         var ct = req.headers.get('content-type');
-        // multipart boundary must match the body we serialized, so it always overrides
         Object.keys(headers).forEach(function (k) { if (k.toLowerCase() === 'content-type') delete headers[k]; });
         return done(new Uint8Array(buf), ct);
       });
@@ -296,13 +426,17 @@
     if (ArrayBuffer.isView(d)) return Promise.resolve(done(new Uint8Array(d.buffer, d.byteOffset, d.byteLength)));
     return Promise.resolve(done(utf8(String(d))));
   }
+
   function pollXhr(reqId, onDone) {
     var delay = 15;
-    (function tick() {
+    var stopped = false;
+    function tick() {
+      if (stopped) return;
       var raw = null;
       try { raw = bridge.xhrPoll(reqId); }
-      catch (e) { onDone({ state: 'error', error: String(e) }); return; }
+      catch (e) { stopped = true; onDone({ state: 'error', error: String(e) }); return; }
       if (raw) {
+        stopped = true;
         var res;
         try { res = JSON.parse(raw); } catch (e) { res = { state: 'error', error: 'bad bridge response' }; }
         onDone(res);
@@ -310,19 +444,58 @@
       }
       delay = Math.min(delay * 1.5, 150);
       _setTimeout(tick, delay);
-    })();
+    }
+    tick();
+    return { stop: function () { stopped = true; } };
   }
-  function fetchFallback(url, method, headers, bodyB64, onDone) {
-    var init = { method: method, headers: headers };
+
+  // Forbidden request headers per Fetch spec — passing them to fetch throws.
+  var FORBIDDEN_FETCH_HEADERS = /^(accept-charset|accept-encoding|access-control-request-headers|access-control-request-method|connection|content-length|cookie|cookie2|date|dnt|expect|host|keep-alive|origin|referer|te|trailer|transfer-encoding|upgrade|via|proxy-|sec-)/i;
+  function sanitizeFetchHeaders(headers) {
+    var out = {};
+    Object.keys(headers || {}).forEach(function (k) {
+      if (!FORBIDDEN_FETCH_HEADERS.test(k)) out[k] = headers[k];
+    });
+    return out;
+  }
+
+  function fetchFallback(url, method, headers, bodyB64, details, onDone) {
+    var init = {
+      method: method,
+      headers: sanitizeFetchHeaders(headers),
+      credentials: details.anonymous ? 'omit' : 'include'
+    };
+    if (details.redirect === 'manual') init.redirect = 'manual';
+    else if (details.redirect === 'error') init.redirect = 'error';
     if (bodyB64 && method !== 'GET' && method !== 'HEAD') init.body = b64ToBytes(bodyB64);
+
+    var ac = null, tid = null;
+    if (details.timeout > 0 && typeof AbortController === 'function') {
+      ac = new AbortController();
+      init.signal = ac.signal;
+      tid = _setTimeout(function () {
+        try { ac.abort(); } catch (e) {}
+        onDone({ state: 'timeout', error: 'timeout' });
+      }, details.timeout);
+    }
+    function clearT() { if (tid) { _clearTimeout(tid); tid = null; } }
+
     fetch(url, init).then(function (r) {
+      clearT();
       return r.arrayBuffer().then(function (buf) {
         var hs = '';
         r.headers.forEach(function (v, k) { hs += k + ': ' + v + '\r\n'; });
-        onDone({ state: 'load', status: r.status, statusText: r.statusText, finalUrl: r.url || url, headers: hs, bytes: new Uint8Array(buf) });
+        onDone({
+          state: 'load', status: r.status, statusText: r.statusText,
+          finalUrl: r.url || url, headers: hs, bytes: new Uint8Array(buf)
+        });
       });
-    }, function (e) { onDone({ state: 'error', error: String(e && e.message || e) }); });
+    }, function (e) {
+      clearT();
+      onDone({ state: 'error', error: String(e && e.message || e) });
+    });
   }
+
   function buildResponse(res, details, readyState) {
     var bytes = res.bytes || b64ToBytes(res.body);
     var hdrs = res.headers || '';
@@ -341,13 +514,19 @@
     };
     var text = null;
     function getText() { if (text === null) text = decodeText(bytes, cs && cs[1]); return text; }
-    if (rt === 'arraybuffer') { out.response = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); }
-    else if (rt === 'blob') { out.response = new Blob([bytes], { type: ct || '' }); }
-    else if (rt === 'json') { try { out.response = JSON.parse(getText()); } catch (e) { out.response = null; } out.responseText = getText(); }
-    else if (rt === 'document') {
+    if (rt === 'arraybuffer') {
+      out.response = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    } else if (rt === 'blob') {
+      out.response = new Blob([bytes], { type: ct || '' });
+    } else if (rt === 'json') {
+      try { out.response = JSON.parse(getText()); } catch (e) { out.response = null; }
+      out.responseText = getText();
+    } else if (rt === 'document') {
       out.responseText = getText();
       try { out.response = new DOMParser().parseFromString(out.responseText, /xml/i.test(ct) ? 'text/xml' : 'text/html'); } catch (e) {}
-    } else { out.response = out.responseText = getText(); }
+    } else {
+      out.response = out.responseText = getText();
+    }
     var xml;
     Object.defineProperty(out, 'responseXML', {
       enumerable: true,
@@ -360,23 +539,30 @@
     });
     return out;
   }
+
   function GM_xmlhttpRequest(details) {
     details = details || {};
     var aborted = false, finished = false;
     var reqId = META.id + ':' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+    var pollHandle = null;
+
     var ctl = {
       abort: function () {
         if (finished || aborted) return;
         aborted = true;
+        if (pollHandle) { try { pollHandle.stop(); } catch (e) {} }
         try { if (bridge) bridge.xhrAbort(reqId); } catch (e) {}
         safeCall(details.onabort, details, [{ readyState: 0, status: 0, finalUrl: details.url, context: details.context }], 'onabort');
         if (details.__reject) details.__reject({ error: 'aborted', abort: true });
       }
     };
+
     var url = absUrl(details.url);
     var method = String(details.method || 'GET').toUpperCase();
     var base = { readyState: 1, status: 0, finalUrl: url, context: details.context };
     safeCall(details.onloadstart, details, [base], 'onloadstart');
+    safeCall(details.onreadystatechange, details, [base], 'onreadystatechange');
+
     prepareBody(details).then(function (prep) {
       if (aborted) return;
       var headers = prep.headers;
@@ -384,23 +570,37 @@
         headers['Authorization'] = 'Basic ' + btoa(unescape(encodeURIComponent(details.user + ':' + (details.password || ''))));
       }
       if (details.cookie) headers['Cookie'] = details.cookie;
+
       var onResult = function (res) {
-        if (aborted) return;
+        if (aborted || finished) return;
         finished = true;
         if (res.state === 'abort') return;
+
+        // Decode payload once; both onprogress and buildResponse reuse it.
+        var bodyBytes = res.bytes || b64ToBytes(res.body || '');
+
         if (res.state === 'load') {
           var resp = buildResponse(res, details, 4);
           safeCall(details.onreadystatechange, details, [resp], 'onreadystatechange');
           safeCall(details.onprogress, details, [{
-            lengthComputable: true, loaded: (res.bytes || b64ToBytes(res.body)).length,
-            total: (res.bytes || b64ToBytes(res.body)).length, done: 1, position: 0, totalSize: 0,
-            finalUrl: resp.finalUrl, context: details.context, status: resp.status, readyState: 4, response: resp.response, responseHeaders: resp.responseHeaders, responseText: resp.responseText, statusText: resp.statusText
+            lengthComputable: true,
+            loaded: bodyBytes.length,
+            total: bodyBytes.length,
+            done: 1, position: 0, totalSize: 0,
+            finalUrl: resp.finalUrl, context: details.context, status: resp.status,
+            readyState: 4, response: resp.response,
+            responseHeaders: resp.responseHeaders, responseText: resp.responseText,
+            statusText: resp.statusText
           }], 'onprogress');
           safeCall(details.onload, details, [resp], 'onload');
           safeCall(details.onloadend, details, [resp], 'onloadend');
           if (details.__resolve) details.__resolve(resp);
         } else {
-          var err = { readyState: 4, status: 0, statusText: '', responseText: '', response: null, responseHeaders: '', finalUrl: url, context: details.context, error: res.error || 'Network error' };
+          var err = {
+            readyState: 4, status: 0, statusText: '', responseText: '', response: null,
+            responseHeaders: '', finalUrl: url, context: details.context,
+            error: res.error || 'Network error'
+          };
           safeCall(details.onreadystatechange, details, [err], 'onreadystatechange');
           if (res.state === 'timeout') safeCall(details.ontimeout, details, [err], 'ontimeout');
           else safeCall(details.onerror, details, [err], 'onerror');
@@ -408,8 +608,10 @@
           if (details.__reject) details.__reject(err);
         }
       };
+
       var useBridge = bridge && typeof bridge.xhrStart === 'function' && /^https?:/i.test(url);
-      if (!useBridge) { fetchFallback(url, method, headers, prep.b64, onResult); return; }
+      if (!useBridge) { fetchFallback(url, method, headers, prep.b64, details, onResult); return; }
+
       var opts = {
         url: url, method: method, headers: headers, timeout: details.timeout || 0,
         anonymous: !!details.anonymous, ua: navigator.userAgent, lang: navigator.language,
@@ -417,15 +619,15 @@
       };
       try { bridge.xhrStart(reqId, JSON.stringify(opts), prep.b64); }
       catch (e) { onResult({ state: 'error', error: String(e) }); return; }
-      pollXhr(reqId, onResult);
+      pollHandle = pollXhr(reqId, onResult);
     });
+
     return ctl;
   }
   function promisifyXhr(details) {
     var ctl;
     var p = new Promise(function (resolve, reject) {
-      var d = {};
-      Object.keys(details || {}).forEach(function (k) { d[k] = details[k]; });
+      var d = shallowCopy(details);
       d.__resolve = resolve; d.__reject = reject;
       ctl = GM_xmlhttpRequest(d);
     });
@@ -438,41 +640,169 @@
     var det = (a && typeof a === 'object') ? a : { text: a, title: b, image: c, onclick: d };
     var title = det.title ? String(det.title) : '';
     var text = det.text !== undefined ? String(det.text) : '';
-    try { if (bridge) bridge.toast(title ? title + '：' + text : text); } catch (e) {}
-    if (typeof det.ondone === 'function') _setTimeout(function () { safeCall(det.ondone, det, [false], 'ondone'); }, 3500);
-    if (typeof b === 'function') _setTimeout(function () { safeCall(b, null, [], 'ondone'); }, 3500);
+
+    if (bridge && typeof bridge.notification === 'function') {
+      var cbId = 'ntf_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+      setCb('__mafariNtfCallback_' + cbId, function (kind) {
+        delCb('__mafariNtfCallback_' + cbId);
+        if (kind === 'click' && typeof det.onclick === 'function') safeCall(det.onclick, det, [], 'onclick');
+        if (typeof det.ondone === 'function') safeCall(det.ondone, det, [kind === 'click'], 'ondone');
+      });
+      try {
+        bridge.notification(JSON.stringify({
+          title: title, text: text, image: det.image || '',
+          timeout: det.timeout || 0, tag: det.tag || '',
+          highlight: !!det.highlight, silent: !!det.silent
+        }), cbId);
+        return;
+      } catch (e) {}
+    }
+
+    // Fallback: toast only; do NOT fake ondone.
+    try { if (bridge && typeof bridge.toast === 'function') bridge.toast(title ? title + '：' + text : text); } catch (e) {}
   }
+
   function GM_openInTab(url, opts) {
-    try { if (bridge) bridge.openTab(absUrl(url)); else W.open(absUrl(url), '_blank'); } catch (e) {}
-    var tab = { closed: false, onclose: null, close: function () { tab.closed = true; } };
+    var abs = absUrl(url);
+    var options = (opts && typeof opts === 'object') ? opts : { active: opts !== false };
+    var tabId = '', winRef = null;
+    try {
+      if (bridge && typeof bridge.openTab === 'function') {
+        try {
+          var raw = bridge.openTab(abs, JSON.stringify({
+            active: options.active !== false,
+            insert: !!options.insert,
+            setParent: !!options.setParent
+          }));
+          if (raw !== null && raw !== undefined) tabId = String(raw);
+        } catch (e) { try { bridge.openTab(abs); } catch (e2) {} }
+      } else {
+        winRef = W.open(abs, '_blank');
+      }
+    } catch (e) {}
+
+    var closed = false;
+    var handlers = [];
+    var tab = {
+      onclose: null,
+      close: function () {
+        if (closed) return;
+        closed = true;
+        try {
+          if (tabId && bridge && typeof bridge.closeTab === 'function') bridge.closeTab(tabId);
+          else if (winRef) winRef.close();
+        } catch (e) {}
+        if (typeof tab.onclose === 'function') safeCall(tab.onclose, tab, [], 'onclose');
+        for (var i = 0; i < handlers.length; i++) safeCall(handlers[i], tab, [], 'onclose');
+      },
+      addEventListener: function (ev, fn) {
+        if (ev === 'close' && typeof fn === 'function') handlers.push(fn);
+      },
+      removeEventListener: function (ev, fn) {
+        var i = handlers.indexOf(fn);
+        if (i >= 0) handlers.splice(i, 1);
+      }
+    };
+    Object.defineProperty(tab, 'closed', {
+      enumerable: true,
+      get: function () { return closed; }
+    });
     return tab;
   }
-  function GM_setClipboard(data) {
+
+  function GM_setClipboard(data, info) {
     var text = String(data);
-    try { if (bridge && typeof bridge.copy === 'function') { bridge.copy(text); return; } } catch (e) {}
-    try { navigator.clipboard.writeText(text); } catch (e) {
+    var type = (info && typeof info === 'object' ? info.type : info) || 'text/plain';
+    if (type === 'text/html') {
+      if (bridge && typeof bridge.copyHtml === 'function') {
+        try { bridge.copyHtml(text); return; } catch (e) {}
+      }
+      try {
+        if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+          navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([text], { type: 'text/html' }) })]).catch(function () {});
+          return;
+        }
+      } catch (e) {}
+    }
+    if (bridge && typeof bridge.copy === 'function') {
+      try { bridge.copy(text); return; } catch (e) {}
+    }
+    try { navigator.clipboard.writeText(text); return; } catch (e) {}
+    try {
       var ta = document.createElement('textarea');
-      ta.value = text; document.documentElement.appendChild(ta); ta.select();
+      ta.value = text;
+      document.documentElement.appendChild(ta);
+      ta.select();
       try { document.execCommand('copy'); } catch (e2) {}
       ta.remove();
-    }
+    } catch (e) {}
   }
+
   function GM_download(a, b) {
     var det = (a && typeof a === 'object') ? a : { url: a, name: b };
     var url = absUrl(det.url);
     var name = det.name || '';
-    var ctl = { abort: function () {} };
-    try {
-      if (/^(blob|data):/i.test(url) || !bridge || typeof bridge.download !== 'function') {
-        var an = document.createElement('a');
-        an.href = url; an.download = name || '';
-        document.documentElement.appendChild(an); an.click(); an.remove();
-      } else {
-        bridge.download(url, String(name));
+    var aborted = false;
+    var done = false;
+
+    function success() {
+      if (aborted || done) return;
+      done = true;
+      safeCall(det.onload, det, [{ finalUrl: url, readyState: 4, status: 200 }], 'onload');
+      safeCall(det.ondownload, det, [{ finalUrl: url, readyState: 4, status: 200 }], 'ondownload');
+    }
+    function failure(err) {
+      if (aborted || done) return;
+      done = true;
+      safeCall(det.onerror, det, [{ error: err || 'not_succeeded', details: String(err), finalUrl: url }], 'onerror');
+    }
+
+    var ctl = {
+      abort: function () {
+        if (aborted || done) return;
+        aborted = true;
+        try {
+          if (bridge && typeof bridge.downloadAbort === 'function') bridge.downloadAbort(url);
+        } catch (e) {}
       }
-    } catch (e) { safeCall(det.onerror, det, [{ error: 'not_succeeded', details: String(e) }], 'onerror'); }
+    };
+
+    var isLocalScheme = /^(blob|data):/i.test(url);
+    var canNative = !isLocalScheme && bridge && typeof bridge.download === 'function';
+
+    if (!canNative) {
+      try {
+        var an = document.createElement('a');
+        an.href = url;
+        an.download = name || '';
+        document.documentElement.appendChild(an);
+        an.click();
+        an.remove();
+        _setTimeout(success, 0);
+      } catch (e) { failure(String(e)); }
+      return ctl;
+    }
+
+    // Prefer async native download (real onload/onerror).
+    if (typeof bridge.downloadAsync === 'function') {
+      var cbId = 'dl_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+      setCb('__mafariDlCallback_' + cbId, function (ok, err) {
+        delCb('__mafariDlCallback_' + cbId);
+        if (ok) success(); else failure(err || 'download failed');
+      });
+      try { bridge.downloadAsync(url, name, cbId); }
+      catch (e) { delCb('__mafariDlCallback_' + cbId); failure(String(e)); }
+      return ctl;
+    }
+
+    // Legacy: fire-and-forget; caller receives no onload, only synchronous onerror.
+    try {
+      bridge.download(url, String(name));
+    } catch (e) { failure(String(e)); }
     return ctl;
   }
+
+  // ------------------------------------------------------------------ menu
   var menu = W.__mafariMenu;
   if (!menu) {
     menu = { seq: 0, cmds: {} };
@@ -496,40 +826,79 @@
     });
   }
   function GM_registerMenuCommand(name, fn, opts) {
-    var id = META.id + ':' + (++menu.seq);
+    var optsObj = (opts && typeof opts === 'object') ? opts : null;
+    var id = (optsObj && optsObj.id) ? String(optsObj.id) : (META.id + ':' + (++menu.seq));
     var title = String(name);
-    if (opts && typeof opts === 'object' && opts.title) title = String(opts.title);
-    menu.cmds[id] = { title: title, fn: fn, script: META.name };
+    if (optsObj && optsObj.title) title = String(optsObj.title);
+    menu.cmds[id] = {
+      title: title, fn: fn, script: META.name,
+      accessKey: optsObj && optsObj.accessKey ? String(optsObj.accessKey) : null,
+      autoClose: !!(optsObj && optsObj.autoClose)
+    };
     return id;
   }
   function GM_unregisterMenuCommand(id) { delete menu.cmds[id]; }
 
+  // ------------------------------------------------------------------ tabs
   var tabObj = {};
   function GM_getTab(cb) { safeCall(cb, null, [tabObj]); }
   function GM_saveTab(o) { tabObj = o || {}; }
   function GM_getTabs(cb) { var t = {}; t[0] = tabObj; safeCall(cb, null, [t]); }
 
+  // ------------------------------------------------------------------ cookies
   function cookieHost(url) { try { return new URL(url).hostname; } catch (e) { return W.location.hostname; } }
+  function documentCookies(url, nameFilter) {
+    var out = [];
+    try {
+      var s = bridge && typeof bridge.cookies === 'function' ? bridge.cookies(url) : document.cookie;
+      String(s || '').split(/;\s*/).forEach(function (kv) {
+        if (!kv) return;
+        var i = kv.indexOf('=');
+        var n = i < 0 ? kv : kv.slice(0, i);
+        var v = i < 0 ? '' : kv.slice(i + 1);
+        if (nameFilter && nameFilter !== n) return;
+        out.push({
+          name: n, value: v, domain: cookieHost(url), hostOnly: true,
+          path: '/', secure: /^https:/.test(url), httpOnly: false, session: true
+        });
+      });
+    } catch (e) {}
+    return out;
+  }
   var GM_cookie = {
     list: function (details, cb) {
       details = details || {};
       var url = details.url || W.location.href;
-      var out = [];
-      try {
-        var s = bridge && typeof bridge.cookies === 'function' ? bridge.cookies(url) : document.cookie;
-        String(s || '').split(/;\s*/).forEach(function (kv) {
-          if (!kv) return;
-          var i = kv.indexOf('=');
-          var n = i < 0 ? kv : kv.slice(0, i), v = i < 0 ? '' : kv.slice(i + 1);
-          if (details.name && details.name !== n) return;
-          out.push({ name: n, value: v, domain: cookieHost(url), hostOnly: true, path: '/', secure: /^https:/.test(url), httpOnly: false, session: true });
-        });
-      } catch (e) {}
-      safeCall(cb, null, [out, undefined]);
+      if (bridge && typeof bridge.cookieList === 'function') {
+        try {
+          var raw = bridge.cookieList(url);
+          if (raw) {
+            var arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (Array.isArray(arr)) {
+              if (details.name) arr = arr.filter(function (c) { return c.name === details.name; });
+              safeCall(cb, null, [arr, undefined]);
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+      safeCall(cb, null, [documentCookies(url, details.name), undefined]);
     },
     set: function (details, cb) {
       try {
+        details = details || {};
         var url = details.url || W.location.href;
+        if (bridge && typeof bridge.cookieSet === 'function') {
+          bridge.cookieSet(JSON.stringify({
+            url: url, name: details.name, value: details.value || '',
+            domain: details.domain || null, path: details.path || '/',
+            secure: !!details.secure, httpOnly: !!details.httpOnly,
+            expirationDate: details.expirationDate || null,
+            sameSite: details.sameSite || null
+          }));
+          safeCall(cb, null, [undefined]);
+          return;
+        }
         var c = details.name + '=' + (details.value || '') + '; path=' + (details.path || '/');
         if (details.domain) c += '; domain=' + details.domain;
         if (details.secure) c += '; secure';
@@ -540,37 +909,77 @@
     },
     delete: function (details, cb) {
       try {
+        details = details || {};
         var url = details.url || W.location.href;
+        if (bridge && typeof bridge.cookieSet === 'function') {
+          bridge.cookieSet(JSON.stringify({
+            url: url, name: details.name, value: '',
+            domain: details.domain || null, path: details.path || '/',
+            expirationDate: 0
+          }));
+          safeCall(cb, null, [undefined]);
+          return;
+        }
         var c = details.name + '=; path=' + (details.path || '/') + '; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        if (details.domain) c += '; domain=' + details.domain;
         if (bridge && typeof bridge.setCookie === 'function') bridge.setCookie(url, c); else document.cookie = c;
         safeCall(cb, null, [undefined]);
       } catch (e) { safeCall(cb, null, [String(e)]); }
     }
   };
 
-  if (META.grant && META.grant.indexOf('window.onurlchange') >= 0 && !W.__mafariUrlWatch) {
-    W.__mafariUrlWatch = true;
-    try { W.onurlchange = null; } catch (e) {}
-    var lastHref = W.location.href;
-    var notify = function () {
-      var now = W.location.href;
-      if (now === lastHref) return;
-      lastHref = now;
-      var ev = new Event('urlchange');
-      ev.url = now;
-      try { W.dispatchEvent(ev); } catch (e) {}
-      if (typeof W.onurlchange === 'function') safeCall(W.onurlchange, W, [ev], 'onurlchange');
-    };
-    ['pushState', 'replaceState'].forEach(function (m) {
-      var orig = W.history[m];
-      W.history[m] = function () { var r = orig.apply(this, arguments); notify(); return r; };
-    });
-    W.addEventListener('popstate', notify);
-    W.addEventListener('hashchange', notify);
+  // ------------------------------------------------------------------ onurlchange (shared across scripts)
+  if (META.grant && META.grant.indexOf('window.onurlchange') >= 0) {
+    var state = W.__mafariUrlWatchState;
+    if (!state) {
+      state = W.__mafariUrlWatchState = {
+        subs: [],
+        lastHref: W.location.href,
+        currentOnUrlChange: null
+      };
+      var notify = function () {
+        var now = W.location.href;
+        if (now === state.lastHref) return;
+        state.lastHref = now;
+        var ev = new Event('urlchange');
+        ev.url = now;
+        try { W.dispatchEvent(ev); } catch (e) {}
+        var subs = state.subs.slice();
+        for (var i = 0; i < subs.length; i++) safeCall(subs[i], W, [ev], 'onurlchange');
+      };
+      ['pushState', 'replaceState'].forEach(function (m) {
+        var orig = W.history[m];
+        W.history[m] = function () { var r = orig.apply(this, arguments); notify(); return r; };
+      });
+      W.addEventListener('popstate', notify);
+      W.addEventListener('hashchange', notify);
+      // Intercept assignment so multiple scripts can each supply their own handler.
+      try {
+        Object.defineProperty(W, 'onurlchange', {
+          configurable: true,
+          get: function () { return state.currentOnUrlChange; },
+          set: function (fn) {
+            state.currentOnUrlChange = fn;
+            if (typeof fn === 'function' && state.subs.indexOf(fn) < 0) state.subs.push(fn);
+          }
+        });
+      } catch (e) {}
+    }
+    // Nothing to register per-script; assignment of W.onurlchange is intercepted globally.
   }
 
-  // ------------------------------------------------------------------ GM_info / GM object
+  // ------------------------------------------------------------------ GM_info / GM
   var m = META.meta || {};
+
+  function detectPlatform() {
+    var ua = navigator.userAgent || '';
+    if (/Firefox/i.test(ua)) return 'firefox';
+    if (/Edg\//.test(ua)) return 'edge';
+    if (/OPR\//.test(ua)) return 'opera';
+    if (/Safari/.test(ua) && !/Chrome/.test(ua)) return 'safari';
+    return 'chrome';
+  }
+
   var GM_info = {
     scriptHandler: 'Tampermonkey',
     version: '5.3.3',
@@ -580,6 +989,7 @@
     isFirstPartyIsolation: false,
     downloadMode: 'native',
     scriptWillUpdate: false,
+    platform: detectPlatform(),
     scriptMetaStr: META.metaBlock || '',
     script: {
       name: META.name,
@@ -595,7 +1005,9 @@
       'exclude-match': META.excludeMatch || [],
       grant: META.grant || [],
       require: META.require || [],
-      resources: Object.keys(META.resources || {}).map(function (n) { return { name: n, url: META.resources[n].url }; }),
+      resources: Object.keys(META.resources || {}).map(function (n) {
+        return { name: n, url: META.resources[n].url };
+      }),
       'run-at': META.runAt,
       noframes: !!META.noframes,
       uuid: META.id,
@@ -614,12 +1026,14 @@
       });
     };
   }
+
   // 原生流式写文件：写入 Download/mafari，逐段落盘，不占内存。返回 Promise<{name, write, close, abort}>
   function openFileStream(name, mime) {
     return new Promise(function (resolve, reject) {
       if (!bridge || typeof bridge.streamOpen !== 'function') { reject(new Error('unsupported')); return; }
       var info;
-      try { info = JSON.parse(bridge.streamOpen(String(name || ''), String(mime || ''))); } catch (e) { reject(e); return; }
+      try { info = JSON.parse(bridge.streamOpen(String(name || ''), String(mime || ''))); }
+      catch (e) { reject(e); return; }
       if (!info || !info.id) { reject(new Error((info && info.error) || 'open failed')); return; }
       var id = info.id, closed = false;
       resolve({
@@ -631,7 +1045,9 @@
           var chain = Promise.resolve();
           for (var off = 0; off < blob.size; off += SLICE) {
             (function (o) {
-              chain = chain.then(function () { return blob.slice(o, o + SLICE).arrayBuffer(); }).then(function (buf) {
+              chain = chain.then(function () {
+                return blob.slice(o, o + SLICE).arrayBuffer();
+              }).then(function (buf) {
                 var err = bridge.streamWrite(id, bytesToB64(new Uint8Array(buf)));
                 if (err) throw new Error(err);
               });
@@ -654,19 +1070,38 @@
       });
     });
   }
+
+  // GM.download returns a Promise resolving to a handle; abort is on the promise.
+  function GM_download_promise(details) {
+    var innerAbort = null;
+    var promise = new Promise(function (resolve, reject) {
+      var d = shallowCopy(details);
+      d.onload = function (r) { resolve(r); };
+      d.onerror = function (e) { reject(e); };
+      d.ontimeout = function (e) { reject(e); };
+      var ctl = GM_download(d);
+      innerAbort = ctl.abort;
+    });
+    promise.abort = function () { if (innerAbort) innerAbort(); };
+    return promise;
+  }
+
   var GM = {
     openFileStream: openFileStream,
     info: GM_info,
     getValue: p(GM_getValue), setValue: p(GM_setValue), deleteValue: p(GM_deleteValue),
-    listValues: p(GM_listValues), getValues: p(GM_getValues), setValues: p(GM_setValues), deleteValues: p(GM_deleteValues),
+    listValues: p(GM_listValues), getValues: p(GM_getValues),
+    setValues: p(GM_setValues), deleteValues: p(GM_deleteValues),
     addValueChangeListener: p(GM_addValueChangeListener), removeValueChangeListener: p(GM_removeValueChangeListener),
     addStyle: p(GM_addStyle), addElement: p(GM_addElement),
-    getResourceText: p(GM_getResourceText), getResourceUrl: p(GM_getResourceURL), getResourceURL: p(GM_getResourceURL),
+    getResourceText: p(GM_getResourceText),
+    getResourceUrl: p(GM_getResourceURL), getResourceURL: p(GM_getResourceURL),
     xmlHttpRequest: promisifyXhr, xmlhttpRequest: promisifyXhr,
     notification: p(GM_notification), openInTab: p(GM_openInTab), setClipboard: p(GM_setClipboard),
-    download: GM_download,
+    download: GM_download_promise,
     registerMenuCommand: p(GM_registerMenuCommand), unregisterMenuCommand: p(GM_unregisterMenuCommand),
-    getTab: p(function () { return tabObj; }), saveTab: p(GM_saveTab), getTabs: p(function () { var t = {}; t[0] = tabObj; return t; }),
+    getTab: p(function () { return tabObj; }), saveTab: p(GM_saveTab),
+    getTabs: p(function () { var t = {}; t[0] = tabObj; return t; }),
     cookie: {
       list: function (d) { return new Promise(function (res, rej) { GM_cookie.list(d, function (l, e) { e ? rej(e) : res(l); }); }); },
       set: function (d) { return new Promise(function (res, rej) { GM_cookie.set(d, function (e) { e ? rej(e) : res(); }); }); },
@@ -695,14 +1130,21 @@ __MAFARI_CODE__
         GM_addValueChangeListener, GM_removeValueChangeListener, GM_addStyle, GM_addElement,
         GM_getResourceText, GM_getResourceURL, GM_xmlhttpRequest, GM_notification, GM_openInTab,
         GM_setClipboard, GM_download, GM_registerMenuCommand, GM_unregisterMenuCommand,
-        GM_getTab, GM_saveTab, GM_getTabs, GM_cookie, function () { try { console.log.apply(console, arguments); } catch (e) {} },
+        GM_getTab, GM_saveTab, GM_getTabs, GM_cookie,
+        function () { try { console.log.apply(console, arguments); } catch (e) {} },
         GM, W, undefined, undefined, undefined);
     } catch (err) {
       log('error', (err && err.stack) || (err && err.message) || err);
       return;
     }
     if (result && typeof result.then === 'function') {
-      result.then(null, function (err) { log('error', (err && err.stack) || (err && err.message) || err); });
+      try {
+        result.then(null, function (err) {
+          log('error', (err && err.stack) || (err && err.message) || err);
+        });
+      } catch (e) {
+        log('error', 'then threw: ' + (e && e.message));
+      }
     }
   }
 
@@ -717,7 +1159,14 @@ __MAFARI_CODE__
   }
   (function schedule() {
     var ra = META.runAt || 'document-idle';
-    var go = (function () { var done = false; return function () { if (done) return; done = true; execute(); }; })();
+    var go = (function () {
+      var done = false;
+      return function () {
+        if (done) return;
+        done = true;
+        try { execute(); } catch (e) { log('error', (e && e.stack) || e); }
+      };
+    })();
     if (ra === 'document-start') { go(); }
     else if (ra === 'document-body') { waitBody(go); }
     else if (ra === 'document-end') {

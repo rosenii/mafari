@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        GmNotifications.consumeClick(intent)
         consumeOpenDownloads(intent)
         consumeViewIntent(intent)
     }

@@ -472,8 +472,14 @@ class BrowserTab(
         }
     }
 
-    /** 打开新标签页（GM_openInTab 用） */
-    var onOpenNewTab: ((String) -> Unit)? = null
+    /** 打开新标签页（GM_openInTab 用）：桥生成的 [id]、地址、是否切到前台 */
+    var onGmOpenTab: ((id: String, url: String, active: Boolean) -> Unit)? = null
+
+    /** 关闭 [onGmOpenTab] 打开的标签（GM_openInTab 返回对象的 close()） */
+    var onGmCloseTab: ((id: String) -> Unit)? = null
+
+    /** GM_download：带结果回调的下载请求（走与普通下载相同的确认弹窗） */
+    var onGmDownload: ((url: String, name: String, onResult: ((Boolean, String?) -> Unit)?) -> Unit)? = null
 
     private val scriptHandlers = mutableListOf<androidx.webkit.ScriptHandler>()
     private var installedScriptsSignature = ""
@@ -699,15 +705,22 @@ class BrowserTab(
                 GmBridge(
                     appContext,
                     { webView },
-                    { target -> onOpenNewTab?.invoke(target) },
-                    { link, name ->
-                        onDownload?.invoke(
-                            link,
-                            null,
-                            if (name.isBlank()) null else "attachment; filename=\"$name\"",
-                            null,
-                        )
+                    { id, target, active -> onGmOpenTab?.invoke(id, target, active) },
+                    { link, name, onResult ->
+                        val gm = onGmDownload
+                        if (gm != null) {
+                            gm(link, name, onResult)
+                        } else {
+                            onDownload?.invoke(
+                                link,
+                                null,
+                                if (name.isBlank()) null else "attachment; filename=\"$name\"",
+                                null,
+                            )
+                            onResult?.invoke(false, "unsupported")
+                        }
                     },
+                    { id -> onGmCloseTab?.invoke(id) },
                 ),
                 "MafariGM",
             )
@@ -2454,7 +2467,16 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         // 页面自己要开的新标签（window.open / 允许的重定向 / GM_openInTab）以它为 opener
         tab.onOpenInNewTab = { u -> newTab(u, tab.incognito, tab, fromLink = true) }
         tab.onRequestClose = { closeTab(tabs.indexOf(tab)) }
-        tab.onOpenNewTab = tab.onOpenInNewTab
+        tab.onGmOpenTab = { id, u, active ->
+            val opened = openTabInternal(u, tab.incognito, tab, fromLink = active, makeActive = active)
+            if (opened != null) gmTabs[id] = opened
+        }
+        tab.onGmCloseTab = { id ->
+            gmTabs.remove(id)?.let { t ->
+                val i = tabs.indexOf(t)
+                if (i >= 0) closeTab(i)
+            }
+        }
         return tab
     }
 
@@ -2469,9 +2491,20 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         /** 由页面里的链接打开：第一页返回直接关闭并回到 opener，不经过本标签的主页 */
         fromLink: Boolean = false,
     ) {
+        openTabInternal(target, incognito, opener, fromLink, makeActive = true)
+    }
+
+    /** [newTab] 的实现；[makeActive] = false 为后台打开（GM_openInTab({ active: false })），返回新标签（没建成返回 null） */
+    private fun openTabInternal(
+        target: String,
+        incognito: Boolean,
+        opener: BrowserTab?,
+        fromLink: Boolean,
+        makeActive: Boolean,
+    ): BrowserTab? {
         if (target.isEmpty()) {
             val cur = tabs.getOrNull(activeIndex)
-            if (cur != null && cur.isBlank && cur.incognito == incognito) return
+            if (cur != null && cur.isBlank && cur.incognito == incognito) return null
         }
         if (tabs.size >= MAX_TABS) {
             android.widget.Toast.makeText(
@@ -2479,16 +2512,20 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
                 "最多同时打开 $MAX_TABS 个标签页",
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
-            return
+            return null
         }
         // 切走前给当前标签拍一张缩略图
-        tabs.getOrNull(activeIndex)?.captureThumbnailNow()
+        if (makeActive) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
         val tab = createTab(incognito, opener)
         tab.openedFromLink = fromLink && opener != null && target.isNotEmpty()
         tabs.add(tab)
-        activate(tabs.lastIndex)
+        if (makeActive) activate(tabs.lastIndex)
         if (target.isNotEmpty()) tab.load(target)
+        return tab
     }
+
+    /** GM_openInTab 返回的 id → 标签；仅主线程访问，标签被移除时一并清掉 */
+    private val gmTabs = HashMap<String, BrowserTab>()
 
     /** 站点标识：小写 host，忽略开头的 www. */
     private fun siteKey(url: String): String? {
@@ -2592,6 +2629,7 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
     /** 从列表里摘掉一个标签（不负责挑选下一个当前标签） */
     private fun detach(tab: BrowserTab) {
         tabs.remove(tab)
+        gmTabs.values.removeAll { it === tab }
         recentIds.remove(tab.id)
         // 以它为 opener 的标签改挂到它的 opener 上，层级链不断
         tabs.forEach { if (it.openerId == tab.id) it.openerId = tab.openerId }

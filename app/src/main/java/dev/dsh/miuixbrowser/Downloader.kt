@@ -81,8 +81,24 @@ object Downloader {
         return if (ext.isNullOrBlank()) name else truncateName("$name.$ext", 80)
     }
 
-    fun start(context: Context, url: String, userAgent: String?, fileName: String, mimeType: String?) {
+    /** 终态回调（GM_download 的 onload / onerror）：完成、最终失败、被删除各触发一次；暂停不算终态 */
+    private val completions = ConcurrentHashMap<Long, (Boolean, String?) -> Unit>()
+
+    private fun settle(id: Long, ok: Boolean, error: String? = null) {
+        val cb = completions.remove(id) ?: return
+        android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { cb(ok, error) } }
+    }
+
+    fun start(
+        context: Context,
+        url: String,
+        userAgent: String?,
+        fileName: String,
+        mimeType: String?,
+        onComplete: ((ok: Boolean, error: String?) -> Unit)? = null,
+    ) {
         val task = DownloadTask(name = fileName, url = url, userAgent = userAgent, mime = mimeType)
+        if (onComplete != null) completions[task.id] = onComplete
         tasks.add(0, task)
         DownloadService.start(context)
         DownloadService.instance?.showStart(fileName, task.id)
@@ -116,6 +132,7 @@ object Downloader {
         runCatching { tempFile(context, id).delete() }
         runCatching { segFile(context, id).delete() }
         tasks.removeAll { it.id == id }
+        settle(id, false, "cancelled")
     }
 
     private fun tempFile(context: Context, id: Long) =
@@ -142,6 +159,7 @@ object Downloader {
                     downloadOnce(context, id)
                     val finished = tasks.firstOrNull { it.id == id }
                     update(id) { it.copy(state = DownloadState.DONE) }
+                    settle(id, true)
                     DownloadService.instance?.finish(finished?.name ?: "文件")
                     toast(context, "下载完成：${finished?.name ?: "文件"}")
                     return@launch
@@ -152,6 +170,7 @@ object Downloader {
                     val message = e.message ?: e.javaClass.simpleName
                     if (attempt >= MAX_ATTEMPTS) {
                         update(id) { it.copy(state = DownloadState.FAILED, error = message) }
+                        settle(id, false, message)
                         DownloadService.instance?.fail("下载失败：$message")
                         return@launch
                     }

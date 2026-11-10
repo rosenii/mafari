@@ -492,16 +492,19 @@ class WebAppActivity : ComponentActivity() {
                 GmBridge(
                     applicationContext,
                     { webView },
-                    { target ->
+                    // 轻应用把链接交给外部浏览器：没有可追踪的标签，id 用不上（close 为空操作）
+                    { _, target, _ ->
                         val uri = runCatching { Uri.parse(target) }.getOrNull()
                         val scheme = uri?.scheme?.lowercase()
                         if (uri != null && (scheme == "http" || scheme == "https")) openInBrowser(uri)
                     },
-                    { link, name ->
+                    { link, name, onResult ->
                         if (link.startsWith("http", ignoreCase = true)) {
                             val fileName = name.ifBlank { Downloader.fileNameFrom(link, null) }
-                            Downloader.start(this, link, null, fileName, null)
+                            Downloader.start(this, link, null, fileName, null, onResult)
                             Toast.makeText(this, "已开始下载，可在 Mafari「下载」中查看", Toast.LENGTH_SHORT).show()
+                        } else {
+                            onResult?.invoke(false, "unsupported url")
                         }
                     },
                 ),
