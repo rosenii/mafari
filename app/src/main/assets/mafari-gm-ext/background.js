@@ -172,7 +172,8 @@ function authorize(m, sender) {
 const pending = new Map(); // reqId -> { ctl, headers, pol, blocked }
 const OVERRIDE = /^(cookie|referer|origin|user-agent)$/i; // fetch 禁止直接设置，交给 webRequest 改写
 const METHODS = /^(GET|HEAD|POST|PUT|DELETE|PATCH|OPTIONS)$/;
-const REQ_ID = /^[A-Za-z0-9_\-]{1,80}$/;
+// 运行时生成的 reqId 形如「脚本id:时间戳随机串」（含冒号），这里只需保证它能安全放进 header 值、长度有界
+const REQ_ID = /^[A-Za-z0-9_:.\-]{1,200}$/;
 const MAX_BODY_B64 = 48 * 1024 * 1024;   // 请求体 base64 上限（约 36MB）
 const MAX_RESPONSE = 48 * 1024 * 1024;   // 响应体上限，防止撑爆后台页 / 通道
 const MAX_PENDING_PER_SCRIPT = 32;
