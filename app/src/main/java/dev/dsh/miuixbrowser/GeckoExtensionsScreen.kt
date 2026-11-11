@@ -348,7 +348,7 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                             )
                         }
                         item {
-                            HintText("拓展由Gecko内核运行，搜索结果来源于Firefox拓展商店。")
+                            HintText("拓展由Gecko内核运行，搜索结果来源于Firefox拓展商店，APP已原生支持油猴脚本，请勿再安装其它如**猴等油猴脚本类拓展程序")
                         }
                     }
                 }
