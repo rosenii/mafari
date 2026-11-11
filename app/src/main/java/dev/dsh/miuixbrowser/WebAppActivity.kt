@@ -433,7 +433,11 @@ class WebAppActivity : ComponentActivity() {
         webView.setDownloadListener { link, userAgent, disposition, mime, _ ->
             if (link.startsWith("http", ignoreCase = true)) {
                 val name = Downloader.withExtension(Downloader.fileNameFrom(link, disposition), mime)
-                Downloader.start(this, link, userAgent, name, mime)
+                Downloader.start(
+                    this, link, userAgent, name, mime,
+                    referer = webView.url,
+                    withCookies = true,
+                )
                 Toast.makeText(this, "已开始下载，可在 Mafari「下载」中查看", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "这类下载请在 Mafari 浏览器中打开该网站再试", Toast.LENGTH_LONG).show()
@@ -501,7 +505,11 @@ class WebAppActivity : ComponentActivity() {
                     { link, name, onResult ->
                         if (link.startsWith("http", ignoreCase = true)) {
                             val fileName = name.ifBlank { Downloader.fileNameFrom(link, null) }
-                            Downloader.start(this, link, null, fileName, null, onResult)
+                            Downloader.start(
+                                this, link, runCatching { webView.settings.userAgentString }.getOrNull(), fileName, null, onResult,
+                                referer = webView.url,
+                                withCookies = true,
+                            )
                             Toast.makeText(this, "已开始下载，可在 Mafari「下载」中查看", Toast.LENGTH_SHORT).show()
                         } else {
                             onResult?.invoke(false, "unsupported url")

@@ -30,7 +30,8 @@ class DownloadService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        return START_STICKY
+        // 进程被杀后下载任务已落盘、恢复成暂停，不需要系统用空 intent 重启出一个空转的前台服务
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
