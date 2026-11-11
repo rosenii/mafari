@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | 渲染内核 | 系统 WebView，**不内嵌任何浏览器内核**，安装包小 | 内嵌 **GeckoView（Nightly）**，并保留系统 WebView，支持双内核切换 |
 | 设备要求 | 所有支持的 Android 设备 | 内核仅 arm64-v8a；其它架构自动使用 WebView |
-| 增强 | 油猴脚本 | 油猴脚本 + Firefox 扩展（AMO / `.xpi`） |
+| 扩展 | 油猴脚本 | 油猴脚本 + Firefox 扩展（AMO / `.xpi`） |
 | 去广告 | 内置规则引擎 | WebView 标签可用；Gecko 标签使用内置跟踪保护或自行安装 uBlock Origin |
 | 发布 | 打 tag 自动发布正式版 | `gecko` 分支每次构建发布预发布版 |
 
@@ -133,6 +133,8 @@ git tag v3.3.0 && git push origin v3.3.0
 | `STORE_PASSWORD` | keystore 口令 |
 | `KEY_ALIAS` | key 别名 |
 | `KEY_PASSWORD` | key 口令 |
+| `TELEGRAM_BOT_TOKEN` | 可选：Telegram 机器人 token（机器人需是频道管理员）；配置后正式版与预发布会同步推送到频道 |
+| `TELEGRAM_CHAT_ID` | 可选：频道 ID，默认 `@mafari_a` |
 
 ## 许可证
 
@@ -271,6 +273,8 @@ Optional signing secrets (a debug build is produced without them):
 | `STORE_PASSWORD` | keystore password |
 | `KEY_ALIAS` | key alias |
 | `KEY_PASSWORD` | key password |
+| `TELEGRAM_BOT_TOKEN` | Optional: Telegram bot token (the bot must be a channel admin); when set, stable releases and pre-releases are also pushed to the channel |
+| `TELEGRAM_CHAT_ID` | Optional: channel ID, defaults to `@mafari_a` |
 
 ## License
 

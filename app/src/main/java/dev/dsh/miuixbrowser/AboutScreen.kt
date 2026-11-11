@@ -79,6 +79,18 @@ fun AboutScreen(
     onUpdateChannelChange: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
+    // 优先交给已安装的 Telegram 客户端（不能用无包名的 ACTION_VIEW：本应用自己可能就是默认浏览器），都没有再用应用内标签打开
+    val openTelegram: (String) -> Unit = { url ->
+        val opened = listOf("org.telegram.messenger", "org.telegram.messenger.web", "org.thunderdog.challegram", "org.telegram.plus")
+            .any { pkg ->
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage(pkg),
+                    )
+                }.isSuccess
+            }
+        if (!opened) onOpenUrl(url)
+    }
     val scope = rememberCoroutineScope()
     val kernel = webViewVersion() ?: "未知"
     val geckoKernel = remember { geckoViewVersion() }
@@ -288,6 +300,45 @@ fun AboutScreen(
                     }
                 }
 
+                SmallTitle(text = "交流与反馈")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    listOf(
+                        Triple("Telegram 频道", TG_CHANNEL_URL, "更新公告与新版本推送"),
+                        Triple("Telegram 交流群", TG_GROUP_URL, "使用交流与问题反馈"),
+                    ).forEachIndexed { index, (title, url, hint) ->
+                        if (index > 0) {
+                            Spacer(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .height(0.5.dp)
+                                    .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.15f)),
+                            )
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openTelegram(url) }
+                                .padding(16.dp),
+                        ) {
+                            Text(title, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "$hint · $url",
+                                fontSize = 12.sp,
+                                color = MiuixTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(18.dp))
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -372,6 +423,8 @@ data class AppRelease(
 )
 
 private const val PROJECT_URL = "https://github.com/rosenii/mafari"
+private const val TG_CHANNEL_URL = "https://t.me/mafari_a"
+private const val TG_GROUP_URL = "https://t.me/Mafari_discuss"
 private const val COPYRIGHT = "Copyright © 2026 rosenii. All rights reserved."
 private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/releases?per_page=100"
 
