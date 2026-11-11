@@ -2541,6 +2541,29 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         return tab
     }
 
+    /** 「自定义主页」选了「指定页面」且填了有效网址时返回该网址，否则 null */
+    private fun customHomeUrl(): String? {
+        if (readHomeMode(context) != HOME_MODE_CUSTOM) return null
+        val raw = readHomeCustomUrl(context).trim()
+        return if (raw.isEmpty()) null else toUrl(raw)
+    }
+
+    /**
+     * 点击主页按钮（底栏 / 更多菜单）：按「定制主页 → 自定义主页」处理。
+     * 默认主页：回到内置主页；新建标签页：新建并切到一个新标签页；指定页面：当前标签打开该页面。
+     */
+    fun goHome(tab: BrowserTab = activeTab) {
+        when (readHomeMode(context)) {
+            HOME_MODE_NEW_TAB -> newTab(incognito = tab.incognito, opener = tab)
+            HOME_MODE_CUSTOM -> {
+                val target = customHomeUrl()
+                if (target == null) tab.goHome()
+                else if (tab.url.trimEnd('/') != target.trimEnd('/')) tab.load(target)
+            }
+            else -> tab.goHome()
+        }
+    }
+
     /**
      * 新建标签页。[opener] 是打开它的标签（默认当前标签）：关闭新标签时会优先回到 opener。
      * 当前已经是同模式的空白标签时，「新建空白标签」直接沿用它，不再叠出一张空卡片。
@@ -2563,7 +2586,9 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         fromLink: Boolean,
         makeActive: Boolean,
     ): BrowserTab? {
-        if (target.isEmpty()) {
+        // 新建空白标签时，若设置了「指定页面」就打开它（无痕标签保持空白）
+        val loadTarget = if (target.isEmpty() && !incognito) customHomeUrl().orEmpty() else target
+        if (loadTarget.isEmpty()) {
             val cur = tabs.getOrNull(activeIndex)
             if (cur != null && cur.isBlank && cur.incognito == incognito) return null
         }
@@ -2581,7 +2606,7 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         tab.openedFromLink = fromLink && opener != null && target.isNotEmpty()
         tabs.add(tab)
         if (makeActive) activate(tabs.lastIndex)
-        if (target.isNotEmpty()) tab.load(target)
+        if (loadTarget.isNotEmpty()) tab.load(loadTarget)
         return tab
     }
 

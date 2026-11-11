@@ -36,6 +36,23 @@ const val HOME_PRIVACY = 1
 const val HOME_RECENT = 2
 const val HOME_DOWNLOADS = 3
 
+/** 「定制主页 → 自定义主页」：主页按钮 / 新建标签页 / 启动应用时打开什么 */
+const val HOME_MODE_DEFAULT = 0
+const val HOME_MODE_NEW_TAB = 1
+const val HOME_MODE_CUSTOM = 2
+
+private const val PREF_HOME_MODE = "home_mode"
+private const val PREF_HOME_CUSTOM_URL = "home_custom_url"
+
+/** BrowserState 等没有 AppSettings 实例的地方直接读取（每次现读，设置改了立刻生效） */
+fun readHomeMode(context: Context): Int =
+    context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
+        .getInt(PREF_HOME_MODE, HOME_MODE_DEFAULT).coerceIn(HOME_MODE_DEFAULT, HOME_MODE_CUSTOM)
+
+fun readHomeCustomUrl(context: Context): String =
+    context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
+        .getString(PREF_HOME_CUSTOM_URL, "").orEmpty()
+
 /** 解析首页内容块顺序；缺失 / 非法项补齐，默认 收藏 → 隐私报告 → 最近浏览 → 下载项。 */
 fun parseHomeOrder(raw: String?): List<Int> {
     val all = listOf(HOME_FAVORITES, HOME_PRIVACY, HOME_RECENT, HOME_DOWNLOADS)
@@ -116,6 +133,21 @@ class AppSettings(context: Context) {
         HOME_PRIVACY -> homeShowPrivacy
         HOME_RECENT -> homeShowRecent
         else -> homeShowDownloads
+    }
+
+    var homeMode by mutableStateOf(readHomeMode(context))
+        private set
+    var homeCustomUrl by mutableStateOf(readHomeCustomUrl(context))
+        private set
+
+    fun updateHomeMode(mode: Int) {
+        homeMode = mode.coerceIn(HOME_MODE_DEFAULT, HOME_MODE_CUSTOM)
+        prefs.edit().putInt(PREF_HOME_MODE, homeMode).apply()
+    }
+
+    fun updateHomeCustomUrl(url: String) {
+        homeCustomUrl = url.trim()
+        prefs.edit().putString(PREF_HOME_CUSTOM_URL, homeCustomUrl).apply()
     }
 
     fun updateHomeShow(kind: Int, show: Boolean) {

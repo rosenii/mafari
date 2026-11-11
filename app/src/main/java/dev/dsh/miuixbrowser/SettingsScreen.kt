@@ -104,6 +104,7 @@ fun SettingsScreen(
     var showWallpaper by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
     var showHomeSheet by remember { mutableStateOf(false) }
+    var showHomeUrlDialog by remember { mutableStateOf(false) }
     var showProxyDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var reclaimable by remember { mutableStateOf(0L) }
@@ -663,6 +664,25 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
                     AppDropdownPreference(
+                        title = "自定义主页",
+                        items = listOf("默认主页", "新建标签页", "指定页面"),
+                        selectedIndex = settings.homeMode.coerceIn(0, 2),
+                        onSelectedIndexChange = {
+                            // 指定页面要先填网址，确认后才切换模式；其它两项立即生效
+                            if (it == HOME_MODE_CUSTOM) showHomeUrlDialog = true else settings.updateHomeMode(it)
+                        },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                    if (settings.homeMode == HOME_MODE_CUSTOM) {
+                        SettingsRow(
+                            title = "指定页面地址",
+                            summary = settings.homeCustomUrl.ifBlank { "未设置" },
+                            onClick = { showHomeUrlDialog = true },
+                        )
+                    }
+                    AppDropdownPreference(
                         title = "个人收藏",
                         items = (1..HOME_FAV_ROWS_MAX).map { "显示${it}行" } + "不显示",
                         selectedIndex = if (settings.homeFavRows == 0) HOME_FAV_ROWS_MAX else settings.homeFavRows - 1,
@@ -692,6 +712,58 @@ fun SettingsScreen(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
                     )
+                }
+            }
+
+            // 自定义主页 → 指定页面：输入网址
+            var homeUrlText by remember(showHomeUrlDialog) { mutableStateOf(settings.homeCustomUrl) }
+            AppGlassDialog(
+                show = showHomeUrlDialog,
+                title = "指定页面",
+                backdrop = if (glass) backdrop else null,
+                onDismissRequest = { showHomeUrlDialog = false },
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "启动应用、点击主页按钮、新建标签页时都会打开这个页面（无痕标签页除外）。请输入完整网址，例如 https://www.baidu.com",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                    TextField(
+                        value = homeUrlText,
+                        onValueChange = { homeUrlText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "网址",
+                        singleLine = true,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AppDialogButton(
+                            onClick = { showHomeUrlDialog = false },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(text = "取消", style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                val text = homeUrlText.trim()
+                                if (text.isEmpty() || !looksLikeUrl(text)) {
+                                    Toast.makeText(context, "请输入有效的网址", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    settings.updateHomeCustomUrl(text)
+                                    settings.updateHomeMode(HOME_MODE_CUSTOM)
+                                    showHomeUrlDialog = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = top.yukonga.miuix.kmp.glass.GlassDialogButtonRole.Primary,
+                        ) {
+                            Text(text = "保存", style = MiuixTheme.textStyles.button)
+                        }
+                    }
                 }
             }
 
@@ -969,5 +1041,10 @@ private fun homeContentSummary(settings: AppSettings): String {
         if (settings.homeShowRecent) add("最近浏览")
         if (settings.homeShowDownloads) add("下载项")
     }
-    return if (shown.isEmpty()) "首页只显示标志" else shown.joinToString(" · ")
+    val mode = when (settings.homeMode) {
+        HOME_MODE_NEW_TAB -> "主页按钮：新建标签页 · "
+        HOME_MODE_CUSTOM -> "指定页面 · "
+        else -> ""
+    }
+    return mode + if (shown.isEmpty()) "首页只显示标志" else shown.joinToString(" · ")
 }

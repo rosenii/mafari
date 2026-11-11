@@ -1410,7 +1410,7 @@ fun BrowserScreen(
                 },
                 onBack = { tab.goBack() },
                 onForward = { tab.goForward() },
-                onHome = { tab.goHome() },
+                onHome = { state.goHome(tab) },
                 onCopyAddress = {
                     if (tab.url.isNotBlank()) clipboard.setText(AnnotatedString(tab.url))
                 },
@@ -1779,7 +1779,7 @@ fun BrowserScreen(
                                 }
                             }
                             MenuAction.AddToDesktop -> ShortcutHelper.addToDesktop(context, scope, tab)
-                            MenuAction.Home -> tab.goHome()
+                            MenuAction.Home -> state.goHome(tab)
                             MenuAction.Downloads -> pushPage(AppRoute.Downloads)
                             // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
                             MenuAction.GeckoExtensions -> geckoExtSheetShow = true
