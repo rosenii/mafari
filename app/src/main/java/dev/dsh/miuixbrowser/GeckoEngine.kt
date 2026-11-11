@@ -142,6 +142,8 @@ class GeckoTabEngine(
         // setViewBackend()：该方法会销毁并重建内部渲染 View，可能造成 Surface 生命周期错位。
         // 网页区域不需要被毛玻璃采样，因此无需 TextureView。
         if (isAdopted) attachAdoptedSession() else view.setSession(session)
+        // 网页输入框唤出系统自动填充（Google 密码管理器等）
+        GeckoAutofill.enable(view, session)
         installTouchListener()
         view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) = applyFrameRateHint()
@@ -246,6 +248,7 @@ class GeckoTabEngine(
             }
             if (!open) runCatching { session.open(runtime) }.onFailure { Diag.log("gecko: open adopted session failed: $it") }
             runCatching { view.setSession(session) }.onFailure { Diag.log("gecko: setSession(adopted) failed: $it") }
+            GeckoAutofill.enable(view, session)
             // session 一旦可用就把「当前标签」告诉拓展（tabs.query / 安装页关闭等依赖它）
             GeckoExtensionStore.markActiveTab()
         }

@@ -227,6 +227,7 @@ object GeckoDebug {
                 else -> if (r) "运行中" else "关闭"
             },
             "运行日志" to if (Diag.enabled) "已开启" else "关闭",
+            "自动填充" to GeckoAutofill.describe(context),
             "默认字体" to when {
                 !systemFont -> "未开启"
                 GeckoProtection.resistFingerprint -> GeckoSystemFont.describe() + "；强力抗指纹已开启，Gecko 只会向网页暴露基础字体"
