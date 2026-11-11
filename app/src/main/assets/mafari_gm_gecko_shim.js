@@ -19,8 +19,9 @@
  * 值层零复制；队列按字节限流；xhr 结果 / 挂起请求有 TTL 与数量上限。
  */
 (function (S) {
-  // 空桥：没有脚本 id 的框架（不应出现）直接返回空对象，运行时全部走自带降级
-  if (!S || typeof S.id !== 'string' || !S.id) return {};
+  // 空桥：没有脚本 id 的框架（不应出现）返回 null——运行时 bridge 为空时整体走自带降级（mem / fetch 等），
+  // 比返回缺方法的空对象更稳（不会出现 bridge 非空却没有某个方法）
+  if (!S || typeof S.id !== 'string' || !S.id) return null;
 
   var W = window, D = document;
   // 在 document-start 抓住原生函数，页面之后改写 postMessage / JSON / MessageChannel 也不影响我们
@@ -44,8 +45,8 @@
   (S.big || []).forEach(function (k) { bigKeys[k] = 1; });
   var ov = Object.create(null);
   var STALE = {};
-  var fetching = Object.create(null); // key -> { cbs, stale, timer }
-  var FETCH_TIMEOUT = 15000;
+  var fetching = Object.create(null); // key -> { cbs, stale, old, timer }
+  var FETCH_TIMEOUT = 15000, MAX_FETCHING = 64, nfetch = 0;
 
   function look(k) { // string | null(不存在) | STALE
     if (k in ov) return ov[k];
@@ -59,21 +60,30 @@
     for (k in ov) if (!seen[k] && ov[k] !== null) out.push(k);
     return out;
   }
-  function finishFetch(k) {
+  function finishFetch(k, timedOut) {
     var f = fetching[k];
     if (!f) return;
-    delete fetching[k];
+    delete fetching[k]; nfetch--;
     try { clearT(f.timer); } catch (e) {}
+    // 广播已告知值变了、但新值没拉到：丢掉已知过期的旧值，下次读取重拉（本地写过的除外）
+    if (timedOut && f.old && !f.stale) ov[k] = STALE;
     var cur = look(k);
     var v = cur === STALE ? null : cur;
     for (var i = 0; i < f.cbs.length; i++) { try { f.cbs[i](v); } catch (e) {} }
   }
-  function fetchKey(k, cb) {
+  function fetchKey(k, cb, old) { // old：本地有旧值，但广播已告知它过期
     var f = fetching[k];
     if (!f) {
-      f = fetching[k] = { cbs: [], stale: false, timer: setT(function () { finishFetch(k); }, FETCH_TIMEOUT) };
+      if (nfetch >= MAX_FETCHING) { // 在拉的太多：这次不拉，标成待拉，下次读取再说
+        if (old) ov[k] = STALE;
+        if (cb) { try { cb(null); } catch (e) {} }
+        return;
+      }
+      nfetch++;
+      f = fetching[k] = { cbs: [], stale: false, old: false, timer: setT(function () { finishFetch(k, true); }, FETCH_TIMEOUT) };
       send({ t: 'getValue', k: k });
     }
+    if (old) f.old = true;
     if (cb) f.cbs.push(cb);
   }
   function touched(k) { var f = fetching[k]; if (f) f.stale = true; } // 本地写过：迟到的拉取结果不得覆盖
@@ -81,7 +91,7 @@
   // ------------------------------------------------------------------ 握手 / 发送
   // 惰性：第一次 send / getValue 才握手。握手最多 3 次（页面刷 ready 也不会无限建通道）；
   // 收到中继经该通道回的 ack 后才算接通，之前的消息（已序列化的字符串）按字节限额排队。
-  var port = null, queue = [], qBytes = 0, hellos = 0, asked = false;
+  var port = null, queue = [], qBytes = 0, hellos = 0, asked = false, dead = false;
   var QUEUE_MAX_BYTES = 4 * 1024 * 1024, QUEUE_MAX_ITEMS = 2000, HELLO_MAX = 3;
 
   function onRes(raw) {
@@ -92,6 +102,9 @@
   function hello() {
     if (port || hellos >= HELLO_MAX) return;
     hellos++;
+    if (hellos >= HELLO_MAX) { // 最后一次握手也没等到 ack：放弃，清掉排队的消息，之后的 send 直接丢弃
+      setT(function () { if (!port) { dead = true; queue = []; qBytes = 0; } }, 10000);
+    }
     try {
       var ch = new MC();
       var mine = ch.port1;
@@ -123,6 +136,7 @@
     var s;
     try { s = stringify(o); } catch (e) { return; }
     if (port) { try { port.postMessage(s); } catch (e) {} return; }
+    if (dead) return;
     ensureConn();
     if (port) { try { port.postMessage(s); } catch (e) {} return; }
     if (queue.length < QUEUE_MAX_ITEMS && qBytes + s.length <= QUEUE_MAX_BYTES) { queue.push(s); qBytes += s.length; }
@@ -179,7 +193,7 @@
           if (typeof m.raw === 'string') { ov[k] = m.raw; touched(k); }
           else if (m.big) { // 大值：广播不带内容。已有旧值就先留着并后台拉新，没有就标成待拉
             bigKeys[k] = 1;
-            if (typeof look(k) === 'string') fetchKey(k); else ov[k] = STALE;
+            if (typeof look(k) === 'string') fetchKey(k, null, true); else ov[k] = STALE;
           } else { ov[k] = null; touched(k); }
         }
         break;
@@ -241,7 +255,7 @@
     xhrStart: function (reqId, optionsJson, bodyB64) {
       reqId = String(reqId);
       var now = Date.now();
-      if (nx >= 32) sweepXhr(now);
+      sweepXhr(now); // 每次都清：n ≤ 256，成本可忽略；只发不 poll 的结果也能按 TTL 淘汰
       if (nx >= XHR_MAX) { // 仍然满：直接回一个错误结果，不再往后台堆
         xhrs[reqId] = now; nx++;
         results[reqId] = { json: stringify({ state: 'error', error: 'too many pending requests' }), at: now };
@@ -270,7 +284,11 @@
     cookieListAsync: function (url, cb) {
       if (ncb >= 64) { try { cb([]); } catch (e) {} return; }
       var cbId = 'ck' + Math.random().toString(36).slice(2);
-      cookieCbs[cbId] = cb; ncb++;
+      var timer = setT(function () { // 兜底：中继 / 后台页没回包时释放回调槽位
+        if (cookieCbs[cbId]) { delete cookieCbs[cbId]; ncb--; try { cb([]); } catch (e) {} }
+      }, 30000);
+      cookieCbs[cbId] = function (arr) { try { clearT(timer); } catch (e) {} cb(arr); };
+      ncb++;
       send({ t: 'cookieList', url: url, cbId: cbId });
     },
     cookieSet: function (json) {
