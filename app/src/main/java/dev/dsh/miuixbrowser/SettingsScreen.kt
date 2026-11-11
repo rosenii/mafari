@@ -211,7 +211,7 @@ fun SettingsScreen(
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
                         title = "地址栏显示",
-                        items = listOf("网站标题", "主域名", "完整域名"),
+                        items = listOf("网站标题", "主域名", "完整网址"),
                         selectedIndex = settings.addressDisplay.coerceIn(0, 2),
                         onSelectedIndexChange = { settings.updateAddressDisplay(it) },
                     )
