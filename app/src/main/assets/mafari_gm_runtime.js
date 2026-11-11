@@ -1104,7 +1104,17 @@
   var GM = {
     openFileStream: openFileStream,
     info: GM_info,
-    getValue: p(GM_getValue), setValue: p(GM_setValue), deleteValue: p(GM_deleteValue),
+    // 大值（Gecko 桥不内联进快照）只能异步拿：有 getValueAsync 就走它，其余桥沿用同步读
+    getValue: function (k, d) {
+      if (bridge && typeof bridge.getValueAsync === 'function') {
+        return new Promise(function (resolve) {
+          try { bridge.getValueAsync(META.id, String(k), function (raw) { resolve(parseVal(raw, d)); }); }
+          catch (e) { resolve(GM_getValue(k, d)); }
+        });
+      }
+      return p(GM_getValue)(k, d);
+    },
+    setValue: p(GM_setValue), deleteValue: p(GM_deleteValue),
     listValues: p(GM_listValues), getValues: p(GM_getValues),
     setValues: p(GM_setValues), deleteValues: p(GM_deleteValues),
     addValueChangeListener: p(GM_addValueChangeListener), removeValueChangeListener: p(GM_removeValueChangeListener),

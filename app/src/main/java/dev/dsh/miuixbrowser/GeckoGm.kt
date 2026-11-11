@@ -36,8 +36,15 @@ internal object GeckoGm {
     private const val SHIM_ASSET = "mafari_gm_gecko_shim.js"
     private const val SNAPSHOT_MARK = "__MAFARI_SNAPSHOT__"
 
-    /** 单个脚本内联的值快照上限（字符数）。超出的键不进快照，脚本读不到——见文档「已知限制」 */
-    private const val SNAPSHOT_CAP = 512 * 1024
+    /**
+     * 值快照内联阈值（字符数）。快照随脚本源码注册、每个命中的框架都会执行一份，所以必须有界：
+     *  - 单值超过 INLINE_VALUE_MAX 不内联；
+     *  - 单脚本内联总量超过 SNAPSHOT_TOTAL_CAP 后，剩下的（小值优先放，所以是最大的那些）也不内联。
+     * 没内联的键名列在快照的 big 里：shim 首次读取时经 getValue 协议异步拉取（GM.getValue 直接拿到；
+     * 同步的 GM_getValue 首次返回缺失并预取，之后就有了），值变化广播对这些键只带 big 标记、不带内容。
+     */
+    private const val INLINE_VALUE_MAX = 64 * 1024
+    private const val SNAPSHOT_TOTAL_CAP = 256 * 1024
 
     // ---- 安全：每个脚本一个「能力令牌」（进程内随机，不落盘）
     // 页面与脚本同处 MAIN 世界，页面能看到、伪造 DOM 事件，所以 shim ⇄ 中继走私有 MessageChannel，
@@ -60,16 +67,17 @@ internal object GeckoGm {
     }
 
     // ---- 安全：每个脚本、每类能力的限频，防止脚本 / 被利用的脚本刷屏（弹标签、通知、下载、剪贴板…）
-    private class Bucket { var start = 0L; var count = 0 }
+    private class Bucket { var start = 0L; var count = 0L }
     private val buckets = ConcurrentHashMap<String, Bucket>()
 
-    private fun allow(sid: String, kind: String, max: Int, windowMs: Long): Boolean {
+    /** [cost] 默认 1 次；写值按字节计费（见 "set"），避免「次数不多但每次 2MB」刷爆 prefs 与广播 */
+    private fun allow(sid: String, kind: String, max: Long, windowMs: Long, cost: Long = 1): Boolean {
         val now = SystemClock.elapsedRealtime()
         val b = buckets.getOrPut("$sid|$kind") { Bucket() }
         synchronized(b) {
             if (now - b.start > windowMs) { b.start = now; b.count = 0 }
-            if (b.count >= max) return false
-            b.count++
+            if (b.count + cost > max) return false
+            b.count += cost
             return true
         }
     }
@@ -105,13 +113,17 @@ internal object GeckoGm {
         val id = k.substring(0, i)
         val name = k.substring(i + 2)
         val src = writers.remove(k).orEmpty()
-        valuesVersion.incrementAndGet()
+        valVer.merge(id, 1) { a, b -> a + b }
         broadcast(id, name, sp.getString(k, null), src)
         scheduleResync(id)
     }
     /** 记下是哪个框架写的，广播时带上 src，该框架据此忽略自己的回声（避免乱序回声把新值盖回旧值） */
     private val writers = ConcurrentHashMap<String, String>()
-    private val valuesVersion = java.util.concurrent.atomic.AtomicInteger(0)
+    /** 每个脚本的值版本：值变化只让该脚本的缓存失效，其它脚本的源码不重拼 */
+    private val valVer = ConcurrentHashMap<String, Int>()
+    private class Built(val key: String, val entry: JSONObject)
+    /** 脚本 id → 上次拼好的注册条目（含完整源码）。只在 worker 线程读写 */
+    private val built = HashMap<String, Built>()
     @Volatile private var lastInputSig = ""
 
     @Synchronized
@@ -156,18 +168,24 @@ internal object GeckoGm {
         // 停用 / 删除的脚本：令牌立即作废（已注入的旧页面从此被后台页和原生端拒绝）
         val live = snapshot.map { it.id }.toSet()
         tokens.keys.retainAll(live)
-        // 多个标签会各自调用：输入没变就不重复拼源码（值变化走 force + valuesVersion）
-        val sig = enabled.toString() + "#" + valuesVersion.get() + "#" + snapshot.joinToString("|") {
-            "${it.id}:${it.code.hashCode()}:${it.match.hashCode()}:${ScriptResources.cachedCount(app, it.code)}"
+        // 多个标签会各自调用：输入没变就不重复拼源码（值变化走 force + 每脚本 valVer，只重拼变了的那个脚本）
+        val sig = enabled.toString() + "#" + snapshot.joinToString("|") {
+            "${it.id}:${it.code.hashCode()}:${it.match.hashCode()}:${ScriptResources.cachedCount(app, it.code)}:${valVer[it.id] ?: 0}"
         }
         if (!force && sig == lastInputSig) return
         lastInputSig = sig
         worker.execute {
             val arr = JSONArray()
             snapshot.forEach { s ->
-                runCatching { arr.put(buildEntry(app, s)) }
-                    .onFailure { Diag.log("gm: build failed ${s.name}: ${it.message}") }
+                // 只重拼输入变了的脚本（代码 / 匹配 / 资源缓存 / 它自己的值）；一个脚本写值不再牵动全部脚本
+                val key = "${s.code.hashCode()}:${s.match.hashCode()}:${ScriptResources.cachedCount(app, s.code)}:${valVer[s.id] ?: 0}"
+                val hit = built[s.id]
+                if (hit != null && hit.key == key && tokens[s.id] == hit.entry.optString("tok")) { arr.put(hit.entry); return@forEach }
+                runCatching { buildEntry(app, s) }
+                    .onSuccess { e -> built[s.id] = Built(key, e); arr.put(e) }
+                    .onFailure { built.remove(s.id); Diag.log("gm: build failed ${s.name}: ${it.message}") }
             }
+            built.keys.retainAll(live)
             main.post {
                 payload = arr
                 rev++
@@ -201,28 +219,31 @@ internal object GeckoGm {
     private fun template(ctx: Context): String = shimTemplate ?: ctx.assets.open(SHIM_ASSET)
         .bufferedReader(Charsets.UTF_8).use { it.readText() }.also { shimTemplate = it }
 
-    private fun valuesJson(id: String): JSONObject {
+    /** 返回 (内联快照, 没内联的键)。小值优先放，超过单值 / 总量阈值的键转为按需异步拉取 */
+    private fun valuesJson(id: String): Pair<JSONObject, JSONArray> {
         val out = JSONObject()
+        val big = JSONArray()
         val prefix = "$id::"
         var size = 0
-        // 小值优先，尽量多放；超限的不放
         val entries = prefs.all.entries
             .filter { it.key.startsWith(prefix) && it.value is String }
             .sortedBy { (it.value as String).length }
         for (e in entries) {
             val v = e.value as String
-            if (size + v.length > SNAPSHOT_CAP) { Diag.log("gm: snapshot cap hit for $id, skipped ${e.key}"); continue }
+            val name = e.key.removePrefix(prefix)
+            if (v.length > INLINE_VALUE_MAX || size + v.length > SNAPSHOT_TOTAL_CAP) { big.put(name); continue }
             size += v.length
-            out.put(e.key.removePrefix(prefix), v)
+            out.put(name, v)
         }
-        return out
+        return out to big
     }
 
     /** 运行时 + @require（UserscriptEngine.buildSource）外面再包一层：把 shim 作为闭包变量 __mafariBridge 传入 */
     private fun buildSource(ctx: Context, script: UserScript): String {
         val runtime = UserscriptEngine.buildSource(ctx, script)
+        val (inline, big) = valuesJson(script.id)
         val snap = JSONObject().put("id", script.id).put("tok", tokenFor(script.id))
-            .put("values", valuesJson(script.id)).toString()
+            .put("values", inline).put("big", big).toString()
         val tpl = template(ctx)
         val at = tpl.lastIndexOf(SNAPSHOT_MARK) // 只替换文末那一个，且不二次扫描 snap 的内容
         val shim = tpl.substring(0, at) + snap + tpl.substring(at + SNAPSHOT_MARK.length)
@@ -290,13 +311,17 @@ internal object GeckoGm {
     private val backgroundDelegate = object : WebExtension.MessageDelegate {
         override fun onConnect(port: WebExtension.Port) {
             bgPort = port
+            resetSent()
             port.setDelegate(object : WebExtension.PortDelegate {
                 override fun onPortMessage(message: Any, port: WebExtension.Port) {
                     val o = message as? JSONObject ?: return
                     when (o.optString("t")) {
-                        "hello" -> push()
+                        "hello" -> { resetSent(); push() }
                         "synced" -> {
                             val r = o.optInt("rev", -1)
+                            // 后台确认注册成功的 sig 集合：之后源码没变的脚本不再重复发送 code
+                            if (o.optInt("failed") == 0) pushedByRev[r]?.let { sentSigs = it } else sentSigs = emptyMap()
+                            pushedByRev.keys.removeAll { it <= r }
                             if (r > syncedRev) syncedRev = r
                             if (syncedRev >= rev) { waiters.toList().also { waiters.clear() }.forEach { it() } }
                             if (o.optInt("failed") > 0) Diag.log("gm: ${o.optInt("failed")} script(s) failed to register")
@@ -313,6 +338,7 @@ internal object GeckoGm {
 
                 override fun onDisconnect(port: WebExtension.Port) {
                     if (bgPort === port) bgPort = null
+                    resetSent()
                     syncedRev = -1 // 后台页重启：contentScripts 不跨会话保留，等它重新 hello 后再同步
                 }
             })
@@ -352,9 +378,28 @@ internal object GeckoGm {
         return dlCookieResults.remove(rid)?.takeIf { it.isNotBlank() }
     }
 
+    // ---- 增量同步：后台页已确认注册的 (id → sig)。源码没变的脚本只发元数据，不再发 code（主线程）
+    private var sentSigs: Map<String, String> = emptyMap()
+    private var lastPushed: Map<String, String> = emptyMap()
+    private val pushedByRev = HashMap<Int, Map<String, String>>()
+    private val SLIM_KEYS = arrayOf("id", "sig", "matches", "excludeMatches", "noframes", "tok", "connect")
+
+    private fun resetSent() { sentSigs = emptyMap(); lastPushed = emptyMap(); pushedByRev.clear() }
+
     private fun push() {
         val p = bgPort ?: return
-        runCatching { p.postMessage(JSONObject().put("t", "sync").put("rev", rev).put("scripts", payload)) }
+        val arr = JSONArray()
+        val sigs = HashMap<String, String>()
+        for (i in 0 until payload.length()) {
+            val e = payload.getJSONObject(i)
+            val id = e.getString("id"); val sig = e.getString("sig")
+            sigs[id] = sig
+            // 已确认注册且上一次推送也带着它（中间没被移除过）：后台一定还留着，省掉 code
+            arr.put(if (sentSigs[id] == sig && lastPushed[id] == sig) JSONObject(e, SLIM_KEYS) else e)
+        }
+        lastPushed = sigs
+        pushedByRev[rev] = sigs
+        runCatching { p.postMessage(JSONObject().put("t", "sync").put("rev", rev).put("scripts", arr)) }
             .onFailure { Diag.log("gm: push failed $it") }
     }
 
@@ -362,8 +407,10 @@ internal object GeckoGm {
         val p = bgPort ?: return
         main.post {
             runCatching {
-                p.postMessage(JSONObject().put("t", "val").put("id", id).put("k", k)
-                    .put("raw", raw ?: JSONObject.NULL).put("src", src))
+                val m = JSONObject().put("t", "val").put("id", id).put("k", k).put("src", src)
+                // 大值不广播内容（每个框架都会收到一份）：接收方按需 getValue 拉取
+                if (raw != null && raw.length > INLINE_VALUE_MAX) m.put("big", true) else m.put("raw", raw ?: JSONObject.NULL)
+                p.postMessage(m)
             }
         }
     }
@@ -438,9 +485,21 @@ internal object GeckoGm {
                 val v = o.getString("v")
                 if (k.length > MAX_KEY_CHARS || v.length > MAX_VALUE_CHARS) { Diag.log("gm: set too large $sid"); return }
                 if (!allow(sid, "set", 600, 10_000)) return
+                // 再按字节限：10s 内最多写 16M 字符，防止少量次数的大值刷 prefs / 广播
+                if (!allow(sid, "setBytes", 16_000_000, 10_000, (k.length + v.length).toLong())) { Diag.log("gm: set bytes over budget $sid"); return }
                 val key = "$sid::$k"
                 writers[key] = o.optString("src")
                 prefs.edit().putString(key, v).apply()
+            }
+            "getValue" -> { // 大值按需拉取：只回给发起的这个框架
+                val k = o.optString("k")
+                if (k.isEmpty() || k.length > MAX_KEY_CHARS || !allow(sid, "get", 300, 10_000)) return
+                val raw = prefs.getString("$sid::$k", null)
+                main.post {
+                    runCatching {
+                        port.postMessage(JSONObject().put("t", "valRes").put("id", sid).put("k", k).put("raw", raw ?: JSONObject.NULL))
+                    }
+                }
             }
             "del" -> {
                 val k = o.getString("k")

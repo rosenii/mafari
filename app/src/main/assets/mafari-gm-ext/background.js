@@ -3,7 +3,8 @@
  *  1. 与原生保持一条长连接（connectNative 'mafariGmBg'），接收「脚本全量同步」并用 contentScripts.register 注册；
  *  2. GM_xmlhttpRequest：fetch（扩展页不受 CORS 限制）+ webRequest 改写 Cookie/Referer/Origin/UA；
  *  3. GM_cookie：cookies API（含 HttpOnly 与完整属性）；
- *  4. 值变化广播：写入 storage.local.bus，各标签的中继监听 storage.onChanged。
+ *  4. 中继（relay.js）：按「已启用脚本匹配范围的并集」动态注册（先于脚本），无脚本的页面不加载；
+ *     中继与本页保持一条 runtime 端口：bind 校验 + 值变化广播（只发给绑定了该脚本的中继，不写 storage）。
  * 安全：所有来自中继的请求必须带 (sid, tok)，与原生同步下来的脚本凭据逐条比对；xhr / cookie 还要过
  *  - 来源页校验：请求所在框架的 URL 必须落在该脚本注册的匹配范围内；
  *  - 目标主机策略（@connect）：见 connectAllows / cookieAllows——同站始终放行，@connect 列出的放行，
@@ -15,8 +16,10 @@
 
 const NATIVE = 'mafariGmBg';
 const registered = new Map(); // scriptId -> { sig, handle, tok, connect, matchRes, excludeRes }
+let relayReg = null;          // { sig, handle }：动态注册的中继
+const relayPorts = new Set(); // 各框架中继的端口，port.sids = 已通过 bind 校验的脚本 id
+const BIG_VALUE = 64 * 1024;  // 值广播超过此长度不带内容（接收方按需 getValue 拉取）
 let port = null;
-let busN = 0;
 let applyChain = Promise.resolve();
 
 function post(m) { try { if (port) port.postMessage(m); } catch (e) {} }
@@ -37,9 +40,36 @@ function onNative(m) {
   } else if (m.t === 'dlCookie') {
     dlCookie(m);
   } else if (m.t === 'val') {
-    browser.storage.local.set({ bus: { n: ++busN, id: m.id, k: m.k, raw: m.raw === undefined ? null : m.raw, src: m.src || '' } });
+    broadcastVal(m);
   }
 }
+
+/** 值变化广播：只发给已绑定该脚本的中继；大值不带内容 */
+function broadcastVal(m) {
+  if (typeof m.id !== 'string') return;
+  const raw = typeof m.raw === 'string' ? m.raw : null;
+  const big = !!m.big || (raw !== null && raw.length > BIG_VALUE);
+  const out = { t: 'val', id: m.id, k: m.k, src: m.src || '' };
+  if (big) out.big = true; else out.raw = raw;
+  for (const p of relayPorts) {
+    if (!p.sids.has(m.id)) continue;
+    try { p.postMessage(out); } catch (e) {}
+  }
+}
+
+browser.runtime.onConnect.addListener((p) => {
+  if (!p || p.name !== 'mafariRelay' || !p.sender || p.sender.id !== browser.runtime.id) return;
+  p.sids = new Set();
+  relayPorts.add(p);
+  p.onMessage.addListener((m) => {
+    if (!m || m.t !== 'bind') return;
+    // 令牌 + 本框架 URL 在脚本匹配范围内；通过后该中继端口才会收到这个脚本的广播
+    const ok = !!authorize(m, p.sender);
+    if (ok) p.sids.add(String(m.sid));
+    try { p.postMessage({ t: 'bound', rid: m.rid, ok }); } catch (e) {}
+  });
+  p.onDisconnect.addListener(() => { relayPorts.delete(p); });
+});
 
 /**
  * 下载器取登录态：原生端（Downloader）重新发 HTTP 请求时拿不到 Gecko 的 Cookie，这里替它读。
@@ -58,7 +88,10 @@ async function dlCookie(m) {
   post({ t: 'dlCookieRes', rid: String(m.rid || ''), cookie, ua: navigator.userAgent });
 }
 
-/** m.scripts: [{id, sig, tok, connect, code, matches, excludeMatches, noframes}]；全量替换，按 sig 做差量 */
+/**
+ * m.scripts: [{id, sig, tok, connect, code?, matches, excludeMatches, noframes}]；全量替换，按 sig 做差量。
+ * code 可省略：原生知道本后台已注册了同 sig 的脚本时不再重复发送源码（只有 sig 变了才带 code）。
+ */
 async function applyAll(m) {
   const want = new Map(m.scripts.map((s) => [s.id, s]));
   for (const [id, r] of [...registered]) {
@@ -68,9 +101,12 @@ async function applyAll(m) {
       registered.delete(id);
     }
   }
+  // 中继先于脚本注册：同为 document_start 时，先注册的先执行，shim 首次握手时中继已在监听
+  await syncRelay(m.scripts);
   let failed = 0;
   for (const s of m.scripts) {
     if (registered.has(s.id)) continue;
+    if (typeof s.code !== 'string') { failed++; post({ t: 'error', where: 'register', id: s.id, msg: 'missing code' }); continue; }
     try {
       const handle = await browser.contentScripts.register({
         matches: s.matches && s.matches.length ? s.matches : ['*://*/*'],
@@ -93,6 +129,32 @@ async function applyAll(m) {
     }
   }
   post({ t: 'synced', rev: m.rev, count: registered.size, failed });
+}
+
+/** 中继按所有脚本 matches 的并集注册；没有脚本就不注册（无脚本页面零中继成本）。matches / allFrames 变了才重注册 */
+async function syncRelay(scripts) {
+  const set = new Set();
+  let frames = false;
+  for (const s of scripts) {
+    for (const x of (s.matches && s.matches.length ? s.matches : ['*://*/*'])) set.add(x);
+    if (!s.noframes) frames = true;
+  }
+  const matches = [...set].sort();
+  const sig = scripts.length ? JSON.stringify([matches, frames]) : '';
+  if (relayReg && relayReg.sig === sig) return;
+  if (relayReg) { try { await relayReg.handle.unregister(); } catch (e) {} relayReg = null; }
+  if (!sig) return;
+  try {
+    const handle = await browser.contentScripts.register({
+      matches,
+      js: [{ file: 'relay.js' }],
+      runAt: 'document_start',
+      allFrames: frames,
+      matchAboutBlank: true,
+      matchOriginAsFallback: true
+    });
+    relayReg = { sig, handle };
+  } catch (e) { post({ t: 'error', where: 'relay', id: '', msg: String(e) }); }
 }
 
 // ------------------------------------------------------------------ 授权与策略

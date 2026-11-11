@@ -20,16 +20,19 @@
 ## 二、架构
 
 ```
-Kotlin GeckoGm（脚本 / 值 / 资源的唯一权威）
-  ├─ 拼源码：(function(__mafariBridge){ 运行时+@require+脚本 })(shim(值快照))
-  ├─ 后台端口 mafariGmBg ──► background.js：contentScripts.register(world:MAIN)；xhr；cookie；值广播(storage.local.bus)
-  └─ 会话端口 mafariGm   ◄── relay.js(ISOLATED) ◄──CustomEvent── shim(MAIN) ◄── mafari_gm_runtime.js
+Kotlin GeckoGm（脚本 / 值 / 资源的唯一权威；按脚本缓存拼好的源码，只重拼变了的）
+  ├─ 后台端口 mafariGmBg ──► background.js：contentScripts.register(world:MAIN) + 动态注册中继；xhr；cookie；bind 校验；值广播
+  │        └─ 增量同步：sig 没变的脚本不再重发 code
+  └─ 会话端口 mafariGm   ◄── relay.js(ISOLATED，仅在有脚本匹配的页面 / 框架加载)
+                              ◄── 私有 MessageChannel ── shim(MAIN) ◄── mafari_gm_runtime.js
 ```
 
-- shim（`mafari_gm_gecko_shim.js`）提供与 `GmBridge` 同名同签名的同步接口，运行时只改了 4 处（见下）。
-- 桥对象作为**闭包变量**传入，页面拿不到对象本身。
-- 值：读内联快照；写先改本地再异步交给原生。原生写 `SharedPreferences`，监听器统一产生广播（WebView 标签写值也会广播到 Gecko 标签，反之亦然），并防抖重建快照供**之后新开的页面**使用。广播带 `src`，写入方据此忽略自己的回声（已测乱序回声）。
-- xhr：运行时本来就是 `xhrStart + xhrPoll`，shim 只需把结果存表。
+- shim 提供与 `GmBridge` 同名同签名的同步接口；桥对象作为**闭包变量**传入，页面拿不到。
+- **惰性**：shim 在脚本真正用到桥（`ran` / 读写值 / 请求…）时才握手；匹配不上本页的脚本零成本。握手最多 3 次。
+- **值**：读 = 内联快照（只读引用，不复制）+ 覆盖层 `ov`（本地写入、其它标签广播）。单值 > 64KB 或单脚本内联总量 > 256KB 的键不内联，键名列在 `S.big`：`GM.getValue` 经 `getValue` 协议异步拿到，同步 `GM_getValue` 首次返回缺失并预取。广播对大值只带 `big` 标记。
+- **绑定**：通道接通后第一条消息是 `bind{sid,tok}`，中继交后台页校验（令牌 + 本框架 URL 落在该脚本匹配范围内），通过后端口才能收发；中继用绑定的凭据给每条上行盖章。**所有下行（值广播、getValue 结果、回调、菜单）只发给已绑定端口，且值广播只发给绑定了该脚本的中继**。伪造的端口既发不出请求，也收不到别的脚本的值。
+- 值广播走后台页与中继之间的 runtime 端口，不再写 `storage.local`（省磁盘写与每帧的 `onChanged` 唤醒）。
+- xhr：运行时本来就是 `xhrStart + xhrPoll`，shim 把结果存表；结果 60s 没被取走即淘汰，挂起请求上限 256。
 
 运行时改动（`mafari_gm_runtime.js`，对 WebView 无影响）：① 桥取 `__mafariBridge || window.MafariGM`；② `GM_cookie.list` 优先走 `cookieListAsync`；③ 菜单变化调 `bridge.menuChanged()`；④ 命中后调 `bridge.ran(id)`（Gecko 没有 evaluateJavascript 可让原生来问）。
 
@@ -50,8 +53,8 @@ Kotlin GeckoGm（脚本 / 值 / 资源的唯一权威）
 
 ## 四、已知限制
 
-1. **值快照**：只反映注册那一刻；同一页面内靠广播 + 运行时 1s 轮询追平。单脚本快照上限 512K 字符，超出的键读不到（有日志）。值写入很频繁的脚本会触发重注册，已做 ≥1s 限频。
-2. **MAIN 世界的通道无法防页面伪造**：页面脚本也能收发 `mafari-gm:*` 事件（Mozilla 自己也承认目前没有安全的 MAIN↔ISOLATED 通道）。对比现状：WebView 的 `addJavascriptInterface` 对**所有**页面开放、不受 `@match` 约束，所以不更差，但仍应收紧（**待做**）：原生按 `sender.url` 校验该脚本确实匹配此页 + `@grant`；xhr 加 `@connect` 白名单。彻底解法是迁到 MV3 `userScripts` + `USER_SCRIPT` 世界（`configureWorld({messaging:true})`），代价是 `unsafeWindow` 要走 `wrappedJSObject` / `exportFunction`，且 `userScripts` 是仅可选权限、需要授权弹窗。
+1. **值快照**：只反映注册那一刻；同一页面内靠广播 + 运行时 1s 轮询追平。大值不内联（见上），同步 `GM_getValue` 读大值首次会得到默认值——要可靠读大值请用 `GM.getValue`。值写入很频繁的脚本会触发该脚本（仅该脚本）重拼 + 重注册，已做 ≥1s 限频；写值另有按字节的限额（10s 内 16M 字符）。
+2. **MAIN 世界没有页面拿不到的原生通道**：现在靠「中继先于脚本加载 + 捕获阶段截停握手事件 + bind 令牌与来源校验」兜底。**残余风险**：中继晚于 shim 加载（后台页保证先注册先执行，但这是 Gecko 内部顺序，未真机确认）时，先发出的那个 `hi` 没人截停，页面若已挂了 message 监听器，理论上能拿到端口并冒充中继收到 bind 里的令牌；令牌的权限仍受 @connect / 同站 / 限频约束，且只对该脚本有效。彻底解法是迁到 MV3 `userScripts` + `USER_SCRIPT` 世界（`configureWorld({messaging:true})`），代价是 `unsafeWindow` 要走 `wrappedJSObject` / `exportFunction`，且 `userScripts` 是仅可选权限、需要授权弹窗。
 3. **MV2 的 `contentScripts` 不跨会话持久、API 已被 MV3 取代**：每次后台页启动由原生重新同步（已实现）；MV2 在 Firefox 上仍有承诺，但这是技术债。
 4. 加载顺序：MAIN 脚本与中继谁先执行不保证，shim 有 `hi/ready` 握手 + 队列（两种顺序均已测）。
 
@@ -61,8 +64,9 @@ Kotlin GeckoGm（脚本 / 值 / 资源的唯一权威）
 2. `contentScripts.register` 的 `world:'MAIN'` + `{code}` 在 GeckoView 上生效；`matchOriginAsFallback` 对 `about:blank` / `srcdoc` 子框架生效；大脚本（数百 KB）注册耗时。
 3. webRequest 阻塞式改 `Cookie/Referer/Origin/User-Agent` 对扩展自己的 fetch 生效；后台页 fetch 带上的是不是「未分区」Cookie。
 4. 首次冷启动：第一个页面是否能被脚本命中（`whenReady` 屏障是否足够）。
-5. `./gradlew :app:compileDebugKotlin`：`GeckoGm.kt` 里 `ensureBuiltIn`、`MessageDelegate`、`Port` 的签名按 nightly 可能需要微调。
+5. `./gradlew :app:compileDebugKotlin`：`GeckoGm.kt` 里 `ensureBuiltIn`、`MessageDelegate`、`Port` 的签名按 nightly 可能需要微调；本次新增的 `JSONObject(JSONObject, Array<String>)`（增量同步去掉 code）、`ConcurrentHashMap.merge` 也请一并编译确认。
+6. 动态注册中继：`contentScripts.register({js:[{file:'relay.js'}], matchAboutBlank, matchOriginAsFallback})` 在 GeckoView 上生效；中继是否总先于同 document_start 的 MAIN 脚本执行（影响握手与上面的残余风险）。
 
 ## 六、测试
 
-`tools/gm-ext-test/run.js`（`node run.js`；`RELAY_ORDER=late node run.js`）：用 vm 模拟 页面 ⇄ 中继 ⇄ 后台 ⇄ 原生，页面里跑真实的 `mafari_gm_runtime.js` + shim。覆盖：同步读快照、读己之写、值写入落原生、跨标签广播与回声抑制、xhr、通知 / 下载回调、HttpOnly cookie、菜单上报与执行、`ran` 上报、中继先后加载。**不覆盖**真实 GeckoView。
+`tools/gm-ext-test/run.js`（`node run.js`；`RELAY_ORDER=late node run.js`）：用 vm 模拟 页面 ⇄ 中继 ⇄ 后台 ⇄ 原生，页面里跑真实的 `mafari_gm_runtime.js` + shim + 中继 + 后台页。覆盖：同步读快照、读己之写、值写入落原生（令牌由中继盖章）、跨标签广播与回声抑制、大值异步读取与广播、xhr、通知 / 下载回调（一次性）、HttpOnly cookie、菜单、`ran`、中继先后加载、惰性握手与握手上限、伪造端口（不 bind / 错令牌）发不出也收不到、xhr 表上限与 TTL、增量同步、无脚本时不注册中继。**不覆盖**真实 GeckoView 与 Kotlin。
