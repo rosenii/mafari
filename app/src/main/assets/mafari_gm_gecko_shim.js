@@ -5,7 +5,7 @@
  *
  *  - 读值：同步读内联快照（只读引用，不复制）+ 本地覆盖层 ov（脚本自己的写入 / 其它标签广播来的变化）。
  *    超过内联阈值的大值不在快照里（键名列在 S.big），首次读取时经 getValue 协议异步拉取
- *  - xhr / cookie：私有通道 → 中继 → 后台页；结果回来存进表里，xhrPoll 取走（运行时本来就是轮询）
+ *  - xhr / cookie：私有通道 → 中继 → 后台页；运行时用 xhrWait 注册回调，结果一到直接推给它（没有 xhrWait 时退回表 + xhrPoll 轮询）
  *  - 通知 / 下载 / 开标签 / 菜单 / 剪贴板：私有通道 → 中继 → 原生端口；回调以 {t:'cb', fn, args} 回来
  *
  * 安全：MAIN 世界与页面共用，DOM 事件 / window.postMessage 页面都能监听和伪造，所以请求不走事件。
@@ -70,6 +70,7 @@
     var cur = look(k);
     var v = cur === STALE ? null : cur;
     for (var i = 0; i < f.cbs.length; i++) { try { f.cbs[i](v); } catch (e) {} }
+    if (f.old) notifyChange(k); // 广播触发的后台拉取完成（或放弃了旧值）：此刻才对运行时可见，再通知
   }
   function fetchKey(k, cb, old) { // old：本地有旧值，但广播已告知它过期
     var f = fetching[k];
@@ -86,6 +87,9 @@
     if (old) f.old = true;
     if (cb) f.cbs.push(cb);
   }
+  // 运行时注册的「值变了」回调（只在它有监听器时才注册）：广播到达就直接通知，运行时不用再 1s 轮询
+  var changeCb = null;
+  function notifyChange(k) { if (changeCb) { try { changeCb(k); } catch (e) {} } }
   function touched(k) { var f = fetching[k]; if (f) f.stale = true; } // 本地写过：迟到的拉取结果不得覆盖
 
   // ------------------------------------------------------------------ 握手 / 发送
@@ -152,10 +156,11 @@
   var XHR_MAX = 256;
   var xhrs = Object.create(null);      // reqId -> 起始时间
   var results = Object.create(null);   // reqId -> { json, at }
+  var waiters = Object.create(null);   // reqId -> 运行时注册的回调（xhrWait）：结果一到就直接交给它，不用轮询
   var nx = 0, cookieCbs = Object.create(null), ncb = 0;
 
   function dropXhr(id) {
-    delete results[id];
+    delete results[id]; delete waiters[id];
     if (id in xhrs) { delete xhrs[id]; nx--; }
   }
   function sweepXhr(now) {
@@ -167,7 +172,11 @@
   function handleRes(m) {
     switch (m.t) {
       case 'xhrRes':
-        if (typeof m.json === 'string' && m.reqId in xhrs) results[m.reqId] = { json: m.json, at: Date.now() };
+        if (typeof m.json === 'string' && m.reqId in xhrs) {
+          var w = waiters[m.reqId];
+          if (w) { dropXhr(m.reqId); try { w(m.json); } catch (e) {} }
+          else results[m.reqId] = { json: m.json, at: Date.now() };
+        }
         break;
       case 'cookieRes': {
         var cb = cookieCbs[m.cbId];
@@ -187,14 +196,14 @@
           finishFetch(m.k);
         }
         break;
-      case 'val': // 其它标签 / 框架 / WebView 标签写了同一个脚本的值：更新覆盖层，运行时的 1s 轮询会发现并触发监听
+      case 'val': // 其它标签 / 框架 / WebView 标签写了同一个脚本的值：更新覆盖层，并通知运行时（无通知通道时靠它的轮询发现）
         if (m.id === S.id && m.src !== iid && typeof m.k === 'string') {
           var k = m.k;
-          if (typeof m.raw === 'string') { ov[k] = m.raw; touched(k); }
+          if (typeof m.raw === 'string') { ov[k] = m.raw; touched(k); notifyChange(k); }
           else if (m.big) { // 大值：广播不带内容。已有旧值就先留着并后台拉新，没有就标成待拉
             bigKeys[k] = 1;
-            if (typeof look(k) === 'string') fetchKey(k, null, true); else ov[k] = STALE;
-          } else { ov[k] = null; touched(k); }
+            if (typeof look(k) === 'string') fetchKey(k, null, true); else { ov[k] = STALE; notifyChange(k); }
+          } else { ov[k] = null; touched(k); notifyChange(k); }
         }
         break;
       case 'menuRun': { // 所有 shim 都会收到，只执行一次
@@ -220,6 +229,7 @@
       if (v === STALE) { fetchKey(k); return null; } // 同步 API 拿不到：先返回缺失并预取，之后的读取就有了
       return v;
     },
+    onValueChange: function (id, cb) { changeCb = typeof cb === 'function' ? cb : null; }, // 传 null 取消
     getValueAsync: function (id, k, cb) { // 运行时的 GM.getValue（Promise）走这里，大值也能拿到
       ensureConn();
       k = String(k);
@@ -270,6 +280,14 @@
       if (r === undefined) return null;
       dropXhr(reqId);
       return r.json;
+    },
+    // 推送式取结果：结果已在表里就立刻回调，否则等 xhrRes 到达时回调（运行时没有这个方法时仍走 xhrPoll 轮询）
+    xhrWait: function (reqId, cb) {
+      reqId = String(reqId);
+      var r = results[reqId];
+      if (r !== undefined) { dropXhr(reqId); cb(r.json); return; }
+      if (!(reqId in xhrs)) { cb(stringify({ state: 'error', error: 'unknown request' })); return; }
+      waiters[reqId] = cb;
     },
     xhrAbort: function (reqId) {
       dropXhr(reqId);

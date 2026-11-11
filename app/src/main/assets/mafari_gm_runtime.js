@@ -218,10 +218,7 @@
       if (listeners[id]) names[listeners[id].name] = 1;
     });
     var nameList = Object.keys(names);
-    if (!nameList.length) {
-      if (pollTimer) { _clearInterval(pollTimer); pollTimer = null; }
-      return;
-    }
+    if (!nameList.length) { stopPoll(); return; }
     // Batch query when native supports it.
     if (bridge && typeof bridge.getValues === 'function') {
       var results = null;
@@ -251,9 +248,43 @@
       }
     });
   }
+  // 桥支持 onValueChange（Gecko shim）：别的标签 / 框架写值时由桥直接通知，不开 1s 轮询（省定时器 + 每秒一次 getValues）
+  var hooked = false;
+  function hasListenerFor(n) {
+    for (var id in listeners) if (listeners[id] && listeners[id].name === n) return true;
+    return false;
+  }
+  function checkKey(n) {
+    function apply(raw) {
+      var prev = lastSeen[n];
+      if (raw === prev) return;
+      lastSeen[n] = raw;
+      fireChange(n, parseVal(prev, undefined), parseVal(raw, undefined), true);
+    }
+    if (bridge && typeof bridge.getValueAsync === 'function') { // 大值只有异步能拿到；同步命中的直接回调
+      var sync = true;
+      try {
+        bridge.getValueAsync(META.id, n, function (raw) {
+          if (raw === null && !sync) return; // 异步拿到 null 可能是超时 / 放弃，不当成删除（真删除的广播是同步命中的）
+          apply(raw);
+        });
+        sync = false;
+        return;
+      } catch (e) {}
+    }
+    apply(rawGet(n));
+  }
+  function onBridgeChange(k) { if (hasListenerFor(k)) checkKey(k); }
   function ensurePoll() {
-    if (pollTimer) return;
+    if (hooked || pollTimer) return;
+    if (bridge && typeof bridge.onValueChange === 'function') {
+      try { bridge.onValueChange(META.id, onBridgeChange); hooked = true; return; } catch (e) {}
+    }
     pollTimer = _setInterval(pollTick, POLL_INTERVAL_MS);
+  }
+  function stopPoll() {
+    if (pollTimer) { _clearInterval(pollTimer); pollTimer = null; }
+    if (hooked) { hooked = false; try { bridge.onValueChange(META.id, null); } catch (e) {} }
   }
 
   function GM_getValue(k, d) { return parseVal(rawGet(k), d); }
@@ -313,16 +344,19 @@
   function GM_addValueChangeListener(name, cb) {
     var id = ++listenerSeq;
     listeners[id] = { name: name, cb: cb };
-    if (!Object.prototype.hasOwnProperty.call(lastSeen, name)) lastSeen[name] = rawGet(name);
+    if (!Object.prototype.hasOwnProperty.call(lastSeen, name)) {
+      lastSeen[name] = rawGet(name);
+      if (lastSeen[name] === null && bridge && typeof bridge.getValueAsync === 'function') {
+        // 大值同步读不到（首次是 null）：后台补一次基线，免得之后拉到值时被当成「新增」
+        try { bridge.getValueAsync(META.id, String(name), function (raw) { if (raw !== null && lastSeen[name] === null) lastSeen[name] = raw; }); } catch (e) {}
+      }
+    }
     ensurePoll();
     return id;
   }
   function GM_removeValueChangeListener(id) {
     delete listeners[id];
-    if (pollTimer && !Object.keys(listeners).length) {
-      _clearInterval(pollTimer);
-      pollTimer = null;
-    }
+    if ((pollTimer || hooked) && !Object.keys(listeners).length) stopPoll();
   }
 
   // ------------------------------------------------------------------ styles / elements
@@ -388,6 +422,7 @@
     return 'data:' + (r.mime || 'application/octet-stream') + ';base64,' + r.data;
   }
 
+  /*@@BEGIN xhr*/
   // ------------------------------------------------------------------ xmlHttpRequest
   function headerValue(rawHeaders, name) {
     var re = cachedRe('^' + escRe(name) + ':\\s*(.*)$', 'im');
@@ -431,6 +466,19 @@
   }
 
   function pollXhr(reqId, onDone) {
+    if (bridge && typeof bridge.xhrWait === 'function') { // 推送式：结果到达时由 shim 直接回调，不再轮询
+      var waiting = true;
+      try {
+        bridge.xhrWait(reqId, function (raw) {
+          if (!waiting) return;
+          waiting = false;
+          var res;
+          try { res = JSON.parse(raw); } catch (e) { res = { state: 'error', error: 'bad bridge response' }; }
+          onDone(res);
+        });
+      } catch (e) { waiting = false; onDone({ state: 'error', error: String(e) }); }
+      return { stop: function () { waiting = false; } };
+    }
     var delay = 15;
     var stopped = false;
     function tick() {
@@ -638,6 +686,16 @@
     return p;
   }
 
+  /*@@STUB xhr
+  // 脚本声明了 @grant 却没声明 GM_xmlhttpRequest / GM.xmlHttpRequest：整段（~250 行）由 UserscriptEngine 裁掉，换成这两个桩
+  function GM_xmlhttpRequest() {
+    try { console.warn('[Mafari] 脚本未声明 @grant GM_xmlhttpRequest / GM.xmlHttpRequest'); } catch (e) {}
+    return { abort: function () {} };
+  }
+  function promisifyXhr() {
+    return Promise.reject(new Error('未声明 @grant GM.xmlHttpRequest'));
+  }
+  xhr@@*/
   // ------------------------------------------------------------------ misc APIs
   function GM_notification(a, b, c, d) {
     var det = (a && typeof a === 'object') ? a : { text: a, title: b, image: c, onclick: d };
@@ -853,6 +911,7 @@
   function GM_saveTab(o) { tabObj = o || {}; }
   function GM_getTabs(cb) { var t = {}; t[0] = tabObj; safeCall(cb, null, [t]); }
 
+  /*@@BEGIN cookie*/
   // ------------------------------------------------------------------ cookies
   function cookieHost(url) { try { return new URL(url).hostname; } catch (e) { return W.location.hostname; } }
   function documentCookies(url, nameFilter) {
@@ -943,6 +1002,14 @@
     }
   };
 
+  /*@@STUB cookie
+  // 脚本声明了 @grant 却没声明 GM_cookie / GM.cookie：整段由 UserscriptEngine 裁掉，换成桩
+  var GM_cookie = {
+    list: function (d, cb) { try { if (typeof cb === 'function') cb(undefined, '未声明 @grant GM_cookie'); } catch (e) {} },
+    set: function (d, cb) { try { if (typeof cb === 'function') cb('未声明 @grant GM_cookie'); } catch (e) {} },
+    delete: function (d, cb) { try { if (typeof cb === 'function') cb('未声明 @grant GM_cookie'); } catch (e) {} }
+  };
+  cookie@@*/
   // ------------------------------------------------------------------ onurlchange (shared across scripts)
   if (META.grant && META.grant.indexOf('window.onurlchange') >= 0) {
     var state = W.__mafariUrlWatchState;
@@ -1115,7 +1182,29 @@
       return p(GM_getValue)(k, d);
     },
     setValue: p(GM_setValue), deleteValue: p(GM_deleteValue),
-    listValues: p(GM_listValues), getValues: p(GM_getValues),
+    listValues: p(GM_listValues),
+    // 大值同步读不到：有 getValueAsync 就逐个异步取（已在本地的同步回调，没有额外 Promise），全部到齐后一次 resolve
+    getValues: function (keys) {
+      if (!bridge || typeof bridge.getValueAsync !== 'function') return p(GM_getValues)(keys);
+      return new Promise(function (resolve) {
+        var list, defs = null;
+        if (Array.isArray(keys)) list = keys;
+        else if (keys && typeof keys === 'object') { defs = keys; list = Object.keys(keys); }
+        else list = GM_listValues();
+        var out = {}, left = list.length;
+        if (!left) { resolve(out); return; }
+        list.forEach(function (k) {
+          var done = false;
+          function fin(raw) {
+            if (done) return;
+            done = true;
+            out[k] = parseVal(raw, defs ? defs[k] : undefined);
+            if (--left === 0) resolve(out);
+          }
+          try { bridge.getValueAsync(META.id, String(k), fin); } catch (e) { fin(rawGet(k)); }
+        });
+      });
+    },
     setValues: p(GM_setValues), deleteValues: p(GM_deleteValues),
     addValueChangeListener: p(GM_addValueChangeListener), removeValueChangeListener: p(GM_removeValueChangeListener),
     addStyle: p(GM_addStyle), addElement: p(GM_addElement),
