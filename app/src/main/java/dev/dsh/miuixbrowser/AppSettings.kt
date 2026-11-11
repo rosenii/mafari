@@ -111,6 +111,15 @@ class AppSettings(context: Context) {
         homeFavRows = rows.coerceIn(0, HOME_FAV_ROWS_MAX)
         prefs.edit().putInt(KEY_HOME_FAV_ROWS, homeFavRows).apply()
     }
+    /** 首页顶部的 Mafari LOGO 标识：显示 / 隐藏（定制主页里设置） */
+    var homeShowLogo by mutableStateOf(prefs.getBoolean(KEY_HOME_LOGO, true))
+        private set
+
+    fun updateHomeShowLogo(show: Boolean) {
+        homeShowLogo = show
+        prefs.edit().putBoolean(KEY_HOME_LOGO, show).apply()
+    }
+
     var homeShowPrivacy by mutableStateOf(prefs.getBoolean(KEY_HOME_PRIVACY, true))
         private set
     var homeShowRecent by mutableStateOf(prefs.getBoolean(KEY_HOME_RECENT, false))
@@ -610,6 +619,7 @@ class AppSettings(context: Context) {
         const val KEY_BLUR_MODE = "blur_mode"
         const val KEY_HOME_FAV = "home_show_favorites"
         const val KEY_HOME_FAV_ROWS = "home_fav_rows"
+        const val KEY_HOME_LOGO = "home_show_logo"
         const val KEY_HOME_PRIVACY = "home_show_privacy"
         const val KEY_HOME_RECENT = "home_show_recent"
         const val KEY_HOME_DOWNLOADS = "home_show_downloads"

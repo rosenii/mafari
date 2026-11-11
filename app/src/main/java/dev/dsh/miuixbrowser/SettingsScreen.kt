@@ -683,6 +683,15 @@ fun SettingsScreen(
                         )
                     }
                     AppDropdownPreference(
+                        title = "LOGO 标识",
+                        items = listOf("显示", "隐藏"),
+                        selectedIndex = if (settings.homeShowLogo) 0 else 1,
+                        onSelectedIndexChange = { settings.updateHomeShowLogo(it == 0) },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                    AppDropdownPreference(
                         title = "个人收藏",
                         items = (1..HOME_FAV_ROWS_MAX).map { "显示${it}行" } + "不显示",
                         selectedIndex = if (settings.homeFavRows == 0) HOME_FAV_ROWS_MAX else settings.homeFavRows - 1,
@@ -1046,5 +1055,5 @@ private fun homeContentSummary(settings: AppSettings): String {
         HOME_MODE_CUSTOM -> "指定页面 · "
         else -> ""
     }
-    return mode + if (shown.isEmpty()) "首页只显示标志" else shown.joinToString(" · ")
+    return mode + if (shown.isEmpty()) (if (settings.homeShowLogo) "首页只显示标志" else "首页无内容") else shown.joinToString(" · ")
 }

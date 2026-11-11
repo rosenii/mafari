@@ -83,7 +83,7 @@ internal object GeckoGm {
 
     @Volatile private var ext: WebExtension? = null
     @Volatile private var installing = false
-    private var bgPort: WebExtension.Port? = null
+    @Volatile private var bgPort: WebExtension.Port? = null
 
     private var appContext: Context? = null
     private var shimTemplate: String? = null
@@ -301,6 +301,12 @@ internal object GeckoGm {
                             if (syncedRev >= rev) { waiters.toList().also { waiters.clear() }.forEach { it() } }
                             if (o.optInt("failed") > 0) Diag.log("gm: ${o.optInt("failed")} script(s) failed to register")
                         }
+                        "dlCookieRes" -> {
+                            val rid = o.optString("rid")
+                            dlCookieResults[rid] = o.optString("cookie")
+                            o.optString("ua").takeIf { it.isNotBlank() }?.let { userAgent = it }
+                            dlCookieWaiters[rid]?.countDown()
+                        }
                         "error" -> Diag.log("gm: background error ${o.optString("where")} ${o.optString("id")} ${o.optString("msg")}")
                     }
                 }
@@ -311,6 +317,39 @@ internal object GeckoGm {
                 }
             })
         }
+    }
+
+    // ---------------------------------------------------------------- 下载器取 Cookie
+
+    private val dlCookieWaiters = ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
+    private val dlCookieResults = ConcurrentHashMap<String, String>()
+
+    /** 后台页回报的 Gecko UA（取过一次 Cookie 之后可用）：登录 Cookie 常绑定 UA，下载请求要保持一致 */
+    @Volatile var userAgent: String? = null
+        private set
+
+    /**
+     * 供 [Downloader] 在 IO 线程调用：向后台页要 [url] 对应的 Cookie 头（"a=1; b=2"）。
+     * Gecko 没有读 Cookie 的 Java API，只有内置扩展的 cookies 权限能读，所以走后台端口一来一回。
+     * 扩展没就绪 / 超时 / 在主线程调用 / 没有 Cookie 都返回 null（照旧不带 Cookie 请求）。
+     */
+    fun cookieHeader(url: String, timeoutMs: Long = 2500): String? {
+        if (!url.startsWith("http", ignoreCase = true)) return null
+        if (Looper.myLooper() == Looper.getMainLooper()) return null // 主线程等不得：回复要靠主线程转发
+        val p = bgPort ?: return null
+        val rid = java.util.UUID.randomUUID().toString()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        dlCookieWaiters[rid] = latch
+        main.post {
+            runCatching { p.postMessage(JSONObject().put("t", "dlCookie").put("rid", rid).put("url", url)) }
+                .onFailure { latch.countDown() }
+        }
+        try {
+            latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+        }
+        dlCookieWaiters.remove(rid)
+        return dlCookieResults.remove(rid)?.takeIf { it.isNotBlank() }
     }
 
     private fun push() {

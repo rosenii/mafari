@@ -48,6 +48,8 @@ data class DownloadTask(
     val referer: String? = null,
     /** 请求时从 WebView 的 CookieManager 取登录态（Cookie 不落盘，每次请求现取） */
     val withCookies: Boolean = false,
+    /** Cookie 来自 Gecko（经内置扩展读取）而不是 WebView 的 CookieManager */
+    val geckoCookies: Boolean = false,
     /** 远端文件指纹：强 ETag / Last-Modified / 总长度。续传时用来判断文件是否已变化 */
     val etag: String? = null,
     val lastModified: String? = null,
@@ -196,6 +198,7 @@ object Downloader {
         putOpt("error", t.error)
         putOpt("referer", t.referer)
         put("withCookies", t.withCookies)
+        put("geckoCookies", t.geckoCookies)
         putOpt("etag", t.etag)
         putOpt("lastModified", t.lastModified)
         put("segCount", t.segCount)
@@ -220,6 +223,7 @@ object Downloader {
             error = o.str("error"),
             referer = o.str("referer"),
             withCookies = o.optBoolean("withCookies"),
+            geckoCookies = o.optBoolean("geckoCookies"),
             etag = o.str("etag"),
             lastModified = o.str("lastModified"),
             segCount = o.optInt("segCount"),
@@ -274,6 +278,7 @@ object Downloader {
         onComplete: ((ok: Boolean, error: String?) -> Unit)? = null,
         referer: String? = null,
         withCookies: Boolean = false,
+        geckoCookies: Boolean = false,
     ) {
         init(context)
         val task = DownloadTask(
@@ -283,6 +288,7 @@ object Downloader {
             mime = mimeType,
             referer = referer?.takeIf { it.startsWith("http", ignoreCase = true) },
             withCookies = withCookies,
+            geckoCookies = geckoCookies,
         )
         if (onComplete != null) completions[task.id] = onComplete
         tasks.add(0, task)
@@ -392,8 +398,12 @@ object Downloader {
 
     // ───────────────────────── 网络 ─────────────────────────
 
-    private fun cookieFor(url: String): String? =
-        runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()?.takeIf { it.isNotBlank() }
+    private fun cookieFor(task: DownloadTask, url: String): String? =
+        if (task.geckoCookies) {
+            runCatching { GeckoGm.cookieHeader(url) }.getOrNull()
+        } else {
+            runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
 
     /**
      * 手动跟随重定向：Cookie 按每一跳的地址重新取（和浏览器一致，不会把 A 站的 Cookie 带给 CDN），
@@ -402,15 +412,18 @@ object Downloader {
     private fun connect(task: DownloadTask, range: String?, ifRange: String?): HttpURLConnection {
         var url = URL(task.url)
         repeat(MAX_REDIRECTS + 1) {
+            // 先取 Cookie：Gecko 的 UA 是取 Cookie 时顺带从后台页拿到的
+            val cookie = if (task.withCookies) cookieFor(task, url.toString()) else null
+            val ua = task.userAgent ?: (if (task.geckoCookies) GeckoGm.userAgent else null) ?: DEFAULT_UA
             val c = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15000
                 readTimeout = 30000
                 instanceFollowRedirects = false
-                setRequestProperty("User-Agent", task.userAgent ?: DEFAULT_UA)
+                setRequestProperty("User-Agent", ua)
                 setRequestProperty("Accept", "*/*")
                 setRequestProperty("Accept-Encoding", "identity")
                 task.referer?.let { setRequestProperty("Referer", it) }
-                if (task.withCookies) cookieFor(url.toString())?.let { setRequestProperty("Cookie", it) }
+                if (cookie != null) setRequestProperty("Cookie", cookie)
                 if (range != null) {
                     setRequestProperty("Range", range)
                     if (ifRange != null) setRequestProperty("If-Range", ifRange)

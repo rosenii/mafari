@@ -34,9 +34,28 @@ function onNative(m) {
   if (!m) return;
   if (m.t === 'sync') {
     applyChain = applyChain.then(() => applyAll(m)).catch((e) => post({ t: 'error', where: 'sync', msg: String(e) }));
+  } else if (m.t === 'dlCookie') {
+    dlCookie(m);
   } else if (m.t === 'val') {
     browser.storage.local.set({ bus: { n: ++busN, id: m.id, k: m.k, raw: m.raw === undefined ? null : m.raw, src: m.src || '' } });
   }
+}
+
+/**
+ * 下载器取登录态：原生端（Downloader）重新发 HTTP 请求时拿不到 Gecko 的 Cookie，这里替它读。
+ * 只响应原生端口上的请求（页面 / 内容脚本够不到这条端口）；无痕会话的 Cookie 罐与本页不同，原生端不会请求。
+ * 同时回报 navigator.userAgent：部分站点的登录 / 反爬 Cookie 绑定 UA，下载请求要用同一个。
+ */
+async function dlCookie(m) {
+  let cookie = '';
+  try {
+    if (/^https?:/i.test(String(m.url || ''))) {
+      // getAll 已按 url 的域名 / 路径 / Secure 过滤并按路径长度降序排好，和浏览器发出的 Cookie 头顺序一致
+      const arr = await browser.cookies.getAll({ url: m.url });
+      cookie = arr.map((c) => c.name + '=' + c.value).join('; ');
+    }
+  } catch (e) {}
+  post({ t: 'dlCookieRes', rid: String(m.rid || ''), cookie, ua: navigator.userAgent });
 }
 
 /** m.scripts: [{id, sig, tok, connect, code, matches, excludeMatches, noframes}]；全量替换，按 sig 做差量 */

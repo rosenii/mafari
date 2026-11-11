@@ -227,6 +227,7 @@ internal data class DownloadRequest(
     /** 来源页（Referer）与是否带 WebView 的 Cookie：登录态 / 防盗链站点 */
     val referer: String? = null,
     val withCookies: Boolean = false,
+    val geckoCookies: Boolean = false,
     /** blob / data URL 已抽成 data URI，确认后直接落盘，不再走 HTTP 下载器 */
     val dataUri: String? = null,
     /** 大 blob 分片写入的缓存临时文件路径，确认后拷到 Download/mafari */
@@ -837,8 +838,9 @@ fun BrowserScreen(
                     fileName = Downloader.fileNameFrom(url, disposition),
                     mime = mime,
                     referer = tab.url,
-                    // Gecko 的 Cookie 不在 WebView 的 CookieManager 里，带过去反而是错的
-                    withCookies = tab.engineKind == EngineKind.WEBVIEW,
+                    // 无痕标签不带 Cookie（WebView 共用 CookieManager、Gecko 扩展读不到私有 Cookie 罐，带了就是串号）
+                    withCookies = !tab.incognito,
+                    geckoCookies = tab.engineKind == EngineKind.GECKO,
                 )
             }
         }
@@ -854,7 +856,8 @@ fun BrowserScreen(
                 fileName = Downloader.fileNameFrom(url, if (name.isBlank()) null else "attachment; filename=\"$name\""),
                 mime = null,
                 referer = tab.url,
-                withCookies = tab.engineKind == EngineKind.WEBVIEW,
+                withCookies = !tab.incognito,
+                geckoCookies = tab.engineKind == EngineKind.GECKO,
                 onResult = onResult,
             )
         }
@@ -1175,6 +1178,7 @@ fun BrowserScreen(
                         wallpaperBackdrop = wallpaperBackdrop,
                         blurEnabled = settings.blurEnabled,
                         favorites = homeFavEntries.map { it.second },
+                        showLogo = settings.homeShowLogo,
                         showFavorites = settings.homeShowFavorites,
                         favRows = settings.homeFavRows,
                         onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
@@ -1895,7 +1899,8 @@ fun BrowserScreen(
                             fileName = Downloader.fileNameFrom(imageUrl, null),
                             mime = null,
                             referer = tab.url,
-                            withCookies = tab.engineKind == EngineKind.WEBVIEW,
+                            withCookies = !tab.incognito,
+                            geckoCookies = tab.engineKind == EngineKind.GECKO,
                         )
                     }
                 }
@@ -1939,7 +1944,8 @@ fun BrowserScreen(
                                 fileName = Downloader.fileNameFrom(hit.imageUrl, null),
                                 mime = null,
                                 referer = tab.url,
-                                withCookies = tab.engineKind == EngineKind.WEBVIEW,
+                                withCookies = !tab.incognito,
+                                geckoCookies = tab.engineKind == EngineKind.GECKO,
                             )
                         }
                     }
@@ -2047,6 +2053,7 @@ fun BrowserScreen(
                                                     onComplete = req.onResult,
                                                     referer = req.referer,
                                                     withCookies = req.withCookies,
+                                                    geckoCookies = req.geckoCookies,
                                                 )
                                                 true
                                             }
