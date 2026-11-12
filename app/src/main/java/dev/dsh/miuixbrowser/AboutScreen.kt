@@ -38,7 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -112,6 +114,8 @@ fun AboutScreen(
     val surface = MiuixTheme.colorScheme.surface
     val iconShape = RoundedCornerShape(26.dp)
     var pendingUpdate by remember { mutableStateOf<AppRelease?>(null) }
+    var showDonate by remember { mutableStateOf(false) }
+    var savingQr by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides if (glass) liquidBackdrop else null) {
     Scaffold(
@@ -343,6 +347,29 @@ fun AboutScreen(
                     }
                 }
 
+                SmallTitle(text = "捐赠")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDonate = true }
+                            .padding(16.dp),
+                    ) {
+                        Text("捐赠", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "支持开发者，给牛马来杯核动力coffe",
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+
                 Spacer(Modifier.height(18.dp))
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -412,10 +439,92 @@ fun AboutScreen(
                     }
                 }
             }
+
+            // 捐赠：赞赏码 + 保存到相册
+            AppBottomSheet(
+                show = showDonate,
+                title = "捐赠",
+                backdrop = if (glass) pageBackdrop else null,
+                onDismissRequest = { showDonate = false },
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "支持开发者，给牛马来杯核动力coffe",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Image(
+                        painter = painterResource(R.drawable.donate_qr),
+                        contentDescription = "赞赏码",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .size(240.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White),
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        text = "保存后打开微信「扫一扫」，点右上角相册选择此图即可赞赏",
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    AppDialogButton(
+                        onClick = {
+                            if (savingQr) return@AppDialogButton
+                            savingQr = true
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) { saveDonateQr(context) }
+                                savingQr = false
+                                Toast.makeText(
+                                    context,
+                                    if (ok) "已保存到相册（Pictures/Mafari）。打开微信「扫一扫」→ 相册，选择此图即可赞赏"
+                                    else "保存失败，请截图保存",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        },
+                        role = GlassDialogButtonRole.Primary,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = if (savingQr) "保存中…" else "保存到相册", style = MiuixTheme.textStyles.button)
+                    }
+                }
+            }
         }
     }
     }
 }
+
+/** 把赞赏码存进系统相册（Pictures/Mafari）。minSdk 33：走 MediaStore，不需要存储权限。 */
+private fun saveDonateQr(context: android.content.Context): Boolean = runCatching {
+    val resolver = context.contentResolver
+    val values = android.content.ContentValues().apply {
+        put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "mafari_donate_qr.png")
+        put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+        put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/Mafari")
+        put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+    }
+    val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        ?: error("insert failed")
+    try {
+        resolver.openOutputStream(uri)!!.use { out ->
+            context.resources.openRawResource(R.drawable.donate_qr).use { it.copyTo(out) }
+        }
+        resolver.update(uri, android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+        }, null, null)
+    } catch (t: Throwable) {
+        runCatching { resolver.delete(uri, null, null) }
+        throw t
+    }
+}.onFailure { Diag.log("donate: save qr failed: $it") }.isSuccess
 
 data class AppRelease(
     val version: String,

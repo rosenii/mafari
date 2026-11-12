@@ -4,6 +4,7 @@
 
 ## [未发布]
 
+- 新增：设置 → 关于新增「捐赠」，点开底部弹窗显示赞赏码，可一键保存到相册（Pictures/Mafari）并提示用微信「扫一扫 → 相册」识别
 - 新增（Gecko / Floccus）：「检查更新」现在也能升级 Floccus —— 此前官方更新包没有书签垫片，更新会让同步失效，所以一直跳过它。现改为查 GitHub `floccusaddon/floccus` 最新正式版（不含预发布），比当前版本新才下载其 Firefox 构建包，重新打补丁后覆盖安装（同 id 升级，账号与设置保留）；权限有变化时照常弹确认框
 - 修复（Gecko / Floccus）：已装着改包版 Floccus 时，再装 / 更新失败或被取消会把「放开签名校验」重新关上，导致已装的 Floccus 下次启动被禁用，且会拿没打补丁的原包重试 —— 现在这种情况直接保持原状返回失败
 - 修复（Gecko / Floccus）：设置里选「本地目标文件夹」一直转圈、列不出浏览器书签（也影响后台同步读写书签）—— 根因：Floccus 是普通安装的拓展，GeckoView 在 Android 上只给内置特权拓展开放 `runtime.sendNativeMessage` / `connectNative`（普通拓展里这个 API 不存在，`geckoViewAddons` 权限也会被拒绝），所以此前垫片的 `sendNativeMessage` 直接抛 TypeError，无论后台页走扩展级还是设置页走 session 级委托都收不到消息。现改为：垫片经 `runtime.sendMessage('gm@mafari.dev')` 把书签调用交给内置拓展（0.4.0），它的后台页 `onMessageExternal` （只认 `sender.id == floccus@handmadeideas.org`、只放行书签操作）再 `sendNativeMessage('mafariBookmarks')` 转给 `BookmarksBridge`，该委托挂在内置拓展上（`GeckoGm.ensureInstalled` 就绪时挂）。同时去掉无效的 session 级委托挂载，改包时不再给 Floccus 加 `nativeMessaging` 权限；垫片调用加 30 秒超时与明确的错误信息（内置拓展没运行时会提示），`tabs.query` 的 Vivaldi 探测 3 秒兜底保留。**已装的 Floccus 里烤着旧垫片**：点「检查更新」会用同版本重新打补丁覆盖安装（账号与设置保留），或卸载后重装
