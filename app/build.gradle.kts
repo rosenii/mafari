@@ -116,6 +116,10 @@ android {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             excludes += "/META-INF/{DEPENDENCIES,INDEX.LIST}"
             excludes += "/META-INF/versions/**/module-info.class"
+            // JGit 各模块（core / ssh.jsch）都带 Eclipse OSGi 元数据，同名冲突；运行时用不到
+            excludes += "/plugin.properties"
+            excludes += "/about.html"
+            excludes += "/.api_description"
         }
     }
 }
