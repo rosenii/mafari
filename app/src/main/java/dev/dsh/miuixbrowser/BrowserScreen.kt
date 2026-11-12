@@ -236,6 +236,35 @@ internal data class DownloadRequest(
     val onResult: ((ok: Boolean, error: String?) -> Unit)? = null,
 )
 
+/**
+ * 把网页 accept 里的类型（MIME / 通配 / 扩展名）整理成系统选择器能用的 MIME 列表。
+ * 返回空列表 = 不加类型过滤（任意类型）。
+ * 此前把未知扩展名直接去掉点当 MIME（如 ".zip" → "zip"），非法 MIME 会让部分机型的
+ * 文件选择器把所有文件灰掉、无法选择。
+ */
+internal fun resolvePickerMimeTypes(types: List<String>): List<String> {
+    if (types.isEmpty()) return emptyList()
+    val extra = mapOf(
+        "heic" to "image/heic", "heif" to "image/heif", "avif" to "image/avif",
+        "mkv" to "video/x-matroska", "md" to "text/markdown", "7z" to "application/x-7z-compressed",
+        "rar" to "application/vnd.rar", "apk" to "application/vnd.android.package-archive",
+        "epub" to "application/epub+zip", "json" to "application/json", "zip" to "application/zip",
+    )
+    val mimeRe = Regex("^[a-z0-9!#$&^_.+-]+/([a-z0-9!#$&^_.+-]+|\\*)$")
+    val out = LinkedHashSet<String>()
+    for (raw in types) {
+        val t = raw.lowercase()
+        val mime = if (t.startsWith(".")) {
+            val ext = t.removePrefix(".")
+            android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: extra[ext]
+        } else t
+        // 解析不了 / 不合法 / 本身就是全通配：整体不过滤
+        if (mime == null || mime == "*/*" || !mimeRe.matches(mime)) return emptyList()
+        out.add(mime)
+    }
+    return out.toList()
+}
+
 /** 网页 <input type=file capture>：文件 / 拍照 / 录像 选择 */
 internal class FileChooserChoice(
     val params: WebChromeClient.FileChooserParams,
@@ -614,44 +643,38 @@ fun BrowserScreen(
         val types = params.acceptTypes
             ?.mapNotNull { it?.trim()?.takeIf { t -> t.isNotEmpty() } }
             .orEmpty()
-        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+        // 只在能确定全部类型都合法时才给系统选择器加类型过滤；任何一项解析不了就不过滤，
+        // 宁可多显示文件，也不能让用户想选的文件被灰掉、点不动
+        val mimes = resolvePickerMimeTypes(types)
+        fun buildIntent(action: String) = Intent(action).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = when {
-                types.isEmpty() -> "*/*"
-                types.size == 1 && types[0].contains("/") -> types[0]
-                else -> "*/*"
-            }
-            if (types.size > 1 || (types.size == 1 && !types[0].contains("/"))) {
-                val mimes = types.map { t ->
-                    if (t.startsWith(".")) {
-                        when (t.lowercase()) {
-                            ".jpg", ".jpeg" -> "image/jpeg"
-                            ".png" -> "image/png"
-                            ".gif" -> "image/gif"
-                            ".webp" -> "image/webp"
-                            ".mp4" -> "video/mp4"
-                            ".webm" -> "video/webm"
-                            ".pdf" -> "application/pdf"
-                            else -> t.removePrefix(".")
-                        }
-                    } else t
-                }.distinct().toTypedArray()
-                if (mimes.isNotEmpty()) putExtra(Intent.EXTRA_MIME_TYPES, mimes)
+            if (mimes.size == 1) {
+                type = mimes[0]
+            } else {
+                type = "*/*"
+                if (mimes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
             }
             if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             }
         }
-        val canResolve = intent.resolveActivity(context.packageManager) != null
-        if (canResolve) {
-            filePickerLauncher.launch(intent)
-        } else {
-            runCatching { filePickerLauncher.launch(Intent.createChooser(intent, "选择文件")) }
-                .onFailure {
-                    choice.callback.onReceiveValue(null)
-                    fileChooserChoice = null
-                }
+        // 部分机型（定制文档应用）的 GET_CONTENT 不认 EXTRA_MIME_TYPES 或根本没有对应界面：
+        // 依次尝试 GET_CONTENT → OPEN_DOCUMENT → 系统 chooser。不再依赖 resolveActivity
+        // （Android 11+ 没声明 <queries> 时它会误返回 null）
+        val attempts = listOf(
+            buildIntent(Intent.ACTION_GET_CONTENT),
+            buildIntent(Intent.ACTION_OPEN_DOCUMENT),
+            Intent.createChooser(buildIntent(Intent.ACTION_GET_CONTENT), "选择文件"),
+        )
+        for (intent in attempts) {
+            val launched = runCatching { filePickerLauncher.launch(intent) }
+                .onFailure { Diag.log("file picker launch failed: ${intent.action} $it") }
+                .isSuccess
+            if (launched) return
         }
+        choice.callback.onReceiveValue(null)
+        fileChooserChoice = null
+        android.widget.Toast.makeText(context, "未找到可用的文件选择器", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     /** 拍照或录像：MediaStore pending 输出 + 相机 Intent */
