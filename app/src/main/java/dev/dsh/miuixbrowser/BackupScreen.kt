@@ -400,15 +400,17 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     // ———— 云同步：WebDAV / Git 左右切换 ————
                     item { SmallTitle(text = "云同步") }
                     item {
+                      Card(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        insideMargin = PaddingValues(0.dp),
+                      ) {
                         GlassTabRow(
                             tabs = listOf("WebDAV", "Git"),
                             selectedIndex = syncTab,
                             onSelect = { syncTab = it },
                             backdrop = null,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         )
-                    }
-                    item {
                         AnimatedContent(
                             targetState = syncTab,
                             transitionSpec = {
@@ -421,10 +423,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             Column {
                                 if (tab == TAB_WEBDAV) {
                                     val cfg = webdavConfig
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                        insideMargin = PaddingValues(0.dp),
-                                    ) {
+                                    Column {
                                         ArrowPreference(
                                             title = "服务器",
                                             summary = cfg?.let { WebDavNames.hostLabel(it.url) } ?: "未配置",
@@ -473,13 +472,9 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                             },
                                         )
                                     }
-                                    Note("存于服务器 ${WebDavNames.REMOTE_DIR} 文件夹，保留最近 ${WebDavNames.KEEP_BACKUPS} 份；账号加密存本机。")
                                 } else {
                                     val cfg = gitConfig
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                        insideMargin = PaddingValues(0.dp),
-                                    ) {
+                                    Column {
                                         ArrowPreference(
                                             title = "仓库",
                                             summary = cfg?.let { GitNames.repoLabel(it.url) + if (it.useSsh) " · Deploy key" else "" } ?: "未配置",
@@ -528,9 +523,16 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                             },
                                         )
                                     }
-                                    Note("仅保留最近 ${GitNames.HISTORY_KEEP} 个提交，旧的会强制推送裁掉；建议私有仓库。")
                                 }
                             }
+                        }
+                      }
+                    }
+                    item {
+                        if (syncTab == TAB_WEBDAV) {
+                            Note("存于服务器 ${WebDavNames.REMOTE_DIR} 文件夹，保留最近 ${WebDavNames.KEEP_BACKUPS} 份；账号加密存本机。")
+                        } else {
+                            Note("仅保留最近 ${GitNames.HISTORY_KEEP} 个提交，旧的会强制推送裁掉；建议私有仓库。")
                         }
                     }
 
@@ -999,18 +1001,7 @@ private fun ServerSheet(
                                         modifier = Modifier.padding(horizontal = 8.dp),
                                     )
                                 } else {
-                                    Text(
-                                        text = "使用",
-                                        fontSize = 13.sp,
-                                        color = MiuixTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable { onUse(row.id) }
-                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                    )
-                                    // 开关在上，「一并同步」在其下方，位于「使用」右侧
+                                    // 开关在上，「一并同步」在其下方，紧跟地址之后；「使用」在最右侧
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         AppSwitch(checked = row.syncAlso, onCheckedChange = { onToggleSync(row.id, it) })
                                         Spacer(Modifier.height(2.dp))
@@ -1022,6 +1013,17 @@ private fun ServerSheet(
                                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
                                     }
+                                    Text(
+                                        text = "使用",
+                                        fontSize = 13.sp,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { onUse(row.id) }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    )
                                 }
                             }
                         },
