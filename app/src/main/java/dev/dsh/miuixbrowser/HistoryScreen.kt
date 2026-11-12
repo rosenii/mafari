@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1056,6 +1058,138 @@ private fun groupChildren(groups: List<String>): Map<String, List<String>> {
     return out
 }
 
+/**
+ * 分组选择：一行显示当前路径，点开后在同一个面板里按层级展开分组树，
+ * 点名字选中（有子分组时顺带展开继续往下选），点右侧箭头只展开 / 收起，可以一直选到最内层。
+ */
+@Composable
+private fun GroupTreePicker(
+    childMap: Map<String, List<String>>,
+    current: String,
+    onSelect: (String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupPickerArrow")
+    val line = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    if (!open) {
+                        // 打开时把当前选中项的各级祖先展开，直接看到它
+                        var cur = current
+                        while (cur.contains('/')) {
+                            cur = cur.substringBeforeLast('/')
+                            expanded[cur] = true
+                        }
+                    }
+                    open = !open
+                }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "分组",
+                fontSize = 15.sp,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = current.replace("/", " › "),
+                fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                imageVector = MiuixIcons.Glass.ChevronBackward,
+                contentDescription = if (open) "收起" else "展开",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+            )
+        }
+        if (open) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+            val rows = buildList {
+                fun walk(parent: String, depth: Int) {
+                    childMap[parent].orEmpty().forEach { path ->
+                        add(path to depth)
+                        if (expanded[path] == true) walk(path, depth + 1)
+                    }
+                }
+                walk("", 0)
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                rows.forEach { (path, depth) ->
+                    val selected = path == current
+                    val hasKids = childMap[path].orEmpty().isNotEmpty()
+                    val isOpen = expanded[path] == true
+                    val kidAngle by androidx.compose.animation.core.animateFloatAsState(
+                        if (isOpen) 270f else 180f, label = "groupPickerKidArrow",
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onSelect(path)
+                                if (hasKids) expanded[path] = true else open = false
+                            }
+                            .padding(start = (depth * 18).dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = path.substringAfterLast('/').ifBlank { "未命名" },
+                            fontSize = 15.sp,
+                            color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                        )
+                        if (selected) {
+                            Text(
+                                text = "✓",
+                                fontSize = 16.sp,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
+                        if (hasKids) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .clickable { expanded[path] = !isOpen },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = MiuixIcons.Glass.ChevronBackward,
+                                    contentDescription = if (isOpen) "收起" else "展开",
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = kidAngle },
+                                )
+                            }
+                        } else {
+                            Spacer(Modifier.width(36.dp))
+                        }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+        }
+    }
+}
+
 @Composable
 private fun FavoriteEditorDialog(
     show: Boolean,
@@ -1096,47 +1230,16 @@ private fun FavoriteEditorDialog(
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
-            // 分组按 / 分层：有层级或分组超过 3 个时用级联下拉（先选顶层，选中的分组还有子分组就再出一个下拉，依此类推）
+            // 分组按 / 分层：有层级或分组超过 3 个时用「可展开的分组树」一个菜单选到最内层；否则仍是横排标签
             val childMap = remember(groups) { groupChildren(groups) }
             val knownPaths = remember(childMap) { childMap.values.flatten().toSet() }
             val current = group.trim().ifBlank { Favorite.GROUP_PERSONAL }
             if (childMap.keys.any { it.isNotEmpty() } || groups.size > 3) {
-                val roots = childMap[""].orEmpty()
-                // 手输了新分组名（不在已知路径里）时不代表任何一级选择
-                val segs = if (current in knownPaths) current.split('/') else emptyList()
-                AppDropdownPreference(
-                    onSelectedIndexChange = { i -> roots.getOrNull(i)?.let { group = it } },
-                    items = roots.map { it.substringAfterLast('/').ifBlank { "未命名" } },
-                    selectedIndex = roots.indexOf(segs.firstOrNull().orEmpty()).coerceAtLeast(0),
-                    title = "分组",
-                    backdrop = backdrop,
-                    showValue = segs.isNotEmpty(),
-                    insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+                GroupTreePicker(
+                    childMap = childMap,
+                    current = current,
+                    onSelect = { group = it },
                 )
-                var prefix = segs.firstOrNull().orEmpty()
-                var level = 1
-                while (prefix.isNotEmpty()) {
-                    val kids = childMap[prefix].orEmpty()
-                    if (kids.isEmpty()) break
-                    val parent = prefix
-                    val picked = if (segs.size > level) "$parent/${segs[level]}" else null
-                    androidx.compose.runtime.key(parent) {
-                        AppDropdownPreference(
-                            onSelectedIndexChange = { i ->
-                                group = if (i <= 0) parent else (kids.getOrNull(i - 1) ?: parent)
-                            },
-                            items = listOf("（放在「${parent.substringAfterLast('/')}」本级）") +
-                                kids.map { it.substringAfterLast('/').ifBlank { "未命名" } },
-                            selectedIndex = if (picked == null) 0 else (kids.indexOf(picked) + 1).coerceAtLeast(0),
-                            title = "子分组",
-                            backdrop = backdrop,
-                            insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
-                        )
-                    }
-                    if (picked == null) break
-                    prefix = picked
-                    level++
-                }
             } else {
                 Text(
                     text = "分组",
