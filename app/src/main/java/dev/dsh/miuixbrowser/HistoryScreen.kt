@@ -46,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -714,11 +716,17 @@ private fun BookmarkFolderRow(
 ) {
     // ChevronBackward 默认朝左：收起时转 180° 朝右（›），展开时转 270° 朝下
     val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "folderArrow")
+    val tint = MiuixTheme.colorScheme.primary.copy(alpha = 0.05f)
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = (12 + level * 14).dp, end = 12.dp)
-            .padding(bottom = 8.dp),
+            .padding(bottom = 8.dp)
+            // 非常淡的蓝色底色：一眼区分分组行和普通书签行
+            .drawWithContent {
+                drawContent()
+                drawRoundRect(tint, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()))
+            },
         insideMargin = PaddingValues(14.dp),
     ) {
         Row(
@@ -1153,7 +1161,11 @@ private fun GroupTreePicker(
                     .heightIn(max = 400.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
-                rows.forEach { (path, depth) ->
+                val guide = MiuixTheme.colorScheme.primary.copy(alpha = 0.30f)
+                val levelTint = MiuixTheme.colorScheme.primary
+                rows.forEachIndexed { index, (path, depth) ->
+                    // 并列：同为顶层的分组之间加一条细分隔线
+                    if (depth == 0 && index > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(line))
                     val selected = path == current
                     val hasKids = childMap[path].orEmpty().isNotEmpty()
                     val isOpen = expanded[path] == true
@@ -1163,17 +1175,30 @@ private fun GroupTreePicker(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            // 层级：越深底色越明显 + 每一级祖先各一条竖向引导线 + 连到自己的短横线
+                            .drawBehind {
+                                if (depth > 0) {
+                                    drawRect(levelTint.copy(alpha = (0.03f * depth).coerceAtMost(0.12f)))
+                                    for (d in 1..depth) {
+                                        val x = ((d - 1) * 18 + 13).dp.toPx()
+                                        drawLine(guide, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1.5.dp.toPx())
+                                    }
+                                    val x = ((depth - 1) * 18 + 13).dp.toPx()
+                                    drawLine(guide, androidx.compose.ui.geometry.Offset(x, size.height / 2), androidx.compose.ui.geometry.Offset(x + 9.dp.toPx(), size.height / 2), strokeWidth = 1.5.dp.toPx())
+                                }
+                            }
                             .clickable {
                                 tick()
                                 onSelect(path)
                                 if (hasKids) expandOnly(path) else open = false
                             }
-                            .padding(start = (depth * 18).dp, top = 4.dp, bottom = 4.dp),
+                            .padding(start = (depth * 18 + 8).dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = path.substringAfterLast('/').ifBlank { "未命名" },
-                            fontSize = 15.sp,
+                            fontSize = if (depth == 0) 15.sp else 14.sp,
+                            fontWeight = if (depth == 0) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
                             color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1323,7 +1348,7 @@ internal fun FavoriteEditorDialog(
                     collapseToken++
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = "输入/新建分组路径（以/分层）",
+                label = "或输入/新建分组路径(以/分层)",
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
