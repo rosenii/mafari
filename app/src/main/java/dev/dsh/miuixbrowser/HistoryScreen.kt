@@ -423,7 +423,7 @@ fun LibraryScreen(
             }
         }
 
-        // 分组管理（长按收起的分组行）：重命名；左下删除（再弹确认），右下保存
+        // 分组管理（长按分组行）：重命名；左下删除（再弹确认），右下保存
         val groupToRename = renamingGroup
         var renameText by remember(groupToRename) { mutableStateOf(groupToRename.orEmpty()) }
         AppGlassDialog(
@@ -644,8 +644,8 @@ private fun BookmarksPage(
                     count = root.total,
                     open = open,
                     onClick = { expanded[root.path] = !open },
-                    // 仅收起状态下长按分组行可重命名 / 删除；「个人收藏」是保留分组，不可操作
-                    onLongClick = if (!open && !favorites.isProtectedGroup(root.path)) ({ onGroupLongClick(root.path) }) else null,
+                    // 长按分组行可重命名 / 删除（展开 / 收起都行）；「个人收藏」是保留分组，不可操作
+                    onLongClick = if (!favorites.isProtectedGroup(root.path)) ({ onGroupLongClick(root.path) }) else null,
                 )
             }
             if (open) {
@@ -687,7 +687,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent
                 open = open,
                 level = level,
                 onClick = { expanded[child.path] = !open },
-                onLongClick = if (!open) ({ onGroupLongClick(child.path) }) else null,
+                onLongClick = { onGroupLongClick(child.path) },
             )
         }
         if (open) {
@@ -699,7 +699,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent
     }
 }
 
-/** 次级分组：文件夹图标 + 分组名，样式与普通书签行一致；点一下展开 / 收起（收起时可长按管理）。 */
+/** 次级分组：文件夹图标 + 分组名，样式与普通书签行一致；点一下展开 / 收起，长按管理。 */
 @Composable
 private fun BookmarkFolderRow(
     name: String,
@@ -760,12 +760,15 @@ private fun BookmarkFolderRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Icon(
-                imageVector = MiuixIcons.Glass.ChevronBackward,
-                contentDescription = if (open) "收起" else "展开",
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
-            )
+            // 与主分组标题同款：36dp 圆形小按钮 + 旋转的箭头
+            AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
+                Icon(
+                    imageVector = MiuixIcons.Glass.ChevronBackward,
+                    contentDescription = if (open) "收起" else "展开",
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+                )
+            }
         }
     }
 }
@@ -848,7 +851,7 @@ private fun BookmarkRow(
     }
 }
 
-/** 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；收起时可长按管理分组）。 */
+/** 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；长按管理分组）。 */
 @Composable
 private fun BookmarkGroupHeader(
     name: String,
@@ -1039,6 +1042,20 @@ private fun exportBookmarks(context: android.content.Context, html: String) {
     }
 }
 
+/** 分组路径（以 / 分层，缺失的祖先自动补齐）→ 它的直接子分组完整路径；顶层用 "" 作键，顺序沿用传入顺序。 */
+private fun groupChildren(groups: List<String>): Map<String, List<String>> {
+    val out = LinkedHashMap<String, MutableList<String>>()
+    val seen = HashSet<String>()
+    fun ensure(p: String) {
+        if (p.isEmpty() || !seen.add(p)) return
+        val parent = if (p.contains('/')) p.substringBeforeLast('/') else ""
+        ensure(parent)
+        out.getOrPut(parent) { mutableListOf() }.add(p)
+    }
+    groups.forEach { ensure(it) }
+    return out
+}
+
 @Composable
 private fun FavoriteEditorDialog(
     show: Boolean,
@@ -1079,19 +1096,47 @@ private fun FavoriteEditorDialog(
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
-            if (groups.size > 3) {
-                // 分组超过 3 个：横排放不下，改为下拉菜单选择
-                val currentIndex = groups.indexOf(group.trim().ifBlank { Favorite.GROUP_PERSONAL })
+            // 分组按 / 分层：有层级或分组超过 3 个时用级联下拉（先选顶层，选中的分组还有子分组就再出一个下拉，依此类推）
+            val childMap = remember(groups) { groupChildren(groups) }
+            val knownPaths = remember(childMap) { childMap.values.flatten().toSet() }
+            val current = group.trim().ifBlank { Favorite.GROUP_PERSONAL }
+            if (childMap.keys.any { it.isNotEmpty() } || groups.size > 3) {
+                val roots = childMap[""].orEmpty()
+                // 手输了新分组名（不在已知路径里）时不代表任何一级选择
+                val segs = if (current in knownPaths) current.split('/') else emptyList()
                 AppDropdownPreference(
-                    onSelectedIndexChange = { i -> groups.getOrNull(i)?.let { group = it } },
-                    items = groups,
-                    selectedIndex = currentIndex.coerceAtLeast(0),
+                    onSelectedIndexChange = { i -> roots.getOrNull(i)?.let { group = it } },
+                    items = roots.map { it.substringAfterLast('/').ifBlank { "未命名" } },
+                    selectedIndex = roots.indexOf(segs.firstOrNull().orEmpty()).coerceAtLeast(0),
                     title = "分组",
                     backdrop = backdrop,
-                    // 输入了新分组名时，下拉不再代表当前选择，隐藏右侧的值
-                    showValue = currentIndex >= 0,
+                    showValue = segs.isNotEmpty(),
                     insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
                 )
+                var prefix = segs.firstOrNull().orEmpty()
+                var level = 1
+                while (prefix.isNotEmpty()) {
+                    val kids = childMap[prefix].orEmpty()
+                    if (kids.isEmpty()) break
+                    val parent = prefix
+                    val picked = if (segs.size > level) "$parent/${segs[level]}" else null
+                    androidx.compose.runtime.key(parent) {
+                        AppDropdownPreference(
+                            onSelectedIndexChange = { i ->
+                                group = if (i <= 0) parent else (kids.getOrNull(i - 1) ?: parent)
+                            },
+                            items = listOf("（放在「${parent.substringAfterLast('/')}」本级）") +
+                                kids.map { it.substringAfterLast('/').ifBlank { "未命名" } },
+                            selectedIndex = if (picked == null) 0 else (kids.indexOf(picked) + 1).coerceAtLeast(0),
+                            title = "子分组",
+                            backdrop = backdrop,
+                            insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+                        )
+                    }
+                    if (picked == null) break
+                    prefix = picked
+                    level++
+                }
             } else {
                 Text(
                     text = "分组",
@@ -1128,10 +1173,10 @@ private fun FavoriteEditorDialog(
             }
             Spacer(Modifier.height(10.dp))
             top.yukonga.miuix.kmp.basic.TextField(
-                value = if (group in groups) "" else group,
+                value = if (group in knownPaths) "" else group,
                 onValueChange = { group = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "或输入新分组名",
+                label = "或输入新分组名（用 / 分层）",
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )

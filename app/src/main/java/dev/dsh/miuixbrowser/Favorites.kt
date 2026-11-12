@@ -456,8 +456,22 @@ class FavoritesStore(context: Context) {
         return out
     }
 
-    /** 导出为 Chrome / Firefox 可导入的 Netscape Bookmark HTML。 */
+    /**
+     * 导出为 Chrome / Firefox 可导入的 Netscape Bookmark HTML。
+     * 分组路径里的 / 还原成嵌套的 H3 + DL 层级（缺失的祖先自动补齐），子文件夹在前、本层书签在后。
+     */
     fun exportNetscapeHtml(): String {
+        // 父路径（顶层用 ""）→ 直接子文件夹的完整路径，顺序沿用 groups()
+        val childrenOf = LinkedHashMap<String, MutableList<String>>()
+        val seen = HashSet<String>()
+        fun ensure(path: String) {
+            if (path.isEmpty() || !seen.add(path)) return
+            val parent = if (path.contains('/')) path.substringBeforeLast('/') else ""
+            ensure(parent)
+            childrenOf.getOrPut(parent) { mutableListOf() }.add(path)
+        }
+        groups().forEach { ensure(it) }
+
         val sb = StringBuilder()
         sb.appendLine("<!DOCTYPE NETSCAPE-Bookmark-file-1>")
         sb.appendLine("<!-- This is an automatically generated file. -->")
@@ -465,14 +479,18 @@ class FavoritesStore(context: Context) {
         sb.appendLine("<TITLE>Bookmarks</TITLE>")
         sb.appendLine("<H1>Bookmarks</H1>")
         sb.appendLine("<DL><p>")
-        groups().forEach { g ->
-            sb.appendLine("    <DT><H3>${escapeHtml(g)}</H3>")
-            sb.appendLine("    <DL><p>")
-            itemsIn(g).forEach { f ->
-                sb.appendLine("        <DT><A HREF=\"${escapeHtml(f.url)}\">${escapeHtml(f.name)}</A>")
+        fun writeFolder(path: String, depth: Int) {
+            val pad = "    ".repeat(depth)
+            val title = path.substringAfterLast('/').ifBlank { "未命名" }
+            sb.appendLine("$pad<DT><H3>${escapeHtml(title)}</H3>")
+            sb.appendLine("$pad<DL><p>")
+            childrenOf[path]?.forEach { writeFolder(it, depth + 1) }
+            itemsIn(path).forEach { f ->
+                sb.appendLine("$pad    <DT><A HREF=\"${escapeHtml(f.url)}\">${escapeHtml(f.name)}</A>")
             }
-            sb.appendLine("    </DL><p>")
+            sb.appendLine("$pad</DL><p>")
         }
+        childrenOf[""]?.forEach { writeFolder(it, 1) }
         sb.appendLine("</DL><p>")
         return sb.toString()
     }
