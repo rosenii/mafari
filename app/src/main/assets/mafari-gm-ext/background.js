@@ -451,17 +451,25 @@ const BOOKMARK_OPS = new Set([
   'create', 'update', 'move', 'remove', 'removeTree',
 ]);
 
+function bmLog(s) {
+  try { browser.runtime.sendNativeMessage(BOOKMARK_NATIVE, { op: 'log', args: [String(s)] }).catch(() => {}); } catch (e) {}
+}
+
 browser.runtime.onMessageExternal.addListener((m, sender) => {
+  if (m && m.t === 'bookmarks' && sender && sender.id === FLOCCUS_ID) bmLog('request ' + m.op + ' from floccus');
   if (!sender || sender.id !== FLOCCUS_ID) return undefined;
   if (!m || m.t !== 'bookmarks' || !BOOKMARK_OPS.has(m.op)) return undefined;
   const args = Array.isArray(m.args) ? m.args : [];
   return browser.runtime.sendNativeMessage(BOOKMARK_NATIVE, { op: m.op, args }).then(
-    (res) => {
-      if (!res) return { ok: false, error: 'Mafari bookmarks bridge: no response' };
+    (raw) => {
+      let res = raw;
+      if (typeof raw === 'string') { try { res = JSON.parse(raw); } catch (e) { bmLog(m.op + ': bad JSON ' + raw.length); res = null; } }
+      if (!res) { bmLog(m.op + ': empty response'); return { ok: false, error: 'Mafari bookmarks bridge: no response' }; }
+      if (res.error) bmLog(m.op + ': native error ' + res.error);
       if (res.error) return { ok: false, error: String(res.error) };
       return { ok: true, result: res.result };
     },
-    (e) => ({ ok: false, error: 'Mafari bookmarks bridge: ' + String((e && e.message) || e) })
+    (e) => { bmLog(m.op + ': sendNativeMessage rejected ' + String((e && e.message) || e)); return { ok: false, error: 'Mafari bookmarks bridge: ' + String((e && e.message) || e) }; }
   );
 });
 

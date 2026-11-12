@@ -75,13 +75,19 @@ object BookmarksBridge {
             // 只认内置拓展自己的后台页（Floccus 的身份由它在转发前校验）
             val senderId = sender.webExtension?.id
             if (senderId != null && senderId != GeckoGm.EXT_ID) {
-                result.complete(JSONObject().put("error", "Unauthorized sender"))
+                result.complete(JSONObject().put("error", "Unauthorized sender").toString())
                 return result
             }
             val msg = message as? JSONObject
             val op = msg?.optString("op").orEmpty()
             // 整树 / 子树读取是选文件夹、每轮同步的入口，留一条日志方便确认消息有没有送到
             if (op == "getTree" || op == "getSubTree") Diag.log("bookmarks: $op")
+            // 内置拓展后台页回报的 JS 侧诊断（拿不到 JS 控制台，靠这条进 diag.txt）
+            if (op == "log") {
+                Diag.log("bookmarks(js): " + (msg?.optJSONArray("args")?.optString(0).orEmpty()))
+                result.complete(JSONObject().toString())
+                return result
+            }
             // FavoritesStore 里是 Compose 的状态列表：统一切到主线程读写，也顺带串行化了所有调用
             main.post {
                 val out = JSONObject()
@@ -93,7 +99,10 @@ object BookmarksBridge {
                     Diag.log("bookmarks: $op failed: $t")
                     out.put("error", t.message ?: t.toString())
                 }
-                result.complete(out)
+                // 响应用 JSON 字符串：GeckoView 对 GeckoResult<Any> 里直接放 JSONObject 的序列化不可靠，字符串一定能过
+                val txt = out.toString()
+                Diag.log("bookmarks: $op replied ${txt.length} chars" + (if (out.has("error")) " (error)" else ""))
+                result.complete(txt)
             }
             return result
         }
