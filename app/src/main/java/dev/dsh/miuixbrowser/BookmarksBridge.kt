@@ -6,6 +6,7 @@ import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
 import org.mozilla.geckoview.GeckoResult
+import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.WebExtension
 
 /**
@@ -29,6 +30,14 @@ object BookmarksBridge {
     const val EXT_ID = "floccus@handmadeideas.org"
     private const val NATIVE_APP = "mafariBookmarks"
 
+    /**
+     * Floccus 的分隔线：Firefox 里是 type=separator 的节点（没有 url / 标题），Floccus 把它们翻译成
+     * https://separator.floccus.org/ 的书签再同步。应用没有「分隔线」这种项，所以存成这个网址的占位书签，
+     * 对 Floccus 仍以 type=separator 的节点呈现，位置能原样往返，不会被误当成文件夹或书签。
+     */
+    private const val SEPARATOR_URL = "https://separator.floccus.org/"
+    private const val SEPARATOR_TITLE = "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+
     private const val ROOT = "root________"
     private const val MENU = "menu________"
     private const val TOOLBAR = "toolbar_____"
@@ -46,13 +55,22 @@ object BookmarksBridge {
 
     private val main = Handler(Looper.getMainLooper())
 
+    /** attach / attachInstalled 时记下，供 session 级挂载使用（registerSession 拿不到 Context） */
+    @Volatile
+    private var appContext: Context? = null
+
     /**
      * 给用户自己安装的 Floccus 挂上消息委托（安装时已由 [FloccusPatcher] 加了垫片和 nativeMessaging 权限）。
+     *
+     * GeckoView 的 sendNativeMessage 分两路：后台页走扩展级（这里的 [WebExtension.setMessageDelegate]），
+     * 扩展页（Floccus 的设置页 / 工具栏弹窗，在标签页或弹出页的 session 里打开）走 session 级
+     * （[attachSession]）。选「本地目标文件夹」发生在设置页，所以两路都要挂。
      * 幂等；每次启动都要重新挂，所以 Gecko 引擎创建时、安装 / 刷新拓展列表后都会调用。
      * 没装 Floccus 时什么都不做。
      */
     fun attach(context: Context, ext: WebExtension) {
         if (ext.id != EXT_ID) return
+        appContext = context.applicationContext
         ext.setMessageDelegate(delegate(context.applicationContext), NATIVE_APP)
         Diag.log("bookmarks: bridge attached to ${ext.id}")
     }
@@ -60,6 +78,7 @@ object BookmarksBridge {
     /** 主线程。Gecko 运行时创建后调用：找到已安装的 Floccus 并挂上委托。 */
     fun attachInstalled(context: Context) {
         val app = context.applicationContext
+        appContext = app
         GeckoRuntimeHolder.get(app).webExtensionController.list().then({ list: List<WebExtension>? ->
             list?.firstOrNull { it.id == EXT_ID }?.let { attach(app, it) }
             GeckoResult<Void>()
@@ -69,19 +88,53 @@ object BookmarksBridge {
         })
     }
 
+    /** 把同一个委托挂到某个 session 上：该 session 里打开的 Floccus 扩展页发的原生消息才能送到这里。 */
+    fun attachSession(session: GeckoSession, ext: WebExtension) {
+        if (ext.id != EXT_ID) return
+        val app = appContext ?: return
+        runCatching {
+            session.webExtensionController.setMessageDelegate(ext, delegate(app), NATIVE_APP)
+            Diag.log("bookmarks: bridge attached to session for ${ext.id}")
+        }.onFailure { Diag.log("bookmarks: session attach failed: $it") }
+    }
+
+    /**
+     * 新 session（标签页 / 弹出页）创建时调用：此刻拓展列表可能还没刷新过，所以自己去查一次 Floccus 再挂。
+     * 主线程；没装 Floccus 或没有 Context 时什么都不做。
+     */
+    fun attachSessionWhenReady(session: GeckoSession) {
+        val app = appContext ?: return
+        GeckoRuntimeHolder.get(app).webExtensionController.list().then({ list: List<WebExtension>? ->
+            list?.firstOrNull { it.id == EXT_ID }?.let { attachSession(session, it) }
+            GeckoResult<Void>()
+        }, { t: Throwable ->
+            Diag.log("bookmarks: list failed (session): $t")
+            GeckoResult<Void>()
+        })
+    }
+
     private fun delegate(app: Context) = object : WebExtension.MessageDelegate {
         override fun onMessage(nativeApp: String, message: Any, sender: WebExtension.MessageSender): GeckoResult<Any>? {
             val result = GeckoResult<Any>()
+            // 只认 Floccus 自己的页面发来的消息
+            val senderId = sender.webExtension?.id
+            if (senderId != null && senderId != EXT_ID) {
+                result.complete(JSONObject().put("error", "Unauthorized sender"))
+                return result
+            }
             val msg = message as? JSONObject
+            val op = msg?.optString("op").orEmpty()
+            // 整树 / 子树读取是选文件夹、每轮同步的入口，留一条日志方便确认消息有没有送到
+            if (op == "getTree" || op == "getSubTree") Diag.log("bookmarks: $op from ${sender.url}")
             // FavoritesStore 里是 Compose 的状态列表：统一切到主线程读写，也顺带串行化了所有调用
             main.post {
                 val out = JSONObject()
                 try {
                     val store = FavoritesStore.current ?: FavoritesStore(app)
                     val args = msg?.optJSONArray("args") ?: JSONArray()
-                    out.put("result", Ops(store).run(msg?.optString("op").orEmpty(), args))
+                    out.put("result", Ops(store).run(op, args))
                 } catch (t: Throwable) {
-                    Diag.log("bookmarks: ${msg?.optString("op")} failed: $t")
+                    Diag.log("bookmarks: $op failed: $t")
                     out.put("error", t.message ?: t.toString())
                 }
                 result.complete(out)
@@ -113,9 +166,14 @@ object BookmarksBridge {
 
         private fun childBookmarks(container: String): List<Favorite> = store.items.filter { group(it) == container }
 
-        private fun bookmarkNode(f: Favorite, parentId: String, index: Int) = JSONObject()
-            .put("id", f.id).put("parentId", parentId).put("index", index)
-            .put("title", f.name).put("url", f.url).put("type", "bookmark").put("dateAdded", 0)
+        private fun isSeparator(f: Favorite) = f.url.startsWith(SEPARATOR_URL)
+
+        private fun bookmarkNode(f: Favorite, parentId: String, index: Int): JSONObject {
+            val o = JSONObject().put("id", f.id).put("parentId", parentId).put("index", index).put("dateAdded", 0)
+            // 与 Firefox 一致：分隔线是没有 url 的 separator 节点，标题为空
+            return if (isSeparator(f)) o.put("title", "").put("type", "separator")
+            else o.put("title", f.name).put("url", f.url).put("type", "bookmark")
+        }
 
         private fun folderNode(id: String, parentId: String?, index: Int, title: String, container: String, deep: Boolean): JSONObject {
             val o = JSONObject().put("id", id).put("index", index).put("title", title)
@@ -233,8 +291,10 @@ object BookmarksBridge {
             if (parentId == ROOT) throw IllegalArgumentException("Cannot create under the root")
             val container = containerOf(parentId) ?: throw IllegalArgumentException("Folder not found: $parentId")
             val index = if (o.has("index") && !o.isNull("index")) o.getInt("index") else null
-            val url = o.optString("url").takeIf { o.has("url") && !o.isNull("url") && it.isNotEmpty() }
-            val title = o.optString("title")
+            val isSep = o.optString("type") == "separator"
+            val url = if (isSep) SEPARATOR_URL
+            else o.optString("url").takeIf { o.has("url") && !o.isNull("url") && it.isNotEmpty() }
+            val title = if (isSep) SEPARATOR_TITLE else o.optString("title")
             return if (url != null) {
                 val f = Favorite(name = title.ifBlank { url }, url = url, group = container)
                 placeBookmark(f, container, index)

@@ -15,7 +15,9 @@ import java.util.zip.ZipOutputStream
  * 安装 Floccus 时的就地适配：GeckoView 没有 browser.bookmarks，所以安装前把 xpi 改一下——
  *  1. 加入 mafari-bookmarks-shim.js（assets 里那份），并让后台页 / 设置页先加载它；
  *  2. manifest 补上 nativeMessaging 权限，使垫片能通过 sendNativeMessage 找到 [BookmarksBridge]；
- *  3. 删掉 META-INF 里的签名（改过内容签名必然失效）。
+ *  3. 删掉 META-INF 里的签名（改过内容签名必然失效）；
+ *  4. 瘦身：去掉 dist/node-tests/（Floccus 自带的测试包，约 26MB，只有 test.html 用）和全部 .map 源码映射，
+ *     运行用不到；官方包解压后 62MB，去掉后约 15MB，在手机上安装 / 读取都快些。
  * 其它拓展原样安装，不受影响。
  *
  * 注意：改过的包没有 Mozilla 签名，需要内核允许未签名拓展（nightly 默认允许）。
@@ -96,6 +98,7 @@ object FloccusPatcher {
                 for (e in zip.entries()) {
                     val name = e.name
                     if (e.isDirectory || name.startsWith("META-INF/")) continue
+                    if (name.startsWith("dist/node-tests/") || name.endsWith(".map")) continue
                     val bytes = zip.getInputStream(e).use { it.readBytes() }
                     val patched = when {
                         name == "manifest.json" -> patchManifest(bytes)

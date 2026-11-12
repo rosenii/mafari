@@ -159,8 +159,9 @@ object GeckoExtensionStore {
             items.clear()
             items.addAll(list.filter { !it.isBuiltIn }.map { toItem(it) }.sortedBy { it.name.lowercase() })
             items.forEach { loadIcon(it) }
-            items.forEach { attachActionDelegate(it.ext) }
+            // 书签桥要先挂：它顺带记下 Context，后面 attachActionDelegate → attachToAllSessions 才能挂 session 级委托
             items.forEach { BookmarksBridge.attach(context, it.ext) }
+            items.forEach { attachActionDelegate(it.ext) }
         } finally {
             loading.value = false
         }
@@ -466,6 +467,8 @@ object GeckoExtensionStore {
             attachSessionDelegate(session, it.ext)
             attachSessionTabDelegate(session, it.ext)
         }
+        // Floccus 的设置页在标签页 session 里打开，它的书签调用走 session 级通道；拓展列表可能还没刷新，自己查一次
+        BookmarksBridge.attachSessionWhenReady(session)
     }
 
     /** SessionTabDelegate 的动态代理：拓展对「已有标签」的 tabs.remove / tabs.update */
@@ -595,6 +598,7 @@ object GeckoExtensionStore {
         snapshot.forEach {
             attachSessionDelegate(it, ext)
             attachSessionTabDelegate(it, ext)
+            BookmarksBridge.attachSession(it, ext)
         }
     }
 
@@ -777,6 +781,8 @@ object GeckoExtensionStore {
         }
         return runCatching {
             val session = newPopupSession(runtime)
+            // Floccus 的工具栏弹窗与设置页是同一个页面：弹出页 session 也要能收到它的书签调用
+            BookmarksBridge.attachSession(session, ext)
             val name = ext.metaData?.name?.takeIf { it.isNotBlank() } ?: ext.id
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 popup.value?.session?.let { runCatching { it.close() } }
