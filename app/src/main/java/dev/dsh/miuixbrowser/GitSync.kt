@@ -17,7 +17,7 @@ import java.util.Locale
  * Git 同步：把加密备份（.mfbak，格式见 Backup.kt）提交并推送到用户自己的 Git 仓库（走 http / https）。
  *
  *   仓库里只有一个文件 mafari-backup.mfbak，每次备份就是一次提交，Git 历史即版本记录。
- *   用 JGit（纯 Java，无需系统 git）；每次操作都在缓存目录里浅克隆（depth 1），用完即删，
+ *   用 JGit（纯 Java，无需系统 git）；每次操作都在缓存目录里克隆目标分支（只取这一个分支、不取标签；JGit 5.13 的 CloneCommand 没有 setDepth），用完即删，
  *   所以本机不留仓库、不会出现本地与远端分叉；远端有人抢先推送时会被拒绝，重试即可。
  *   仓库拿到的永远是密文（口令只在本机输入、不保存）；账号 / 令牌只存本机，密码经 [SecureStore] 加密，
  *   不进备份文件，也不进系统自动备份。
@@ -114,7 +114,7 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
     private fun cloneInto(dir: File): Git {
         val cmd = Git.cloneRepository()
             .setURI(url).setDirectory(dir).setCredentialsProvider(creds).setTimeout(TIMEOUT_SEC)
-            .setDepth(1).setNoTags().setCloneSubmodules(false)
+            .setNoTags().setCloneSubmodules(false)
         if (branch.isNotEmpty()) cmd.setBranch("refs/heads/$branch").setBranchesToClone(listOf("refs/heads/$branch"))
         return cmd.call()
     }
