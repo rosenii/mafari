@@ -983,27 +983,46 @@ private fun ServerSheet(
                             )
                         },
                         trailing = {
-                            if (active) {
-                                Text(
-                                    text = "当前",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MiuixTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 8.dp),
-                                )
-                            } else {
-                                Text(
-                                    text = "使用",
-                                    fontSize = 13.sp,
-                                    color = MiuixTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { onUse(row.id) }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                                )
-                                Text(text = "一并同步", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                                Spacer(Modifier.width(6.dp))
-                                AppSwitch(checked = row.syncAlso, onCheckedChange = { onToggleSync(row.id, it) })
+                            // 固定行高：当前行与其他行高度一致；文字一律不换行
+                            Row(
+                                modifier = Modifier.height(48.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (active) {
+                                    Text(
+                                        text = "当前",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.padding(horizontal = 8.dp),
+                                    )
+                                } else {
+                                    Text(
+                                        text = "使用",
+                                        fontSize = 13.sp,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { onUse(row.id) }
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    )
+                                    // 开关在上，「一并同步」在其下方，位于「使用」右侧
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppSwitch(checked = row.syncAlso, onCheckedChange = { onToggleSync(row.id, it) })
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = "一并同步",
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        )
+                                    }
+                                }
                             }
                         },
                     )
