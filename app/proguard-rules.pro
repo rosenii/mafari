@@ -12,3 +12,10 @@
 -dontwarn okio.**
 -dontwarn org.conscrypt.**
 -dontwarn org.openjsse.**
+# JGit（Git 同步）：可选的 SSH / GSS / JMX / 日志后端，不用到
+-dontwarn org.eclipse.jgit.**
+-dontwarn org.ietf.jgss.**
+-dontwarn javax.management.**
+-dontwarn java.lang.management.**
+-dontwarn org.slf4j.impl.**
+-dontwarn com.googlecode.javaewah.**

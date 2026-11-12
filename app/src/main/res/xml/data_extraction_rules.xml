@@ -7,11 +7,13 @@
         <exclude domain="sharedpref" path="mafari.xml" />
         <exclude domain="sharedpref" path="mafari_history.xml" />
         <exclude domain="sharedpref" path="mafari_webdav.xml" />
+        <exclude domain="sharedpref" path="mafari_git.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="mafari_vault/" />
         <exclude domain="sharedpref" path="mafari.xml" />
         <exclude domain="sharedpref" path="mafari_history.xml" />
         <exclude domain="sharedpref" path="mafari_webdav.xml" />
+        <exclude domain="sharedpref" path="mafari_git.xml" />
     </device-transfer>
 </data-extraction-rules>

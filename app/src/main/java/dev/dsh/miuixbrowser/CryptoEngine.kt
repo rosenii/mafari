@@ -363,6 +363,7 @@ object SecureStore {
     const val PURPOSE_FAVORITES = "mafari.favorites.items"
     const val PURPOSE_HISTORY = "mafari.history.entries"
     const val PURPOSE_WEBDAV = "mafari.webdav.password"
+    const val PURPOSE_GIT = "mafari.git.token"
 
     fun isLegacyPlaintext(raw: String) = !EncryptionEngine.isEncryptedString(raw)
 

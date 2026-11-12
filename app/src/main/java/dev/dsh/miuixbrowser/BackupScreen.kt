@@ -57,6 +57,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private const val MIN_PASSWORD_LEN = 8
 
+/** 口令对话框确认后，备份写到哪里 */
+private enum class ExportTarget { FILE, WEBDAV, GIT }
+
 /** 加密方案说明（界面展示用）：(项目, 内容)。随默认算法套件变化。 */
 private fun schemeRows(): List<Pair<String, String>> {
     val suite = CipherSuites.default
@@ -73,7 +76,7 @@ private fun schemeRows(): List<Pair<String, String>> {
 
 private const val SCOPE_NOTE = "含书签、历史、设置、脚本等；不含下载文件、缓存、Cookie 本体与拓展包"
 
-/** 设置 → 备份与同步：导出加密备份；同步 → 从备份文件 / WebDAV 恢复，或上传备份到 WebDAV。 */
+/** 设置 → 备份与同步：导出加密备份；同步 → 从备份文件恢复，或经 WebDAV / Git 上传与恢复。 */
 @Composable
 fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     val context = LocalContext.current
@@ -140,10 +143,17 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     var webdavTesting by remember { mutableStateOf(false) }
     var webdavConfigError by remember { mutableStateOf<String?>(null) }
     var webdavTask by remember { mutableStateOf<String?>(null) }
-    var uploadToWebDav by remember { mutableStateOf(false) }
+    var exportTarget by remember { mutableStateOf(ExportTarget.FILE) }
+    // —— Git ——
+    var gitConfig by remember { mutableStateOf(GitStore.load(context)) }
+    var showGitConfig by remember { mutableStateOf(false) }
+    var gitTesting by remember { mutableStateOf(false) }
+    var gitConfigError by remember { mutableStateOf<String?>(null) }
+    var gitTask by remember { mutableStateOf<String?>(null) }
+    var lastPush by remember { mutableStateOf(GitStore.lastPush(context)) }
     var lastUpload by remember { mutableStateOf(WebDavStore.lastUpload(context)) }
     var restoreBytes by remember { mutableStateOf<ByteArray?>(null) }
-    val working = busy || restoring || webdavTask != null
+    val working = busy || restoring || webdavTask != null || gitTask != null
 
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -194,7 +204,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 summary = if (busy) "正在加密并导出…" else "导出为 .${BackupFormat.EXTENSION} 文件",
                                 enabled = !working,
                                 onClick = {
-                                    uploadToWebDav = false
+                                    exportTarget = ExportTarget.FILE
                                     showPasswordDialog = true
                                 },
                             )
@@ -242,22 +252,22 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             ArrowPreference(
                                 title = "上传备份",
                                 summary = when {
-                                    webdavTask != null && uploadToWebDav -> webdavTask
+                                    webdavTask != null && exportTarget == ExportTarget.WEBDAV -> webdavTask
                                     lastUpload > 0 -> "上次：" + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(lastUpload))
                                     else -> "加密后上传到服务器"
                                 },
                                 enabled = cfg != null && !working,
                                 onClick = {
-                                    uploadToWebDav = true
+                                    exportTarget = ExportTarget.WEBDAV
                                     showPasswordDialog = true
                                 },
                             )
                             ArrowPreference(
                                 title = "从 WebDAV 恢复",
-                                summary = if (webdavTask != null && !uploadToWebDav) webdavTask else "使用服务器上最新的备份",
+                                summary = if (webdavTask != null && exportTarget != ExportTarget.WEBDAV) webdavTask else "使用服务器上最新的备份",
                                 enabled = cfg != null && !working,
                                 onClick = {
-                                    uploadToWebDav = false
+                                    exportTarget = ExportTarget.FILE
                                     webdavTask = "正在获取最新备份…"
                                     scope.launch {
                                         val result = withContext(Dispatchers.IO) { runCatching { WebDavClient(cfg!!).downloadLatest() } }
@@ -281,6 +291,70 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     item {
                         Text(
                             text = "存放在服务器的 ${WebDavNames.REMOTE_DIR} 文件夹，保留最近 ${WebDavNames.KEEP_BACKUPS} 份；账号只存本机。",
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
+                        )
+                    }
+
+                    item { SmallTitle(text = "Git") }
+                    item {
+                        val cfg = gitConfig
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            ArrowPreference(
+                                title = "仓库设置",
+                                summary = cfg?.url?.substringAfter("://")?.trimEnd('/')?.removeSuffix(".git") ?: "未配置",
+                                enabled = !working,
+                                onClick = {
+                                    gitConfigError = null
+                                    showGitConfig = true
+                                },
+                            )
+                            ArrowPreference(
+                                title = "推送备份",
+                                summary = when {
+                                    gitTask != null && exportTarget == ExportTarget.GIT -> gitTask
+                                    lastPush > 0 -> "上次：" + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(lastPush))
+                                    else -> "加密后提交并推送"
+                                },
+                                enabled = cfg != null && !working,
+                                onClick = {
+                                    exportTarget = ExportTarget.GIT
+                                    showPasswordDialog = true
+                                },
+                            )
+                            ArrowPreference(
+                                title = "从 Git 恢复",
+                                summary = if (gitTask != null && exportTarget != ExportTarget.GIT) gitTask else "使用仓库里最新的备份",
+                                enabled = cfg != null && !working,
+                                onClick = {
+                                    exportTarget = ExportTarget.FILE
+                                    gitTask = "正在拉取仓库…"
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) { runCatching { GitSyncClient(context, cfg!!).download() } }
+                                        gitTask = null
+                                        val got = result.getOrNull()
+                                        if (got != null) {
+                                            restoreBytes = got
+                                            showRestorePassword = true
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "拉取失败：" + (result.exceptionOrNull()?.message ?: "未知错误"),
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
+                    item {
+                        Text(
+                            text = "每次备份提交为 ${GitNames.FILE_NAME}，历史即版本；仅支持 http(s) 地址，建议用私有仓库。",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
@@ -328,13 +402,51 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 show = showPasswordDialog,
                 backdrop = if (glass) backdrop else null,
                 onDismiss = { showPasswordDialog = false },
-                confirmText = if (uploadToWebDav) "上传" else "导出",
+                confirmText = when (exportTarget) {
+                    ExportTarget.FILE -> "导出"
+                    ExportTarget.WEBDAV -> "上传"
+                    ExportTarget.GIT -> "推送"
+                },
                 onConfirm = { password ->
                     showPasswordDialog = false
                     val cfg = webdavConfig
-                    if (!uploadToWebDav) {
+                    if (exportTarget == ExportTarget.FILE) {
                         pendingPassword = password
                         saveLauncher.launch(BackupManager.suggestedFileName())
+                    } else if (exportTarget == ExportTarget.GIT) {
+                        val git = gitConfig
+                        if (git == null) {
+                            password.fill('\u0000')
+                        } else {
+                            gitTask = "正在加密并推送…"
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val buffer = ByteArrayOutputStream()
+                                        val summary = BackupManager.export(context, buffer, password)
+                                        GitSyncClient(context, git).upload(buffer.toByteArray())
+                                        summary
+                                    }.onFailure { password.fill('\u0000') }
+                                }
+                                gitTask = null
+                                val summary = result.getOrNull()
+                                if (summary != null) {
+                                    GitStore.markPushed(context)
+                                    lastPush = GitStore.lastPush(context)
+                                }
+                                Toast.makeText(
+                                    context,
+                                    if (summary != null) {
+                                        "已推送到 Git：${summary.units} 项 · " +
+                                            android.text.format.Formatter.formatFileSize(context, summary.bytes.toLong()) +
+                                            if (summary.skipped > 0) "（${summary.skipped} 项无法解密，已跳过）" else ""
+                                    } else {
+                                        "推送失败：" + (result.exceptionOrNull()?.message ?: "未知错误")
+                                    },
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
                     } else if (cfg == null) {
                         password.fill('\u0000')
                     } else {
@@ -367,6 +479,41 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             ).show()
                         }
                     }
+                },
+            )
+
+            GitConfigDialog(
+                show = showGitConfig,
+                initial = gitConfig,
+                testing = gitTesting,
+                error = gitConfigError,
+                backdrop = if (glass) backdrop else null,
+                onDismiss = { if (!gitTesting) showGitConfig = false },
+                onSave = { cfg ->
+                    gitTesting = true
+                    gitConfigError = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                GitSyncClient(context, cfg).test()
+                                GitStore.save(context, cfg)
+                            }
+                        }
+                        gitTesting = false
+                        if (result.isSuccess) {
+                            gitConfig = cfg
+                            showGitConfig = false
+                            Toast.makeText(context, "Git 仓库已连接并保存", Toast.LENGTH_SHORT).show()
+                        } else {
+                            gitConfigError = result.exceptionOrNull()?.message ?: "未知错误"
+                        }
+                    }
+                },
+                onClear = {
+                    GitStore.clear(context)
+                    gitConfig = null
+                    lastPush = 0L
+                    showGitConfig = false
                 },
             )
 
@@ -711,6 +858,112 @@ private fun WebDavConfigDialog(
                 AppDialogButton(
                     onClick = { normalized?.let { onSave(WebDavConfig(it, user.trim(), pass)) } },
                     enabled = normalized != null && !testing,
+                    modifier = Modifier.weight(1f),
+                    role = GlassDialogButtonRole.Primary,
+                ) {
+                    Text(text = if (testing) "连接中…" else "测试并保存", style = MiuixTheme.textStyles.button)
+                }
+            }
+            if (initial != null) {
+                AppDialogButton(
+                    onClick = onClear,
+                    enabled = !testing,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    role = GlassDialogButtonRole.Destructive,
+                ) {
+                    Text(text = "清除配置", style = MiuixTheme.textStyles.button)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GitConfigDialog(
+    show: Boolean,
+    initial: GitConfig?,
+    testing: Boolean,
+    error: String?,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    onDismiss: () -> Unit,
+    onSave: (GitConfig) -> Unit,
+    onClear: () -> Unit,
+) {
+    var url by remember(show) { mutableStateOf(initial?.url.orEmpty()) }
+    var user by remember(show) { mutableStateOf(initial?.username.orEmpty()) }
+    var token by remember(show) { mutableStateOf(initial?.token.orEmpty()) }
+    var branch by remember(show) { mutableStateOf(initial?.branch.orEmpty()) }
+    val normalizedUrl = GitNames.normalizeRepoUrl(url)
+    val normalizedBranch = GitNames.normalizeBranch(branch)
+    val valid = normalizedUrl != null && normalizedBranch != null
+
+    AppGlassDialog(
+        show = show,
+        title = "Git 仓库",
+        summary = "令牌填在下方，不要写进地址",
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            TextField(
+                value = url,
+                onValueChange = { url = it },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = "仓库地址（https://…）",
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            TextField(
+                value = user,
+                onValueChange = { user = it },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = "用户名（可选）",
+                singleLine = true,
+            )
+            TextField(
+                value = token,
+                onValueChange = { token = it },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = "访问令牌 / 密码",
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            TextField(
+                value = branch,
+                onValueChange = { branch = it },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = "分支（留空用默认）",
+                singleLine = true,
+            )
+            val hint = when {
+                error != null -> error
+                url.isNotBlank() && normalizedUrl == null -> "地址需为 http(s)://主机/路径，且不含账号密码"
+                normalizedBranch == null -> "分支名不合法"
+                else -> null
+            }
+            if (hint != null) {
+                Text(
+                    text = hint,
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AppDialogButton(onClick = onDismiss, enabled = !testing, modifier = Modifier.weight(1f)) {
+                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                }
+                AppDialogButton(
+                    onClick = {
+                        if (normalizedUrl != null && normalizedBranch != null) {
+                            onSave(GitConfig(normalizedUrl, user.trim(), token, normalizedBranch))
+                        }
+                    },
+                    enabled = valid && !testing,
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
