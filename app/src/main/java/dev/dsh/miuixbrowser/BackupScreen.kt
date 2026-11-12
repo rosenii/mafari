@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.io.ByteArrayOutputStream
 import java.text.DateFormat
 import java.util.Date
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
@@ -60,20 +61,19 @@ private const val MIN_PASSWORD_LEN = 8
 private fun schemeRows(): List<Pair<String, String>> {
     val suite = CipherSuites.default
     return listOf(
-        "算法套件" to "#${suite.id} · ${suite.shortName}（文件头记录套件号，将来升级后旧备份仍可读取）",
+        "算法套件" to "#${suite.id} · ${suite.shortName}",
         "密钥封装" to suite.kemDescription,
         "密钥派生" to suite.kdfDescription,
-        "密钥保护" to "每个单元一个随机 32 字节 DEK，由 KEK 经 AES-256-GCM 封装（AAD = 信封头）",
-        "数据加密" to "AES-256-GCM（AAD = 信封头 + 单元名），版本化信封 v${Envelope.VERSION}",
-        "口令保护" to "备份私钥由口令经 Argon2id（64 MiB · 3 轮）派生的密钥包裹",
-        "文件格式" to ".${BackupFormat.EXTENSION} v${BackupFormat.VERSION} · 每次导出使用全新密钥对",
+        "密钥保护" to "每单元随机 DEK，经 KEK 以 AES-256-GCM 封装",
+        "数据加密" to "AES-256-GCM · 信封 v${Envelope.VERSION}",
+        "口令保护" to "Argon2id（64 MiB · 3 轮）",
+        "文件格式" to ".${BackupFormat.EXTENSION} v${BackupFormat.VERSION} · 每次导出换新密钥对",
     )
 }
 
-private val INCLUDED = "书签 · 历史 · 应用设置 · Cookie 策略 · 脚本及其数据 · 去广告配置 · 菜单与 Gecko 保护配置"
-private val EXCLUDED = "不含：下载的文件、网页缓存、网站登录状态 / Cookie 本体（由浏览器内核管理）、已安装的拓展包"
+private const val SCOPE_NOTE = "含书签、历史、设置、脚本等；不含下载文件、缓存、Cookie 本体与拓展包"
 
-/** 设置 → 备份与同步：导出加密备份；同步 → 从备份文件恢复（其余同步方式后续再加）。 */
+/** 设置 → 备份与同步：导出加密备份；同步 → 从备份文件 / WebDAV 恢复，或上传备份到 WebDAV。 */
 @Composable
 fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     val context = LocalContext.current
@@ -134,6 +134,17 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     var restorePlan by remember { mutableStateOf<BackupManager.RestorePlan?>(null) }
     var restoring by remember { mutableStateOf(false) }
 
+    // —— WebDAV ——
+    var webdavConfig by remember { mutableStateOf(WebDavStore.load(context)) }
+    var showWebDavConfig by remember { mutableStateOf(false) }
+    var webdavTesting by remember { mutableStateOf(false) }
+    var webdavConfigError by remember { mutableStateOf<String?>(null) }
+    var webdavTask by remember { mutableStateOf<String?>(null) }
+    var uploadToWebDav by remember { mutableStateOf(false) }
+    var lastUpload by remember { mutableStateOf(WebDavStore.lastUpload(context)) }
+    var restoreBytes by remember { mutableStateOf<ByteArray?>(null) }
+    val working = busy || restoring || webdavTask != null
+
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             restoreUri = uri
@@ -180,15 +191,18 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         ) {
                             ArrowPreference(
                                 title = "导出加密备份",
-                                summary = if (busy) "正在加密并导出…" else "设置口令后导出为 .${BackupFormat.EXTENSION} 文件",
-                                enabled = !busy,
-                                onClick = { showPasswordDialog = true },
+                                summary = if (busy) "正在加密并导出…" else "导出为 .${BackupFormat.EXTENSION} 文件",
+                                enabled = !working,
+                                onClick = {
+                                    uploadToWebDav = false
+                                    showPasswordDialog = true
+                                },
                             )
                         }
                     }
                     item {
                         Text(
-                            text = INCLUDED + "\n" + EXCLUDED,
+                            text = SCOPE_NOTE,
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
@@ -203,15 +217,70 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         ) {
                             ArrowPreference(
                                 title = "从备份文件恢复",
-                                summary = if (restoring) "正在解密并校验…" else "选择 .${BackupFormat.EXTENSION} 备份文件，输入口令后恢复",
-                                enabled = !busy && !restoring,
+                                summary = if (restoring) "正在解密并校验…" else "选择 .${BackupFormat.EXTENSION} 文件",
+                                enabled = !working,
                                 onClick = { openLauncher.launch(arrayOf("*/*")) },
+                            )
+                        }
+                    }
+                    item { SmallTitle(text = "WebDAV") }
+                    item {
+                        val cfg = webdavConfig
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            ArrowPreference(
+                                title = "服务器设置",
+                                summary = cfg?.url?.substringAfter("://")?.substringAfterLast('@')?.trimEnd('/') ?: "未配置",
+                                enabled = !working,
+                                onClick = {
+                                    webdavConfigError = null
+                                    showWebDavConfig = true
+                                },
+                            )
+                            ArrowPreference(
+                                title = "上传备份",
+                                summary = when {
+                                    webdavTask != null && uploadToWebDav -> webdavTask
+                                    lastUpload > 0 -> "上次：" + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(lastUpload))
+                                    else -> "加密后上传到服务器"
+                                },
+                                enabled = cfg != null && !working,
+                                onClick = {
+                                    uploadToWebDav = true
+                                    showPasswordDialog = true
+                                },
+                            )
+                            ArrowPreference(
+                                title = "从 WebDAV 恢复",
+                                summary = if (webdavTask != null && !uploadToWebDav) webdavTask else "使用服务器上最新的备份",
+                                enabled = cfg != null && !working,
+                                onClick = {
+                                    uploadToWebDav = false
+                                    webdavTask = "正在获取最新备份…"
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) { runCatching { WebDavClient(cfg!!).downloadLatest() } }
+                                        webdavTask = null
+                                        val got = result.getOrNull()
+                                        if (got != null) {
+                                            restoreBytes = got.second
+                                            showRestorePassword = true
+                                        } else {
+                                            Toast.makeText(
+                                                context,
+                                                "获取失败：" + (result.exceptionOrNull()?.message ?: "未知错误"),
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                    }
+                                },
                             )
                         }
                     }
                     item {
                         Text(
-                            text = "恢复会用备份中的数据覆盖当前对应的数据，完成后自动重启应用。",
+                            text = "存放在服务器的 ${WebDavNames.REMOTE_DIR} 文件夹，保留最近 ${WebDavNames.KEEP_BACKUPS} 份；账号只存本机。",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
@@ -246,7 +315,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     }
                     item {
                         Text(
-                            text = "口令不会保存，也无法找回：忘记口令，备份将无法解密。",
+                            text = "口令不会保存，忘记后无法解密。",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
@@ -259,10 +328,80 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 show = showPasswordDialog,
                 backdrop = if (glass) backdrop else null,
                 onDismiss = { showPasswordDialog = false },
+                confirmText = if (uploadToWebDav) "上传" else "导出",
                 onConfirm = { password ->
                     showPasswordDialog = false
-                    pendingPassword = password
-                    saveLauncher.launch(BackupManager.suggestedFileName())
+                    val cfg = webdavConfig
+                    if (!uploadToWebDav) {
+                        pendingPassword = password
+                        saveLauncher.launch(BackupManager.suggestedFileName())
+                    } else if (cfg == null) {
+                        password.fill('\u0000')
+                    } else {
+                        webdavTask = "正在加密并上传…"
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val buffer = ByteArrayOutputStream()
+                                    val summary = BackupManager.export(context, buffer, password)
+                                    WebDavClient(cfg).upload(buffer.toByteArray())
+                                    summary
+                                }.onFailure { password.fill('\u0000') }
+                            }
+                            webdavTask = null
+                            val summary = result.getOrNull()
+                            if (summary != null) {
+                                WebDavStore.markUploaded(context)
+                                lastUpload = WebDavStore.lastUpload(context)
+                            }
+                            Toast.makeText(
+                                context,
+                                if (summary != null) {
+                                    "已上传到 WebDAV：${summary.units} 项 · " +
+                                        android.text.format.Formatter.formatFileSize(context, summary.bytes.toLong()) +
+                                        if (summary.skipped > 0) "（${summary.skipped} 项无法解密，已跳过）" else ""
+                                } else {
+                                    "上传失败：" + (result.exceptionOrNull()?.message ?: "未知错误")
+                                },
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                },
+            )
+
+            WebDavConfigDialog(
+                show = showWebDavConfig,
+                initial = webdavConfig,
+                testing = webdavTesting,
+                error = webdavConfigError,
+                backdrop = if (glass) backdrop else null,
+                onDismiss = { if (!webdavTesting) showWebDavConfig = false },
+                onSave = { cfg ->
+                    webdavTesting = true
+                    webdavConfigError = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                WebDavClient(cfg).test()
+                                WebDavStore.save(context, cfg)
+                            }
+                        }
+                        webdavTesting = false
+                        if (result.isSuccess) {
+                            webdavConfig = cfg
+                            showWebDavConfig = false
+                            Toast.makeText(context, "WebDAV 已连接并保存", Toast.LENGTH_SHORT).show()
+                        } else {
+                            webdavConfigError = result.exceptionOrNull()?.message ?: "未知错误"
+                        }
+                    }
+                },
+                onClear = {
+                    WebDavStore.clear(context)
+                    webdavConfig = null
+                    lastUpload = 0L
+                    showWebDavConfig = false
                 },
             )
 
@@ -272,21 +411,24 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 onDismiss = {
                     showRestorePassword = false
                     restoreUri = null
+                    restoreBytes = null
                 },
                 onConfirm = { password ->
                     showRestorePassword = false
                     val uri = restoreUri
+                    val remote = restoreBytes
                     restoreUri = null
-                    if (uri == null) {
+                    restoreBytes = null
+                    if (uri == null && remote == null) {
                         password.fill('\u0000')
                     } else {
                         restoring = true
                         scope.launch {
                             val result = withContext(Dispatchers.IO) {
                                 runCatching {
-                                    val bytes = context.contentResolver.openInputStream(uri)
-                                        ?.use { BackupManager.readAll(it) }
-                                        ?: error("无法读取所选文件")
+                                    val bytes = remote ?: uri?.let { u ->
+                                        context.contentResolver.openInputStream(u)?.use { BackupManager.readAll(it) }
+                                    } ?: error("无法读取所选文件")
                                     BackupManager.prepareRestore(context, bytes, password)
                                 }.onFailure { password.fill('\u0000') }
                             }
@@ -341,6 +483,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
 private fun PasswordDialog(
     show: Boolean,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    confirmText: String,
     onDismiss: () -> Unit,
     onConfirm: (CharArray) -> Unit,
 ) {
@@ -397,7 +540,7 @@ private fun PasswordDialog(
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "导出", style = MiuixTheme.textStyles.button)
+                    Text(text = confirmText, style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -416,7 +559,7 @@ private fun RestorePasswordDialog(
     AppGlassDialog(
         show = show,
         title = "输入备份口令",
-        summary = "输入导出这份备份时设置的口令。",
+        summary = "输入导出备份时设置的口令",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -467,7 +610,7 @@ private fun RestoreConfirmDialog(
             if (plan.versionName.isNotBlank()) append("来源版本：").append(plan.versionName).append('\n')
             append("加密方案：").append(plan.suiteName).append(" · 文件格式 v").append(plan.formatVersion).append('\n')
             append("包含 ").append(plan.itemCount).append(" 项数据\n\n")
-            append("恢复会覆盖当前的书签、历史、设置等对应数据，且无法撤销；完成后应用将自动重启。")
+            append("将覆盖当前对应数据且无法撤销，完成后自动重启。")
         }
     }
     AppGlassDialog(
@@ -490,6 +633,99 @@ private fun RestoreConfirmDialog(
                 role = GlassDialogButtonRole.Destructive,
             ) {
                 Text(text = "恢复并重启", style = MiuixTheme.textStyles.button)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebDavConfigDialog(
+    show: Boolean,
+    initial: WebDavConfig?,
+    testing: Boolean,
+    error: String?,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    onDismiss: () -> Unit,
+    onSave: (WebDavConfig) -> Unit,
+    onClear: () -> Unit,
+) {
+    var url by remember(show) { mutableStateOf(initial?.url.orEmpty()) }
+    var user by remember(show) { mutableStateOf(initial?.username.orEmpty()) }
+    var pass by remember(show) { mutableStateOf(initial?.password.orEmpty()) }
+    val normalized = WebDavNames.normalizeBaseUrl(url)
+
+    AppGlassDialog(
+        show = show,
+        title = "WebDAV 服务器",
+        summary = "备份将存放在其中的 ${WebDavNames.REMOTE_DIR} 文件夹",
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            TextField(
+                value = url,
+                onValueChange = { url = it },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = "服务器地址（https://…）",
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            TextField(
+                value = user,
+                onValueChange = { user = it },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = "用户名",
+                singleLine = true,
+            )
+            TextField(
+                value = pass,
+                onValueChange = { pass = it },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = "密码",
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            )
+            if (error != null) {
+                Text(
+                    text = error,
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            } else if (url.isNotBlank() && normalized == null) {
+                Text(
+                    text = "地址需以 http:// 或 https:// 开头",
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AppDialogButton(onClick = onDismiss, enabled = !testing, modifier = Modifier.weight(1f)) {
+                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                }
+                AppDialogButton(
+                    onClick = { normalized?.let { onSave(WebDavConfig(it, user.trim(), pass)) } },
+                    enabled = normalized != null && !testing,
+                    modifier = Modifier.weight(1f),
+                    role = GlassDialogButtonRole.Primary,
+                ) {
+                    Text(text = if (testing) "连接中…" else "测试并保存", style = MiuixTheme.textStyles.button)
+                }
+            }
+            if (initial != null) {
+                AppDialogButton(
+                    onClick = onClear,
+                    enabled = !testing,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    role = GlassDialogButtonRole.Destructive,
+                ) {
+                    Text(text = "清除配置", style = MiuixTheme.textStyles.button)
+                }
             }
         }
     }

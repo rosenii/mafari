@@ -14,6 +14,7 @@ val credentialsVersion = "1.6.0"
 val browserVersion = "1.10.0"
 // 加密引擎：ML-KEM-768（FIPS 203）与 X25519 用 BouncyCastle 轻量 API（需 ≥ 1.79 才有 ML-KEM）
 val bouncyCastleVersion = "1.82"
+val okhttpVersion = "4.12.0"
 val navigationEventVersion = "1.2.0"
 // GeckoView nightly（仅 arm64-v8a）。默认 "+" = 取 Mozilla Maven 上最新的 nightly；
 // 要锁定版本（推荐，nightly 的 API 偶尔会改）在 gradle.properties 写 geckoViewVersion=152.0.20260801093011
@@ -53,8 +54,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 10060
-        versionName = "v99.1.60"
+        versionCode = 10061
+        versionName = "v99.1.61"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -136,6 +137,8 @@ dependencies {
     implementation("androidx.navigationevent:navigationevent-compose:$navigationEventVersion")
     // 后量子混合加密引擎（CryptoEngine.kt）
     implementation("org.bouncycastle:bcprov-jdk18on:$bouncyCastleVersion")
+    // WebDAV 同步（PROPFIND / MKCOL 等扩展方法 HttpURLConnection 不支持）
+    implementation("com.squareup.okhttp3:okhttp:$okhttpVersion")
     testImplementation("junit:junit:4.13.2")
     // 第二内核：GeckoView nightly（arm64-v8a）
     implementation("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
