@@ -20,6 +20,12 @@ class WebDavNamesTest {
     }
 
     @Test
+    fun hostLabelStripsSchemeAuthAndSlash() {
+        assertEquals("dav.example.com/remote.php/dav", WebDavNames.hostLabel("https://me:pw@dav.example.com/remote.php/dav/"))
+        assertEquals("192.168.1.2:5005", WebDavNames.hostLabel("http://192.168.1.2:5005"))
+    }
+
+    @Test
     fun backupNameShapeAndUrls() {
         val name = WebDavNames.newBackupName(1_700_000_000_000L)
         assertTrue(name, WebDavNames.isBackupName(name))

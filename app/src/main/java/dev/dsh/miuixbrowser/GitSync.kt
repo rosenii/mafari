@@ -18,11 +18,14 @@ import org.eclipse.jgit.transport.RemoteRefUpdate
 import org.eclipse.jgit.transport.SshTransport
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.eclipse.jgit.util.FS
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /*
  * Git 同步：把加密备份（.mfbak，格式见 Backup.kt）提交并推送到用户自己的 Git 仓库。
@@ -102,6 +105,9 @@ object GitNames {
         if (hostname.isBlank() || ':' in user) return null
         return (if (user.isEmpty()) "git@" else "$user@") + hostname + ":" + path
     }
+
+    /** 列表 / 摘要里显示的仓库名：去掉协议、账号、末尾斜杠和 .git。 */
+    fun repoLabel(url: String): String = url.substringAfter("://").substringAfterLast('@').trimEnd('/').removeSuffix(".git")
 
     fun normalizeAddress(input: String, ssh: Boolean): String? = if (ssh) normalizeSshUrl(input) else normalizeRepoUrl(input)
 
@@ -365,15 +371,23 @@ private object TrustNewHostOnly : UserInfo {
     override fun showMessage(message: String?) {}
 }
 
-/** Git 账号的本机存储（不进备份文件）。 */
+/** 一条已连接过的仓库。[id] 稳定不变，编辑后仍指向同一条。 */
+data class GitProfile(val id: String, val config: GitConfig)
+
+/**
+ * Git 仓库的本机存储（不进备份文件）：保存所有测试通过的仓库，并记住当前使用的一个。
+ * 令牌 / 私钥 / 私钥口令经 [SecureStore] 加密；旧版单配置会在首次读取时自动迁移成列表里的第一项。
+ */
 object GitStore {
     private const val PREFS = "mafari_git"
-    private const val K_URL = "url"
+    private const val K_URL = "url"          // 旧版单配置
     private const val K_USER = "user"
     private const val K_TOKEN = "token"
     private const val K_BRANCH = "branch"
     private const val K_KEY = "deploy_key"
     private const val K_KEY_PASS = "key_pass"
+    private const val K_PROFILES = "profiles"
+    private const val K_ACTIVE = "active"
     private const val K_LAST_PUSH = "last_push"
 
     private fun prefs(context: Context) =
@@ -387,32 +401,120 @@ object GitStore {
     private fun seal(app: Context, plain: String, purpose: String): String =
         if (plain.isEmpty()) "" else SecureStore.write(app, plain, purpose) ?: throw GitSyncException("无法用本机密钥加密保存凭据")
 
-    fun load(context: Context): GitConfig? {
-        val app = context.applicationContext
+    /** 旧版单配置 → 列表（沿用已加密的凭据串，不必解密）。 */
+    private fun migrateLegacy(app: Context) {
         val p = prefs(app)
-        val url = p.getString(K_URL, null)?.takeIf { it.isNotBlank() } ?: return null
-        val token = open(app, p.getString(K_TOKEN, "").orEmpty(), SecureStore.PURPOSE_GIT) ?: return null
-        val key = open(app, p.getString(K_KEY, "").orEmpty(), SecureStore.PURPOSE_GIT_KEY) ?: return null
-        val keyPass = open(app, p.getString(K_KEY_PASS, "").orEmpty(), SecureStore.PURPOSE_GIT_KEY_PASS) ?: return null
-        return GitConfig(url, p.getString(K_USER, "").orEmpty(), token, p.getString(K_BRANCH, "").orEmpty(), key, keyPass)
+        if (p.contains(K_PROFILES)) return
+        val url = p.getString(K_URL, null)?.takeIf { it.isNotBlank() } ?: return
+        val id = UUID.randomUUID().toString()
+        val arr = JSONArray().put(
+            JSONObject()
+                .put("id", id)
+                .put("url", url)
+                .put("user", p.getString(K_USER, "").orEmpty())
+                .put("token", p.getString(K_TOKEN, "").orEmpty())
+                .put("branch", p.getString(K_BRANCH, "").orEmpty())
+                .put("key", p.getString(K_KEY, "").orEmpty())
+                .put("keyPass", p.getString(K_KEY_PASS, "").orEmpty()),
+        )
+        p.edit().putString(K_PROFILES, arr.toString()).putString(K_ACTIVE, id)
+            .remove(K_URL).remove(K_USER).remove(K_TOKEN).remove(K_BRANCH).remove(K_KEY).remove(K_KEY_PASS).commit()
     }
 
-    fun save(context: Context, config: GitConfig) {
+    private fun rawArray(app: Context): JSONArray {
+        migrateLegacy(app)
+        return runCatching { JSONArray(prefs(app).getString(K_PROFILES, "[]")) }.getOrDefault(JSONArray())
+    }
+
+    private fun write(app: Context, arr: JSONArray, active: String?) {
+        val e = prefs(app).edit().putString(K_PROFILES, arr.toString())
+        if (active == null) e.remove(K_ACTIVE) else e.putString(K_ACTIVE, active)
+        if (arr.length() == 0) e.remove(K_LAST_PUSH)
+        if (!e.commit()) throw GitSyncException("保存失败")
+    }
+
+    /** 所有已保存的仓库（无法解密的条目会被略过）。 */
+    fun list(context: Context): List<GitProfile> {
         val app = context.applicationContext
-        val ok = prefs(app).edit()
-            .putString(K_URL, config.url)
-            .putString(K_USER, config.username)
-            .putString(K_TOKEN, seal(app, config.token, SecureStore.PURPOSE_GIT))
-            .putString(K_BRANCH, config.branch)
-            .putString(K_KEY, seal(app, config.deployKey, SecureStore.PURPOSE_GIT_KEY))
-            .putString(K_KEY_PASS, seal(app, config.keyPassphrase, SecureStore.PURPOSE_GIT_KEY_PASS))
-            .commit()
-        if (!ok) throw GitSyncException("保存失败")
+        val arr = rawArray(app)
+        val out = ArrayList<GitProfile>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val id = o.optString("id")
+            val url = o.optString("url")
+            if (id.isEmpty() || url.isEmpty()) continue
+            val token = open(app, o.optString("token"), SecureStore.PURPOSE_GIT) ?: continue
+            val key = open(app, o.optString("key"), SecureStore.PURPOSE_GIT_KEY) ?: continue
+            val keyPass = open(app, o.optString("keyPass"), SecureStore.PURPOSE_GIT_KEY_PASS) ?: continue
+            out += GitProfile(id, GitConfig(url, o.optString("user"), token, o.optString("branch"), key, keyPass))
+        }
+        return out
     }
 
-    fun clear(context: Context) {
-        prefs(context).edit().clear().apply()
-        knownHostsFile(context).delete()
+    /** 当前使用的仓库 id；记录失效时退回第一项。 */
+    fun activeId(context: Context): String? {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        val ids = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("id")?.takeIf { id -> id.isNotEmpty() } }
+        val saved = prefs(app).getString(K_ACTIVE, null)
+        return if (saved != null && saved in ids) saved else ids.firstOrNull()
+    }
+
+    /** 当前使用的仓库配置。 */
+    fun load(context: Context): GitConfig? {
+        val id = activeId(context) ?: return null
+        return list(context).firstOrNull { it.id == id }?.config
+    }
+
+    /**
+     * 保存（新增或覆盖）并设为当前。[id] 为 null 表示新增；若已有同地址、同分支、同认证方式的一项，则覆盖它。
+     * 返回这一项的 id。
+     */
+    fun save(context: Context, config: GitConfig, id: String? = null): String {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        val obj = JSONObject()
+            .put("url", config.url)
+            .put("user", config.username)
+            .put("token", seal(app, config.token, SecureStore.PURPOSE_GIT))
+            .put("branch", config.branch)
+            .put("key", seal(app, config.deployKey, SecureStore.PURPOSE_GIT_KEY))
+            .put("keyPass", seal(app, config.keyPassphrase, SecureStore.PURPOSE_GIT_KEY_PASS))
+        var index = -1
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val hit = if (id != null) o.optString("id") == id
+            else o.optString("url") == config.url && o.optString("branch") == config.branch &&
+                (o.optString("key").isNotEmpty() == config.useSsh)
+            if (hit) { index = i; break }
+        }
+        val useId = id ?: if (index >= 0) arr.getJSONObject(index).optString("id") else UUID.randomUUID().toString()
+        obj.put("id", useId)
+        if (index >= 0) arr.put(index, obj) else arr.put(obj)
+        write(app, arr, useId)
+        return useId
+    }
+
+    fun select(context: Context, id: String) {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        if ((0 until arr.length()).any { arr.optJSONObject(it)?.optString("id") == id }) write(app, arr, id)
+    }
+
+    /** 删除一项；若删的是当前项，则改用剩下的第一项。全删光时一并清掉已信任的主机记录。 */
+    fun remove(context: Context, id: String) {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        val kept = JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            if (o.optString("id") != id) kept.put(o)
+        }
+        val current = prefs(app).getString(K_ACTIVE, null)
+        val next = if (current != null && current != id && (0 until kept.length()).any { kept.getJSONObject(it).optString("id") == current }) current
+        else kept.optJSONObject(0)?.optString("id")
+        write(app, kept, next)
+        if (kept.length() == 0) knownHostsFile(app).delete()
     }
 
     fun lastPush(context: Context): Long = prefs(context).getLong(K_LAST_PUSH, 0L)

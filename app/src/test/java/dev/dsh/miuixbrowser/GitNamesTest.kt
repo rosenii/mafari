@@ -20,6 +20,12 @@ class GitNamesTest {
     }
 
     @Test
+    fun repoLabel() {
+        assertEquals("github.com/u/r", GitNames.repoLabel("https://github.com/u/r.git"))
+        assertEquals("github.com:u/r", GitNames.repoLabel("git@github.com:u/r.git"))
+    }
+
+    @Test
     fun branch() {
         assertEquals("", GitNames.normalizeBranch("  "))
         assertEquals("main", GitNames.normalizeBranch("main"))

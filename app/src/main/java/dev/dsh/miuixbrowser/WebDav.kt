@@ -1,6 +1,8 @@
 package dev.dsh.miuixbrowser
 
 import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -12,6 +14,7 @@ import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /*
@@ -42,6 +45,9 @@ object WebDavNames {
         if (host.isBlank() || host.startsWith("/") || host.startsWith("?") || host.startsWith("#")) return null
         return s
     }
+
+    /** 列表 / 摘要里显示的服务器名：去掉协议、账号和末尾斜杠。 */
+    fun hostLabel(url: String): String = url.substringAfter("://").substringAfterLast('@').trimEnd('/')
 
     fun dirUrl(base: String) = "$base/$REMOTE_DIR/"
 
@@ -189,39 +195,128 @@ class WebDavClient(private val config: WebDavConfig) {
     }
 }
 
-/** WebDAV 账号的本机存储（不进备份文件）。 */
+/** 一条已连接过的服务器。[id] 稳定不变，编辑地址 / 账号后仍指向同一条。 */
+data class WebDavProfile(val id: String, val config: WebDavConfig)
+
+/**
+ * WebDAV 服务器的本机存储（不进备份文件）：保存所有测试通过的服务器，并记住当前使用的一台。
+ * 密码经 [SecureStore] 加密；旧版单配置会在首次读取时自动迁移成列表里的第一项。
+ */
 object WebDavStore {
     private const val PREFS = "mafari_webdav"
-    private const val K_URL = "url"
-    private const val K_USER = "user"
-    private const val K_PASS = "pass"
+    private const val K_URL = "url"          // 旧版单配置
+    private const val K_USER = "user"        // 旧版单配置
+    private const val K_PASS = "pass"        // 旧版单配置
+    private const val K_PROFILES = "profiles"
+    private const val K_ACTIVE = "active"
     private const val K_LAST_UPLOAD = "last_upload"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun load(context: Context): WebDavConfig? {
-        val p = prefs(context)
-        val url = p.getString(K_URL, null)?.takeIf { it.isNotBlank() } ?: return null
-        val raw = p.getString(K_PASS, "").orEmpty()
-        val pass = if (raw.isEmpty()) "" else SecureStore.read(context.applicationContext, raw, SecureStore.PURPOSE_WEBDAV) ?: return null
-        return WebDavConfig(url, p.getString(K_USER, "").orEmpty(), pass)
+    /** 旧版单配置 → 列表（沿用已加密的密码串，不必解密）。 */
+    private fun migrateLegacy(app: Context) {
+        val p = prefs(app)
+        if (p.contains(K_PROFILES)) return
+        val url = p.getString(K_URL, null)?.takeIf { it.isNotBlank() } ?: return
+        val id = UUID.randomUUID().toString()
+        val arr = JSONArray().put(
+            JSONObject()
+                .put("id", id)
+                .put("url", url)
+                .put("user", p.getString(K_USER, "").orEmpty())
+                .put("pass", p.getString(K_PASS, "").orEmpty()),
+        )
+        p.edit().putString(K_PROFILES, arr.toString()).putString(K_ACTIVE, id)
+            .remove(K_URL).remove(K_USER).remove(K_PASS).commit()
     }
 
-    fun save(context: Context, config: WebDavConfig) {
+    private fun rawArray(app: Context): JSONArray {
+        migrateLegacy(app)
+        return runCatching { JSONArray(prefs(app).getString(K_PROFILES, "[]")) }.getOrDefault(JSONArray())
+    }
+
+    private fun write(app: Context, arr: JSONArray, active: String?) {
+        val e = prefs(app).edit().putString(K_PROFILES, arr.toString())
+        if (active == null) e.remove(K_ACTIVE) else e.putString(K_ACTIVE, active)
+        if (arr.length() == 0) e.remove(K_LAST_UPLOAD)
+        if (!e.commit()) throw WebDavException("保存失败")
+    }
+
+    /** 所有已保存的服务器（无法解密的条目会被略过）。 */
+    fun list(context: Context): List<WebDavProfile> {
         val app = context.applicationContext
+        val arr = rawArray(app)
+        val out = ArrayList<WebDavProfile>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val id = o.optString("id")
+            val url = o.optString("url")
+            if (id.isEmpty() || url.isEmpty()) continue
+            val raw = o.optString("pass")
+            val pass = if (raw.isEmpty()) "" else SecureStore.read(app, raw, SecureStore.PURPOSE_WEBDAV) ?: continue
+            out += WebDavProfile(id, WebDavConfig(url, o.optString("user"), pass))
+        }
+        return out
+    }
+
+    /** 当前使用的服务器 id；记录失效时退回第一项。 */
+    fun activeId(context: Context): String? {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        val ids = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("id")?.takeIf { id -> id.isNotEmpty() } }
+        val saved = prefs(app).getString(K_ACTIVE, null)
+        return if (saved != null && saved in ids) saved else ids.firstOrNull()
+    }
+
+    /** 当前使用的服务器配置。 */
+    fun load(context: Context): WebDavConfig? {
+        val id = activeId(context) ?: return null
+        return list(context).firstOrNull { it.id == id }?.config
+    }
+
+    /**
+     * 保存（新增或覆盖）并设为当前。[id] 为 null 表示新增；若已有同地址同账号的一项，则覆盖它而不重复添加。
+     * 返回这一项的 id。
+     */
+    fun save(context: Context, config: WebDavConfig, id: String? = null): String {
+        val app = context.applicationContext
+        val arr = rawArray(app)
         val sealed = if (config.password.isEmpty()) "" else
             SecureStore.write(app, config.password, SecureStore.PURPOSE_WEBDAV) ?: throw WebDavException("无法用本机密钥加密保存密码")
-        if (!prefs(app).edit()
-                .putString(K_URL, config.url)
-                .putString(K_USER, config.username)
-                .putString(K_PASS, sealed)
-                .commit()
-        ) throw WebDavException("保存失败")
+        var index = -1
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val hit = if (id != null) o.optString("id") == id
+            else o.optString("url") == config.url && o.optString("user") == config.username
+            if (hit) { index = i; break }
+        }
+        val useId = id ?: if (index >= 0) arr.getJSONObject(index).optString("id") else UUID.randomUUID().toString()
+        val obj = JSONObject().put("id", useId).put("url", config.url).put("user", config.username).put("pass", sealed)
+        if (index >= 0) arr.put(index, obj) else arr.put(obj)
+        write(app, arr, useId)
+        return useId
     }
 
-    fun clear(context: Context) {
-        prefs(context).edit().clear().apply()
+    fun select(context: Context, id: String) {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        if ((0 until arr.length()).any { arr.optJSONObject(it)?.optString("id") == id }) write(app, arr, id)
+    }
+
+    /** 删除一项；若删的是当前项，则改用剩下的第一项。 */
+    fun remove(context: Context, id: String) {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        val kept = JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            if (o.optString("id") != id) kept.put(o)
+        }
+        val current = prefs(app).getString(K_ACTIVE, null)
+        val next = if (current != null && current != id && (0 until kept.length()).any { kept.getJSONObject(it).optString("id") == current }) current
+        else kept.optJSONObject(0)?.optString("id")
+        write(app, kept, next)
     }
 
     fun lastUpload(context: Context): Long = prefs(context).getLong(K_LAST_UPLOAD, 0L)
