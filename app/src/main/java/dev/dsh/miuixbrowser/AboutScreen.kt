@@ -561,6 +561,7 @@ private fun AboutRow(title: String, value: String) {
 private val DEP_GROUP_TITLES = mapOf(
     "ui" to "界面",
     "androidx" to "AndroidX",
+    "sync" to "云同步",
     "build" to "构建工具链",
 )
 

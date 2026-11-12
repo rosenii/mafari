@@ -40,6 +40,10 @@ val dependencyVersions = listOf(
     Triple("androidx", "Credentials", credentialsVersion),
     Triple("androidx", "Browser", browserVersion),
     Triple("androidx", "NavigationEvent", navigationEventVersion),
+    Triple("sync", "OkHttp（WebDAV）", okhttpVersion),
+    // JGit 完整版本号带构建时间戳（5.13.3.202401111512-r），界面只展示 5.13.3
+    Triple("sync", "JGit（Git）", jgitVersion.substringBefore("-r").substringBeforeLast('.')),
+    Triple("sync", "JSch（SSH）", jschVersion),
     Triple("build", "Kotlin", kotlinVersion),
     Triple("build", "Android Gradle Plugin", agpVersion),
     Triple("build", "Gradle", gradle.gradleVersion),
@@ -58,8 +62,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 10066
-        versionName = "v99.1.66"
+        versionCode = 10067
+        versionName = "v99.1.67"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
