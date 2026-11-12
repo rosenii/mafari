@@ -14,6 +14,8 @@ data class Favorite(
     val url: String,
     /** 书签分组；「个人收藏」为默认组。 */
     val group: String = GROUP_PERSONAL,
+    /** 稳定 id：供 Floccus 书签同步识别同一条书签（旧数据首次读取时补上并落盘）。 */
+    val id: String = java.util.UUID.randomUUID().toString(),
 ) {
     companion object {
         const val GROUP_PERSONAL = "个人收藏"
@@ -26,11 +28,21 @@ class FavoritesStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mafari", Context.MODE_PRIVATE)
 
+    /** load() 里发现旧数据缺 id 时置位；必须声明在 items 之前（属性按声明顺序初始化）。 */
+    private var needsPersist = false
+
     val items = mutableStateListOf<Favorite>().apply {
         addAll(load())
     }
 
+    /** 文件夹注册表（有序）：路径 → 稳定 id。空文件夹、文件夹顺序、重命名后 id 不变都靠它。 */
+    private val folderOrder = mutableListOf<String>()
+    private val folderIdByPath = HashMap<String, String>()
+
     init {
+        current = this
+        loadFolders()
+        if (needsPersist) persist()
         // 旧版本的明文书签 / 旧算法套件的密文：读得出来就立即以当前套件重新加密一次（读不出来绝不覆盖）
         val raw = prefs.getString(KEY, null)
         if (raw != null && SecureStore.needsUpgrade(raw) && SecureStore.read(appContext, raw, PURPOSE) != null) persist()
@@ -44,16 +56,43 @@ class FavoritesStore(context: Context) {
             buildList {
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
+                    val storedId = obj.optString("id")
+                    if (storedId.isBlank()) needsPersist = true
                     add(
                         Favorite(
                             name = obj.optString("name"),
                             url = obj.optString("url"),
                             group = obj.optString("group").ifBlank { Favorite.GROUP_PERSONAL },
+                            id = storedId.ifBlank { java.util.UUID.randomUUID().toString() },
                         ),
                     )
                 }
             }
         }.getOrDefault(defaults())
+    }
+
+    private fun loadFolders() {
+        val stored = prefs.getString(KEY_FOLDERS, null) ?: return
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return
+        runCatching {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val path = o.optString("path")
+                val id = o.optString("id")
+                if (path.isNotBlank() && id.isNotBlank() && path !in folderIdByPath) {
+                    folderOrder.add(path)
+                    folderIdByPath[path] = id
+                }
+            }
+        }
+    }
+
+    private fun persistFolders() {
+        val arr = JSONArray()
+        folderOrder.forEach { arr.put(JSONObject().put("path", it).put("id", folderIdByPath[it])) }
+        val sealed = SecureStore.write(appContext, arr.toString(), PURPOSE) ?: return
+        prefs.edit().putString(KEY_FOLDERS, sealed).apply()
     }
 
     private fun defaults(): List<Favorite> = listOf(
@@ -69,6 +108,7 @@ class FavoritesStore(context: Context) {
     fun groups(): List<String> {
         val seen = linkedSetOf<String>()
         items.forEach { seen.add(it.group.ifBlank { Favorite.GROUP_PERSONAL }) }
+        folderOrder.forEach { seen.add(it) }
         if (Favorite.GROUP_PERSONAL !in seen) seen.add(Favorite.GROUP_PERSONAL)
         return seen.toList()
     }
@@ -93,8 +133,11 @@ class FavoritesStore(context: Context) {
     fun removeGroup(group: String): Boolean {
         if (isProtectedGroup(group)) return false
         val removed = items.removeAll { it.group.ifBlank { Favorite.GROUP_PERSONAL } == group }
+        val hadFolder = folderOrder.remove(group)
+        folderIdByPath.remove(group)
+        if (hadFolder) persistFolders()
         if (removed) persist()
-        return removed
+        return removed || hadFolder
     }
 
     /** 重命名分组：「个人收藏」不可改名；新名字为空返回 false；与已有分组同名则合并。 */
@@ -111,8 +154,95 @@ class FavoritesStore(context: Context) {
             }
         }
         if (changed) persist()
+        if (folderIdByPath.containsKey(old)) {
+            renameFolderPath(old, target)
+            changed = true
+        }
         return changed
     }
+
+    // ------------------------------------------------------------------ 书签同步（Floccus）用的结构接口
+
+    /** 所有已知文件夹路径（含祖先、含注册表里的空文件夹），按注册表顺序；顺带把新发现的登记进注册表。 */
+    fun knownFolders(): List<String> {
+        var dirty = false
+        fun reg(path: String) {
+            if (path.isBlank() || path in folderIdByPath) return
+            folderOrder.add(path)
+            folderIdByPath[path] = java.util.UUID.randomUUID().toString()
+            dirty = true
+        }
+        fun regWithAncestors(path: String) {
+            var cur = path
+            val chain = ArrayList<String>()
+            while (cur.isNotEmpty()) {
+                chain.add(cur)
+                cur = if (cur.contains('/')) cur.substringBeforeLast('/') else ""
+            }
+            chain.asReversed().forEach { reg(it) }
+        }
+        items.map { it.group.ifBlank { Favorite.GROUP_PERSONAL } }.distinct().forEach { regWithAncestors(it) }
+        folderOrder.toList().forEach { regWithAncestors(it) }
+        if (dirty) persistFolders()
+        return folderOrder.toList()
+    }
+
+    fun folderId(path: String): String? = folderIdByPath[path]
+
+    fun folderPath(id: String): String? = folderIdByPath.entries.firstOrNull { it.value == id }?.key
+
+    /** 登记一个文件夹（已存在则返回原 id），[index] 为它在 [folderOrder] 里的位置（null = 末尾）。 */
+    fun registerFolder(path: String, index: Int? = null): String {
+        val existing = folderIdByPath[path]
+        if (existing != null) return existing
+        val id = java.util.UUID.randomUUID().toString()
+        folderIdByPath[path] = id
+        if (index != null && index in 0..folderOrder.size) folderOrder.add(index, path) else folderOrder.add(path)
+        persistFolders()
+        return id
+    }
+
+    /** 把 [path] 在注册表里挪到第 [index] 位（下标按注册表整体计）。 */
+    fun reorderFolder(path: String, index: Int) {
+        if (!folderOrder.remove(path)) return
+        folderOrder.add(index.coerceIn(0, folderOrder.size), path)
+        persistFolders()
+    }
+
+    /** 文件夹改名 / 搬家：[old] 及其全部子路径换成 [new] 前缀，id 不变，其中的书签跟着走。 */
+    fun renameFolderPath(old: String, new: String) {
+        if (old == new) return
+        fun map(p: String) = when {
+            p == old -> new
+            p.startsWith("$old/") -> new + p.substring(old.length)
+            else -> p
+        }
+        val newOrder = folderOrder.map { map(it) }
+        val newIds = HashMap<String, String>()
+        folderOrder.forEach { newIds[map(it)] = folderIdByPath[it]!! }
+        folderOrder.clear(); folderOrder.addAll(newOrder)
+        folderIdByPath.clear(); folderIdByPath.putAll(newIds)
+        for (i in items.indices) {
+            val g = items[i].group.ifBlank { Favorite.GROUP_PERSONAL }
+            val m = map(g)
+            if (m != g) items[i] = items[i].copy(group = m)
+        }
+        persistFolders()
+        persist()
+    }
+
+    /** 删除文件夹 [path] 及其下全部子文件夹和书签。 */
+    fun removeFolderTree(path: String) {
+        fun inTree(p: String) = p == path || p.startsWith("$path/")
+        folderOrder.removeAll { inTree(it) }
+        folderIdByPath.keys.removeAll { inTree(it) }
+        items.removeAll { inTree(it.group.ifBlank { Favorite.GROUP_PERSONAL }) }
+        persistFolders()
+        persist()
+    }
+
+    /** 同步接口改完 [items] 后调用落盘。 */
+    fun commitSyncChanges() = persist()
 
     /** 是否已有同名或同地址（忽略末尾斜杠）的书签 */
     fun exists(name: String, url: String): Boolean {
@@ -142,6 +272,7 @@ class FavoritesStore(context: Context) {
             name = name.ifBlank { hostOf(fixed) },
             url = fixed,
             group = group.ifBlank { Favorite.GROUP_PERSONAL },
+            id = items[index].id,
         )
         persist()
     }
@@ -355,7 +486,8 @@ class FavoritesStore(context: Context) {
                 JSONObject()
                     .put("name", it.name)
                     .put("url", it.url)
-                    .put("group", it.group),
+                    .put("group", it.group)
+                    .put("id", it.id),
             )
         }
         val sealed = SecureStore.write(appContext, array.toString(), PURPOSE) ?: return
@@ -383,9 +515,14 @@ class FavoritesStore(context: Context) {
         }
     }
 
-    private companion object {
-        const val KEY = "favorites"
+    companion object {
+        /** 最近创建的实例：Floccus 书签桥靠它读写界面正在用的那份书签。 */
+        @Volatile var current: FavoritesStore? = null
+            private set
+
+        private const val KEY_FOLDERS = "favorites_folders"
+        private const val KEY = "favorites"
         /** 加密上下文（进 AAD）：密文只能在这个用途下解开 */
-        const val PURPOSE = SecureStore.PURPOSE_FAVORITES
+        private const val PURPOSE = SecureStore.PURPOSE_FAVORITES
     }
 }
