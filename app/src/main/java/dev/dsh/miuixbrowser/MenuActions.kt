@@ -31,6 +31,7 @@ enum class MenuAction(
     Find("find", "页内查找", MiuixIcons.Glass.Search),
     Translate("translate", "翻译", MiuixIcons.Glass.Translate),
     Favorite("favorite", "收藏", MiuixIcons.Glass.Favorites),
+    AddBookmark("add_bookmark", "添加书签", AppIcons.AddBookmark),
     Share("share", "分享", MiuixIcons.Glass.Share),
     Refresh("refresh", "刷新", MiuixIcons.Glass.Refresh),
     CopyLink("copy", "复制链接", MiuixIcons.Glass.Copy),
@@ -97,6 +98,7 @@ class MenuOrderStore(context: Context) {
             MenuAction.Favorite, MenuAction.History, MenuAction.Desktop, MenuAction.Settings,
             MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
             MenuAction.Home, MenuAction.ScriptMenu, MenuAction.GeckoExtensions, MenuAction.Refresh,
+            MenuAction.AddBookmark,
         )
 
         private const val KEY = "order"

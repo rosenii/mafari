@@ -1808,7 +1808,7 @@ fun BrowserScreen(
                                         java.net.URLEncoder.encode(tab.url, "UTF-8"),
                                 )
                             }
-                            MenuAction.Favorite -> if (tab.url.isNotBlank()) {
+                            MenuAction.Favorite, MenuAction.AddBookmark -> if (tab.url.isNotBlank()) {
                                 val favName = tab.title.ifBlank { hostOf(tab.url) }
                                 val msg = if (favorites.exists(favName, tab.url)) {
                                     "已添加此书签"

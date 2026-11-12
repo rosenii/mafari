@@ -608,7 +608,8 @@ internal fun AddressRefreshButton(onClick: () -> Unit) {
             imageVector = AppIcons.Refresh,
             contentDescription = "刷新",
             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.size(iconSize),
+            // 视觉上略微下移（只移图标，点击区域不变）
+            modifier = Modifier.offset(y = 2.dp).size(iconSize),
         )
     }
 }

@@ -49,6 +49,16 @@ object AppIcons {
         )
     }
 
+    /** 书签：上端平、下端 V 形缺口的书签轮廓，中间一个加号（添加书签）。 */
+    val AddBookmark: ImageVector by lazy {
+        stroked(
+            "AddBookmark",
+            "M6.5,4.5A1.5,1.5 0 0 1 8,3H16A1.5,1.5 0 0 1 17.5,4.5V20.2L12,16.4L6.5,20.2Z",
+            "M12,6.8V11.6",
+            "M9.6,9.2H14.4",
+        )
+    }
+
     /** 文件夹：带标签耳朵的圆角轮廓（书签分组用）。 */
     val Folder: ImageVector by lazy {
         stroked(
