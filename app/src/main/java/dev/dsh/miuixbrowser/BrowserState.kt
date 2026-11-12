@@ -1664,7 +1664,14 @@ class BrowserTab(
         if (url.isEmpty() && !openedFromLink) {
             // 从主页进入新页面：记下 WebView 历史的当前位置，返回到这一层就回主页
             fromHome = true
-            homeAnchor = historyIndex()
+            // Gecko：清空旧历史，第一页就是历史起点，之后只看 canGoBack，不再依赖会过期 / 漏回调的历史下标
+            // WebView：没有可靠的清空办法，沿用下标锚点
+            if (gecko != null) {
+                gecko.purgeHistory()
+                homeAnchor = -1
+            } else {
+                homeAnchor = historyIndex()
+            }
             savedUrl = ""
         }
         parked = false
@@ -2348,8 +2355,10 @@ class BrowserTab(
         Diag.log("nav: goBack fromHome=$fromHome idx=${historyIndex()} anchor=$homeAnchor engineCanGoBack=${engineCanGoBack()} url=$url")
         // 下标可能还停在上一页（见 GeckoTabEngine.historyStale）：这时只信 canGoBack，不用下标去判断「已在第一页」
         val idxStale = gecko?.historyStale == true
-        val atFirstPage = fromHome &&
-            if (idxStale) !engineCanGoBack() else (!engineCanGoBack() || historyIndex() <= homeAnchor + 1)
+        val atFirstPage = fromHome && when {
+            gecko != null -> !engineCanGoBack() && !idxStale
+            else -> !engineCanGoBack() || historyIndex() <= homeAnchor + 1
+        }
         if (atFirstPage) {
             engineStop()
             fromHome = false
@@ -2360,7 +2369,8 @@ class BrowserTab(
             syncNav()
             return
         }
-        if (engineCanGoBack()) {
+        // 刚提交新页面、canGoBack 还没跟上时也先尝试后退：真在第一页时是空操作，不会误把标签收回主页
+        if (engineCanGoBack() || (fromHome && idxStale)) {
             fpInjector?.prepareHistory(-1)
             gecko?.goBack() ?: webView.goBack()
         } else if (openedFromLink) {

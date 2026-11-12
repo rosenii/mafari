@@ -123,6 +123,12 @@ class GeckoTabEngine(
      * historyIndex 可能还停在上一页的值。提交已发生而下标还没更新时视为「过期」，
      * 返回逻辑不能拿它去判断「已经在第一页」（否则会提前掉回主页）。
      */
+    /** 从主页重新加载新页面前清空会话历史：新页面是这个标签的「第一页」，下面不再垫着旧历史 */
+    fun purgeHistory() {
+        historyIndex = -1
+        runCatching { session.purgeHistory() }
+    }
+
     private var lastLocationAt = 0L
     private var lastHistoryAt = 0L
     val historyStale: Boolean
