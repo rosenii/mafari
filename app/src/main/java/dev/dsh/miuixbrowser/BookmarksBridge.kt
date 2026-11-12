@@ -20,7 +20,7 @@ import org.mozilla.geckoview.WebExtension
  *   内置拓展的后台页 onMessageExternal（只认 sender.id == Floccus，且只放行书签操作） --sendNativeMessage("mafariBookmarks")-->
  *   这里（扩展级委托，挂在内置拓展 [GeckoGm.EXT_ID] 上）
  *
- * 书签树的映射（FavoritesStore 用带稳定 ID 的路径注册表表示任意层级目录；书签归属完整目录路径）：
+ * 书签树的映射（应用只有「分组 → 书签」两层，这里用 "/" 分隔的分组名表示嵌套文件夹）：
  *   根 root________
  *   ├ menu________   书签菜单   ↔ 分组「个人收藏」（直接放其中的书签；其下的文件夹 = 顶层分组）
  *   ├ toolbar_____   书签栏     ↔ 分组「书签栏」
@@ -225,14 +225,6 @@ object BookmarksBridge {
             }
             fun norm(u: String) = u.trimEnd('/')
             val out = JSONArray()
-            // browser.bookmarks.search 同时可命中文件夹和书签；Floccus 会用标题搜索目录，
-            // 只返回书签会让多级目录在增量同步时被误判为不存在。
-            store.knownFolders().filter { it !in rootGroups && it != Favorite.GROUP_PERSONAL }.forEach { path ->
-                val folderTitle = path.substringAfterLast('/')
-                val matches = url == null && (title == null || folderTitle == title) &&
-                    (query == null || folderTitle.contains(query, true))
-                if (matches) store.folderId(path)?.let { out.put(nodeOf(it, false)) }
-            }
             store.items.filter { f ->
                 (url == null || norm(f.url) == norm(url)) &&
                     (title == null || f.name == title) &&
@@ -275,9 +267,6 @@ object BookmarksBridge {
                 nodeOf(f.id, false)
             } else {
                 val path = pathIn(container, title.ifBlank { "新文件夹" })
-                if (store.folderId(path) != null || store.items.any { group(it) == path }) {
-                    throw IllegalArgumentException("Folder already exists: $path")
-                }
                 val id = store.registerFolder(path)
                 if (index != null) {
                     val sibs = childFolders(container)

@@ -39,6 +39,14 @@ object AppIcons {
         )
     }
 
+    /** 文件夹：带标签耳朵的圆角轮廓（书签分组用）。 */
+    val Folder: ImageVector by lazy {
+        stroked(
+            "Folder",
+            "M3.5,7.5A2,2 0 0 1 5.5,5.5H9.3L11.3,8H18.5A2,2 0 0 1 20.5,10V17.5A2,2 0 0 1 18.5,19.5H5.5A2,2 0 0 1 3.5,17.5Z",
+        )
+    }
+
     /** 脚本：尖括号 + 斜杠。 */
     val Script: ImageVector by lazy {
         stroked(

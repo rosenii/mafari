@@ -34,9 +34,9 @@ object FloccusPatcher {
     /**
      * 垫片 / 补丁方式的版本号：改了垫片通道就加一。已装的 Floccus 里烤着旧垫片，「检查更新」时发现记录的版本落后，
      * 即使 Floccus 本身没有新版，也会下载同版本重新打补丁覆盖安装。
-     * 1 = 垫片直接 sendNativeMessage；2 = 经内置拓展 gm@mafari.dev 转发；3 = 多级目录树/同步兼容修复。
+     * 1 = 垫片直接 sendNativeMessage（在普通拓展里不存在，选文件夹一直转圈）；2 = 经内置拓展 gm@mafari.dev 转发。
      */
-    private const val SHIM_REV = 3
+    private const val SHIM_REV = 2
     private const val SHIM_REV_KEY = "floccus_shim_rev"
     private const val RELEASES_API = "https://api.github.com/repos/floccusaddon/floccus/releases/latest"
 

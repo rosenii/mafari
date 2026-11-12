@@ -144,7 +144,6 @@ fun LibraryScreen(
     var showMenu by remember { mutableStateOf(false) }
     var editingFav by remember { mutableStateOf<Favorite?>(null) }
     var creatingFav by remember { mutableStateOf(false) }
-    var creatingFolder by remember { mutableStateOf(false) }
     var deletingGroup by remember { mutableStateOf<String?>(null) }
     var renamingGroup by remember { mutableStateOf<String?>(null) }
     var showClearMenu by remember { mutableStateOf(false) }
@@ -308,15 +307,6 @@ fun LibraryScreen(
                         icon = MiuixIcons.Glass.Add,
                     )
                     GlassPopupItem(
-                        text = "新建文件夹",
-                        summary = "支持在已有文件夹内继续创建子文件夹",
-                        onClick = {
-                            showMenu = false
-                            creatingFolder = true
-                        },
-                        icon = MiuixIcons.Glass.File,
-                    )
-                    GlassPopupItem(
                         text = "导入",
                         summary = "Chrome / Edge / Firefox 书签（HTML / JSON）",
                         onClick = {
@@ -435,10 +425,10 @@ fun LibraryScreen(
 
         // 分组管理（长按收起的分组行）：重命名；左下删除（再弹确认），右下保存
         val groupToRename = renamingGroup
-        var renameText by remember(groupToRename) { mutableStateOf(groupToRename?.substringAfterLast('/') ?: "") }
+        var renameText by remember(groupToRename) { mutableStateOf(groupToRename.orEmpty()) }
         AppGlassDialog(
             show = groupToRename != null,
-            title = "编辑文件夹",
+            title = "编辑分组",
             backdrop = backdrop,
             onDismissRequest = { renamingGroup = null },
         ) {
@@ -447,7 +437,7 @@ fun LibraryScreen(
                     value = renameText,
                     onValueChange = { renameText = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "文件夹名称",
+                    label = "分组路径（用 / 分层）",
                     useLabelAsPlaceholder = true,
                     singleLine = true,
                 )
@@ -475,13 +465,7 @@ fun LibraryScreen(
                                     Toast.makeText(context, "分组名不能为空", Toast.LENGTH_SHORT).show()
                                     return@LiquidGlassPillButton
                                 }
-                                val parent = favorites.parentGroup(old)
-                                val newPath = if (parent == null || parent == Favorite.GROUP_PERSONAL) renameText.trim()
-                                    else "$parent/${renameText.trim()}"
-                                if (!favorites.renameGroup(old, newPath)) {
-                                    Toast.makeText(context, "重命名失败：目标目录可能已存在", Toast.LENGTH_SHORT).show()
-                                    return@LiquidGlassPillButton
-                                }
+                                favorites.renameGroup(old, renameText)
                             }
                             renamingGroup = null
                         },
@@ -496,13 +480,13 @@ fun LibraryScreen(
         val groupToDelete = deletingGroup
         AppGlassDialog(
             show = groupToDelete != null && !favorites.isProtectedGroup(groupToDelete),
-            title = "删除文件夹",
+            title = "删除分组",
             backdrop = backdrop,
             onDismissRequest = { deletingGroup = null },
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "将删除文件夹「${groupToDelete.orEmpty()}」及其全部子文件夹和书签（共 ${groupToDelete?.let { path -> favorites.items.count { it.group == path || it.group.startsWith("$path/") } } ?: 0} 个书签），此操作无法撤销。",
+                    text = "将删除分组「${groupToDelete.orEmpty()}」（含子分组）及其中的 ${groupToDelete?.let { favorites.itemsInTree(it).size } ?: 0} 个书签，此操作无法撤销。",
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -534,7 +518,7 @@ fun LibraryScreen(
         FavoriteEditorDialog(
             show = creatingFav || editingFav != null,
             initial = editingFav,
-            groups = (favorites.groups() + listOf("书签栏", "其他书签", "移动设备书签")).distinct(),
+            groups = favorites.groups(),
             backdrop = backdrop,
             liquidBackdrop = liquid,
             onDismiss = {
@@ -568,72 +552,43 @@ fun LibraryScreen(
                 editingFav = null
             },
         )
-
-        FolderEditorDialog(
-            show = creatingFolder,
-            groups = (favorites.groups() + listOf("书签栏", "其他书签", "移动设备书签")).distinct(),
-            backdrop = backdrop,
-            liquidBackdrop = liquid,
-            onDismiss = { creatingFolder = false },
-            onCreate = { parent, title ->
-                val created = favorites.createFolder(parent, title)
-                Toast.makeText(
-                    context,
-                    if (created != null) "已创建文件夹：$created" else "创建失败：文件夹名称为空或已存在",
-                    Toast.LENGTH_SHORT,
-                ).show()
-                if (created != null) creatingFolder = false
-            },
-        )
     }
     }
 }
 
-@Composable
-private fun FolderEditorDialog(
-    show: Boolean,
-    groups: List<String>,
-    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
-    liquidBackdrop: com.kyant.backdrop.Backdrop?,
-    onDismiss: () -> Unit,
-    onCreate: (parent: String, title: String) -> Unit,
-) {
-    var parent by remember(show) { mutableStateOf(Favorite.GROUP_PERSONAL) }
-    var title by remember(show) { mutableStateOf("") }
-    AppGlassDialog(
-        show = show,
-        title = "新建书签文件夹",
-        backdrop = backdrop,
-        onDismissRequest = onDismiss,
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            Text("父文件夹", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            AppDropdownPreference(
-                onSelectedIndexChange = { groups.getOrNull(it)?.let { value -> parent = value } },
-                items = groups,
-                selectedIndex = groups.indexOf(parent).coerceAtLeast(0),
-                title = "保存到",
-                backdrop = backdrop,
-                insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
-            )
-            top.yukonga.miuix.kmp.basic.TextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = "文件夹名称",
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-            )
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LiquidGlassPillButton("取消", onDismiss, liquidBackdrop, Modifier.weight(1f))
-                LiquidGlassPillButton(
-                    "创建", { onCreate(parent, title) }, liquidBackdrop, Modifier.weight(1f),
-                    enabled = title.isNotBlank(), role = LiquidRole.Primary,
-                )
-            }
+/** 书签树节点：[path] 是完整分组路径（以 / 分层）；[items] 是直接放在该文件夹里的书签。 */
+private class BmNode(val path: String) {
+    val name: String = path.substringAfterLast('/').ifBlank { "未命名" }
+    val children = ArrayList<BmNode>()
+    val items = ArrayList<Favorite>()
+    /** 含全部子孙文件夹的（已按搜索词过滤的）书签总数 */
+    var total = 0
+}
+
+/** 按分组路径里的 / 建出层级；文件夹顺序沿用 [FavoritesStore.groups]，缺失的祖先自动补齐。 */
+private fun buildBookmarkTree(favorites: FavoritesStore, q: String): List<BmNode> {
+    val nodes = HashMap<String, BmNode>()
+    val roots = ArrayList<BmNode>()
+    fun ensure(path: String): BmNode {
+        nodes[path]?.let { return it }
+        val node = BmNode(path)
+        nodes[path] = node
+        val cut = path.lastIndexOf('/')
+        if (cut > 0) ensure(path.substring(0, cut)).children.add(node) else roots.add(node)
+        return node
+    }
+    favorites.groups().forEach { ensure(it) }
+    favorites.items.forEach { f ->
+        if (q.isEmpty() || f.name.contains(q, ignoreCase = true) || f.url.contains(q, ignoreCase = true)) {
+            ensure(f.group.ifBlank { Favorite.GROUP_PERSONAL }).items.add(f)
         }
     }
+    fun count(n: BmNode): Int {
+        n.total = n.items.size + n.children.sumOf { count(it) }
+        return n.total
+    }
+    roots.forEach { count(it) }
+    return roots
 }
 
 @Composable
@@ -646,27 +601,12 @@ private fun BookmarksPage(
     onGroupLongClick: (String) -> Unit,
     query: String = "",
 ) {
-    val groups = favorites.groups()
     val q = query.trim()
-    // 目录按树形层级显示；父目录收起时，其全部后代目录一并隐藏。
+    val roots = buildBookmarkTree(favorites, q)
+    // 顶层分组默认折叠（只有一个时默认展开），次级文件夹默认折叠；搜索时全部自动展开
     val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-    val onlyOneGroup = groups.count { favorites.itemsIn(it).isNotEmpty() } <= 1
-    fun depth(path: String): Int = if (path.contains('/')) path.count { it == '/' } + 1
-        else if (favorites.parentGroup(path) == Favorite.GROUP_PERSONAL) 1 else 0
-    fun defaultOpen(path: String): Boolean =
-        depth(path) == 0 && (onlyOneGroup || favorites.isProtectedGroup(path))
-    fun visible(path: String): Boolean {
-        var parent = favorites.parentGroup(path)
-        while (parent != null) {
-            val parentOpen = expanded[parent] ?: defaultOpen(parent)
-            if (!parentOpen && q.isEmpty()) return false
-            parent = favorites.parentGroup(parent)
-        }
-        return true
-    }
-    val noMatch = q.isNotEmpty() && favorites.items.none {
-        it.name.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
-    }
+    val onlyOneGroup = roots.count { it.total > 0 } <= 1
+    val noMatch = q.isNotEmpty() && roots.none { it.total > 0 }
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -694,100 +634,216 @@ private fun BookmarksPage(
                 )
             }
         }
-        groups.forEach { group ->
-            if (!visible(group)) return@forEach
-            val list = favorites.itemsIn(group).filter {
-                q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
-            }
-            val hasChildren = groups.any { favorites.parentGroup(it) == group }
-            val isFolder = favorites.folderId(group) != null || favorites.isProtectedGroup(group)
-            // 保留根目录；注册表中的空文件夹也必须显示，便于管理和 Floccus 同步。
-            if (list.isEmpty() && !hasChildren && q.isNotEmpty()) return@forEach
-            if (list.isEmpty() && !hasChildren && !isFolder) return@forEach
-            val open = q.isNotEmpty() || (expanded[group] ?: defaultOpen(group))
-            item(key = "g-$group") {
+        roots.forEach { root ->
+            // 「个人收藏」即使为空也保留标题（不能删除的保留分组）；其它空分组 / 搜索无匹配时不显示
+            if (root.total == 0 && (q.isNotEmpty() || !favorites.isProtectedGroup(root.path))) return@forEach
+            val open = q.isNotEmpty() || (expanded[root.path] ?: onlyOneGroup)
+            item(key = "g-${root.path}") {
                 BookmarkGroupHeader(
-                    name = group.substringAfterLast('/'),
-                    count = list.size,
-                    depth = depth(group),
+                    name = root.name,
+                    count = root.total,
                     open = open,
-                    hasChildren = hasChildren,
-                    onClick = { expanded[group] = !open },
-                    onLongClick = if (!favorites.isProtectedGroup(group) && !open) ({ onGroupLongClick(group) }) else null,
+                    onClick = { expanded[root.path] = !open },
+                    // 仅收起状态下长按分组行可重命名 / 删除；「个人收藏」是保留分组，不可操作
+                    onLongClick = if (!open && !favorites.isProtectedGroup(root.path)) ({ onGroupLongClick(root.path) }) else null,
                 )
             }
-            if (!open) return@forEach
-            items(list.size, key = { i -> "$group-${list[i].id}" }) { i ->
-                val fav = list[i]
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 8.dp),
-                    insideMargin = PaddingValues(14.dp),
-                ) {
-                    Row(
+            if (open) {
+                bookmarkFolderContent(
+                    node = root,
+                    level = 0,
+                    searching = q.isNotEmpty(),
+                    expanded = expanded,
+                    onOpen = onOpen,
+                    onEdit = onEdit,
+                    onGroupLongClick = onGroupLongClick,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 展开某个分组 / 文件夹后的内容：先列次级文件夹（点击就地展开，递归），再列该层的书签。
+ * [level] 控制缩进，每深一层右移一点。
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent(
+    node: BmNode,
+    level: Int,
+    searching: Boolean,
+    expanded: androidx.compose.runtime.snapshots.SnapshotStateMap<String, Boolean>,
+    onOpen: (String) -> Unit,
+    onEdit: (Favorite) -> Unit,
+    onGroupLongClick: (String) -> Unit,
+) {
+    node.children.forEach { child ->
+        if (child.total == 0) return@forEach
+        val open = searching || (expanded[child.path] ?: false)
+        item(key = "f-${child.path}") {
+            BookmarkFolderRow(
+                name = child.name,
+                folderCount = child.children.count { it.total > 0 },
+                bookmarkCount = child.total,
+                open = open,
+                level = level,
+                onClick = { expanded[child.path] = !open },
+                onLongClick = if (!open) ({ onGroupLongClick(child.path) }) else null,
+            )
+        }
+        if (open) {
+            bookmarkFolderContent(child, level + 1, searching, expanded, onOpen, onEdit, onGroupLongClick)
+        }
+    }
+    items(node.items.size, key = { i -> "b-${node.path}-${node.items[i].url}-$i" }) { i ->
+        BookmarkRow(fav = node.items[i], level = level, onOpen = onOpen, onEdit = onEdit)
+    }
+}
+
+/** 次级分组：文件夹图标 + 分组名，样式与普通书签行一致；点一下展开 / 收起（收起时可长按管理）。 */
+@Composable
+private fun BookmarkFolderRow(
+    name: String,
+    folderCount: Int,
+    bookmarkCount: Int,
+    open: Boolean,
+    level: Int,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    // ChevronBackward 默认朝左：收起时转 180° 朝右（›），展开时转 270° 朝下
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "folderArrow")
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = (12 + level * 14).dp, end = 12.dp)
+            .padding(bottom = 8.dp),
+        insideMargin = PaddingValues(14.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.Folder,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    fontSize = 15.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = listOfNotNull(
+                        if (folderCount > 0) "$folderCount 个分组" else null,
+                        "$bookmarkCount 个书签",
+                    ).joinToString(" · "),
+                    fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = MiuixIcons.Glass.ChevronBackward,
+                contentDescription = if (open) "收起" else "展开",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+            )
+        }
+    }
+}
+
+/** 普通书签行。 */
+@Composable
+private fun BookmarkRow(
+    fav: Favorite,
+    level: Int,
+    onOpen: (String) -> Unit,
+    onEdit: (Favorite) -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = (12 + level * 14).dp, end = 12.dp)
+            .padding(bottom = 8.dp),
+        insideMargin = PaddingValues(14.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpen(fav.url) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                val favicon = rememberFavicon(fav.url)
+                if (favicon != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = favicon,
+                        contentDescription = null,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpen(fav.url) },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val favicon = rememberFavicon(fav.url)
-                            if (favicon != null) {
-                                androidx.compose.foundation.Image(
-                                    bitmap = favicon,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(RoundedCornerShape(6.dp)),
-                                )
-                            } else {
-                                // 图标还在加载或抓取失败时的占位
-                                Icon(
-                                    imageVector = MiuixIcons.Glass.File,
-                                    contentDescription = null,
-                                    tint = MiuixTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = fav.name,
-                                fontSize = 15.sp,
-                                color = MiuixTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = fav.url,
-                                fontSize = 11.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Text(
-                            text = "编辑",
-                            fontSize = 12.sp,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onEdit(fav) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
+                            .size(24.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                    )
+                } else {
+                    // 图标还在加载或抓取失败时的占位
+                    Icon(
+                        imageVector = MiuixIcons.Glass.File,
+                        contentDescription = null,
+                        tint = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = fav.name,
+                    fontSize = 15.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = fav.url,
+                    fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = "编辑",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onEdit(fav) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
         }
     }
 }
@@ -797,9 +853,7 @@ private fun BookmarksPage(
 private fun BookmarkGroupHeader(
     name: String,
     count: Int,
-    depth: Int = 0,
     open: Boolean,
-    hasChildren: Boolean = true,
     onClick: () -> Unit,
     /** null = 不响应长按 */
     onLongClick: (() -> Unit)? = null,
@@ -810,7 +864,7 @@ private fun BookmarkGroupHeader(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = (20 + depth * 18).dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -833,15 +887,13 @@ private fun BookmarkGroupHeader(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
-        if (hasChildren || count > 0) {
-            AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
-                Icon(
-                    imageVector = MiuixIcons.Glass.ChevronBackward,
-                    contentDescription = if (open) "收起" else "展开",
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
-                )
-            }
+        AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
+            Icon(
+                imageVector = MiuixIcons.Glass.ChevronBackward,
+                contentDescription = if (open) "收起" else "展开",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+            )
         }
     }
 }
@@ -1079,7 +1131,7 @@ private fun FavoriteEditorDialog(
                 value = if (group in groups) "" else group,
                 onValueChange = { group = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "或输入目录路径（如 工作/开发）",
+                label = "或输入新分组名",
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
