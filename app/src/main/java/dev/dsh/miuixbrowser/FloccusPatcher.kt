@@ -23,6 +23,23 @@ import java.util.zip.ZipOutputStream
 object FloccusPatcher {
     private const val SHIM_ASSET = "mafari-bookmarks-shim.js"
     private const val SHIM_NAME = "mafari-bookmarks-shim.js"
+    private const val SIGN_PREF = "xpinstall.signatures.required"
+
+    private fun flags(context: Context) = context.getSharedPreferences("mafari", Context.MODE_PRIVATE)
+
+    /**
+     * 改过的包没有 Mozilla 签名，内核默认只接受带签名的拓展（安装时拒绝，已装的在下次启动时也会被禁用）。
+     * 所以只要装过改包版 Floccus，就把 Gecko 的 xpinstall.signatures.required 关掉（全局生效，所有拓展不再校验签名）。
+     */
+    fun allowUnsigned(context: Context, on: Boolean) {
+        flags(context).edit().putBoolean("floccus_unsigned", on).apply()
+        GeckoPrefs.set(SIGN_PREF, if (on) false else GeckoPrefs.CLEAR)
+    }
+
+    /** Gecko 运行时创建时调用：之前装过改包版就保持签名校验关闭。 */
+    fun applyOnStartup(context: Context) {
+        if (flags(context).getBoolean("floccus_unsigned", false)) GeckoPrefs.set(SIGN_PREF, false)
+    }
 
     /**
      * 返回实际应当安装的 uri：是 Floccus 的 xpi 就返回改好的 file://，否则原样返回 [uri]。

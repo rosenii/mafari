@@ -217,9 +217,11 @@ object GeckoExtensionStore {
         // Floccus 会先改包加书签垫片；改过的包装不上（例如内核要求签名）时退回原包，至少能装上
         val patched = withContext(Dispatchers.IO) { FloccusPatcher.prepare(context, uri) }
         if (patched == uri) return installOnce(context, uri)
+        FloccusPatcher.allowUnsigned(context, true) // 改过的包没有签名，先放开签名校验
         val first = installOnce(context, patched)
         if (first.isSuccess) return first
         Diag.log("ext: patched install failed (${first.exceptionOrNull()}), retrying original")
+        FloccusPatcher.allowUnsigned(context, false)
         val second = installOnce(context, uri)
         return if (second.isSuccess) second else first
     }

@@ -2345,6 +2345,7 @@ class BrowserTab(
             return
         }
         // 回到「从主页进入」的第一页：再返回就是主页，而不是继续翻进入主页之前的旧历史
+        Diag.log("nav: goBack fromHome=$fromHome idx=${historyIndex()} anchor=$homeAnchor engineCanGoBack=${engineCanGoBack()} url=$url")
         if (fromHome && historyIndex() <= homeAnchor + 1) {
             engineStop()
             fromHome = false

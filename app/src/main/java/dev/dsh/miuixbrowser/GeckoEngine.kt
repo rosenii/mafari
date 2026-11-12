@@ -63,6 +63,7 @@ object GeckoRuntimeHolder {
             GeckoProtection.pushAll()
             CookieControl.pushGecko(context)
             GeckoDebug.pushPrefs()
+            FloccusPatcher.applyOnStartup(context) // 装过改包版 Floccus：保持签名校验关闭
             GeckoPrefs.flush()
             CookieControl.runPendingGeckoColdClear()
             return created

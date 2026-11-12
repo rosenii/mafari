@@ -898,6 +898,12 @@ fun BrowserScreen(
         barHidden = tab.geckoFullscreen
     }
 
+    // 回到主页（页面被盖住 / 没有页面）时底栏必须显示：主页自己没有滚动采样，
+    // 之前页面滑动收起底栏后的 barHidden 会一直残留，导致主页上唤不出底栏
+    LaunchedEffect(tab.id, tab.url.isEmpty()) {
+        if (tab.url.isEmpty()) barHidden = false
+    }
+
     LaunchedEffect(tab.id) {
         var last = 0
         var lastShow = 0
