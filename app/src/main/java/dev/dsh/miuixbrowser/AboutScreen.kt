@@ -96,6 +96,7 @@ fun AboutScreen(
     val geckoKernel = remember { geckoViewVersion() }
     val ua = remember { runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault("未知") }
     val dependencyGroups = remember { parseDependencyVersions(BuildConfig.DEP_VERSIONS) }
+    val cryptoGroups = remember { parseDependencyVersions(BuildConfig.CRYPTO_ALGORITHMS) }
     var checkingUpdate by remember { mutableStateOf(false) }
 
     val pageBackdrop = rememberLayerBackdrop()
@@ -257,6 +258,9 @@ fun AboutScreen(
                     AboutRow("WebView 内核版本", kernel)
                     AboutRow("GeckoView 内核版本", geckoKernel ?: "未知")
                 }
+
+                SmallTitle(text = "加密算法")
+                DependencyVersionsCard(cryptoGroups)
 
                 SmallTitle(text = "依赖版本")
                 DependencyVersionsCard(dependencyGroups)
@@ -563,6 +567,10 @@ private val DEP_GROUP_TITLES = mapOf(
     "androidx" to "AndroidX",
     "sync" to "云同步",
     "build" to "构建工具链",
+    "kem" to "密钥封装（后量子混合）",
+    "sym" to "对称加密",
+    "kdf" to "密钥派生",
+    "lib" to "实现库",
 )
 
 private class DependencyGroup(val title: String, val items: List<Pair<String, String>>)

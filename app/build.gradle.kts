@@ -49,6 +49,17 @@ val dependencyVersions = listOf(
     Triple("build", "Gradle", gradle.gradleVersion),
 ).joinToString(";") { (group, name, version) -> "$group|$name|$version" }
 
+// 加密算法：与 CipherSuite.kt / Backup.kt 实际使用的算法保持一致；格式同上，版本为算法标准 / 参数版本，库版本取自 bouncyCastleVersion
+val cryptoAlgorithms = listOf(
+    Triple("kem", "ML-KEM-768（默认）", "FIPS 203"),
+    Triple("kem", "ML-KEM-1024", "FIPS 203"),
+    Triple("kem", "X25519", "RFC 7748"),
+    Triple("sym", "AES-256-GCM", "SP 800-38D"),
+    Triple("kdf", "HKDF-SHA-384 / 512", "RFC 5869"),
+    Triple("kdf", "Argon2id（备份口令）", "v1.3 · RFC 9106"),
+    Triple("lib", "BouncyCastle", bouncyCastleVersion),
+).joinToString(";") { (group, name, version) -> "$group|$name|$version" }
+
 android {
     namespace = "dev.dsh.miuixbrowser"
     compileSdk {
@@ -62,14 +73,15 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 10067
-        versionName = "v99.1.67"
+        versionCode = 10069
+        versionName = "v99.1.69"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
         } else 0
         buildConfigField("int", "GECKO_BUILD", geckoBuild.toString())
         buildConfigField("String", "DEP_VERSIONS", "\"$dependencyVersions\"")
+        buildConfigField("String", "CRYPTO_ALGORITHMS", "\"$cryptoAlgorithms\"")
         // GeckoView nightly 只发布 arm64-v8a 单架构包；其余 ABI 的设备仍可用 WebView 内核
         ndk { abiFilters += "arm64-v8a" }
     }
