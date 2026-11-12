@@ -10,8 +10,9 @@ import java.io.ByteArrayOutputStream
  *
  *  - 默认口令经 [SecureStore] 加密只存本机（不进备份文件，也不进系统自动备份）；设置后，导出 / 上传 / 推送不再逐次询问口令。
  *    恢复仍需要口令（备份本身不含口令）。
- *  - 自动推送：按间隔（每天 / 每 3 天 / 每周）在启动时把加密备份推送到已配置的 WebDAV 和 / 或 Git。
- *    需要先设好默认口令与至少一个云同步目标；失败不记时间，下次启动重试。
+ *  - 自动推送：按间隔（每天 / 每 3 天 / 每周）在启动时把加密备份推送到「当前」的 WebDAV 服务器 / Git 仓库，
+ *    以及列表里开启了「一并同步」的其他服务器 / 仓库。
+ *    需要先设好默认口令与至少一个目标；有任何一个失败就不记时间，下次启动整体重试。
  */
 object BackupAuto {
     private const val PREFS = "mafari_backup_auto"
@@ -60,9 +61,11 @@ object BackupAuto {
         val now = System.currentTimeMillis()
         if (now - prefs(app).getLong(K_LAST, 0L) < days * 86_400_000L) return@withContext
         val password = password(app) ?: return@withContext
-        val dav = WebDavStore.load(app)
-        val git = GitStore.load(app)
-        if (dav == null && git == null) return@withContext
+        val davActive = WebDavStore.activeId(app)
+        val dav = WebDavStore.list(app).filter { it.id == davActive || it.syncAlso }.map { it.config }
+        val gitActive = GitStore.activeId(app)
+        val git = GitStore.list(app).filter { it.id == gitActive || it.syncAlso }.map { it.config }
+        if (dav.isEmpty() && git.isEmpty()) return@withContext
 
         val chars = password.toCharArray()
         val buffer = ByteArrayOutputStream()
@@ -73,11 +76,11 @@ object BackupAuto {
         }
         val bytes = buffer.toByteArray()
         var ok = true
-        if (dav != null) {
-            if (runCatching { WebDavClient(dav).upload(bytes) }.isSuccess) WebDavStore.markUploaded(app) else ok = false
+        for (cfg in dav) {
+            if (runCatching { WebDavClient(cfg).upload(bytes) }.isSuccess) WebDavStore.markUploaded(app) else ok = false
         }
-        if (git != null) {
-            if (runCatching { GitSyncClient(app, git).upload(bytes) }.isSuccess) GitStore.markPushed(app) else ok = false
+        for (cfg in git) {
+            if (runCatching { GitSyncClient(app, cfg).upload(bytes) }.isSuccess) GitStore.markPushed(app) else ok = false
         }
         if (ok) prefs(app).edit().putLong(K_LAST, now).apply()
     }

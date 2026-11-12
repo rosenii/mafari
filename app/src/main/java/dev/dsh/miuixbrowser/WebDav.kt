@@ -196,7 +196,8 @@ class WebDavClient(private val config: WebDavConfig) {
 }
 
 /** 一条已连接过的服务器。[id] 稳定不变，编辑地址 / 账号后仍指向同一条。 */
-data class WebDavProfile(val id: String, val config: WebDavConfig)
+/** [syncAlso]：自动推送时，除「当前」服务器外是否也一并同步到这台。 */
+data class WebDavProfile(val id: String, val config: WebDavConfig, val syncAlso: Boolean = false)
 
 /**
  * WebDAV 服务器的本机存储（不进备份文件）：保存所有测试通过的服务器，并记住当前使用的一台。
@@ -255,7 +256,7 @@ object WebDavStore {
             if (id.isEmpty() || url.isEmpty()) continue
             val raw = o.optString("pass")
             val pass = if (raw.isEmpty()) "" else SecureStore.read(app, raw, SecureStore.PURPOSE_WEBDAV) ?: continue
-            out += WebDavProfile(id, WebDavConfig(url, o.optString("user"), pass))
+            out += WebDavProfile(id, WebDavConfig(url, o.optString("user"), pass), o.optBoolean("sync", false))
         }
         return out
     }
@@ -292,10 +293,22 @@ object WebDavStore {
             if (hit) { index = i; break }
         }
         val useId = id ?: if (index >= 0) arr.getJSONObject(index).optString("id") else UUID.randomUUID().toString()
-        val obj = JSONObject().put("id", useId).put("url", config.url).put("user", config.username).put("pass", sealed)
+        val keepSync = index >= 0 && arr.getJSONObject(index).optBoolean("sync", false)
+        val obj = JSONObject().put("id", useId).put("url", config.url).put("user", config.username).put("pass", sealed).put("sync", keepSync)
         if (index >= 0) arr.put(index, obj) else arr.put(obj)
         write(app, arr, useId)
         return useId
+    }
+
+    /** 设置某台服务器是否在自动推送时一并同步。 */
+    fun setSyncAlso(context: Context, id: String, on: Boolean) {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            if (o.optString("id") == id) o.put("sync", on)
+        }
+        write(app, arr, activeId(app))
     }
 
     fun select(context: Context, id: String) {

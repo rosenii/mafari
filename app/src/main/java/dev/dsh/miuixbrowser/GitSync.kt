@@ -372,7 +372,8 @@ private object TrustNewHostOnly : UserInfo {
 }
 
 /** 一条已连接过的仓库。[id] 稳定不变，编辑后仍指向同一条。 */
-data class GitProfile(val id: String, val config: GitConfig)
+/** [syncAlso]：自动推送时，除「当前」仓库外是否也一并同步到这个。 */
+data class GitProfile(val id: String, val config: GitConfig, val syncAlso: Boolean = false)
 
 /**
  * Git 仓库的本机存储（不进备份文件）：保存所有测试通过的仓库，并记住当前使用的一个。
@@ -446,7 +447,7 @@ object GitStore {
             val token = open(app, o.optString("token"), SecureStore.PURPOSE_GIT) ?: continue
             val key = open(app, o.optString("key"), SecureStore.PURPOSE_GIT_KEY) ?: continue
             val keyPass = open(app, o.optString("keyPass"), SecureStore.PURPOSE_GIT_KEY_PASS) ?: continue
-            out += GitProfile(id, GitConfig(url, o.optString("user"), token, o.optString("branch"), key, keyPass))
+            out += GitProfile(id, GitConfig(url, o.optString("user"), token, o.optString("branch"), key, keyPass), o.optBoolean("sync", false))
         }
         return out
     }
@@ -489,10 +490,21 @@ object GitStore {
             if (hit) { index = i; break }
         }
         val useId = id ?: if (index >= 0) arr.getJSONObject(index).optString("id") else UUID.randomUUID().toString()
-        obj.put("id", useId)
+        obj.put("id", useId).put("sync", index >= 0 && arr.getJSONObject(index).optBoolean("sync", false))
         if (index >= 0) arr.put(index, obj) else arr.put(obj)
         write(app, arr, useId)
         return useId
+    }
+
+    /** 设置某个仓库是否在自动推送时一并同步。 */
+    fun setSyncAlso(context: Context, id: String, on: Boolean) {
+        val app = context.applicationContext
+        val arr = rawArray(app)
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            if (o.optString("id") == id) o.put("sync", on)
+        }
+        write(app, arr, activeId(app))
     }
 
     fun select(context: Context, id: String) {

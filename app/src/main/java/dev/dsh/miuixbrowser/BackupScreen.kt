@@ -15,6 +15,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,9 +29,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -47,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -114,7 +118,7 @@ private fun doneText(context: Context, prefix: String, summary: BackupManager.Su
 private fun failText(prefix: String, e: Throwable?): String = prefix + "：" + (e?.message ?: "未知错误")
 
 /** 弹窗 / sheet 里「已保存配置」的一行。 */
-private data class ProfileRow(val id: String, val title: String, val subtitle: String)
+private data class ProfileRow(val id: String, val title: String, val subtitle: String, val syncAlso: Boolean)
 
 /** 设置 → 备份与同步：本地备份与恢复；云同步（WebDAV / Git）。 */
 @Composable
@@ -562,7 +566,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             )
                         }
                     }
-                    item { Note("自动推送在启动应用时按间隔执行，推送到所有已配置的 WebDAV / Git。") }
+                    item { Note("启动应用时按间隔执行，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
 
                     // ———— 本地备份与恢复 ————
                     item { SmallTitle(text = "本地备份与恢复") }
@@ -628,6 +632,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         it.id,
                         WebDavNames.hostLabel(it.config.url),
                         it.config.username.ifEmpty { "匿名" },
+                        it.syncAlso,
                     )
                 },
                 activeId = webdavActiveId,
@@ -643,6 +648,10 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 },
                 onUse = { id ->
                     WebDavStore.select(context, id)
+                    reloadWebDav()
+                },
+                onToggleSync = { id, on ->
+                    WebDavStore.setSyncAlso(context, id, on)
                     reloadWebDav()
                 },
                 onAdd = {
@@ -666,6 +675,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         GitNames.repoLabel(it.config.url),
                         (if (it.config.useSsh) "Deploy key" else "令牌") +
                             " · " + it.config.branch.ifEmpty { "默认分支" },
+                        it.syncAlso,
                     )
                 },
                 activeId = gitActiveId,
@@ -681,6 +691,10 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 },
                 onUse = { id ->
                     GitStore.select(context, id)
+                    reloadGit()
+                },
+                onToggleSync = { id, on ->
+                    GitStore.setSyncAlso(context, id, on)
                     reloadGit()
                 },
                 onAdd = {
@@ -884,6 +898,7 @@ private fun SheetRow(
     title: String,
     summary: String? = null,
     enabled: Boolean = true,
+    leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -895,6 +910,10 @@ private fun SheetRow(
             .padding(vertical = 12.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(10.dp))
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
@@ -936,6 +955,7 @@ private fun ServerSheet(
     onDismiss: () -> Unit,
     onEdit: (String) -> Unit,
     onUse: (String) -> Unit,
+    onToggleSync: (String, Boolean) -> Unit,
     onAdd: () -> Unit,
 ) {
     AppBottomSheet(
@@ -948,12 +968,22 @@ private fun ServerSheet(
             if (rows.isNotEmpty()) {
                 SheetLabel("已连接")
                 rows.forEach { row ->
+                    val active = row.id == activeId
                     SheetRow(
                         title = row.title,
                         summary = row.subtitle,
                         onClick = { onEdit(row.id) },
+                        leading = {
+                            // 当前连接的显示绿点；其他行留同宽空位，标题对齐
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (active) Color(0xFF34C759) else Color.Transparent),
+                            )
+                        },
                         trailing = {
-                            if (row.id == activeId) {
+                            if (active) {
                                 Text(
                                     text = "当前",
                                     fontSize = 13.sp,
@@ -971,11 +1001,14 @@ private fun ServerSheet(
                                         .clickable { onUse(row.id) }
                                         .padding(horizontal = 12.dp, vertical = 8.dp),
                                 )
+                                Text(text = "一并同步", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                Spacer(Modifier.width(6.dp))
+                                AppSwitch(checked = row.syncAlso, onCheckedChange = { onToggleSync(row.id, it) })
                             }
                         },
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Note("自动推送时，除当前连接的以外，开启「一并同步」的也会同步。", horizontal = 4.dp)
             }
             SheetLabel("新增")
             SheetRow(title = addTitle, summary = addSummary, onClick = onAdd)
