@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 密钥保险库与密文数据都不进云备份 / 设备迁移：Keystore 里的包裹密钥带不走，
+     迁过去只会得到一堆解不开的密文。 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="mafari_vault/" />
+        <exclude domain="sharedpref" path="mafari.xml" />
+        <exclude domain="sharedpref" path="mafari_history.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="mafari_vault/" />
+        <exclude domain="sharedpref" path="mafari.xml" />
+        <exclude domain="sharedpref" path="mafari_history.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="file" path="mafari_vault/" />
+    <exclude domain="sharedpref" path="mafari.xml" />
+    <exclude domain="sharedpref" path="mafari_history.xml" />
+</full-backup-content>

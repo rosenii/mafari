@@ -9,12 +9,20 @@ data class HistoryEntry(val url: String, val title: String, val time: Long)
 
 class HistoryStore(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mafari_history", Context.MODE_PRIVATE)
 
     val items = mutableStateListOf<HistoryEntry>().apply { addAll(load()) }
 
+    init {
+        // 旧版本留下的明文历史：立即以密文重写一次
+        val raw = prefs.getString(KEY, null)
+        if (raw != null && SecureStore.isLegacyPlaintext(raw)) persist()
+    }
+
     private fun load(): List<HistoryEntry> {
-        val raw = prefs.getString(KEY, null) ?: return emptyList()
+        val stored = prefs.getString(KEY, null) ?: return emptyList()
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return emptyList()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -70,13 +78,16 @@ class HistoryStore(context: Context) {
                 for (e in snapshot) {
                     array.put(JSONObject().put("url", e.url).put("title", e.title).put("time", e.time))
                 }
-                prefs.edit().putString(KEY, array.toString()).apply()
+                val sealed = SecureStore.write(appContext, array.toString(), PURPOSE) ?: return@runCatching
+                prefs.edit().putString(KEY, sealed).apply()
             }
         }
     }
 
     private companion object {
         const val KEY = "entries"
+        /** 加密上下文（进 AAD）：密文只能在这个用途下解开，不能被挪去冒充别的数据 */
+        const val PURPOSE = "mafari.history.entries"
 
         private val writer: java.util.concurrent.ExecutorService =
             java.util.concurrent.Executors.newSingleThreadExecutor { r ->

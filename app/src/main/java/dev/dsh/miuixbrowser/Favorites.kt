@@ -23,14 +23,22 @@ data class Favorite(
 /** 主页收藏（书签）的增删改、分组 + 本地持久化。 */
 class FavoritesStore(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mafari", Context.MODE_PRIVATE)
 
     val items = mutableStateListOf<Favorite>().apply {
         addAll(load())
     }
 
+    init {
+        // 旧版本留下的明文书签：立即以密文重写一次
+        val raw = prefs.getString(KEY, null)
+        if (raw != null && SecureStore.isLegacyPlaintext(raw)) persist()
+    }
+
     private fun load(): List<Favorite> {
-        val raw = prefs.getString(KEY, null) ?: return defaults()
+        val stored = prefs.getString(KEY, null) ?: return defaults()
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return defaults()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -350,7 +358,8 @@ class FavoritesStore(context: Context) {
                     .put("group", it.group),
             )
         }
-        prefs.edit().putString(KEY, array.toString()).apply()
+        val sealed = SecureStore.write(appContext, array.toString(), PURPOSE) ?: return
+        prefs.edit().putString(KEY, sealed).apply()
     }
 
     private fun unescapeHtml(s: String): String =
@@ -376,5 +385,7 @@ class FavoritesStore(context: Context) {
 
     private companion object {
         const val KEY = "favorites"
+        /** 加密上下文（进 AAD）：密文只能在这个用途下解开 */
+        const val PURPOSE = "mafari.favorites.items"
     }
 }
