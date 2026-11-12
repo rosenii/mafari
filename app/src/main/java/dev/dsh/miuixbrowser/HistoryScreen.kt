@@ -925,36 +925,51 @@ private fun FavoriteEditorDialog(
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
-            Text(
-                text = "分组",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-            Spacer(Modifier.height(6.dp))
-            // 已有分组一点即选，免输入
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                groups.forEach { g ->
-                    val selected = g == group.trim().ifBlank { Favorite.GROUP_PERSONAL }
-                    Text(
-                        text = g,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                if (selected) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                            )
-                            .clickable { group = g }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
+            if (groups.size > 3) {
+                // 分组超过 3 个：横排放不下，改为下拉菜单选择
+                val currentIndex = groups.indexOf(group.trim().ifBlank { Favorite.GROUP_PERSONAL })
+                AppDropdownPreference(
+                    onSelectedIndexChange = { i -> groups.getOrNull(i)?.let { group = it } },
+                    items = groups,
+                    selectedIndex = currentIndex.coerceAtLeast(0),
+                    title = "分组",
+                    backdrop = backdrop,
+                    // 输入了新分组名时，下拉不再代表当前选择，隐藏右侧的值
+                    showValue = currentIndex >= 0,
+                    insideMargin = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+                )
+            } else {
+                Text(
+                    text = "分组",
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Spacer(Modifier.height(6.dp))
+                // 已有分组一点即选，免输入
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    groups.forEach { g ->
+                        val selected = g == group.trim().ifBlank { Favorite.GROUP_PERSONAL }
+                        Text(
+                            text = g,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                )
+                                .clickable { group = g }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(10.dp))
