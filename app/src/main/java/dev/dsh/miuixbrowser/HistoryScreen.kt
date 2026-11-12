@@ -941,6 +941,13 @@ private fun HistoryPage(
         }
         return
     }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val sp = remember { ctx.getSharedPreferences("mafari", android.content.Context.MODE_PRIVATE) }
+    var mode by remember { mutableStateOf(HistoryGroupMode.fromId(sp.getString("history_group_mode", null))) }
+    // 默认全部展开：只记录被用户手动收起的分组；换分组方式时重置
+    val collapsed = remember(mode) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val groups = remember(entries.toList(), mode) { groupHistory(entries, mode) }
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -948,9 +955,61 @@ private fun HistoryPage(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
     ) {
-        item { SmallTitle(text = "最近访问") }
-        items(entries.size, key = { i -> entries[i].url }) { index ->
-            val entry = entries[index]
+        item(key = "mode-picker") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "分组",
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+                HistoryGroupMode.entries.forEach { m ->
+                    val selected = m == mode
+                    Text(
+                        text = m.label,
+                        fontSize = 13.sp,
+                        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (selected) MiuixTheme.colorScheme.primary
+                                else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                            )
+                            .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                if (!selected) {
+                                    mode = m
+                                    sp.edit().putString("history_group_mode", m.id).apply()
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                }
+            }
+        }
+        groups.forEach { group ->
+            val open = q.isNotEmpty() || collapsed[group.key] != true
+            item(key = "h-${group.key}") {
+                HistoryGroupHeader(
+                    title = group.title,
+                    count = group.entries.size,
+                    open = open,
+                    onClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        collapsed[group.key] = open
+                    },
+                )
+            }
+            if (!open) return@forEach
+        items(group.entries.size, key = { i -> group.entries[i].url }) { index ->
+            val entry = group.entries[index]
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -982,7 +1041,7 @@ private fun HistoryPage(
                         )
                     }
                     Text(
-                        text = formatHistoryTime(entry.time),
+                        text = formatHistoryTime(entry.time, mode),
                         fontSize = 11.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(start = 8.dp),
@@ -1005,18 +1064,120 @@ private fun HistoryPage(
                 }
             }
         }
+        }
     }
 }
 
-private fun formatHistoryTime(time: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - time
-    return when {
-        diff < 60_000L -> "刚刚"
-        diff < 3_600_000L -> "${diff / 60_000} 分钟前"
-        diff < 86_400_000L -> "${diff / 3_600_000} 小时前"
-        else -> SimpleDateFormat("MM-dd", Locale.getDefault()).format(Date(time))
+enum class HistoryGroupMode(val id: String, val label: String) {
+    Day("day", "按日"),
+    Week("week", "按周"),
+    Month("month", "按月");
+
+    companion object {
+        fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: Day
     }
+}
+
+private class HistoryGroup(val key: String, val title: String, val entries: List<HistoryEntry>)
+
+/** 按日 / 周（周一起算）/ 月分组，保持传入的时间倒序；标题用「今天 / 昨天 / 本周 / 上月」等相对叫法。 */
+private fun groupHistory(entries: List<HistoryEntry>, mode: HistoryGroupMode): List<HistoryGroup> {
+    fun startOf(time: Long): java.util.Calendar = java.util.Calendar.getInstance().apply {
+        firstDayOfWeek = java.util.Calendar.MONDAY
+        timeInMillis = time
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+        when (mode) {
+            HistoryGroupMode.Day -> Unit
+            HistoryGroupMode.Week -> set(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.MONDAY)
+            HistoryGroupMode.Month -> set(java.util.Calendar.DAY_OF_MONTH, 1)
+        }
+    }
+    val nowStart = startOf(System.currentTimeMillis())
+    fun shift(c: java.util.Calendar, n: Int): java.util.Calendar = (c.clone() as java.util.Calendar).apply {
+        when (mode) {
+            HistoryGroupMode.Day -> add(java.util.Calendar.DAY_OF_YEAR, n)
+            HistoryGroupMode.Week -> add(java.util.Calendar.WEEK_OF_YEAR, n)
+            HistoryGroupMode.Month -> add(java.util.Calendar.MONTH, n)
+        }
+    }
+    val cur = nowStart.timeInMillis
+    val prev = shift(nowStart, -1).timeInMillis
+    val md = SimpleDateFormat("M月d日", Locale.getDefault())
+    val wk = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
+    fun title(start: java.util.Calendar): String {
+        val t = start.timeInMillis
+        val sameYear = start.get(java.util.Calendar.YEAR) == nowStart.get(java.util.Calendar.YEAR)
+        return when (mode) {
+            HistoryGroupMode.Day -> when (t) {
+                cur -> "今天"
+                prev -> "昨天"
+                else -> md.format(Date(t)) + " " + wk[start.get(java.util.Calendar.DAY_OF_WEEK) - 1]
+            }
+            HistoryGroupMode.Week -> {
+                val end = shift(start, 1).apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+                val range = md.format(Date(t)) + " - " + md.format(end.time)
+                when (t) {
+                    cur -> "本周 · $range"
+                    prev -> "上周 · $range"
+                    else -> range
+                }
+            }
+            HistoryGroupMode.Month -> when (t) {
+                cur -> "本月"
+                prev -> "上月"
+                else -> if (sameYear) "${start.get(java.util.Calendar.MONTH) + 1}月"
+                else "${start.get(java.util.Calendar.YEAR)}年${start.get(java.util.Calendar.MONTH) + 1}月"
+            }
+        }
+    }
+    val out = LinkedHashMap<Long, Pair<java.util.Calendar, MutableList<HistoryEntry>>>()
+    entries.forEach { e ->
+        val st = startOf(e.time)
+        out.getOrPut(st.timeInMillis) { st to mutableListOf() }.second.add(e)
+    }
+    return out.map { (k, v) -> HistoryGroup(k.toString(), title(v.first), v.second) }
+}
+
+/** 分组标题：标题 + 条数 + 展开 / 收起箭头，点一下切换。 */
+@Composable
+private fun HistoryGroupHeader(title: String, count: Int, open: Boolean, onClick: () -> Unit) {
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "historyGroupArrow")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            fontSize = 14.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "$count 条",
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.width(6.dp))
+        Icon(
+            imageVector = MiuixIcons.Glass.ChevronBackward,
+            contentDescription = if (open) "收起" else "展开",
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = angle },
+        )
+    }
+}
+
+/** 条目右侧时间：按日分组时只显示时分（日期已在标题里），按周 / 月显示月日 + 时分。 */
+private fun formatHistoryTime(time: Long, mode: HistoryGroupMode): String {
+    val pattern = if (mode == HistoryGroupMode.Day) "HH:mm" else "MM-dd HH:mm"
+    return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(time))
 }
 
 /** 写入系统 Download/mafari 并提示路径。 */
