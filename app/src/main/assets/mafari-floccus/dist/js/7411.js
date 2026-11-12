@@ -1,2 +1,0 @@
-"use strict";(globalThis.webpackChunkfloccus||=[]).push([[7411],{7411(s,c,e){e.d(c,{SplashScreenWeb:()=>h});var a=e(16546);class h extends a.E_{async show(s){}async hide(s){}}}}]);
-//# sourceMappingURL=7411.js.map

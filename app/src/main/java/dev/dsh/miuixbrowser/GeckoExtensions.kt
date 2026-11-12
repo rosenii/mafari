@@ -157,9 +157,10 @@ object GeckoExtensionStore {
             ensureDelegate(runtime)
             val list = runtime.webExtensionController.list().await() ?: emptyList()
             items.clear()
-            items.addAll(list.filter { !it.isBuiltIn || it.id == BookmarksBridge.EXT_ID }.map { toItem(it) }.sortedBy { it.name.lowercase() })
+            items.addAll(list.filter { !it.isBuiltIn }.map { toItem(it) }.sortedBy { it.name.lowercase() })
             items.forEach { loadIcon(it) }
             items.forEach { attachActionDelegate(it.ext) }
+            items.forEach { BookmarksBridge.attach(context, it.ext) }
         } finally {
             loading.value = false
         }
@@ -212,7 +213,18 @@ object GeckoExtensionStore {
     // ------------------------------------------------------------------ 安装
 
     /** 安装：uri 可以是 https 的 .xpi 链接或 file:// 本地文件；确认框由提示委托弹出 */
-    suspend fun install(context: Context, uri: String): Result<GeckoExtItem> = runCatching {
+    suspend fun install(context: Context, uri: String): Result<GeckoExtItem> {
+        // Floccus 会先改包加书签垫片；改过的包装不上（例如内核要求签名）时退回原包，至少能装上
+        val patched = withContext(Dispatchers.IO) { FloccusPatcher.prepare(context, uri) }
+        if (patched == uri) return installOnce(context, uri)
+        val first = installOnce(context, patched)
+        if (first.isSuccess) return first
+        Diag.log("ext: patched install failed (${first.exceptionOrNull()}), retrying original")
+        val second = installOnce(context, uri)
+        return if (second.isSuccess) second else first
+    }
+
+    private suspend fun installOnce(context: Context, uri: String): Result<GeckoExtItem> = runCatching {
         val runtime = GeckoRuntimeHolder.get(context)
         ensureDelegate(runtime)
         val controller = runtime.webExtensionController
@@ -270,7 +282,10 @@ object GeckoExtensionStore {
         } finally {
             if (promptSignal === signal) promptSignal = null
         }
-    }.recoverCatching { throw IllegalStateException(friendlyError(it)) }
+    }.recoverCatching {
+        Diag.log("ext: install failed: $it / cause=${it.cause}")
+        throw IllegalStateException(friendlyError(it))
+    }
 
     private fun invokeInstall(controller: Any, uri: String): GeckoResult<WebExtension> {
         val methods = controller.javaClass.methods.filter { it.name == "install" }
@@ -319,6 +334,7 @@ object GeckoExtensionStore {
         var updated = 0
         val snapshot = items.toList()
         for (item in snapshot) {
+            if (item.id == BookmarksBridge.EXT_ID) continue // 官方更新包没有书签垫片，更新会让同步失效：需重新安装新版
             val before = item.version
             val after = runCatching { controller.update(item.ext).await() }.getOrNull()
             val newVersion = after?.metaData?.version
@@ -347,6 +363,7 @@ object GeckoExtensionStore {
 
     /** 检查单个拓展的更新：true = 已更新到新版本，false = 已是最新 */
     suspend fun updateOne(context: Context, item: GeckoExtItem): Result<Boolean> = runCatching {
+        if (item.id == BookmarksBridge.EXT_ID) return@runCatching false
         val after = controller(context).update(item.ext).await()
         val newVersion = after?.metaData?.version
         val changed = after != null && !newVersion.isNullOrEmpty() && newVersion != item.version

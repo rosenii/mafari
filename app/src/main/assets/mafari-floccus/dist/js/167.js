@@ -1,2 +1,0 @@
-"use strict";(globalThis.webpackChunkfloccus||=[]).push([[167],{60167(t,n,c){c.r(n),c.d(n,{default:()=>s});var e=c(46381),a=function(){var t=this._self._c;return t("div",{staticClass:"native-scroll-container"},[t(e.A,[t("NewAccountContent")],1)],1)};a._withStripped=!0;const o={name:"NewAccount",components:{NewAccountContent:c(88370).A},data:()=>({drawer:!1})},s=(0,c(14486).A)(o,a,[],!1,null,"0833785a",null).exports}}]);
-//# sourceMappingURL=167.js.map

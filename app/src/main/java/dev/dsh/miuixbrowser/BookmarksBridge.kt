@@ -11,9 +11,9 @@ import org.mozilla.geckoview.WebExtension
 /**
  * Floccus 书签同步桥。
  *
- * GeckoView 没有 browser.bookmarks，所以应用内置了一份 Floccus（assets/mafari-floccus），
- * 它的页面里先加载 mafari-bookmarks-shim.js，把 browser.bookmarks 的调用经 sendNativeMessage 转到这里，
- * 由这里读写应用自己的书签（[FavoritesStore]）。
+ * GeckoView 没有 browser.bookmarks。用户自己安装 Floccus 时，[FloccusPatcher] 会在安装前给 xpi 加上
+ * mafari-bookmarks-shim.js，把 browser.bookmarks 的调用经 sendNativeMessage 转到这里，
+ * 由这里读写应用自己的书签（[FavoritesStore]）。应用本身不内置 Floccus。
  *
  * 书签树的映射（应用只有「分组 → 书签」两层，这里用 "/" 分隔的分组名表示嵌套文件夹）：
  *   根 root________
@@ -27,7 +27,6 @@ import org.mozilla.geckoview.WebExtension
  */
 object BookmarksBridge {
     const val EXT_ID = "floccus@handmadeideas.org"
-    private const val EXT_URI = "resource://android/assets/mafari-floccus/"
     private const val NATIVE_APP = "mafariBookmarks"
 
     private const val ROOT = "root________"
@@ -45,25 +44,27 @@ object BookmarksBridge {
     )
     private val rootGroups = roots.values.map { it.first }.toSet()
 
-    @Volatile private var ext: WebExtension? = null
-    @Volatile private var installing = false
     private val main = Handler(Looper.getMainLooper())
 
-    /** 主线程。Gecko 运行时创建后调用一次（幂等）。 */
-    fun ensureInstalled(context: Context) {
-        if (ext != null || installing) return
-        installing = true
+    /**
+     * 给用户自己安装的 Floccus 挂上消息委托（安装时已由 [FloccusPatcher] 加了垫片和 nativeMessaging 权限）。
+     * 幂等；每次启动都要重新挂，所以 Gecko 引擎创建时、安装 / 刷新拓展列表后都会调用。
+     * 没装 Floccus 时什么都不做。
+     */
+    fun attach(context: Context, ext: WebExtension) {
+        if (ext.id != EXT_ID) return
+        ext.setMessageDelegate(delegate(context.applicationContext), NATIVE_APP)
+        Diag.log("bookmarks: bridge attached to ${ext.id}")
+    }
+
+    /** 主线程。Gecko 运行时创建后调用：找到已安装的 Floccus 并挂上委托。 */
+    fun attachInstalled(context: Context) {
         val app = context.applicationContext
-        GeckoRuntimeHolder.get(app).webExtensionController.ensureBuiltIn(EXT_URI, EXT_ID).then({ e: WebExtension? ->
-            installing = false
-            if (e == null) return@then GeckoResult<Void>()
-            ext = e
-            e.setMessageDelegate(delegate(app), NATIVE_APP)
-            Diag.log("bookmarks: floccus built-in ready ${e.id}")
+        GeckoRuntimeHolder.get(app).webExtensionController.list().then({ list: List<WebExtension>? ->
+            list?.firstOrNull { it.id == EXT_ID }?.let { attach(app, it) }
             GeckoResult<Void>()
         }, { t: Throwable ->
-            installing = false
-            Diag.log("bookmarks: ensureBuiltIn failed: $t")
+            Diag.log("bookmarks: list failed: $t")
             GeckoResult<Void>()
         })
     }
