@@ -135,7 +135,6 @@ class GeckoTabEngine(
         GeckoViewLifecycle.register(this)
         installDelegates()
         GeckoGm.ensureInstalled(context, tab.userScripts, tab.gmScriptsEnabled())
-        BookmarksBridge.attachInstalled(context) // 已安装的 Floccus：书签同步桥
         GeckoGm.attachSession(session, tab)
         if (!isAdopted) session.open(runtime)
         // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate / TabDelegate

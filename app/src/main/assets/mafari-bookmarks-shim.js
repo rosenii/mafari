@@ -1,58 +1,58 @@
 // Mafari：给 GeckoView 补上 browser.bookmarks（GeckoView 没有这个 API）。
-// 所有调用经 runtime.sendNativeMessage 转给应用里的 BookmarksBridge，由它读写应用自己的书签。
 //
-// Floccus 的界面（设置页 / 工具栏弹窗，同一个 options.html）是在浏览器标签页或弹出页 session 里打开的
-// 扩展页，GeckoView 对这类页面的 sendNativeMessage 走「session 级」通道，后台页走「扩展级」通道。
-// 为了不依赖哪一路挂上了委托：页面里的调用先经 runtime.sendMessage 交给后台页代发（后台页走扩展级），
-// 没人应答时再直接 sendNativeMessage（走 session 级）。
+// 通道：Floccus 是普通安装的拓展（非特权），GeckoView 不给它 runtime.sendNativeMessage / connectNative
+// （Android 上这两个 API 只对内置特权拓展开放，geckoViewAddons 权限对普通拓展无效），
+// 所以不能像内置的 gm@mafari.dev 那样直连应用。改为：
+//   Floccus 页面 / 后台 --runtime.sendMessage(BRIDGE_ID)--> 内置拓展 gm@mafari.dev 的 onMessageExternal
+//   --sendNativeMessage('mafariBookmarks')--> 应用里的 BookmarksBridge（读写应用自己的书签）
+// 后台页和设置页 / 工具栏弹窗都走同一条路，互不依赖，也不需要 session 级委托。
 (function () {
   var b = (typeof browser !== 'undefined' && browser) || (typeof chrome !== 'undefined' && chrome);
   if (!b || !b.runtime || (b.bookmarks && b.bookmarks.getTree)) return;
-  var APP = 'mafariBookmarks';
-  var RELAY = '__mafariBookmarksRelay';
+  var BRIDGE_ID = 'gm@mafari.dev';
+  var TIMEOUT_MS = 30000;
 
-  function native(op, args) {
-    return b.runtime.sendNativeMessage(APP, { op: op, args: args }).then(function (res) {
-      if (!res) throw new Error('Mafari bookmarks bridge: no response');
-      if (res.error) throw new Error(res.error);
-      return res.result;
-    });
-  }
-
-  // 当前上下文是不是后台页（manifest 的 background.page，或脚本式后台的生成页）
-  var isBackground = (function () {
-    try {
-      var bg = b.runtime.getManifest().background || {};
-      var p = location.pathname.replace(/^\//, '');
-      return (!!bg.page && p === bg.page) || /_generated_background_page\.html$/.test(p);
-    } catch (e) { return false; }
-  })();
-
-  if (isBackground) {
-    // 只应答自己的中继消息；其它消息返回 undefined，不抢 Floccus 自己的 onMessage 监听
-    b.runtime.onMessage.addListener(function (msg) {
-      if (!msg || msg[RELAY] !== 1) return undefined;
-      return native(msg.op, msg.args).then(
-        function (result) { return { ok: true, result: result }; },
-        function (e) { return { ok: false, error: String((e && e.message) || e) }; }
-      );
+  function send(op, args) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        reject(new Error('Mafari bookmarks bridge: timed out (' + op + ')'));
+      }, TIMEOUT_MS);
+      function finish(fn, v) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        fn(v);
+      }
+      var p;
+      try {
+        p = b.runtime.sendMessage(BRIDGE_ID, { t: 'bookmarks', op: op, args: args });
+      } catch (e) {
+        finish(reject, e);
+        return;
+      }
+      Promise.resolve(p).then(function (res) {
+        if (!res) {
+          finish(reject, new Error('Mafari bookmarks bridge: no response (is the built-in Mafari GM extension running?)'));
+        } else if (res.ok === false || res.error) {
+          finish(reject, new Error(String(res.error || 'bridge error')));
+        } else {
+          finish(resolve, res.result);
+        }
+      }, function (e) {
+        var msg = String((e && e.message) || e);
+        if (/receiving end|could not establish/i.test(msg)) {
+          msg = 'Mafari bookmarks bridge unavailable (built-in extension ' + BRIDGE_ID + ' not running): ' + msg;
+        }
+        finish(reject, new Error(msg));
+      });
     });
   }
 
   function call(op, args) {
-    var p;
-    if (isBackground) {
-      p = native(op, args);
-    } else {
-      var m = { op: op, args: args };
-      m[RELAY] = 1;
-      p = b.runtime.sendMessage(m).then(function (r) {
-        if (r && r.ok === true) return r.result;
-        if (r && r.ok === false) throw new Error(r.error);
-        return native(op, args); // 后台没应答：直连
-      }, function () { return native(op, args); });
-    }
-    return p.catch(function (e) {
+    return send(op, args).catch(function (e) {
       try { console.error('[mafari bookmarks] ' + op + ' failed:', e); } catch (_) {}
       throw e;
     });

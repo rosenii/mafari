@@ -149,6 +149,8 @@ internal object GeckoGm {
             if (e == null) return@then GeckoResult<Void>()
             ext = e
             e.setMessageDelegate(backgroundDelegate, NATIVE_BG)
+            // Floccus 的书签调用经本拓展后台页转发到这里（Floccus 自己没有 sendNativeMessage）
+            BookmarksBridge.attach(app, e)
             sessions.forEach { (s, t) -> attach(s, t) }
             // 无痕标签是否跑脚本：由「允许在无痕中运行」决定（注册是全局的，没法按标签门控）
             Diag.log("gm: built-in extension ready ${e.id}")

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Mafari GM",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Mafari 油猴运行时的 Gecko 适配层（与 WebView 共用同一份 mafari_gm_runtime.js）",
   "browser_specific_settings": { "gecko": { "id": "gm@mafari.dev" } },
   "permissions": [

@@ -13,10 +13,11 @@ import java.util.zip.ZipOutputStream
 
 /**
  * 安装 Floccus 时的就地适配：GeckoView 没有 browser.bookmarks，所以安装前把 xpi 改一下——
- *  1. 加入 mafari-bookmarks-shim.js（assets 里那份），并让后台页 / 设置页先加载它；
- *  2. manifest 补上 nativeMessaging 权限，使垫片能通过 sendNativeMessage 找到 [BookmarksBridge]；
- *  3. 删掉 META-INF 里的签名（改过内容签名必然失效）；
- *  4. 瘦身：去掉 dist/node-tests/（Floccus 自带的测试包，约 26MB，只有 test.html 用）和全部 .map 源码映射，
+ *  1. 加入 mafari-bookmarks-shim.js（assets 里那份），并让后台页 / 设置页先加载它；垫片经 runtime.sendMessage
+ *     把 browser.bookmarks 的调用交给内置拓展 gm@mafari.dev，再由它转给 [BookmarksBridge]
+ *     （Floccus 是普通拓展，GeckoView 不给它 sendNativeMessage，所以不再给它加 nativeMessaging 权限）；
+ *  2. 删掉 META-INF 里的签名（改过内容签名必然失效）；
+ *  3. 瘦身：去掉 dist/node-tests/（Floccus 自带的测试包，约 26MB，只有 test.html 用）和全部 .map 源码映射，
  *     运行用不到；官方包解压后 62MB，去掉后约 15MB，在手机上安装 / 读取都快些。
  * 其它拓展原样安装，不受影响。
  *
@@ -29,6 +30,14 @@ object FloccusPatcher {
     private const val SHIM_ASSET = "mafari-bookmarks-shim.js"
     private const val SHIM_NAME = "mafari-bookmarks-shim.js"
     private const val SIGN_PREF = "xpinstall.signatures.required"
+
+    /**
+     * 垫片 / 补丁方式的版本号：改了垫片通道就加一。已装的 Floccus 里烤着旧垫片，「检查更新」时发现记录的版本落后，
+     * 即使 Floccus 本身没有新版，也会下载同版本重新打补丁覆盖安装。
+     * 1 = 垫片直接 sendNativeMessage（在普通拓展里不存在，选文件夹一直转圈）；2 = 经内置拓展 gm@mafari.dev 转发。
+     */
+    private const val SHIM_REV = 2
+    private const val SHIM_REV_KEY = "floccus_shim_rev"
     private const val RELEASES_API = "https://api.github.com/repos/floccusaddon/floccus/releases/latest"
 
     /** GitHub 上的一个 Floccus 正式版：[version] 已去掉前缀 v，[url] 是 Firefox 构建包（zip）的下载地址。 */
@@ -44,6 +53,14 @@ object FloccusPatcher {
         flags(context).edit().putBoolean("floccus_unsigned", on).apply()
         GeckoPrefs.set(SIGN_PREF, if (on) false else GeckoPrefs.CLEAR)
     }
+
+    /** 改包版 Floccus 装上之后调用：记下它带的是哪一版垫片 */
+    fun markPatched(context: Context) {
+        flags(context).edit().putInt(SHIM_REV_KEY, SHIM_REV).apply()
+    }
+
+    /** 已装的 Floccus 带的垫片是否落后于当前版本（没记录过 = 落后） */
+    fun needsRepatch(context: Context): Boolean = flags(context).getInt(SHIM_REV_KEY, 0) < SHIM_REV
 
     /** Gecko 运行时创建时调用：之前装过改包版就保持签名校验关闭。 */
     fun applyOnStartup(context: Context) {
@@ -195,8 +212,7 @@ object FloccusPatcher {
 
     private fun patchManifest(bytes: ByteArray): ByteArray {
         val m = JSONObject(String(bytes, Charsets.UTF_8))
-        val perms = m.optJSONArray("permissions") ?: JSONArray().also { m.put("permissions", it) }
-        if ((0 until perms.length()).none { perms.optString(it) == "nativeMessaging" }) perms.put("nativeMessaging")
+        // 不再加 nativeMessaging：普通拓展在 GeckoView 里拿不到 sendNativeMessage，加了只会多一条权限提示
         // 后台若用 scripts 数组而不是 page，把垫片放在最前面
         m.optJSONObject("background")?.optJSONArray("scripts")?.let { scripts ->
             val next = JSONArray().put(SHIM_NAME)

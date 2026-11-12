@@ -6,15 +6,19 @@ import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
 import org.mozilla.geckoview.GeckoResult
-import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.WebExtension
 
 /**
  * Floccus 书签同步桥。
  *
  * GeckoView 没有 browser.bookmarks。用户自己安装 Floccus 时，[FloccusPatcher] 会在安装前给 xpi 加上
- * mafari-bookmarks-shim.js，把 browser.bookmarks 的调用经 sendNativeMessage 转到这里，
- * 由这里读写应用自己的书签（[FavoritesStore]）。应用本身不内置 Floccus。
+ * mafari-bookmarks-shim.js，由它补上 browser.bookmarks，调用最终落到这里，读写应用自己的书签（[FavoritesStore]）。应用本身不内置 Floccus。
+ *
+ * 通道（重要）：Floccus 是普通安装的拓展，GeckoView 在 Android 上只给内置特权拓展开放
+ * runtime.sendNativeMessage / connectNative，Floccus 自己拿不到这个 API，所以不能直连这里。实际路径：
+ *   Floccus（后台页 / 设置页 / 弹窗） --runtime.sendMessage("gm@mafari.dev")-->
+ *   内置拓展的后台页 onMessageExternal（只认 sender.id == Floccus，且只放行书签操作） --sendNativeMessage("mafariBookmarks")-->
+ *   这里（扩展级委托，挂在内置拓展 [GeckoGm.EXT_ID] 上）
  *
  * 书签树的映射（应用只有「分组 → 书签」两层，这里用 "/" 分隔的分组名表示嵌套文件夹）：
  *   根 root________
@@ -55,77 +59,29 @@ object BookmarksBridge {
 
     private val main = Handler(Looper.getMainLooper())
 
-    /** attach / attachInstalled 时记下，供 session 级挂载使用（registerSession 拿不到 Context） */
-    @Volatile
-    private var appContext: Context? = null
-
     /**
-     * 给用户自己安装的 Floccus 挂上消息委托（安装时已由 [FloccusPatcher] 加了垫片和 nativeMessaging 权限）。
-     *
-     * GeckoView 的 sendNativeMessage 分两路：后台页走扩展级（这里的 [WebExtension.setMessageDelegate]），
-     * 扩展页（Floccus 的设置页 / 工具栏弹窗，在标签页或弹出页的 session 里打开）走 session 级
-     * （[attachSession]）。选「本地目标文件夹」发生在设置页，所以两路都要挂。
-     * 幂等；每次启动都要重新挂，所以 Gecko 引擎创建时、安装 / 刷新拓展列表后都会调用。
-     * 没装 Floccus 时什么都不做。
+     * 给内置拓展 [GeckoGm.EXT_ID] 挂上书签消息的扩展级委托（它的后台页会把 Floccus 的书签调用转到这里）。
+     * 内置拓展就绪时由 [GeckoGm] 调用；幂等，每次启动都要重新挂。主线程。
      */
     fun attach(context: Context, ext: WebExtension) {
-        if (ext.id != EXT_ID) return
-        appContext = context.applicationContext
+        if (ext.id != GeckoGm.EXT_ID) return
         ext.setMessageDelegate(delegate(context.applicationContext), NATIVE_APP)
         Diag.log("bookmarks: bridge attached to ${ext.id}")
-    }
-
-    /** 主线程。Gecko 运行时创建后调用：找到已安装的 Floccus 并挂上委托。 */
-    fun attachInstalled(context: Context) {
-        val app = context.applicationContext
-        appContext = app
-        GeckoRuntimeHolder.get(app).webExtensionController.list().then({ list: List<WebExtension>? ->
-            list?.firstOrNull { it.id == EXT_ID }?.let { attach(app, it) }
-            GeckoResult<Void>()
-        }, { t: Throwable ->
-            Diag.log("bookmarks: list failed: $t")
-            GeckoResult<Void>()
-        })
-    }
-
-    /** 把同一个委托挂到某个 session 上：该 session 里打开的 Floccus 扩展页发的原生消息才能送到这里。 */
-    fun attachSession(session: GeckoSession, ext: WebExtension) {
-        if (ext.id != EXT_ID) return
-        val app = appContext ?: return
-        runCatching {
-            session.webExtensionController.setMessageDelegate(ext, delegate(app), NATIVE_APP)
-            Diag.log("bookmarks: bridge attached to session for ${ext.id}")
-        }.onFailure { Diag.log("bookmarks: session attach failed: $it") }
-    }
-
-    /**
-     * 新 session（标签页 / 弹出页）创建时调用：此刻拓展列表可能还没刷新过，所以自己去查一次 Floccus 再挂。
-     * 主线程；没装 Floccus 或没有 Context 时什么都不做。
-     */
-    fun attachSessionWhenReady(session: GeckoSession) {
-        val app = appContext ?: return
-        GeckoRuntimeHolder.get(app).webExtensionController.list().then({ list: List<WebExtension>? ->
-            list?.firstOrNull { it.id == EXT_ID }?.let { attachSession(session, it) }
-            GeckoResult<Void>()
-        }, { t: Throwable ->
-            Diag.log("bookmarks: list failed (session): $t")
-            GeckoResult<Void>()
-        })
     }
 
     private fun delegate(app: Context) = object : WebExtension.MessageDelegate {
         override fun onMessage(nativeApp: String, message: Any, sender: WebExtension.MessageSender): GeckoResult<Any>? {
             val result = GeckoResult<Any>()
-            // 只认 Floccus 自己的页面发来的消息
+            // 只认内置拓展自己的后台页（Floccus 的身份由它在转发前校验）
             val senderId = sender.webExtension?.id
-            if (senderId != null && senderId != EXT_ID) {
+            if (senderId != null && senderId != GeckoGm.EXT_ID) {
                 result.complete(JSONObject().put("error", "Unauthorized sender"))
                 return result
             }
             val msg = message as? JSONObject
             val op = msg?.optString("op").orEmpty()
             // 整树 / 子树读取是选文件夹、每轮同步的入口，留一条日志方便确认消息有没有送到
-            if (op == "getTree" || op == "getSubTree") Diag.log("bookmarks: $op from ${sender.url}")
+            if (op == "getTree" || op == "getSubTree") Diag.log("bookmarks: $op")
             // FavoritesStore 里是 Compose 的状态列表：统一切到主线程读写，也顺带串行化了所有调用
             main.post {
                 val out = JSONObject()

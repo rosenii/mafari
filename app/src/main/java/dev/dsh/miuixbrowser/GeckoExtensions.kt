@@ -159,8 +159,6 @@ object GeckoExtensionStore {
             items.clear()
             items.addAll(list.filter { !it.isBuiltIn }.map { toItem(it) }.sortedBy { it.name.lowercase() })
             items.forEach { loadIcon(it) }
-            // 书签桥要先挂：它顺带记下 Context，后面 attachActionDelegate → attachToAllSessions 才能挂 session 级委托
-            items.forEach { BookmarksBridge.attach(context, it.ext) }
             items.forEach { attachActionDelegate(it.ext) }
         } finally {
             loading.value = false
@@ -220,7 +218,10 @@ object GeckoExtensionStore {
         if (patched == uri) return installOnce(context, uri)
         FloccusPatcher.allowUnsigned(context, true) // 改过的包没有签名，先放开签名校验
         val first = installOnce(context, patched)
-        if (first.isSuccess) return first
+        if (first.isSuccess) {
+            FloccusPatcher.markPatched(context)
+            return first
+        }
         // 已经装着改包版（例如更新时用户点了取消）：保持签名校验关闭，也不要拿没打补丁的原包去覆盖它
         if (items.any { it.id == BookmarksBridge.EXT_ID }) return first
         Diag.log("ext: patched install failed (${first.exceptionOrNull()}), retrying original")
@@ -357,15 +358,20 @@ object GeckoExtensionStore {
     }
 
     /**
-     * Floccus 的更新：查 GitHub 最新正式版 → 比当前版本新才下载 → 走 [install]（会重新打补丁并放开签名校验），
+     * Floccus 的更新：查 GitHub 最新正式版 → 比当前版本新（或已装的垫片过期，见 [FloccusPatcher.needsRepatch]）才下载 → 走 [install]（会重新打补丁并放开签名校验），
      * 同 id 覆盖安装即升级，账号与设置保留在拓展自己的存储里。true = 已升级，false = 已是最新；失败抛异常。
      * 调用方负责之后的 [refresh]。
      */
     private suspend fun updateFloccus(context: Context, item: GeckoExtItem): Boolean {
         val latest = withContext(Dispatchers.IO) { FloccusPatcher.latestRelease() }
             ?: error("查询 Floccus 最新版本失败")
-        if (!FloccusPatcher.isNewer(latest.version, item.version)) return false
-        Diag.log("ext: floccus ${item.version} -> ${latest.version}")
+        val newer = FloccusPatcher.isNewer(latest.version, item.version)
+        // 没有新版，但装着的是旧垫片（选文件夹转圈那一版）：用同版本重新打补丁覆盖安装
+        if (!newer && !FloccusPatcher.needsRepatch(context)) return false
+        Diag.log(
+            if (newer) "ext: floccus ${item.version} -> ${latest.version}"
+            else "ext: floccus ${item.version} re-patch (shim rev outdated)"
+        )
         val file = withContext(Dispatchers.IO) { FloccusPatcher.downloadRelease(context, latest) }
         try {
             install(context, "file://" + file.absolutePath).getOrThrow()
@@ -494,8 +500,6 @@ object GeckoExtensionStore {
             attachSessionDelegate(session, it.ext)
             attachSessionTabDelegate(session, it.ext)
         }
-        // Floccus 的设置页在标签页 session 里打开，它的书签调用走 session 级通道；拓展列表可能还没刷新，自己查一次
-        BookmarksBridge.attachSessionWhenReady(session)
     }
 
     /** SessionTabDelegate 的动态代理：拓展对「已有标签」的 tabs.remove / tabs.update */
@@ -625,7 +629,6 @@ object GeckoExtensionStore {
         snapshot.forEach {
             attachSessionDelegate(it, ext)
             attachSessionTabDelegate(it, ext)
-            BookmarksBridge.attachSession(it, ext)
         }
     }
 
@@ -808,8 +811,6 @@ object GeckoExtensionStore {
         }
         return runCatching {
             val session = newPopupSession(runtime)
-            // Floccus 的工具栏弹窗与设置页是同一个页面：弹出页 session 也要能收到它的书签调用
-            BookmarksBridge.attachSession(session, ext)
             val name = ext.metaData?.name?.takeIf { it.isNotBlank() } ?: ext.id
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 popup.value?.session?.let { runCatching { it.close() } }

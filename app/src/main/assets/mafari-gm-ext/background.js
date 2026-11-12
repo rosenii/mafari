@@ -439,4 +439,30 @@ browser.runtime.onMessage.addListener((m, sender) => {
   }
 });
 
+// ------------------------------------------------------------------ Floccus 书签桥
+// Floccus 是普通安装的拓展，GeckoView 不给它 sendNativeMessage（只对内置特权拓展开放），
+// 所以它的 browser.bookmarks 垫片把调用 runtime.sendMessage 到本拓展，由本页（特权）转给原生的 BookmarksBridge。
+// 只认 Floccus 自己（sender.id 由浏览器填写，页面伪造不了），且只放行下列书签操作。
+
+const FLOCCUS_ID = 'floccus@handmadeideas.org';
+const BOOKMARK_NATIVE = 'mafariBookmarks';
+const BOOKMARK_OPS = new Set([
+  'getTree', 'getSubTree', 'get', 'getChildren', 'search',
+  'create', 'update', 'move', 'remove', 'removeTree',
+]);
+
+browser.runtime.onMessageExternal.addListener((m, sender) => {
+  if (!sender || sender.id !== FLOCCUS_ID) return undefined;
+  if (!m || m.t !== 'bookmarks' || !BOOKMARK_OPS.has(m.op)) return undefined;
+  const args = Array.isArray(m.args) ? m.args : [];
+  return browser.runtime.sendNativeMessage(BOOKMARK_NATIVE, { op: m.op, args }).then(
+    (res) => {
+      if (!res) return { ok: false, error: 'Mafari bookmarks bridge: no response' };
+      if (res.error) return { ok: false, error: String(res.error) };
+      return { ok: true, result: res.result };
+    },
+    (e) => ({ ok: false, error: 'Mafari bookmarks bridge: ' + String((e && e.message) || e) })
+  );
+});
+
 connect();
