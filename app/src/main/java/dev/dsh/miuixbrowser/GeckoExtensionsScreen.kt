@@ -291,7 +291,11 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                                 searchError != null -> item { HintText(searchError ?: "") }
                                 found.isNullOrEmpty() -> item { HintText("没有找到「${query.trim()}」相关的拓展") }
                                 else -> items(found, key = { it.id }) { addon ->
-                                    val installed = store.items.any { it.id == addon.slug || it.name == addon.name }
+                                    // 已装拓展的 id 是 GUID，与 AMO 返回的 guid 对应（GUID 大小写不敏感）；没有 guid 时才退回按名称比
+                                    val installed = store.items.any {
+                                        if (addon.guid.isNotEmpty()) it.id.equals(addon.guid, ignoreCase = true)
+                                        else it.id == addon.slug || it.name == addon.name
+                                    }
                                     AddonCard(
                                         addon = addon,
                                         installed = installed,

@@ -104,6 +104,7 @@ fun SettingsScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
+    var showDonate by remember { mutableStateOf(false) }
     var showHomeSheet by remember { mutableStateOf(false) }
     var showHomeUrlDialog by remember { mutableStateOf(false) }
     var showProxyDialog by remember { mutableStateOf(false) }
@@ -458,12 +459,19 @@ fun SettingsScreen(
                     insideMargin = PaddingValues(0.dp),
                 ) {
                     SettingsRow(
+                        title = "捐赠",
+                        summary = DONATE_SUMMARY,
+                        onClick = { showDonate = true },
+                    )
+                    SettingsRow(
                         title = "关于 Mafari",
                         summary = "版本 " + BuildConfig.VERSION_NAME,
                         onClick = onOpenAbout,
                     )
                 }
             }
+
+            DonateSheet(show = showDonate, backdrop = if (glass) backdrop else null, onDismiss = { showDonate = false })
 
             // UA 选择放在设置页自己的 Scaffold 里：浏览主界面的覆盖层会被二级页面盖住
             UaDialog(

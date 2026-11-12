@@ -84,6 +84,8 @@ data class GeckoPopup(
 data class AmoAddon(
     val id: Long,
     val slug: String,
+    /** 拓展的 GUID（如 firefox@tampermonkey.net），与已安装拓展的 id 对应；判断「是否已添加」靠它 */
+    val guid: String,
     val name: String,
     val summary: String,
     val iconUrl: String,
@@ -1219,13 +1221,21 @@ object GeckoExtensionStore {
     private fun netMessage(t: Throwable) =
         t.message?.takeIf { it.startsWith("服务器返回") || it.startsWith("商店") } ?: "访问商店失败，检查网络"
 
-    /** AMO 的多语言字段：带 lang 参数时是字符串，否则是 {语言: 文本} */
+    /** 读字符串字段：缺失或 JSON null 都当空串（Android 的 optString 对 JSON null 会返回 "null" 字样） */
+    private fun str(o: JSONObject, key: String): String =
+        if (!o.has(key) || o.isNull(key)) "" else o.optString(key).trim()
+
+    /**
+     * AMO 的多语言字段：带 lang 参数时是字符串，否则是 {语言: 文本}；某个语言没有译文时值是 JSON null。
+     * 依次取 zh-CN、zh-TW、en-US、en-GB，最后取任意一个非空的语言。
+     */
     private fun localized(o: JSONObject, key: String): String {
-        val v = o.opt(key)
-        return when (v) {
-            is String -> v
-            is JSONObject -> v.optString("zh-CN").ifBlank { v.optString("en-US") }.ifBlank {
-                v.keys().asSequence().firstOrNull()?.let { v.optString(it) }.orEmpty()
+        if (!o.has(key) || o.isNull(key)) return ""
+        return when (val v = o.opt(key)) {
+            is String -> v.trim().takeUnless { it.equals("null", true) }.orEmpty()
+            is JSONObject -> {
+                val order = listOf("zh-CN", "zh-TW", "en-US", "en-GB") + v.keys().asSequence().toList()
+                order.firstNotNullOfOrNull { k -> str(v, k).takeIf { it.isNotEmpty() } }.orEmpty()
             }
             else -> ""
         }
@@ -1233,17 +1243,18 @@ object GeckoExtensionStore {
 
     private fun parseAddon(o: JSONObject): AmoAddon? {
         val current = o.optJSONObject("current_version") ?: return null
-        val xpi = current.optJSONObject("file")?.optString("url")?.takeIf { it.isNotBlank() }
-            ?: current.optJSONArray("files")?.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
+        val xpi = current.optJSONObject("file")?.let { str(it, "url") }?.takeIf { it.isNotBlank() }
+            ?: current.optJSONArray("files")?.optJSONObject(0)?.let { str(it, "url") }?.takeIf { it.isNotBlank() }
             ?: return null
         return AmoAddon(
             id = o.optLong("id"),
-            slug = o.optString("slug"),
-            name = localized(o, "name").ifBlank { o.optString("slug") },
+            slug = str(o, "slug"),
+            guid = str(o, "guid"),
+            name = localized(o, "name").ifBlank { str(o, "slug") },
             summary = localized(o, "summary").replace(Regex("<[^>]+>"), "").trim(),
-            iconUrl = o.optString("icon_url"),
+            iconUrl = str(o, "icon_url"),
             xpiUrl = xpi,
-            version = current.optString("version"),
+            version = str(current, "version"),
             users = o.optLong("average_daily_users"),
             rating = o.optJSONObject("ratings")?.optDouble("average", 0.0) ?: 0.0,
         )
