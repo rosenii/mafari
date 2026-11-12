@@ -1067,9 +1067,17 @@ private fun GroupTreePicker(
     childMap: Map<String, List<String>>,
     current: String,
     onSelect: (String) -> Unit,
+    /** 每变一次（在下方输入框打字时）就收起整个选择面板和所有展开的分组 */
+    collapseToken: Int = 0,
 ) {
     var open by remember { mutableStateOf(false) }
     val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    androidx.compose.runtime.LaunchedEffect(collapseToken) {
+        if (collapseToken > 0) {
+            open = false
+            expanded.clear()
+        }
+    }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     fun tick() = haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
     // 手风琴：只展开 [path] 及其各级祖先，其余分组（含同级、其子孙）全部收起
@@ -1226,6 +1234,9 @@ internal fun FavoriteEditorDialog(
     var url by remember(initial, show) { mutableStateOf(initial?.url ?: prefillUrl) }
     // 分组默认选中已有的：编辑时是它当前的组，新建时是「个人收藏」；也可以在下面输入框里写新名字
     var group by remember(initial, show) { mutableStateOf(initial?.group ?: Favorite.GROUP_PERSONAL) }
+    // 输入框自己的文本：不能由 group 反推，否则打到与已有分组同名（如 a/b/c）时输入框会被清空，没法继续往后写 /d
+    var typedGroup by remember(initial, show) { mutableStateOf("") }
+    var collapseToken by remember(initial, show) { mutableStateOf(0) }
     AppGlassDialog(
         show = show,
         title = if (initial == null) "新建书签" else "编辑书签",
@@ -1253,14 +1264,17 @@ internal fun FavoriteEditorDialog(
             Spacer(Modifier.height(10.dp))
             // 分组按 / 分层：有层级或分组超过 3 个时用「可展开的分组树」一个菜单选到最内层；否则仍是横排标签
             val childMap = remember(groups) { groupChildren(groups) }
-            val knownPaths = remember(childMap) { childMap.values.flatten().toSet() }
             val current = group.trim().ifBlank { Favorite.GROUP_PERSONAL }
             val chipHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
             if (childMap.keys.any { it.isNotEmpty() } || groups.size > 3) {
                 GroupTreePicker(
                     childMap = childMap,
                     current = current,
-                    onSelect = { group = it },
+                    onSelect = {
+                        group = it
+                        typedGroup = ""
+                    },
+                    collapseToken = collapseToken,
                 )
             } else {
                 Text(
@@ -1293,6 +1307,7 @@ internal fun FavoriteEditorDialog(
                                 .clickable {
                                     chipHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     group = g
+                                    typedGroup = ""
                                 }
                                 .padding(horizontal = 14.dp, vertical = 8.dp),
                         )
@@ -1301,10 +1316,14 @@ internal fun FavoriteEditorDialog(
             }
             Spacer(Modifier.height(10.dp))
             top.yukonga.miuix.kmp.basic.TextField(
-                value = if (group in knownPaths) "" else group,
-                onValueChange = { group = it },
+                value = typedGroup,
+                onValueChange = {
+                    typedGroup = it
+                    group = it
+                    collapseToken++
+                },
                 modifier = Modifier.fillMaxWidth(),
-                label = "或输入新分组名（用 / 分层）",
+                label = "输入/新建分组路径（以/分层）",
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
@@ -1331,7 +1350,11 @@ internal fun FavoriteEditorDialog(
                 }
                 LiquidGlassPillButton(
                     text = "保存",
-                    onClick = { if (url.isNotBlank()) onConfirm(name, url, group.trim()) },
+                    onClick = {
+                        // 规整路径：去掉各段首尾空格和多余的 /（如 "a/b/ " → "a/b"）
+                        val path = group.split('/').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("/")
+                        if (url.isNotBlank()) onConfirm(name, url, path)
+                    },
                     backdrop = liquidBackdrop,
                     modifier = Modifier.weight(1f),
                     role = LiquidRole.Primary,
