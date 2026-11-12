@@ -40,32 +40,3 @@ fun showWebViewUnsupportedToast(context: Context) {
     Toast.makeText(context.applicationContext, WEBVIEW_UNSUPPORTED_TOAST, Toast.LENGTH_SHORT).show()
 }
 
-/**
- * 功能置灰：[locked] 为 true 时内容变灰，并盖一层透明的点击拦截（下面的开关 / 行完全收不到触摸），
- * 点击时弹 toast；false 时原样显示，没有任何额外开销。
- *
- * 不用组件自己的 `enabled = false`：禁用后点击事件根本不会触发，也就没法提示「为什么不能点」。
- */
-@Composable
-fun GeckoLocked(
-    locked: Boolean,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    if (!locked) {
-        content()
-        return
-    }
-    val context = LocalContext.current
-    Box(modifier) {
-        Box(Modifier.alpha(GECKO_LOCKED_ALPHA)) { content() }
-        Box(
-            Modifier
-                .matchParentSize()
-                .semantics { disabled() }
-                .pointerInput(Unit) {
-                    detectTapGestures(onTap = { showGeckoUnsupportedToast(context) })
-                },
-        )
-    }
-}

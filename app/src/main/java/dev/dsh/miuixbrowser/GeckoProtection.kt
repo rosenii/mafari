@@ -153,12 +153,43 @@ object GeckoProtection {
         pushAll()
     }
 
+    /** 已开启的保护项名称（与设置页同名，按设置页顺序）；设置页摘要和首页隐私报告共用 */
+    fun activeLabels(): List<String> = buildList {
+        if (etp >= 2) add("增强型跟踪保护")
+        if (stripTracking) add("清理网址跟踪参数")
+        if (bounceTracking) add("弹跳跟踪保护")
+        if (purgeTrackers) add("定期清理跟踪者数据")
+        if (fingerprint) add("指纹保护")
+        if (resistFingerprint) add("强力抗指纹")
+        if (gpc) add("GPC")
+        if (trimReferrer) add("精简 Referer")
+        if (webrtcLeak) add("防 WebRTC 泄露 IP")
+        if (webrtcOff) add("禁用 WebRTC")
+        if (firstPartyIsolate) add("严格第一方隔离")
+        if (httpsOnly) add("仅 HTTPS")
+        if (dohMode > 0) add("安全 DNS")
+        if (ech) add("ECH")
+        if (noPrefetch) add("禁用预取")
+        if (disableWebgl) add("禁用 WebGL")
+    }
+
+    /**
+     * 首页隐私报告用：固定几项最关键的保护 + 当前是否开启（反跟踪 / 指纹保护 / …）。
+     * 反跟踪：Gecko 默认就是标准档，只有手动关闭才算未开启。
+     */
+    fun reportItems(): List<Pair<String, Boolean>> = listOf(
+        "反跟踪" to (etp != 1),
+        "指纹保护" to (fingerprint || resistFingerprint),
+        "清理跟踪参数" to stripTracking,
+        "弹跳跟踪保护" to bounceTracking,
+        "WebRTC 防泄露" to (webrtcLeak || webrtcOff),
+        "仅 HTTPS" to httpsOnly,
+        "安全 DNS" to (dohMode > 0),
+        "GPC" to gpc,
+    )
+
     /** 已开启的保护项数量（设置页行的摘要用） */
-    fun activeCount(): Int = listOf(
-        etp >= 2, fingerprint, resistFingerprint, gpc, webrtcLeak, webrtcOff, trimReferrer, stripTracking,
-        bounceTracking, purgeTrackers, firstPartyIsolate, httpsOnly, noPrefetch, disableWebgl,
-        dohMode > 0, ech,
-    ).count { it }
+    fun activeCount(): Int = activeLabels().size
 
     /** 当前生效的 DoH 地址；自定义为空时返回 null */
     private fun dohUrl(): String? =

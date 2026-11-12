@@ -179,9 +179,11 @@ private fun FilePreview(task: DownloadTask) {
 fun DownloadsScreen(
     onBack: () -> Unit,
     blurEnabled: Boolean = true,
+    multiThread: Boolean = true,
+    onMultiThreadChange: (Boolean) -> Unit = {},
     threads: Int = 4,
     onThreadsChange: (Int) -> Unit = {},
-    multiThreadMinMb: Int = 10,
+    multiThreadMinMb: Int = DOWNLOAD_MIN_MB_DEFAULT,
     onMultiThreadMinMbChange: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -240,21 +242,29 @@ fun DownloadsScreen(
                                 .padding(bottom = 8.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
-                            AppDropdownPreference(
-                                backdrop = if (glass) backdrop else null,
-                                title = "线程数",
-                                items = threadOptions.map { it.toString() },
-                                selectedIndex = threadOptions.indexOf(threads).coerceAtLeast(0),
-                                onSelectedIndexChange = { onThreadsChange(threadOptions[it]) },
+                            AppSwitchPreference(
+                                title = "多线程下载",
+                                summary = "文件超过阈值时分段并行下载；关闭后一律单线程",
+                                checked = multiThread,
+                                onCheckedChange = onMultiThreadChange,
                             )
-                            AppDropdownPreference(
-                                backdrop = if (glass) backdrop else null,
-                                title = "多线程阈值",
-                                summary = "超过该阈值才使用多线程下载",
-                                items = minMbOptions.map { downloadThresholdLabel(it) },
-                                selectedIndex = minMbOptions.indexOf(multiThreadMinMb).coerceAtLeast(0),
-                                onSelectedIndexChange = { onMultiThreadMinMbChange(minMbOptions[it]) },
-                            )
+                            if (multiThread) {
+                                AppDropdownPreference(
+                                    backdrop = if (glass) backdrop else null,
+                                    title = "线程数",
+                                    items = threadOptions.map { it.toString() },
+                                    selectedIndex = threadOptions.indexOf(threads).coerceAtLeast(0),
+                                    onSelectedIndexChange = { onThreadsChange(threadOptions[it]) },
+                                )
+                                AppDropdownPreference(
+                                    backdrop = if (glass) backdrop else null,
+                                    title = "多线程阈值",
+                                    summary = "超过该阈值才使用多线程下载",
+                                    items = minMbOptions.map { downloadThresholdLabel(it) },
+                                    selectedIndex = minMbOptions.indexOf(multiThreadMinMb).coerceAtLeast(0),
+                                    onSelectedIndexChange = { onMultiThreadMinMbChange(minMbOptions[it]) },
+                                )
+                            }
                         }
                     }
                     if (tasks.isEmpty()) {

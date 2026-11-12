@@ -55,7 +55,7 @@ nightly 的 Java API 偶尔会改，**建议在 `gradle.properties` 锁定**：`
 
 | 功能 | 在 WebView 里怎么做 | Gecko 下 |
 |---|---|---|
-| 油猴脚本（GM_*、菜单命令、脚本数量） | `addDocumentStartJavaScript` + `@JavascriptInterface` | ⛔ 先禁用（`syncUserScripts` 直接返回，菜单显示 0 个脚本）。🧩 之后用 WebExtension（Tampermonkey / Violentmonkey）代替 |
+| 油猴脚本（GM_*、菜单命令、脚本数量） | `addDocumentStartJavaScript` + `@JavascriptInterface` | ⚠ 内置 WebExtension（`GeckoGm` + `assets/mafari-gm-ext`），与 WebView 共用同一份运行时与 GM 值；待真机验证，详见 [GECKO_GM.md](GECKO_GM.md) |
 | 去广告（拦截请求 `shouldInterceptRequest` + 元素隐藏 JS） | 拦截 + 注入 | ⛔ 自带订阅 / 规则不生效。🧩 装 uBlock Origin；或先用 Gecko 内置 Enhanced Tracking Protection |
 | 「标记为广告」（长按元素） | 页面 JS + `MafariElement` | ⛔ 不可用 |
 | 跟踪脚本拦截 | `shouldInterceptRequest` | ✅ `ContentBlocking.setAntiTracking`（Gecko 自带 ETP 分类列表），随「拦截跟踪脚本」开关 |

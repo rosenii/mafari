@@ -45,10 +45,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun rememberGlassActive(userEnabled: Boolean): Boolean = userEnabled && isRuntimeShaderSupported()
 
-/** 统一点击震动 */
-@Composable
-fun rememberHaptic(): androidx.compose.ui.hapticfeedback.HapticFeedback =
-    LocalHapticFeedback.current
 
 /** 顶栏里的玻璃返回键。必须放在 GlassTopAppBar 的 navigationIcon 里，才会继承顶栏材质。 */
 @Composable
@@ -87,23 +83,6 @@ fun HapticGlassIconButton(
     )
 }
 
-/** 顶栏里的玻璃图标按钮（actions 槽）。 */
-@Composable
-fun GlassBarAction(
-    icon: ImageVector,
-    description: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    HapticGlassIconButton(onClick = onClick, modifier = modifier) {
-        Icon(
-            imageVector = icon,
-            contentDescription = description,
-            modifier = Modifier.size(24.dp),
-            tint = MiuixTheme.colorScheme.onSurface,
-        )
-    }
-}
 
 /**
  * 子页面统一的 OS4 玻璃大标题顶栏（随滚动折叠）。
@@ -155,77 +134,5 @@ fun PageGlassTopBar(
     }
 }
 
-/**
- * 玻璃对话框。基于 miuix 的 OverlayDialog，所以参数与原来的 OverlayDialog 基本一致。
- *
- * [backdrop] 传「页面 + 顶栏」的录制层；网页内容（WebView）无法被采样，此时传 null，
- * 对话框会使用不透明底色。
- */
-@Composable
-fun AppDialog(
-    show: Boolean,
-    onDismissRequest: () -> Unit,
-    backdrop: Backdrop?,
-    glass: Boolean,
-    title: String? = null,
-    summary: String? = null,
-    content: @Composable () -> Unit,
-) {
-    AppGlassDialog(
-        onDismissRequest = onDismissRequest,
-        show = show,
-        backdrop = if (glass) backdrop else null,
-        title = title,
-        summary = summary,
-        content = content,
-    )
-}
 
-/** 对话框里的按钮：取代 TextButton，沿用玻璃对话框的按钮样式。 */
-@Composable
-fun DialogTextButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    primary: Boolean = false,
-    destructive: Boolean = false,
-) {
-    AppDialogButton(
-        onClick = onClick,
-        modifier = modifier,
-        role = when {
-            destructive -> GlassDialogButtonRole.Destructive
-            primary -> GlassDialogButtonRole.Primary
-            else -> GlassDialogButtonRole.Normal
-        },
-    ) {
-        Text(text = text, style = MiuixTheme.textStyles.button)
-    }
-}
 
-/**
- * 浮动玻璃面板（底栏 / 弹出面板 / 收藏卡片的底板）。
- *
- * 只能画在「空 Box」上，交互内容作为兄弟层绘制，避免内容进入自己的采样。
- * [backdrop] 为 null 或设备不支持时，退回 [fallbackColor] 实色。
- */
-@Composable
-fun Modifier.glassSurfacePanel(
-    backdrop: Backdrop?,
-    cornerRadius: Dp,
-    material: GlassMaterial = GlassNavigationBarDefaults.material(),
-    stroke: GlassStroke? = GlassNavigationBarDefaults.stroke(),
-    fallbackColor: Color = MiuixTheme.colorScheme.surfaceContainer,
-): Modifier {
-    val shape = GlassShape(cornerRadius)
-    return glassPanel(
-        backdrop = backdrop,
-        shape = shape,
-        style = GlassDefaults.Style,
-        material = material,
-        stroke = stroke,
-        shadow = GlassShadows.Float,
-        shading = false,
-        fallback = Modifier.clip(RoundedCornerShape(cornerRadius)).background(fallbackColor),
-    )
-}

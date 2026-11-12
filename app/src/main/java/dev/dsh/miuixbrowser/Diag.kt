@@ -40,7 +40,8 @@ object Diag {
     fun log(message: String) {
         val f = file ?: return
         runCatching {
-            f.appendText("${time.format(Date())}  $message\n")
+            val stamp = synchronized(time) { time.format(Date()) }
+            f.appendText("$stamp  $message\n")
         }
     }
 }

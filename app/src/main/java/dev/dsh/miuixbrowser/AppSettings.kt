@@ -11,6 +11,9 @@ val DOWNLOAD_THREAD_OPTIONS = listOf(4, 8, 16, 32, 64)
 /** 下载页「多线程阈值」档位（MB）：10 / 50 / 100 / 200 / 500 / 1G */
 val DOWNLOAD_MIN_MB_OPTIONS = listOf(10, 50, 100, 200, 500, 1024)
 
+/** 多线程阈值默认值（MB） */
+const val DOWNLOAD_MIN_MB_DEFAULT = 200
+
 /** 阈值档位的显示文字 */
 fun downloadThresholdLabel(mb: Int): String = if (mb >= 1024) "${mb / 1024} GB" else "$mb MB"
 
@@ -23,11 +26,32 @@ const val BLUR_MIUIX = 0
 const val BLUR_LIQUID = 1
 const val BLUR_OFF = 2
 
+/** 首页个人收藏可选行数上限 / 默认行数 */
+const val HOME_FAV_ROWS_MAX = 5
+const val HOME_FAV_ROWS_DEFAULT = 4
+
 /** 首页内容块 */
 const val HOME_FAVORITES = 0
 const val HOME_PRIVACY = 1
 const val HOME_RECENT = 2
 const val HOME_DOWNLOADS = 3
+
+/** 「定制主页 → 自定义主页」：主页按钮 / 新建标签页 / 启动应用时打开什么 */
+const val HOME_MODE_DEFAULT = 0
+const val HOME_MODE_NEW_TAB = 1
+const val HOME_MODE_CUSTOM = 2
+
+private const val PREF_HOME_MODE = "home_mode"
+private const val PREF_HOME_CUSTOM_URL = "home_custom_url"
+
+/** BrowserState 等没有 AppSettings 实例的地方直接读取（每次现读，设置改了立刻生效） */
+fun readHomeMode(context: Context): Int =
+    context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
+        .getInt(PREF_HOME_MODE, HOME_MODE_DEFAULT).coerceIn(HOME_MODE_DEFAULT, HOME_MODE_CUSTOM)
+
+fun readHomeCustomUrl(context: Context): String =
+    context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
+        .getString(PREF_HOME_CUSTOM_URL, "").orEmpty()
 
 /** 解析首页内容块顺序；缺失 / 非法项补齐，默认 收藏 → 隐私报告 → 最近浏览 → 下载项。 */
 fun parseHomeOrder(raw: String?): List<Int> {
@@ -70,8 +94,32 @@ class AppSettings(context: Context) {
     val liquidGlass: Boolean get() = blurMode == BLUR_LIQUID
 
     /** 首页内容显示：收藏 / 隐私报告默认显示，最近浏览 / 下载项默认隐藏。 */
-    var homeShowFavorites by mutableStateOf(prefs.getBoolean(KEY_HOME_FAV, true))
+    /** 个人收藏在首页显示的行数：0=不显示，1..5=显示对应行数（每行 3 个）。默认 4 行（等同旧版上限 12 个）。 */
+    var homeFavRows by mutableStateOf(
+        if (prefs.contains(KEY_HOME_FAV_ROWS)) {
+            prefs.getInt(KEY_HOME_FAV_ROWS, HOME_FAV_ROWS_DEFAULT).coerceIn(0, HOME_FAV_ROWS_MAX)
+        } else if (!prefs.getBoolean(KEY_HOME_FAV, true)) {
+            0 // 旧版「隐藏」迁移为「不显示」
+        } else {
+            HOME_FAV_ROWS_DEFAULT
+        },
+    )
         private set
+    val homeShowFavorites: Boolean get() = homeFavRows > 0
+
+    fun updateHomeFavRows(rows: Int) {
+        homeFavRows = rows.coerceIn(0, HOME_FAV_ROWS_MAX)
+        prefs.edit().putInt(KEY_HOME_FAV_ROWS, homeFavRows).apply()
+    }
+    /** 首页顶部的 Mafari LOGO 标识：显示 / 隐藏（定制主页里设置） */
+    var homeShowLogo by mutableStateOf(prefs.getBoolean(KEY_HOME_LOGO, true))
+        private set
+
+    fun updateHomeShowLogo(show: Boolean) {
+        homeShowLogo = show
+        prefs.edit().putBoolean(KEY_HOME_LOGO, show).apply()
+    }
+
     var homeShowPrivacy by mutableStateOf(prefs.getBoolean(KEY_HOME_PRIVACY, true))
         private set
     var homeShowRecent by mutableStateOf(prefs.getBoolean(KEY_HOME_RECENT, false))
@@ -96,10 +144,25 @@ class AppSettings(context: Context) {
         else -> homeShowDownloads
     }
 
+    var homeMode by mutableStateOf(readHomeMode(context))
+        private set
+    var homeCustomUrl by mutableStateOf(readHomeCustomUrl(context))
+        private set
+
+    fun updateHomeMode(mode: Int) {
+        homeMode = mode.coerceIn(HOME_MODE_DEFAULT, HOME_MODE_CUSTOM)
+        prefs.edit().putInt(PREF_HOME_MODE, homeMode).apply()
+    }
+
+    fun updateHomeCustomUrl(url: String) {
+        homeCustomUrl = url.trim()
+        prefs.edit().putString(PREF_HOME_CUSTOM_URL, homeCustomUrl).apply()
+    }
+
     fun updateHomeShow(kind: Int, show: Boolean) {
         val e = prefs.edit()
         when (kind) {
-            HOME_FAVORITES -> { homeShowFavorites = show; e.putBoolean(KEY_HOME_FAV, show) }
+            HOME_FAVORITES -> updateHomeFavRows(if (!show) 0 else if (homeFavRows == 0) HOME_FAV_ROWS_DEFAULT else homeFavRows)
             HOME_PRIVACY -> { homeShowPrivacy = show; e.putBoolean(KEY_HOME_PRIVACY, show) }
             HOME_RECENT -> { homeShowRecent = show; e.putBoolean(KEY_HOME_RECENT, show) }
             HOME_DOWNLOADS -> { homeShowDownloads = show; e.putBoolean(KEY_HOME_DOWNLOADS, show) }
@@ -151,17 +214,14 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_ENGINE, browserEngine).apply()
     }
 
-    /** 切到 Gecko 前的状态快照：网页增强 / 脚本 / 去广告 / DNT / 禁 WebRTC / 指纹保护 */
+    /** 切到 Gecko 前的状态快照：去广告 / DNT / 禁 WebRTC / 指纹保护（网页增强与脚本总开关两种内核通用，不动） */
     fun suspendForGecko() {
         if (!prefs.getBoolean("gk_saved", false)) {
             val fpOn = AdBlock.fpCanvas || AdBlock.fpWebgl || AdBlock.fpAudio || AdBlock.fpFonts
             prefs.edit().putBoolean("gk_saved", true)
-                .putBoolean("gk_enhance", pageEnhancements).putBoolean("gk_scripts", scriptsEnabled)
                 .putBoolean("gk_adblock", AdBlock.enabled).putBoolean("gk_dnt", sendDnt)
                 .putBoolean("gk_webrtc", webrtcDisabled).putBoolean("gk_fp", fpOn).apply()
         }
-        updatePageEnhancements(false)
-        updateScriptsEnabled(false)
         AdBlock.updateEnabled(false)
         updateSendDnt(false)
         updateWebrtcDisabled(false)
@@ -172,8 +232,6 @@ class AppSettings(context: Context) {
     fun resumeFromGecko() {
         val has = prefs.getBoolean("gk_saved", false)
         fun b(k: String) = !has || prefs.getBoolean(k, true)
-        updatePageEnhancements(b("gk_enhance"))
-        updateScriptsEnabled(b("gk_scripts"))
         AdBlock.updateEnabled(b("gk_adblock"))
         updateSendDnt(b("gk_dnt"))
         updateWebrtcDisabled(b("gk_webrtc"))
@@ -191,14 +249,24 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_DL_THREADS, downloadThreads).apply()
     }
 
-    /** 多线程阈值：文件超过该大小（MB）才使用多线程下载 */
+    /** 多线程下载总开关：默认开启 */
+    var downloadMultiThread by mutableStateOf(prefs.getBoolean(KEY_DL_MULTI, true))
+        private set
+
+    fun updateDownloadMultiThread(enabled: Boolean) {
+        downloadMultiThread = enabled
+        Downloader.multiThreadEnabled = enabled
+        prefs.edit().putBoolean(KEY_DL_MULTI, enabled).apply()
+    }
+
+    /** 多线程阈值：文件超过该大小（MB）才使用多线程下载，默认 200 MB */
     var downloadMultiThreadMinMb by mutableStateOf(
-        prefs.getInt(KEY_DL_MIN_MB, 10).let { if (it in DOWNLOAD_MIN_MB_OPTIONS) it else 10 },
+        prefs.getInt(KEY_DL_MIN_MB, DOWNLOAD_MIN_MB_DEFAULT).let { if (it in DOWNLOAD_MIN_MB_OPTIONS) it else DOWNLOAD_MIN_MB_DEFAULT },
     )
         private set
 
     fun updateDownloadMultiThreadMinMb(mb: Int) {
-        downloadMultiThreadMinMb = if (mb in DOWNLOAD_MIN_MB_OPTIONS) mb else 10
+        downloadMultiThreadMinMb = if (mb in DOWNLOAD_MIN_MB_OPTIONS) mb else DOWNLOAD_MIN_MB_DEFAULT
         Downloader.segmentMinBytes = downloadMultiThreadMinMb * 1024L * 1024L
         prefs.edit().putInt(KEY_DL_MIN_MB, downloadMultiThreadMinMb).apply()
     }
@@ -206,6 +274,7 @@ class AppSettings(context: Context) {
     init {
         // 启动时把已保存的下载配置推给下载器
         Downloader.segments = downloadThreads
+        Downloader.multiThreadEnabled = downloadMultiThread
         Downloader.segmentMinBytes = downloadMultiThreadMinMb * 1024L * 1024L
     }
 
@@ -408,8 +477,6 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_COOKIE_MODE, cookieMode).apply()
     }
 
-    /** 是否放行第三方 Cookie：只有「允许全部」放行（WebView 没有跟踪者名单，「拒绝跟踪者」按拒绝第三方处理） */
-    val thirdPartyCookiesAllowed: Boolean get() = cookieMode == 0
 
     /** 启动时清理：0 不清理 / 1 清除 Cookie / 2 清除 Cookie 与网站存储 */
     var cookieClearOnLaunch by mutableStateOf(prefs.getInt(KEY_COOKIE_CLEAR, 0).coerceIn(0, 2))
@@ -551,6 +618,8 @@ class AppSettings(context: Context) {
         const val KEY_BLUR = "blur"
         const val KEY_BLUR_MODE = "blur_mode"
         const val KEY_HOME_FAV = "home_show_favorites"
+        const val KEY_HOME_FAV_ROWS = "home_fav_rows"
+        const val KEY_HOME_LOGO = "home_show_logo"
         const val KEY_HOME_PRIVACY = "home_show_privacy"
         const val KEY_HOME_RECENT = "home_show_recent"
         const val KEY_HOME_DOWNLOADS = "home_show_downloads"
@@ -562,6 +631,7 @@ class AppSettings(context: Context) {
         const val KEY_ENGINE = "browser_engine"
         const val KEY_DL_THREADS = "download_threads"
         const val KEY_DL_MIN_MB = "download_multithread_min_mb"
+        const val KEY_DL_MULTI = "download_multithread_enabled"
         const val KEY_UA = "ua"
         const val KEY_THEME = "theme_mode"
         const val KEY_SEARCH = "search_index"

@@ -84,6 +84,8 @@ data class GeckoPopup(
 data class AmoAddon(
     val id: Long,
     val slug: String,
+    /** 拓展的 GUID（如 firefox@tampermonkey.net），与已安装拓展的 id 对应；判断「是否已添加」靠它 */
+    val guid: String,
     val name: String,
     val summary: String,
     val iconUrl: String,
@@ -212,7 +214,25 @@ object GeckoExtensionStore {
     // ------------------------------------------------------------------ 安装
 
     /** 安装：uri 可以是 https 的 .xpi 链接或 file:// 本地文件；确认框由提示委托弹出 */
-    suspend fun install(context: Context, uri: String): Result<GeckoExtItem> = runCatching {
+    suspend fun install(context: Context, uri: String): Result<GeckoExtItem> {
+        // Floccus 会先改包加书签垫片；改过的包装不上（例如内核要求签名）时退回原包，至少能装上
+        val patched = withContext(Dispatchers.IO) { FloccusPatcher.prepare(context, uri) }
+        if (patched == uri) return installOnce(context, uri)
+        FloccusPatcher.allowUnsigned(context, true) // 改过的包没有签名，先放开签名校验
+        val first = installOnce(context, patched)
+        if (first.isSuccess) {
+            FloccusPatcher.markPatched(context)
+            return first
+        }
+        // 已经装着改包版（例如更新时用户点了取消）：保持签名校验关闭，也不要拿没打补丁的原包去覆盖它
+        if (items.any { it.id == BookmarksBridge.EXT_ID }) return first
+        Diag.log("ext: patched install failed (${first.exceptionOrNull()}), retrying original")
+        FloccusPatcher.allowUnsigned(context, false)
+        val second = installOnce(context, uri)
+        return if (second.isSuccess) second else first
+    }
+
+    private suspend fun installOnce(context: Context, uri: String): Result<GeckoExtItem> = runCatching {
         val runtime = GeckoRuntimeHolder.get(context)
         ensureDelegate(runtime)
         val controller = runtime.webExtensionController
@@ -270,7 +290,10 @@ object GeckoExtensionStore {
         } finally {
             if (promptSignal === signal) promptSignal = null
         }
-    }.recoverCatching { throw IllegalStateException(friendlyError(it)) }
+    }.recoverCatching {
+        Diag.log("ext: install failed: $it / cause=${it.cause}")
+        throw IllegalStateException(friendlyError(it))
+    }
 
     private fun invokeInstall(controller: Any, uri: String): GeckoResult<WebExtension> {
         val methods = controller.javaClass.methods.filter { it.name == "install" }
@@ -319,6 +342,13 @@ object GeckoExtensionStore {
         var updated = 0
         val snapshot = items.toList()
         for (item in snapshot) {
+            if (item.id == BookmarksBridge.EXT_ID) {
+                // 官方更新包没有书签垫片，不能走内核的 update：改为下载最新版、重新打补丁后覆盖安装
+                if (runCatching { updateFloccus(context, item) }
+                        .onFailure { Diag.log("ext: floccus update failed: $it") }
+                        .getOrDefault(false)) updated++
+                continue
+            }
             val before = item.version
             val after = runCatching { controller.update(item.ext).await() }.getOrNull()
             val newVersion = after?.metaData?.version
@@ -327,6 +357,30 @@ object GeckoExtensionStore {
         markChecked(context)
         refresh(context)
         return updated to snapshot.size
+    }
+
+    /**
+     * Floccus 的更新：查 GitHub 最新正式版 → 比当前版本新（或已装的垫片过期，见 [FloccusPatcher.needsRepatch]）才下载 → 走 [install]（会重新打补丁并放开签名校验），
+     * 同 id 覆盖安装即升级，账号与设置保留在拓展自己的存储里。true = 已升级，false = 已是最新；失败抛异常。
+     * 调用方负责之后的 [refresh]。
+     */
+    private suspend fun updateFloccus(context: Context, item: GeckoExtItem): Boolean {
+        val latest = withContext(Dispatchers.IO) { FloccusPatcher.latestRelease() }
+            ?: error("查询 Floccus 最新版本失败")
+        val newer = FloccusPatcher.isNewer(latest.version, item.version)
+        // 没有新版，但装着的是旧垫片（选文件夹转圈那一版）：用同版本重新打补丁覆盖安装
+        if (!newer && !FloccusPatcher.needsRepatch(context)) return false
+        Diag.log(
+            if (newer) "ext: floccus ${item.version} -> ${latest.version}"
+            else "ext: floccus ${item.version} re-patch (shim rev outdated)"
+        )
+        val file = withContext(Dispatchers.IO) { FloccusPatcher.downloadRelease(context, latest) }
+        try {
+            install(context, "file://" + file.absolutePath).getOrThrow()
+        } finally {
+            file.delete()
+        }
+        return true
     }
 
     // ------------------------------------------------------------------ 管理：启停 / 卸载 / 单个更新
@@ -347,6 +401,7 @@ object GeckoExtensionStore {
 
     /** 检查单个拓展的更新：true = 已更新到新版本，false = 已是最新 */
     suspend fun updateOne(context: Context, item: GeckoExtItem): Result<Boolean> = runCatching {
+        if (item.id == BookmarksBridge.EXT_ID) return@runCatching updateFloccus(context, item)
         val after = controller(context).update(item.ext).await()
         val newVersion = after?.metaData?.version
         val changed = after != null && !newVersion.isNullOrEmpty() && newVersion != item.version
@@ -1166,13 +1221,21 @@ object GeckoExtensionStore {
     private fun netMessage(t: Throwable) =
         t.message?.takeIf { it.startsWith("服务器返回") || it.startsWith("商店") } ?: "访问商店失败，检查网络"
 
-    /** AMO 的多语言字段：带 lang 参数时是字符串，否则是 {语言: 文本} */
+    /** 读字符串字段：缺失或 JSON null 都当空串（Android 的 optString 对 JSON null 会返回 "null" 字样） */
+    private fun str(o: JSONObject, key: String): String =
+        if (!o.has(key) || o.isNull(key)) "" else o.optString(key).trim()
+
+    /**
+     * AMO 的多语言字段：带 lang 参数时是字符串，否则是 {语言: 文本}；某个语言没有译文时值是 JSON null。
+     * 依次取 zh-CN、zh-TW、en-US、en-GB，最后取任意一个非空的语言。
+     */
     private fun localized(o: JSONObject, key: String): String {
-        val v = o.opt(key)
-        return when (v) {
-            is String -> v
-            is JSONObject -> v.optString("zh-CN").ifBlank { v.optString("en-US") }.ifBlank {
-                v.keys().asSequence().firstOrNull()?.let { v.optString(it) }.orEmpty()
+        if (!o.has(key) || o.isNull(key)) return ""
+        return when (val v = o.opt(key)) {
+            is String -> v.trim().takeUnless { it.equals("null", true) }.orEmpty()
+            is JSONObject -> {
+                val order = listOf("zh-CN", "zh-TW", "en-US", "en-GB") + v.keys().asSequence().toList()
+                order.firstNotNullOfOrNull { k -> str(v, k).takeIf { it.isNotEmpty() } }.orEmpty()
             }
             else -> ""
         }
@@ -1180,17 +1243,18 @@ object GeckoExtensionStore {
 
     private fun parseAddon(o: JSONObject): AmoAddon? {
         val current = o.optJSONObject("current_version") ?: return null
-        val xpi = current.optJSONObject("file")?.optString("url")?.takeIf { it.isNotBlank() }
-            ?: current.optJSONArray("files")?.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
+        val xpi = current.optJSONObject("file")?.let { str(it, "url") }?.takeIf { it.isNotBlank() }
+            ?: current.optJSONArray("files")?.optJSONObject(0)?.let { str(it, "url") }?.takeIf { it.isNotBlank() }
             ?: return null
         return AmoAddon(
             id = o.optLong("id"),
-            slug = o.optString("slug"),
-            name = localized(o, "name").ifBlank { o.optString("slug") },
+            slug = str(o, "slug"),
+            guid = str(o, "guid"),
+            name = localized(o, "name").ifBlank { str(o, "slug") },
             summary = localized(o, "summary").replace(Regex("<[^>]+>"), "").trim(),
-            iconUrl = o.optString("icon_url"),
+            iconUrl = str(o, "icon_url"),
             xpiUrl = xpi,
-            version = current.optString("version"),
+            version = str(current, "version"),
             users = o.optLong("average_daily_users"),
             rating = o.optJSONObject("ratings")?.optDouble("average", 0.0) ?: 0.0,
         )

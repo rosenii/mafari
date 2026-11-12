@@ -53,6 +53,8 @@ object GeckoRuntimeHolder {
                 .aboutConfigEnabled(GeckoDebug.aboutConfig)
                 .remoteDebuggingEnabled(GeckoDebug.remoteDebug)
             GeckoDebug.applyIsolation(builder)
+            // Gecko 只在启动时枚举字体：赶在运行时创建前，把系统字体文件的软链接放进 profile/fonts
+            GeckoDebug.prepareSystemFont()
             val settings = builder.build()
             val created = GeckoRuntime.create(context.applicationContext, settings)
             runtime = created
@@ -61,6 +63,7 @@ object GeckoRuntimeHolder {
             GeckoProtection.pushAll()
             CookieControl.pushGecko(context)
             GeckoDebug.pushPrefs()
+            FloccusPatcher.applyOnStartup(context) // 装过改包版 Floccus：保持签名校验关闭
             GeckoPrefs.flush()
             CookieControl.runPendingGeckoColdClear()
             return created
@@ -115,6 +118,22 @@ class GeckoTabEngine(
     var historyIndex = -1
         private set
 
+    /**
+     * Gecko 的 onLocationChange 与 onHistoryStateChange 是两条独立回调：页面提交后，
+     * historyIndex 可能还停在上一页的值。提交已发生而下标还没更新时视为「过期」，
+     * 返回逻辑不能拿它去判断「已经在第一页」（否则会提前掉回主页）。
+     */
+    /** 从主页重新加载新页面前清空会话历史：新页面是这个标签的「第一页」，下面不再垫着旧历史 */
+    fun purgeHistory() {
+        historyIndex = -1
+        runCatching { session.purgeHistory() }
+    }
+
+    private var lastLocationAt = 0L
+    private var lastHistoryAt = 0L
+    val historyStale: Boolean
+        get() = lastLocationAt > lastHistoryAt && SystemClock.uptimeMillis() - lastLocationAt < 800L
+
     /** 页面滚动位置：供底栏自动收起 / 下拉刷新判断 */
     var scrollY = 0
         private set
@@ -131,6 +150,8 @@ class GeckoTabEngine(
     init {
         GeckoViewLifecycle.register(this)
         installDelegates()
+        GeckoGm.ensureInstalled(context, tab.userScripts, tab.gmScriptsEnabled())
+        GeckoGm.attachSession(session, tab)
         if (!isAdopted) session.open(runtime)
         // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate / TabDelegate
         GeckoExtensionStore.registerSession(session)
@@ -138,6 +159,8 @@ class GeckoTabEngine(
         // setViewBackend()：该方法会销毁并重建内部渲染 View，可能造成 Surface 生命周期错位。
         // 网页区域不需要被毛玻璃采样，因此无需 TextureView。
         if (isAdopted) attachAdoptedSession() else view.setSession(session)
+        // 网页输入框唤出系统自动填充（Google 密码管理器等）
+        GeckoAutofill.enable(view, session)
         installTouchListener()
         view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) = applyFrameRateHint()
@@ -222,7 +245,8 @@ class GeckoTabEngine(
 
     fun loadUri(uri: String) {
         lastDirectLoadAt = SystemClock.uptimeMillis()
-        session.loadUri(uri)
+        // 油猴脚本经内置扩展注册，注册是异步的：脚本还没生效时把首次导航推迟到「已同步」（最多 2s）
+        GeckoGm.whenReady { if (!tab.closed) session.loadUri(uri) }
     }
 
     /**
@@ -241,6 +265,7 @@ class GeckoTabEngine(
             }
             if (!open) runCatching { session.open(runtime) }.onFailure { Diag.log("gecko: open adopted session failed: $it") }
             runCatching { view.setSession(session) }.onFailure { Diag.log("gecko: setSession(adopted) failed: $it") }
+            GeckoAutofill.enable(view, session)
             // session 一旦可用就把「当前标签」告诉拓展（tabs.query / 安装页关闭等依赖它）
             GeckoExtensionStore.markActiveTab()
         }
@@ -473,6 +498,7 @@ class GeckoTabEngine(
     }
 
     fun destroy() {
+        GeckoGm.detachSession(session)
         GeckoViewLifecycle.unregister(this)
         clearFreeze()
         runCatching { view.releaseSession() }
@@ -508,6 +534,7 @@ class GeckoTabEngine(
             ) {
                 if (url.isNullOrEmpty()) return
                 lastUrl = url
+                lastLocationAt = SystemClock.uptimeMillis()
                 tab.geckoLocation(url)
             }
 
@@ -526,7 +553,11 @@ class GeckoTabEngine(
                 request: GeckoSession.NavigationDelegate.LoadRequest,
             ): GeckoResult<AllowOrDeny>? {
                 val target = request.uri
-                // Gecko 下不识别 .user.js（脚本管理仅 WebView 可用）：按普通链接 / 下载处理，不弹导入对话框
+                // .user.js：与 WebView 一致，拦下并弹出「导入脚本」
+                if (isUserScriptUrl(target)) {
+                    tab.geckoUserScriptLink(target)
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
                 // 拓展安装包（.xpi / AMO 下载链接）：不当普通下载，直接弹安装确认
                 if (isXpiUrl(target)) {
                     tab.geckoExtensionLink(target)
@@ -576,6 +607,7 @@ class GeckoTabEngine(
                 historyList: GeckoSession.HistoryDelegate.HistoryList,
             ) {
                 historyIndex = historyList.currentIndex
+                lastHistoryAt = SystemClock.uptimeMillis()
                 tab.geckoNavChanged()
             }
         }
@@ -583,6 +615,7 @@ class GeckoTabEngine(
         session.scrollDelegate = object : GeckoSession.ScrollDelegate {
             override fun onScrollChanged(session: GeckoSession, scrollX: Int, scrollY: Int) {
                 this@GeckoTabEngine.scrollY = scrollY
+                tab.scrollSignal.trySend(Unit)
             }
         }
 
@@ -614,6 +647,11 @@ class GeckoTabEngine(
                 val mime = headerOf(headers, "content-type")?.substringBefore(';')?.trim()?.ifBlank { null }
                 val disposition = headerOf(headers, "content-disposition")
                 when {
+                    // 站点把 .user.js 以附件形式返回：改成「导入脚本」
+                    isUserScriptUrl(uri) -> {
+                        runCatching { response.body?.close() }
+                        tab.geckoUserScriptLink(uri)
+                    }
                     // 服务器按拓展包类型返回（重定向后的下载地址没有 .xpi 后缀也能识别）
                     isXpiUrl(uri) || mime.equals("application/x-xpinstall", ignoreCase = true) -> {
                         runCatching { response.body?.close() }

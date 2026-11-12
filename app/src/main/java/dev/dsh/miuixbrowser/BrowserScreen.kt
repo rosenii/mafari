@@ -215,29 +215,62 @@ import top.yukonga.miuix.kmp.glass.GlassStrokes
 import top.yukonga.miuix.kmp.glass.glassPanel
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private enum class Sheet { None, Tabs, Menu, Link, Image, Element }
+internal enum class Sheet { None, Tabs, Menu, Link, Image, Element }
 
-private class WebPermPrompt(val origin: String, val what: String, val decide: (Boolean) -> Unit)
+internal class WebPermPrompt(val origin: String, val what: String, val decide: (Boolean) -> Unit)
 
-private data class DownloadRequest(
+internal data class DownloadRequest(
     val url: String,
     val userAgent: String?,
     val fileName: String,
     val mime: String?,
+    /** 来源页（Referer）与是否带 WebView 的 Cookie：登录态 / 防盗链站点 */
+    val referer: String? = null,
+    val withCookies: Boolean = false,
+    val geckoCookies: Boolean = false,
     /** blob / data URL 已抽成 data URI，确认后直接落盘，不再走 HTTP 下载器 */
     val dataUri: String? = null,
     /** 大 blob 分片写入的缓存临时文件路径，确认后拷到 Download/mafari */
     val tempPath: String? = null,
+    /** GM_download 要结果：取消 / 被顶替 → (false, ...)；确认后交给 Downloader 在终态回调 */
+    val onResult: ((ok: Boolean, error: String?) -> Unit)? = null,
 )
 
+/**
+ * 把网页 accept 里的类型（MIME / 通配 / 扩展名）整理成系统选择器能用的 MIME 列表。
+ * 返回空列表 = 不加类型过滤（任意类型）。
+ * 此前把未知扩展名直接去掉点当 MIME（如 ".zip" → "zip"），非法 MIME 会让部分机型的
+ * 文件选择器把所有文件灰掉、无法选择。
+ */
+internal fun resolvePickerMimeTypes(types: List<String>): List<String> {
+    if (types.isEmpty()) return emptyList()
+    val extra = mapOf(
+        "heic" to "image/heic", "heif" to "image/heif", "avif" to "image/avif",
+        "mkv" to "video/x-matroska", "md" to "text/markdown", "7z" to "application/x-7z-compressed",
+        "rar" to "application/vnd.rar", "apk" to "application/vnd.android.package-archive",
+        "epub" to "application/epub+zip", "json" to "application/json", "zip" to "application/zip",
+    )
+    val mimeRe = Regex("^[a-z0-9!#$&^_.+-]+/([a-z0-9!#$&^_.+-]+|\\*)$")
+    val out = LinkedHashSet<String>()
+    for (raw in types) {
+        val t = raw.lowercase()
+        val mime = if (t.startsWith(".")) {
+            val ext = t.removePrefix(".")
+            android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: extra[ext]
+        } else t
+        // 解析不了 / 不合法 / 本身就是全通配：整体不过滤
+        if (mime == null || mime == "*/*" || !mimeRe.matches(mime)) return emptyList()
+        out.add(mime)
+    }
+    return out.toList()
+}
+
 /** 网页 <input type=file capture>：文件 / 拍照 / 录像 选择 */
-private class FileChooserChoice(
+internal class FileChooserChoice(
     val params: WebChromeClient.FileChooserParams,
     val callback: ValueCallback<Array<Uri>>,
 )
 
-private fun androidx.compose.ui.geometry.Offset.round(): IntOffset =
-    IntOffset(x.toInt(), y.toInt())
 
 @Composable
 fun BrowserScreen(
@@ -316,6 +349,8 @@ fun BrowserScreen(
         runCatching { extensions.bootstrapRecommended() }
         runCatching { extensions.autoUpdateIfDue() }
     }
+    // 按设置的间隔把加密备份自动推送到已配置的云同步目标（需已设默认口令）
+    LaunchedEffect(Unit) { runCatching { BackupAuto.runIfDue(context) } }
     val history = remember { HistoryStore(context) }
     val tab = state.activeTab
     // 页面加载期间也禁用 MIUIX 采集，避免 URL 尚未更新时误把 WebView 帧送进 RuntimeShader。
@@ -608,44 +643,38 @@ fun BrowserScreen(
         val types = params.acceptTypes
             ?.mapNotNull { it?.trim()?.takeIf { t -> t.isNotEmpty() } }
             .orEmpty()
-        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+        // 只在能确定全部类型都合法时才给系统选择器加类型过滤；任何一项解析不了就不过滤，
+        // 宁可多显示文件，也不能让用户想选的文件被灰掉、点不动
+        val mimes = resolvePickerMimeTypes(types)
+        fun buildIntent(action: String) = Intent(action).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = when {
-                types.isEmpty() -> "*/*"
-                types.size == 1 && types[0].contains("/") -> types[0]
-                else -> "*/*"
-            }
-            if (types.size > 1 || (types.size == 1 && !types[0].contains("/"))) {
-                val mimes = types.map { t ->
-                    if (t.startsWith(".")) {
-                        when (t.lowercase()) {
-                            ".jpg", ".jpeg" -> "image/jpeg"
-                            ".png" -> "image/png"
-                            ".gif" -> "image/gif"
-                            ".webp" -> "image/webp"
-                            ".mp4" -> "video/mp4"
-                            ".webm" -> "video/webm"
-                            ".pdf" -> "application/pdf"
-                            else -> t.removePrefix(".")
-                        }
-                    } else t
-                }.distinct().toTypedArray()
-                if (mimes.isNotEmpty()) putExtra(Intent.EXTRA_MIME_TYPES, mimes)
+            if (mimes.size == 1) {
+                type = mimes[0]
+            } else {
+                type = "*/*"
+                if (mimes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
             }
             if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             }
         }
-        val canResolve = intent.resolveActivity(context.packageManager) != null
-        if (canResolve) {
-            filePickerLauncher.launch(intent)
-        } else {
-            runCatching { filePickerLauncher.launch(Intent.createChooser(intent, "选择文件")) }
-                .onFailure {
-                    choice.callback.onReceiveValue(null)
-                    fileChooserChoice = null
-                }
+        // 部分机型（定制文档应用）的 GET_CONTENT 不认 EXTRA_MIME_TYPES 或根本没有对应界面：
+        // 依次尝试 GET_CONTENT → OPEN_DOCUMENT → 系统 chooser。不再依赖 resolveActivity
+        // （Android 11+ 没声明 <queries> 时它会误返回 null）
+        val attempts = listOf(
+            buildIntent(Intent.ACTION_GET_CONTENT),
+            buildIntent(Intent.ACTION_OPEN_DOCUMENT),
+            Intent.createChooser(buildIntent(Intent.ACTION_GET_CONTENT), "选择文件"),
+        )
+        for (intent in attempts) {
+            val launched = runCatching { filePickerLauncher.launch(intent) }
+                .onFailure { Diag.log("file picker launch failed: ${intent.action} $it") }
+                .isSuccess
+            if (launched) return
         }
+        choice.callback.onReceiveValue(null)
+        fileChooserChoice = null
+        android.widget.Toast.makeText(context, "未找到可用的文件选择器", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     /** 拍照或录像：MediaStore pending 输出 + 相机 Intent */
@@ -833,8 +862,29 @@ fun BrowserScreen(
                     userAgent = ua,
                     fileName = Downloader.fileNameFrom(url, disposition),
                     mime = mime,
+                    referer = tab.url,
+                    // 无痕标签不带 Cookie（WebView 共用 CookieManager、Gecko 扩展读不到私有 Cookie 罐，带了就是串号）
+                    withCookies = !tab.incognito,
+                    geckoCookies = tab.engineKind == EngineKind.GECKO,
                 )
             }
+        }
+        tab.onGmDownload = { url, name, onResult ->
+            pendingDownload?.onResult?.invoke(false, "superseded")
+            pendingDownload = DownloadRequest(
+                url = url,
+                userAgent = if (tab.engineKind == EngineKind.WEBVIEW) {
+                    runCatching { tab.webView.settings.userAgentString }.getOrNull()
+                } else {
+                    null
+                },
+                fileName = Downloader.fileNameFrom(url, if (name.isBlank()) null else "attachment; filename=\"$name\""),
+                mime = null,
+                referer = tab.url,
+                withCookies = !tab.incognito,
+                geckoCookies = tab.engineKind == EngineKind.GECKO,
+                onResult = onResult,
+            )
         }
         tab.onBlobStart = {
             android.widget.Toast.makeText(context, "正在读取文件…", android.widget.Toast.LENGTH_SHORT).show()
@@ -871,19 +921,37 @@ fun BrowserScreen(
         barHidden = tab.geckoFullscreen
     }
 
+    // 回到主页（页面被盖住 / 没有页面）时底栏必须显示：主页自己没有滚动采样，
+    // 之前页面滑动收起底栏后的 barHidden 会一直残留，导致主页上唤不出底栏
+    LaunchedEffect(tab.id, tab.url.isEmpty()) {
+        if (tab.url.isEmpty()) barHidden = false
+    }
+
     LaunchedEffect(tab.id) {
         var last = 0
         var lastShow = 0
         var scrollDownAccum = 0f
         var scrollUpAccum = 0f
         while (true) {
+            var moved = false
             runCatching {
                 if (tab.geckoFullscreen) {
                     barHidden = true
                     return@runCatching
                 }
+                // 主页（页面被盖住）上：引擎里的页面可能还在惯性滚动 / 回调滚动事件，
+                // 不能让它把底栏重新收起，否则主页上没有任何手势能唤出底栏
+                if (tab.url.isEmpty()) {
+                    barHidden = false
+                    last = tab.scrollOffsetY.coerceAtLeast(0)
+                    lastShow = last
+                    scrollDownAccum = 0f
+                    scrollUpAccum = 0f
+                    return@runCatching
+                }
                 val offset = tab.scrollOffsetY.coerceAtLeast(0)
                 val dy = offset - last
+                moved = dy != 0
                 when {
                     offset <= 12 -> {
                         barHidden = false
@@ -916,7 +984,13 @@ fun BrowserScreen(
                 }
                 last = offset
             }
-            delay(80)
+            // 滚动中保持 80ms 采样（累计阈值手感不变）；静止后改为等原生滚动事件唤醒，
+            // 1 秒超时只用来兜底（全屏状态切换、导航后偏移被重置等没有滚动事件的情况）
+            if (moved || tab.geckoFullscreen) {
+                delay(80)
+            } else {
+                withTimeoutOrNull(1000L) { tab.scrollSignal.receive() }
+            }
         }
     }
 
@@ -931,10 +1005,10 @@ fun BrowserScreen(
     // 弹簧会过冲到负值，padding 不允许负数
     // Gecko：留白随底栏收起而变化会让 GeckoView 在滑动途中逐帧重新布局 / 调整视口（掉帧主因），
     // 默认固定为状态栏高度；「Gecko 调试 → 状态栏留白随滚动收起」打开后才恢复动画。
-    val contentTopPadding = if (tab.isGecko && !GeckoDebug.nativeImmersive) {
-        statusBarHeight
-    } else {
-        animatedTopPadding.coerceAtLeast(0.dp)
+    val fixedContentTop = tab.isGecko && !GeckoDebug.nativeImmersive
+    // 只在布局阶段读取动画值（见 TopInset.kt）：滚动收起 / 回落的每一帧不再触发整个 BrowserScreen 重组
+    val contentTopPx: androidx.compose.ui.unit.Density.() -> Int = {
+        if (fixedContentTop) statusBarHeight.roundToPx() else animatedTopPadding.coerceAtLeast(0.dp).roundToPx()
     }
     // Gecko 原生沉浸（仅网页状态；主页仍按普通留白排版）：GeckoView 占满内容区、尺寸恒定，
     // 状态栏留白用 offset 平移出来（只改位置、不触发 Gecko 重新布局），并把被推出屏幕的高度告诉 Gecko。
@@ -956,6 +1030,9 @@ fun BrowserScreen(
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
         label = "bottomBar",
     )
+    // 弹簧动画每帧都会改 hide；直接在组合里比较 hide < 0.995f 会让整个 BrowserScreen 逐帧重组。
+    // 包进 derivedStateOf 后只有「显示 / 不显示」这个结果翻转时才重组，位移 / 透明度仍在绘制阶段读取。
+    val barVisible by remember { androidx.compose.runtime.derivedStateOf { !barHidden || hide < 0.995f } }
 
     // 二级页面的返回（含预见性返回）由 NavDisplay 接管；这里只处理浏览主界面自己的返回。
     BackHandler(enabled = backStack.size <= 1) {
@@ -1067,7 +1144,7 @@ fun BrowserScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = if (nativeInset) 0.dp else contentTopPadding),
+                    .topInsetPx { if (nativeInset) 0 else contentTopPx() },
             ) {
                 key(tab.id) {
                     AndroidView(
@@ -1142,8 +1219,12 @@ fun BrowserScreen(
                         wallpaperBackdrop = wallpaperBackdrop,
                         blurEnabled = settings.blurEnabled,
                         favorites = homeFavEntries.map { it.second },
+                        showLogo = settings.homeShowLogo,
                         showFavorites = settings.homeShowFavorites,
+                        favRows = settings.homeFavRows,
+                        onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
                         showPrivacy = settings.homeShowPrivacy,
+                        geckoMode = tab.isGecko,
                         showRecent = settings.homeShowRecent && !tab.incognito,
                         showDownloads = settings.homeShowDownloads,
                         liquidBackdrop = if (settings.liquidGlass && wallpaperBitmap != null) wallpaperLiquidBackdrop else null,
@@ -1154,7 +1235,7 @@ fun BrowserScreen(
                         onHide = { kind ->
                             settings.updateHomeShow(kind, false)
                             android.widget.Toast.makeText(
-                                context, "已隐藏，可在 设置 → 布局 → 首页内容显示 中恢复", android.widget.Toast.LENGTH_SHORT,
+                                context, "已隐藏，可在 设置 → 布局 → 定制主页 中恢复", android.widget.Toast.LENGTH_SHORT,
                             ).show()
                         },
                         editing = favEditing,
@@ -1178,20 +1259,13 @@ fun BrowserScreen(
                     )
                 }
             }
-            if (tab.pullProgress > 0.05f) {
-                RefreshSpinner(
-                    progress = tab.pullProgress,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 18.dp),
-                )
-            }
+            PullSpinnerHost(tab)
             if (tab.loading) {
                 ProgressLine(
-                    progress = tab.progress,
+                    progress = { tab.progress },
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = contentTopPadding),
+                        .topInsetPx(contentTopPx),
                 )
             }
         }
@@ -1252,7 +1326,7 @@ fun BrowserScreen(
 
             // 退出动画播放期间仍保留底栏；动画结束后直接从组合树移除，
             // 不留下透明/平移后的 Compose 节点拦截 WebView 的触摸事件。
-            if (!barHidden || hide < 0.995f) {
+            if (barVisible) {
                 // 缩小后的圆形搜索钮（弹性缩放入场）
                 if (barMinimized) {
                     val circleScale by animateFloatAsState(
@@ -1393,7 +1467,7 @@ fun BrowserScreen(
                 },
                 onBack = { tab.goBack() },
                 onForward = { tab.goForward() },
-                onHome = { tab.goHome() },
+                onHome = { state.goHome(tab) },
                 onCopyAddress = {
                     if (tab.url.isNotBlank()) clipboard.setText(AnnotatedString(tab.url))
                 },
@@ -1535,6 +1609,7 @@ fun BrowserScreen(
                 Sheet.Link -> hostOf(linkUrl)
                 Sheet.Image -> "图片"
                 Sheet.Element -> "页面元素"
+                Sheet.Menu -> "菜单"
                 Sheet.Tabs -> null // 标签页自定义头部（渐进模糊 + 添加/删除）
                 else -> null
             },
@@ -1706,10 +1781,9 @@ fun BrowserScreen(
                             else -> 0
                         }
                     },
-                    // Gecko 下不支持的功能置灰：脚本管理走全局设置（跟随「浏览器内核」），脚本菜单看当前标签
+                    // 置灰：仅 Gecko 专属功能在 WebView 下不可用（脚本在两种内核下都可用）
                     lockedFor = { action ->
                         when (action) {
-                            MenuAction.ScriptMenu -> tab.isGecko || settings.geckoMode
                             // 拓展只在 Gecko 内核可用：WebView 下置灰，点击提示不可用
                             MenuAction.GeckoExtensions -> !settings.geckoMode
                             else -> false
@@ -1731,7 +1805,14 @@ fun BrowserScreen(
                                 )
                             }
                             MenuAction.Favorite -> if (tab.url.isNotBlank()) {
-                                favorites.add(tab.title.ifBlank { hostOf(tab.url) }, tab.url)
+                                val favName = tab.title.ifBlank { hostOf(tab.url) }
+                                val msg = if (favorites.exists(favName, tab.url)) {
+                                    "已添加此书签"
+                                } else {
+                                    favorites.add(favName, tab.url)
+                                    "添加书签成功"
+                                }
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                             }
                             MenuAction.Share -> if (tab.url.isNotBlank()) {
                                 runCatching {
@@ -1756,7 +1837,7 @@ fun BrowserScreen(
                                 }
                             }
                             MenuAction.AddToDesktop -> ShortcutHelper.addToDesktop(context, scope, tab)
-                            MenuAction.Home -> tab.goHome()
+                            MenuAction.Home -> state.goHome(tab)
                             MenuAction.Downloads -> pushPage(AppRoute.Downloads)
                             // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
                             MenuAction.GeckoExtensions -> geckoExtSheetShow = true
@@ -1774,14 +1855,10 @@ fun BrowserScreen(
                     longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.GeckoExtensions),
                     onLongPressAction = { action ->
                         when (action) {
-                            MenuAction.ScriptMenu ->
-                                // 脚本管理在 Gecko 下不可用（与原「脚本」按钮一致）
-                                if (settings.geckoMode) {
-                                    showGeckoUnsupportedToast(context)
-                                } else {
-                                    sheet = Sheet.None
-                                    pushPage(AppRoute.Extensions)
-                                }
+                            MenuAction.ScriptMenu -> {
+                                sheet = Sheet.None
+                                pushPage(AppRoute.Extensions)
+                            }
                             MenuAction.Favorite -> {
                                 sheet = Sheet.None
                                 pushPage(AppRoute.Library(0))
@@ -1817,7 +1894,8 @@ fun BrowserScreen(
                     sheet = Sheet.None
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl))) }
                 }
-                if (settings.pageEnhancements) {
+                // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
+                if (settings.pageEnhancements && !tab.isGecko) {
                     SheetRow(
                         title = "标记为广告",
                         subtitle = "选中这个广告位，可记住规则下次自动隐藏",
@@ -1855,9 +1933,16 @@ fun BrowserScreen(
                         blobImage -> tab.extractBlob(imageUrl, null, null, "image/*")
                         else -> pendingDownload = DownloadRequest(
                             url = imageUrl,
-                            userAgent = null,
+                            userAgent = if (tab.engineKind == EngineKind.WEBVIEW) {
+                                runCatching { tab.webView.settings.userAgentString }.getOrNull()
+                            } else {
+                                null
+                            },
                             fileName = Downloader.fileNameFrom(imageUrl, null),
                             mime = null,
+                            referer = tab.url,
+                            withCookies = !tab.incognito,
+                            geckoCookies = tab.engineKind == EngineKind.GECKO,
                         )
                     }
                 }
@@ -1871,7 +1956,8 @@ fun BrowserScreen(
                         state.newTab(imageUrl, tab.incognito, fromLink = true)
                     }
                 }
-                if (settings.pageEnhancements) {
+                // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
+                if (settings.pageEnhancements && !tab.isGecko) {
                     SheetRow(
                         title = "标记为广告",
                         subtitle = "选中这个广告位，可记住规则下次自动隐藏",
@@ -1892,9 +1978,16 @@ fun BrowserScreen(
                             sheet = Sheet.None
                             pendingDownload = DownloadRequest(
                                 url = hit.imageUrl,
-                                userAgent = null,
+                                userAgent = if (tab.engineKind == EngineKind.WEBVIEW) {
+                                    runCatching { tab.webView.settings.userAgentString }.getOrNull()
+                                } else {
+                                    null
+                                },
                                 fileName = Downloader.fileNameFrom(hit.imageUrl, null),
                                 mime = null,
+                                referer = tab.url,
+                                withCookies = !tab.incognito,
+                                geckoCookies = tab.engineKind == EngineKind.GECKO,
                             )
                         }
                     }
@@ -1952,6 +2045,7 @@ fun BrowserScreen(
             backdrop = if (homeBlurAvailable) homeBackdrop else null,
             onDismissRequest = {
                 pendingDownload?.tempPath?.let { p -> runCatching { java.io.File(p).delete() } }
+                pendingDownload?.onResult?.invoke(false, "cancelled")
                 pendingDownload = null
             },
         ) {
@@ -1964,6 +2058,7 @@ fun BrowserScreen(
                         AppDialogButton(
                             onClick = {
                                 downloadRequest.tempPath?.let { p -> runCatching { java.io.File(p).delete() } }
+                                downloadRequest.onResult?.invoke(false, "cancelled")
                                 pendingDownload = null
                             },
                             modifier = Modifier.weight(1f),
@@ -1997,6 +2092,10 @@ fun BrowserScreen(
                                                     userAgent = req.userAgent,
                                                     fileName = req.fileName,
                                                     mimeType = req.mime,
+                                                    onComplete = req.onResult,
+                                                    referer = req.referer,
+                                                    withCookies = req.withCookies,
+                                                    geckoCookies = req.geckoCookies,
                                                 )
                                                 true
                                             }
@@ -2327,9 +2426,9 @@ fun BrowserScreen(
             onOpenCookies = { pushPage(AppRoute.CookiePage) },
             onOpenPrivacyEnhance = { pushPage(AppRoute.PrivacyEnhancePage) },
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
+            onOpenBackup = { pushPage(AppRoute.BackupPage) },
             onOpenAbout = { pushPage(AppRoute.About) },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
-            onEngineScripts = { if (it) extensions.resumeAll() else extensions.suspendAll() },
             blurEnabled = settings.blurEnabled,
         )
     }
@@ -2346,6 +2445,8 @@ fun BrowserScreen(
         DownloadsScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
+            multiThread = settings.downloadMultiThread,
+            onMultiThreadChange = { settings.updateDownloadMultiThread(it) },
             threads = settings.downloadThreads,
             onThreadsChange = { settings.updateDownloadThreads(it) },
             multiThreadMinMb = settings.downloadMultiThreadMinMb,
@@ -2363,6 +2464,12 @@ fun BrowserScreen(
         CookieScreen(
             settings = settings,
             currentUrl = tab.url,
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.BackupPage> {
+        BackupScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )
@@ -2423,1533 +2530,6 @@ fun BrowserScreen(
 
 /* ------------------------------ 玻璃 ------------------------------ */
 
-/** MIUIX Glass 底板：主页用 glassPanel 真玻璃；无采样/关模糊时回退到渐变底板。 */
-@Composable
-private fun Modifier.glassBar(
-    backdrop: LayerBackdrop?,
-    corner: Dp,
-    blurEnabled: Boolean = true,
-    textureBlurEnabled: Boolean = true,
-    liquid: com.kyant.backdrop.Backdrop? = null,
-): Modifier {
-    val dark = isAppDarkTheme()
-    if (liquid != null && blurEnabled && textureBlurEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val liquidShape = RoundedCornerShape(corner)
-        return this.drawBackdrop(
-            backdrop = liquid,
-            shape = { liquidShape },
-            effects = {
-                vibrancy()
-                backdropBlur(1.5f.dp.toPx())
-                lens(18f.dp.toPx(), 40f.dp.toPx(), depthEffect = true, chromaticAberration = true)
-            },
-            onDrawSurface = { drawRect(if (dark) Color.White.copy(alpha = 0.04f) else Color.White.copy(alpha = 0.14f)) },
-        )
-    }
-    val glassShape = GlassShape(corner)
-    val rounded = RoundedCornerShape(corner)
-    val canUseGlass = blurEnabled && textureBlurEnabled && backdrop != null &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-    // 关闭模糊时使用接近不透明的纯色底板；网页态（无采样）提高不透明度，避免内容透出干扰。
-    val tint = when {
-        !blurEnabled -> Brush.verticalGradient(
-            listOf(
-                MiuixTheme.colorScheme.surface.copy(alpha = 0.97f),
-                MiuixTheme.colorScheme.surface.copy(alpha = 0.97f),
-            ),
-        )
-        dark -> Brush.verticalGradient(listOf(Color(0xF02B2B31), Color(0xE81A1A20)))
-        else -> Brush.verticalGradient(listOf(Color(0xF0FFFFFF), Color(0xE8E7EAF0)))
-    }
-
-    return this.glassPanel(
-        backdrop = if (canUseGlass) backdrop else null,
-        shape = glassShape,
-        style = GlassDefaults.style(dark),
-        material = if (canUseGlass) GlassMaterials.puredThinGlass(dark) else null,
-        stroke = if (blurEnabled) GlassStrokes.forTheme(dark) else null,
-        shading = false,
-        fallback = Modifier
-            .clip(rounded)
-            .background(tint, rounded)
-            .border(
-                width = 1.dp,
-                color = if (dark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.9f),
-                shape = rounded,
-            ),
-    )
-}
-
-@Composable
-private fun BottomBar(
-    liquid: com.kyant.backdrop.Backdrop? = null,
-    blurEnabled: Boolean = true,
-    textureBlurEnabled: Boolean = true,
-    backdrop: LayerBackdrop,
-    address: String,
-    loading: Boolean,
-    canGoBack: Boolean,
-    canGoForward: Boolean,
-    onHome: () -> Unit,
-    tabCount: Int,
-    onChange: (String) -> Unit,
-    onGo: () -> Unit,
-    onBack: () -> Unit,
-    onForward: () -> Unit,
-    onShare: () -> Unit,
-    onTabs: () -> Unit,
-    onMore: () -> Unit,
-    onCopyAddress: () -> Unit,
-    onAddressTap: () -> Unit = {},
-    onFocusLost: () -> Unit = {},
-    editing: Boolean = false,
-) {
-    val haptic = LocalHapticFeedback.current
-    val shape = RoundedCornerShape(29.dp)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(58.dp),
-    ) {
-        // 空玻璃底板与按钮内容分层，避免 backdrop 采集层递归包含自身。
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .glassBar(
-                    backdrop = backdrop,
-                    corner = 29.dp,
-                    blurEnabled = blurEnabled,
-                    textureBlurEnabled = textureBlurEnabled,
-                    liquid = liquid,
-                ),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                // 不裁剪内容层：按钮的柔光投影需要向按钮边缘外自然扩散。
-                .padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PressIcon(icon = MiuixIcons.Glass.Back, description = "后退", enabled = canGoBack, onClick = onBack)
-            if (canGoForward) {
-                PressIcon(
-                    icon = MiuixIcons.Glass.Back,
-                    description = "前进",
-                    enabled = true,
-                    flip = true,
-                    onClick = onForward,
-                )
-            } else {
-                PressIcon(
-                    icon = MiuixIcons.Home,
-                    description = "主页",
-                    enabled = true,
-                    onClick = onHome,
-                )
-            }
-
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f))
-                    .combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onAddressTap()
-                        },
-                        onLongClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onCopyAddress()
-                        },
-                    )
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (loading) {
-                    LoadingDot()
-                    Spacer(Modifier.width(8.dp))
-                }
-                AddressField(
-                    value = address,
-                    onChange = onChange,
-                    onGo = onGo,
-                    editing = editing,
-                    onStartEdit = onAddressTap,
-                    onFocusLost = onFocusLost,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            TabIcon(count = tabCount, onClick = onTabs, onLongClick = onMore)
-            PressIcon(icon = MiuixIcons.Glass.More, description = "更多", onClick = onMore)
-        }
-    }
-}
-
-/**
- * 图标轮廓重叠柔影：在原始矢量图标下方叠放两层轻微错位、模糊的同形图标。
- * 阴影跟随实际图标路径，不绘制圆形底影或按钮外轮廓。
- */
-@Composable
-private fun IconWithContourShadow(
-    imageVector: ImageVector,
-    description: String,
-    tint: Color,
-    scale: Float,
-    flip: Boolean = false,
-    boxSize: androidx.compose.ui.unit.Dp = 24.dp,
-) {
-    val shadowAlpha = if (tint.alpha < 0.5f) 0.12f else 0.28f
-    Box(contentAlignment = Alignment.Center) {
-        // 暗色投影：向右下轻微错位，模糊后沿图标边缘自然扩散。
-        Icon(
-            imageVector = imageVector,
-            contentDescription = null,
-            tint = Color.Black.copy(alpha = shadowAlpha),
-            modifier = Modifier
-                .size(boxSize)
-                .offset(x = 0.8.dp, y = 1.0.dp)
-                .blur(2.2.dp)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    if (flip) rotationZ = 180f
-                },
-        )
-        // 反向浅色柔影与暗影交叠，形成玻璃质感的轮廓层次。
-        Icon(
-            imageVector = imageVector,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = if (tint.alpha < 0.5f) 0.10f else 0.24f),
-            modifier = Modifier
-                .size(boxSize)
-                .offset(x = (-0.6).dp, y = (-0.6).dp)
-                .blur(1.6.dp)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    if (flip) rotationZ = 180f
-                },
-        )
-        // 清晰图标置顶，避免阴影影响图标辨识度。
-        Icon(
-            imageVector = imageVector,
-            contentDescription = description,
-            tint = tint,
-            modifier = Modifier
-                .size(boxSize - 3.dp)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    if (flip) rotationZ = 180f
-                },
-        )
-    }
-}
-
-/** 右上角蓝色数字标（与标签页图标上的数字标同款） */
-@Composable
-private fun CountBadge(count: Int, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .height(15.dp)
-            .widthIn(min = 15.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(MiuixTheme.colorScheme.primary)
-            .padding(horizontal = 4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = if (count > 99) "99+" else count.toString(),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.White,
-        )
-    }
-}
-
-@Composable
-private fun TabIcon(count: Int, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val haptic = LocalHapticFeedback.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.86f else 1f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
-        label = "tabPress",
-    )
-    val color = MiuixTheme.colorScheme.onSurface
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .combinedClickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onClick()
-                },
-                onLongClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick()
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(modifier = Modifier.size(31.dp), contentAlignment = Alignment.Center) {
-            IconWithContourShadow(
-                imageVector = AppIcons.Tabs,
-                description = "标签页",
-                tint = color,
-                scale = scale,
-                boxSize = 30.dp,
-            )
-            if (count > 1) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .height(13.dp)
-                        .widthIn(min = 13.dp)
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(MiuixTheme.colorScheme.primary)
-                        .padding(horizontal = 3.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = count.toString(),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PressIcon(
-    icon: ImageVector,
-    description: String,
-    enabled: Boolean = true,
-    flip: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val haptic = LocalHapticFeedback.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled) 0.86f else 1f,
-        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
-        label = "press",
-    )
-    val color = if (enabled) {
-        MiuixTheme.colorScheme.onSurface
-    } else {
-        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.25f)
-    }
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                enabled = enabled,
-                onClick = {
-                    if (enabled) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onClick()
-                    }
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        IconWithContourShadow(
-            imageVector = icon,
-            description = description,
-            tint = color,
-            scale = scale,
-            flip = flip,
-        )
-    }
-}
-
-/** 加载时地址栏里的小转点 */
-@Composable
-private fun LoadingDot() {
-    val transition = rememberInfiniteTransition(label = "load")
-    val alpha by transition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(700, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "dot",
-    )
-    Box(
-        modifier = Modifier
-            .size(7.dp)
-            .clip(CircleShape)
-            .background(MiuixTheme.colorScheme.primary.copy(alpha = alpha)),
-    )
-}
-
-/* ------------------------------ 小部件 ------------------------------ */
-
-@Composable
-private fun AddressField(
-    value: String,
-    onChange: (String) -> Unit,
-    onGo: () -> Unit,
-    editing: Boolean = true,
-    onStartEdit: () -> Unit = {},
-    onFocusLost: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    val color = MiuixTheme.colorScheme.onSurface
-    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-    var hadFocus by remember { mutableStateOf(false) }
-    // 进入编辑态时主动拿焦点（圆形搜索钮 / 点击地址栏），失焦时通知外部退出编辑态
-    LaunchedEffect(editing) {
-        if (editing) runCatching { focusRequester.requestFocus() }
-    }
-    Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
-        if (value.isEmpty()) {
-            Text(
-                text = "搜索或输入网址",
-                fontSize = 15.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                // 回主页时地址栏宽度还在弹簧动画里：占位文字必须单行不换行，否则会先折成多行再展开
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-            )
-        }
-        BasicTextField(
-            value = value,
-            onValueChange = onChange,
-            singleLine = true,
-            textStyle = TextStyle(fontSize = 15.sp, color = color),
-            cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { onGo() }),
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-                .onFocusChanged { st ->
-                    if (st.isFocused) {
-                        hadFocus = true
-                    } else if (hadFocus) {
-                        hadFocus = false
-                        onFocusLost()
-                    }
-                },
-        )
-        if (!editing) {
-            // 未编辑时盖一层透明点击区，点一下立刻切到完整网址
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onStartEdit,
-                    ),
-            )
-        }
-    }
-}
-
-@Composable
-private fun BarButton(
-    icon: ImageVector,
-    description: String,
-    enabled: Boolean = true,
-    flip: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val haptic = LocalHapticFeedback.current
-    val color = if (enabled) {
-        MiuixTheme.colorScheme.onSurface
-    } else {
-        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.25f)
-    }
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(
-                enabled = enabled,
-                onClick = {
-                    if (enabled) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onClick()
-                    }
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = description,
-            tint = color,
-            modifier = Modifier
-                .size(22.dp)
-                .graphicsLayer { if (flip) rotationZ = 180f },
-        )
-    }
-}
-
-@Composable
-private fun TabCountButton(count: Int, onClick: () -> Unit) {
-    val color = MiuixTheme.colorScheme.onSurface
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(26.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.6.dp, color, RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(text = count.toString(), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = color)
-        }
-    }
-}
-
-@Composable
-private fun ProgressLine(progress: Float, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(2.5.dp)
-            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.15f)),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(progress.coerceIn(0.02f, 1f))
-                .height(2.5.dp)
-                .background(MiuixTheme.colorScheme.primary),
-        )
-    }
-}
-
-/* ------------------------------ 弹层行 ------------------------------ */
-
-@Composable
-private fun SheetRow(
-    title: String,
-    subtitle: String? = null,
-    trailing: (@Composable () -> Unit)? = null,
-    highlight: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .then(
-                if (highlight) {
-                    Modifier.border(2.dp, MiuixTheme.colorScheme.primary, RoundedCornerShape(16.dp))
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 16.sp,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        trailing?.invoke()
-    }
-}
-
-/** 按选择器移除页面元素（长按菜单用） */
-private fun removeElementJs(selector: String): String =
-    "(function(){try{var el=document.querySelector(" + org.json.JSONObject.quote(selector) +
-        ");if(el){el.style.setProperty('display','none','important');el.remove();}}catch(e){}})();"
-
-/* ------------------------------ 主页 ------------------------------ */
-
-/** 首页内容块的拖动排序状态（收藏整体算一个块）。 */
-private class HomeReorderState {
-    var dragging by mutableIntStateOf(-1)
-    var offset by mutableFloatStateOf(0f)
-    var live by mutableStateOf<List<Int>>(emptyList())
-    var suppressClick = false
-    /** 长按过首页卡片后进入的编辑态：卡片右上角显示 ×，点空白处 / 任意卡片退出。 */
-    var homeEditing by mutableStateOf(false)
-    var colWindowTop = 0f
-    var rootTop = 0f
-    var rootHeight = 0f
-    val tops = HashMap<Int, Float>()
-    val heights = HashMap<Int, Float>()
-    private val anims = HashMap<Int, Animatable<Float, AnimationVector1D>>()
-
-    fun animFor(kind: Int): Animatable<Float, AnimationVector1D> = anims.getOrPut(kind) { Animatable(0f) }
-
-    /** 被拖块的中线越过相邻块的中线就交换位置，并补偿偏移让它始终跟手。 */
-    fun swapIfNeeded(gapPx: Float) {
-        val k = dragging
-        val list = live
-        val i = list.indexOf(k)
-        if (i < 0) return
-        val kTop = tops[k] ?: return
-        val kH = heights[k] ?: return
-        val center = kTop + offset + kH / 2f
-        if (i > 0) {
-            val p = list[i - 1]
-            val pTop = tops[p] ?: return
-            val pH = heights[p] ?: return
-            if (center < pTop + pH / 2f) {
-                offset += kTop - pTop
-                tops[p] = pTop + kH + gapPx
-                tops[k] = pTop
-                live = list.toMutableList().also { it[i - 1] = k; it[i] = p }
-                return
-            }
-        }
-        if (i < list.lastIndex) {
-            val n = list[i + 1]
-            val nH = heights[n] ?: return
-            val nTop = tops[n] ?: return
-            if (center > nTop + nH / 2f) {
-                val newTop = kTop + nH + gapPx
-                offset += kTop - newTop
-                tops[n] = kTop
-                tops[k] = newTop
-                live = list.toMutableList().also { it[i] = n; it[i + 1] = k }
-            }
-        }
-    }
-}
-
-/** 记录块位置 / 高度；顺序变化时其它块平滑让位，被拖块跟随手指。 */
-@Composable
-private fun Modifier.homeReorderItem(kind: Int, st: HomeReorderState): Modifier {
-    val scope = rememberCoroutineScope()
-    val anim = remember(kind) { st.animFor(kind) }
-    val lastTop = remember { floatArrayOf(Float.NaN) }
-    return this
-        .onGloballyPositioned { c ->
-            val top = c.positionInParent().y
-            st.heights[kind] = c.size.height.toFloat()
-            val prev = lastTop[0]
-            if (!prev.isNaN() && prev != top && st.dragging != kind) {
-                scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                    anim.snapTo(anim.value + prev - top)
-                    anim.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                }
-            }
-            lastTop[0] = top
-            st.tops[kind] = top
-        }
-        .graphicsLayer {
-            val d = st.dragging == kind
-            translationY = if (d) st.offset else anim.value
-            val sc = if (d) 1.02f else 1f
-            scaleX = sc
-            scaleY = sc
-        }
-        .zIndex(if (st.dragging == kind) 1f else 0f)
-}
-
-/** 长按后上下拖动的手势；松手时把新顺序交给 [onCommit]。 */
-@Composable
-private fun Modifier.homeReorderHandle(
-    kind: Int,
-    st: HomeReorderState,
-    visible: List<Int>,
-    gapPx: Float,
-    onCommit: (List<Int>) -> Unit,
-): Modifier {
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val visibleNow by rememberUpdatedState(visible)
-    val commit by rememberUpdatedState(onCommit)
-    val finish = {
-        if (st.dragging == kind) {
-            val anim = st.animFor(kind)
-            commit(st.live)
-            scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                anim.snapTo(st.offset)
-                st.dragging = -1
-                st.offset = 0f
-                anim.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-            }
-            scope.launch {
-                delay(250)
-                st.suppressClick = false
-            }
-        }
-    }
-    return this.pointerInput(kind) {
-        detectDragGesturesAfterLongPress(
-            onDragStart = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                st.suppressClick = true
-                st.homeEditing = true
-                st.live = visibleNow
-                st.offset = st.animFor(kind).value
-                st.dragging = kind
-            },
-            onDrag = { change, amount ->
-                change.consume()
-                st.offset += amount.y
-                st.swapIfNeeded(gapPx)
-            },
-            onDragEnd = { finish() },
-            onDragCancel = { finish() },
-        )
-    }
-}
-
-/** 把「可见块的新顺序」合并回完整顺序：隐藏块的位置保持不变。 */
-private fun mergeHomeOrder(full: List<Int>, visible: List<Int>): List<Int> {
-    val it = visible.iterator()
-    return full.map { k -> if (k in visible && it.hasNext()) it.next() else k }
-}
-
-@Composable
-private fun StartPage(
-    scrollState: ScrollState,
-    wallpaper: ImageBitmap?,
-    wallpaperBackdrop: LayerBackdrop?,
-    blurEnabled: Boolean,
-    favorites: List<Favorite>,
-    showFavorites: Boolean,
-    showPrivacy: Boolean,
-    showRecent: Boolean,
-    showDownloads: Boolean,
-    liquidBackdrop: com.kyant.backdrop.Backdrop?,
-    order: List<Int>,
-    onReorder: (List<Int>) -> Unit,
-    recent: List<HistoryEntry>,
-    onOpenDownloads: () -> Unit,
-    onHide: (kind: Int) -> Unit,
-    editing: Boolean,
-    onOpen: (String) -> Unit,
-    onToggleEdit: () -> Unit,
-    onRemove: (Int) -> Unit,
-    onMove: (Int, Int) -> Unit,
-    onEdit: (Int) -> Unit,
-    onAdd: () -> Unit,
-) {
-    val density = LocalDensity.current
-    val gapPx = with(density) { 14.dp.toPx() }
-    val hasWallpaper = wallpaper != null
-    val st = remember { HomeReorderState() }
-    val visibleKinds = order.filter {
-        when (it) {
-            HOME_FAVORITES -> showFavorites
-            HOME_PRIVACY -> showPrivacy
-            HOME_RECENT -> showRecent
-            else -> showDownloads
-        }
-    }
-    val shown = if (st.dragging >= 0) st.live else visibleKinds
-    val commit: (List<Int>) -> Unit = { onReorder(mergeHomeOrder(order, it)) }
-    // 长按拖动结束后的短时间内忽略点击，避免松手触发卡片 / 条目的点击
-    // 编辑态下的点击只用来退出编辑
-    val guard: (() -> Unit) -> (() -> Unit) = { f ->
-        {
-            if (!st.suppressClick) {
-                if (st.homeEditing) st.homeEditing = false else f()
-            }
-        }
-    }
-
-    // 拖到视口边缘时自动滚动
-    LaunchedEffect(st.dragging) {
-        if (st.dragging < 0) return@LaunchedEffect
-        val topEdge = with(density) { 90.dp.toPx() }
-        val bottomEdge = with(density) { 150.dp.toPx() }
-        while (st.dragging >= 0) {
-            val k = st.dragging
-            val top = st.colWindowTop - st.rootTop + (st.tops[k] ?: 0f) + st.offset
-            val bottom = top + (st.heights[k] ?: 0f)
-            val limit = st.rootHeight - bottomEdge
-            val dy = when {
-                top < topEdge -> -(topEdge - top) / topEdge * 24f
-                st.rootHeight > 0f && bottom > limit -> (bottom - limit) / bottomEdge * 24f
-                else -> 0f
-            }.coerceIn(-24f, 24f)
-            if (dy != 0f) {
-                val consumed = scrollState.scrollBy(dy)
-                if (consumed != 0f) {
-                    st.offset += consumed
-                    st.swapIfNeeded(gapPx)
-                }
-            }
-            delay(16)
-        }
-    }
-
-    // 根 Box 吸收空白区点击，避免穿透到下层 WebView（子项仍优先命中）
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onGloballyPositioned {
-                st.rootTop = it.positionInWindow().y
-                st.rootHeight = it.size.height.toFloat()
-            }
-            .pointerInput(Unit) {
-                detectTapGestures { st.homeEditing = false } // 吸收空白处点击，并退出编辑态
-            },
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp)
-                .padding(top = 44.dp, bottom = 150.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlassLogoText("Mafari", fontSize = 58, wallpaper = wallpaper)
-            }
-            Spacer(Modifier.height(30.dp))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onGloballyPositioned { st.colWindowTop = it.positionInWindow().y },
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                shown.forEach { kind ->
-                    key(kind) {
-                        val itemMod = Modifier.homeReorderItem(kind, st)
-                        val handle = Modifier.homeReorderHandle(kind, st, visibleKinds, gapPx, commit)
-                        when (kind) {
-                            HOME_FAVORITES -> FavoritesBlock(
-                                modifier = itemMod,
-                                headerModifier = handle,
-                                favorites = favorites,
-                                wallpaper = wallpaper,
-                                wallpaperBackdrop = wallpaperBackdrop,
-                                liquidBackdrop = liquidBackdrop,
-                                blurEnabled = blurEnabled,
-                                editing = editing,
-                                guard = guard,
-                                onOpen = onOpen,
-                                onToggleEdit = onToggleEdit,
-                                onRemove = onRemove,
-                                onMove = onMove,
-                                onEdit = onEdit,
-                                onAdd = onAdd,
-                            )
-                            HOME_PRIVACY -> PrivacyReportCard(
-                                modifier = itemMod.then(handle),
-                                wallpaperBackdrop = wallpaperBackdrop,
-                                liquidBackdrop = liquidBackdrop,
-                                blurEnabled = blurEnabled,
-                                hasWallpaper = hasWallpaper,
-                                showRemove = st.homeEditing,
-                                onClick = guard {},
-                                onRemove = { onHide(HOME_PRIVACY) },
-                            )
-                            HOME_RECENT -> HomeCard(
-                                modifier = itemMod.then(handle),
-                                title = "最近浏览",
-                                wallpaperBackdrop = wallpaperBackdrop,
-                                liquidBackdrop = liquidBackdrop,
-                                blurEnabled = blurEnabled,
-                                hasWallpaper = hasWallpaper,
-                                showRemove = st.homeEditing,
-                                onClick = guard {},
-                                onRemove = { onHide(HOME_RECENT) },
-                            ) {
-                                val items = recent.take(3)
-                                if (items.isEmpty()) {
-                                    HomeEmptyText("还没有浏览记录")
-                                } else {
-                                    items.forEach { entry ->
-                                        HomeRow(
-                                            primary = entry.title.ifBlank { entry.url },
-                                            secondary = runCatching { android.net.Uri.parse(entry.url).host }.getOrNull().orEmpty(),
-                                            onClick = guard { onOpen(entry.url) },
-                                        )
-                                    }
-                                }
-                            }
-                            else -> HomeCard(
-                                modifier = itemMod.then(handle),
-                                title = "下载项",
-                                wallpaperBackdrop = wallpaperBackdrop,
-                                liquidBackdrop = liquidBackdrop,
-                                blurEnabled = blurEnabled,
-                                hasWallpaper = hasWallpaper,
-                                showRemove = st.homeEditing,
-                                onRemove = { onHide(HOME_DOWNLOADS) },
-                                onClick = guard(onOpenDownloads),
-                            ) {
-                                val tasks = Downloader.tasks.toList().takeLast(3).reversed()
-                                if (tasks.isEmpty()) {
-                                    HomeEmptyText("还没有下载任务")
-                                } else {
-                                    tasks.forEach { t ->
-                                        HomeRow(
-                                            primary = t.name,
-                                            secondary = when (t.state) {
-                                                DownloadState.RUNNING -> "下载中 ${(Downloader.progressOf(t) * 100).toInt()}%"
-                                                DownloadState.PAUSED -> "已暂停"
-                                                DownloadState.DONE -> "已完成"
-                                                DownloadState.FAILED -> "失败"
-                                            },
-                                            onClick = guard(onOpenDownloads),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** 个人收藏：整体作为一个大块参与排序；长按「收藏」标题行拖动，磁贴长按仍是进入编辑。 */
-@Composable
-private fun FavoritesBlock(
-    modifier: Modifier,
-    headerModifier: Modifier,
-    favorites: List<Favorite>,
-    wallpaper: ImageBitmap?,
-    wallpaperBackdrop: LayerBackdrop?,
-    liquidBackdrop: com.kyant.backdrop.Backdrop?,
-    blurEnabled: Boolean,
-    editing: Boolean,
-    guard: (() -> Unit) -> (() -> Unit),
-    onOpen: (String) -> Unit,
-    onToggleEdit: () -> Unit,
-    onRemove: (Int) -> Unit,
-    onMove: (Int, Int) -> Unit,
-    onEdit: (Int) -> Unit,
-    onAdd: () -> Unit,
-) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 32.dp)
-                .then(headerModifier),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = "收藏",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
-            )
-            if (editing) {
-                AppTextButton(
-                    text = "完成",
-                    onClick = onToggleEdit,
-                    primary = true,
-                    inPage = true,
-                    minHeight = 28.dp,
-                    minWidth = 52.dp,
-                    cornerRadius = 14.dp,
-                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                    textStyle = TextStyle(fontSize = 12.sp),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(6.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            FavoriteGrid(
-                favorites = favorites,
-                wallpaper = wallpaper,
-                wallpaperBackdrop = wallpaperBackdrop,
-                liquidBackdrop = liquidBackdrop,
-                blurEnabled = blurEnabled,
-                editing = editing,
-                guard = guard,
-                onOpen = onOpen,
-                onToggleEdit = onToggleEdit,
-                onRemove = onRemove,
-                onMove = onMove,
-                onEdit = onEdit,
-            )
-            if (editing && favorites.size < HOME_FAV_MAX) {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(58.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .border(
-                                width = 1.dp,
-                                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.15f),
-                                shape = RoundedCornerShape(16.dp),
-                            )
-                            .clickable(onClick = onAdd),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "+ 添加收藏",
-                            fontSize = 13.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                    Spacer(Modifier.weight(2f))
-                }
-            }
-        }
-    }
-}
-
-/** 首页卡片的玻璃底板：与收藏卡片同一套 miuix-glass blur，无采样 / 关模糊时回退到实色。 */
-@Composable
-private fun Modifier.homeGlass(
-    wallpaperBackdrop: LayerBackdrop?,
-    blurEnabled: Boolean,
-    hasWallpaper: Boolean = true,
-    liquid: com.kyant.backdrop.Backdrop? = null,
-    radius: Int = 16,
-): Modifier {
-    val shape = RoundedCornerShape(radius.dp)
-    val dark = isAppDarkTheme()
-    // liquid glass 模式：用 Kyant 液态玻璃从未模糊的壁纸取样
-    if (liquid != null && blurEnabled) {
-        if (dark) {
-            // 深色模式：背景本身暗，折射 / 高光不明显，卡片显得发平。加大模糊与折射、加宽边缘高光，
-            // 再用「上亮下暗」的叠色做出厚度，增加玻璃深度；浅色模式保持原样。
-            return this.drawBackdrop(
-                backdrop = liquid,
-                shape = { shape },
-                effects = {
-                    vibrancy()
-                    backdropBlur(5f.dp.toPx())
-                    lens(26f.dp.toPx(), 60f.dp.toPx(), depthEffect = true, chromaticAberration = true)
-                },
-                highlight = {
-                    com.kyant.backdrop.highlight.Highlight.Plain.copy(
-                        width = com.kyant.backdrop.highlight.Highlight.Plain.width * 1.5f,
-                    )
-                },
-                onDrawSurface = {
-                    drawRect(
-                        Brush.verticalGradient(
-                            listOf(Color.White.copy(alpha = 0.09f), Color.Black.copy(alpha = 0.16f)),
-                        ),
-                    )
-                },
-            )
-        }
-        return this.drawBackdrop(
-            backdrop = liquid,
-            shape = { shape },
-            effects = {
-                vibrancy()
-                backdropBlur(2f.dp.toPx())
-                lens(16f.dp.toPx(), 36f.dp.toPx(), depthEffect = true, chromaticAberration = true)
-            },
-            onDrawSurface = { drawRect(Color.White.copy(alpha = 0.12f)) },
-        )
-    }
-    val useGlass = blurEnabled && wallpaperBackdrop != null
-    return this.glassPanel(
-        backdrop = if (useGlass) wallpaperBackdrop else null,
-        shape = GlassShape(radius.dp),
-        style = GlassDefaults.style(dark),
-        material = if (useGlass) GlassMaterials.puredThinGlass(dark) else null,
-        stroke = if (blurEnabled) GlassStrokes.forTheme(dark) else null,
-        shading = false,
-        fallback = Modifier
-            .clip(shape)
-            .background(MiuixTheme.colorScheme.surfaceContainerHigh, shape)
-            .border(
-                width = 1.dp,
-                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                shape = shape,
-            ),
-    )
-}
-
-/**
- * 无壁纸时玻璃自带的白色高光描边落在浅色底上几乎看不见：在卡片最上层叠一圈对角渐变描边
- * （左上较亮、右下较淡；浅色主题用深线，深色主题用亮线）。必须作为子层叠在玻璃之上，
- * 否则会被玻璃材质盖住。有壁纸时不画，沿用玻璃自带的高光。
- */
-@Composable
-private fun BoxScope.HomeOutlineOverlay(hasWallpaper: Boolean, radius: Dp) {
-    if (hasWallpaper) return
-    val dark = isAppDarkTheme()
-    val brush = Brush.linearGradient(
-        listOf(
-            if (dark) Color.White.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.26f),
-            if (dark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f),
-        ),
-    )
-    Box(
-        modifier = Modifier
-            .matchParentSize()
-            .border(width = 1.dp, brush = brush, shape = RoundedCornerShape(radius)),
-    )
-}
-
-/** 首页通用卡片：标题 + 内容；长按进入编辑后右上角出现 × 可从首页移除，长按拖动排序（手势由 [modifier] 提供），可选整卡点击。 */
-@Composable
-private fun HomeCard(
-    title: String,
-    wallpaperBackdrop: LayerBackdrop?,
-    liquidBackdrop: com.kyant.backdrop.Backdrop?,
-    blurEnabled: Boolean,
-    hasWallpaper: Boolean,
-    showRemove: Boolean,
-    onRemove: () -> Unit,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .homeGlass(wallpaperBackdrop, blurEnabled, hasWallpaper, liquidBackdrop)
-            .clickable(
-                enabled = onClick != null,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = { onClick?.invoke() },
-            ),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-        ) {
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(end = 28.dp),
-            )
-            Spacer(Modifier.height(8.dp))
-            content()
-        }
-        HomeOutlineOverlay(hasWallpaper, 16.dp)
-        if (showRemove) Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .size(22.dp)
-                .clip(CircleShape)
-                .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.10f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onRemove,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "×",
-                fontSize = 14.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeEmptyText(text: String) {
-    Text(
-        text = text,
-        fontSize = 12.sp,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
-}
-
-@Composable
-private fun HomeRow(primary: String, secondary: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = primary,
-            fontSize = 14.sp,
-            color = MiuixTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = secondary,
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** 隐私报告：拦截广告数、处理指纹读取数、频繁获取敏感权限的网站提醒。 */
-@Composable
-private fun PrivacyReportCard(
-    modifier: Modifier,
-    wallpaperBackdrop: LayerBackdrop?,
-    liquidBackdrop: com.kyant.backdrop.Backdrop?,
-    blurEnabled: Boolean,
-    hasWallpaper: Boolean,
-    showRemove: Boolean,
-    onClick: () -> Unit,
-    onRemove: () -> Unit,
-) {
-    val context = LocalContext.current
-    // 拦截计数在后台线程累加、不是 Compose 状态：可见期间低频轮询
-    val blocked by produceState(AdBlock.blockedTotal) {
-        while (true) {
-            value = AdBlock.blockedTotal
-            delay(1500)
-        }
-    }
-    val frequent = PrivacyStats.frequent(context)
-    HomeCard(
-        modifier = modifier,
-        title = "隐私报告",
-        wallpaperBackdrop = wallpaperBackdrop,
-        liquidBackdrop = liquidBackdrop,
-        blurEnabled = blurEnabled,
-        hasWallpaper = hasWallpaper,
-        showRemove = showRemove,
-        onClick = onClick,
-        onRemove = onRemove,
-    ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PrivacyStat(blocked.toString(), "已拦截广告", Modifier.weight(1f))
-            PrivacyStat(
-                if (AdBlock.fingerprintActive) AdBlock.fpReads.toString() else "—",
-                if (AdBlock.fingerprintActive) "已处理指纹读取" else "指纹保护未开启",
-                Modifier.weight(1f),
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
-        )
-        Spacer(Modifier.height(8.dp))
-        if (frequent.isEmpty()) {
-            HomeEmptyText("近 24 小时没有网站频繁请求敏感权限")
-        } else {
-            frequent.take(2).forEach { f ->
-                Text(
-                    text = "${f.host} 近 24 小时请求${f.kinds.joinToString("、")} ${f.count} 次",
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
-            }
-            if (frequent.size > 2) {
-                HomeEmptyText("另有 ${frequent.size - 2} 个网站")
-            }
-        }
-    }
-}
-
-@Composable
-private fun PrivacyStat(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            text = value,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = MiuixTheme.colorScheme.onSurface,
-            maxLines = 1,
-        )
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** 收藏磁贴网格（每行 3 个）：长按磁贴后拖动可排序，其余磁贴实时让位。 */
-@Composable
-private fun FavoriteGrid(
-    favorites: List<Favorite>,
-    wallpaper: ImageBitmap?,
-    wallpaperBackdrop: LayerBackdrop?,
-    liquidBackdrop: com.kyant.backdrop.Backdrop?,
-    blurEnabled: Boolean,
-    editing: Boolean,
-    guard: (() -> Unit) -> (() -> Unit),
-    onOpen: (String) -> Unit,
-    onToggleEdit: () -> Unit,
-    onRemove: (Int) -> Unit,
-    onMove: (Int, Int) -> Unit,
-    onEdit: (Int) -> Unit,
-) {
-    val density = LocalDensity.current
-    val gapPx = with(density) { 10.dp.toPx() }
-    val tileHPx = with(density) { 58.dp.toPx() }
-    val count = favorites.size
-    val rows = (count + 2) / 3
-    var liveOrder by remember { mutableStateOf<List<Int>?>(null) }
-    var dragIndex by remember { mutableIntStateOf(-1) }
-    var dragPos by remember { mutableStateOf(Offset.Zero) }
-    val countNow by rememberUpdatedState(count)
-    val onMoveNow by rememberUpdatedState(onMove)
-    val editingNow by rememberUpdatedState(editing)
-    val onToggleEditNow by rememberUpdatedState(onToggleEdit)
-    val haptic = LocalHapticFeedback.current
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (rows == 0) 0.dp else 58.dp * rows + 10.dp * (rows - 1)),
-    ) {
-        val cellWPx = (with(density) { maxWidth.toPx() } - 2 * gapPx) / 3f
-        val cellW = with(density) { cellWPx.toDp() }
-        favorites.forEachIndexed { index, favorite ->
-            key(favorite) {
-                val indexNow by rememberUpdatedState(index)
-                val tapNow by rememberUpdatedState(guard { if (editingNow) onEdit(indexNow) else onOpen(favorite.url) })
-                val slot = liveOrder?.indexOf(index) ?: index
-                val target = IntOffset(
-                    ((slot % 3) * (cellWPx + gapPx)).roundToInt(),
-                    ((slot / 3) * (tileHPx + gapPx)).roundToInt(),
-                )
-                val animated by animateIntOffsetAsState(target, spring(stiffness = Spring.StiffnessMediumLow), label = "favSlot")
-                val dragging = dragIndex == index
-                FavoriteTile(
-                    favorite = favorite,
-                    wallpaper = wallpaper,
-                    wallpaperBackdrop = wallpaperBackdrop,
-                    liquidBackdrop = liquidBackdrop,
-                    blurEnabled = blurEnabled,
-                    editing = editing,
-                    modifier = Modifier
-                        .width(cellW)
-                        .offset { if (dragging) IntOffset(dragPos.x.roundToInt(), dragPos.y.roundToInt()) else animated }
-                        .zIndex(if (dragging) 1f else 0f)
-                        .graphicsLayer {
-                            val sc = if (dragging) 1.05f else 1f
-                            scaleX = sc
-                            scaleY = sc
-                        }
-                        .pointerInput(Unit) {
-                            // 点击 / 长按 / 拖动合在同一个手势里：不再与 clickable 的长按抢事件
-                            //（clickable 长按后会 consumeUntilUp，把后续移动吞掉，导致拖不动）
-                            awaitEachGesture {
-                                val down = awaitFirstDown()
-                                var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
-                                val finishedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                                    up = waitForUpOrCancellation()
-                                    true
-                                }
-                                if (finishedEarly != null) {
-                                    up?.let { it.consume(); tapNow() }
-                                    return@awaitEachGesture
-                                }
-                                // 长按：进入编辑态并开始拖动
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (!editingNow) onToggleEditNow()
-                                val i = indexNow
-                                dragIndex = i
-                                liveOrder = List(countNow) { it }
-                                dragPos = Offset((i % 3) * (cellWPx + gapPx), (i / 3) * (tileHPx + gapPx))
-                                val completed = drag(down.id) { change ->
-                                    change.consume()
-                                    dragPos += change.position - change.previousPosition
-                                    val order = liveOrder ?: return@drag
-                                    val centerX = dragPos.x + cellWPx / 2f
-                                    val centerY = dragPos.y + tileHPx / 2f
-                                    val lastRow = (countNow - 1) / 3
-                                    val col = (centerX / (cellWPx + gapPx)).toInt().coerceIn(0, 2)
-                                    val row = (centerY / (tileHPx + gapPx)).toInt().coerceIn(0, lastRow)
-                                    val to = (row * 3 + col).coerceIn(0, countNow - 1)
-                                    val from = order.indexOf(dragIndex)
-                                    if (from >= 0 && to != from) {
-                                        liveOrder = order.toMutableList().also { it.removeAt(from); it.add(to, dragIndex) }
-                                    }
-                                }
-                                val from = dragIndex
-                                val to = liveOrder?.indexOf(from) ?: -1
-                                dragIndex = -1
-                                liveOrder = null
-                                if (completed && from >= 0 && to >= 0 && to != from) onMoveNow(from, to)
-                            }
-                        },
-                    onRemove = { onRemove(indexNow) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FavoriteTile(
-    favorite: Favorite,
-    wallpaper: ImageBitmap?,
-    wallpaperBackdrop: LayerBackdrop?,
-    liquidBackdrop: com.kyant.backdrop.Backdrop?,
-    blurEnabled: Boolean,
-    editing: Boolean,
-    modifier: Modifier = Modifier,
-    onRemove: () -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .height(58.dp)
-            .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            val icon = rememberFavicon(favorite.url)
-            if (icon != null) {
-                Image(
-                    bitmap = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)),
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                )
-            }
-            Text(
-                text = favorite.name,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (editing) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .clickable(onClick = onRemove),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(text = "×", fontSize = 11.sp, color = Color.White)
-            }
-        }
-        HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = 16.dp)
-    }
-}
-
-/** 新增 / 编辑收藏：GlassDialog */
-@Composable
-private fun FavoriteEditor(
-    show: Boolean,
-    initial: Favorite?,
-    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
-    onDismiss: () -> Unit,
-    onConfirm: (name: String, url: String) -> Unit,
-) {
-    var name by remember(initial) { mutableStateOf(initial?.name ?: "") }
-    var url by remember(initial) { mutableStateOf(initial?.url ?: "") }
-    AppGlassDialog(
-        show = show,
-        title = if (initial == null) "添加收藏" else "编辑收藏",
-        backdrop = backdrop,
-        onDismissRequest = onDismiss,
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            TextField(
-                value = name,
-                onValueChange = { name = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = "名称",
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-            )
-            Spacer(Modifier.height(10.dp))
-            TextField(
-                value = url,
-                onValueChange = { url = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = "网址",
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-            )
-            Spacer(Modifier.height(18.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
-                }
-                AppDialogButton(
-                    onClick = { if (url.isNotBlank()) onConfirm(name, url) },
-                    modifier = Modifier.weight(1f),
-                    role = GlassDialogButtonRole.Primary,
-                ) {
-                    Text(text = "保存", style = MiuixTheme.textStyles.button)
-                }
-            }
-        }
-    }
-}
 
 /** UA 选择：GlassBottomSheet 预设 + 自定义 */
 @Composable
@@ -4052,7 +2632,7 @@ internal fun UaDialog(
 
 /** 页内查找：GlassDialog */
 @Composable
-private fun FindDialog(
+internal fun FindDialog(
     show: Boolean,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     onDismiss: () -> Unit,
@@ -4103,489 +2683,7 @@ private fun FindDialog(
 }
 
 
-/**
- * 更多面板：图标 + 文字宫格。长按任一图标进入编辑：面板自动拉长，底部出现高光分割线，
- * 线下方是「隐藏的功能」区；把图标拖到线下方即从菜单隐藏，再拖回线上方即恢复。
- */
-/** 更多菜单里长按进入管理页（脚本 / 收藏 / 拓展）所需的按住时长，含系统长按判定时间 */
-private const val MENU_LONG_PRESS_MS = 650L
 
-@Composable
-private fun MenuGrid(
-    labelFor: (MenuAction) -> String,
-    order: List<MenuAction>,
-    hidden: List<MenuAction>,
-    onAction: (MenuAction) -> Unit,
-    onMove: (MenuAction, Boolean, Int) -> Unit,
-    onLongPressAction: (MenuAction) -> Unit = {},
-    longPressActions: Set<MenuAction> = emptySet(),
-    incognitoActive: Boolean = false,
-    badgeFor: (MenuAction) -> Int = { 0 },
-    lockedFor: (MenuAction) -> Boolean = { false },
-) {
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val menuContext = LocalContext.current
-    val cellHeight = 88.dp
-    val dividerHeight = 30.dp
-    val columns = 4
-    val purple = Color(0xFF9C27B0)
-    val gridScope = rememberCoroutineScope()
-    // 长按计时：按下满 [MENU_LONG_PRESS_MS] 且手指没动（没进入拖动排序）才触发长按功能
-    val systemLongPressMs = LocalViewConfiguration.current.longPressTimeoutMillis
-    var holdJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val longPressNow by rememberUpdatedState(onLongPressAction)
-
-    var editing by remember { mutableStateOf(false) }
-    var dragAction by remember { mutableStateOf<MenuAction?>(null) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    // 长按后、尚未拖够距离时的累计位移：超过阈值才真正进入编辑，避免手指轻微抖动误触发
-    var pendingDrag by remember { mutableStateOf(Offset.Zero) }
-    val enterEditThresholdPx = with(density) { 24.dp.toPx() }
-
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val cellWidthPx = with(density) { (maxWidth / columns).toPx() }
-        val cellHeightPx = with(density) { cellHeight.toPx() }
-        val dividerPx = with(density) { dividerHeight.toPx() }
-        val visibleRows = ((order.size + columns - 1) / columns).coerceAtLeast(1)
-        val hiddenRows = ((hidden.size + columns - 1) / columns).coerceAtLeast(1)
-
-        // 拖拽结束时按「图标中心落在哪」决定去哪个区、第几格（用最新的列表尺寸）
-        val finishDrag by rememberUpdatedState { action: MenuAction, fromHidden: Boolean, row: Int, col: Int ->
-            val visibleBottom = visibleRows * cellHeightPx
-            val hiddenTop = visibleBottom + dividerPx
-            val originY = if (fromHidden) hiddenTop + row * cellHeightPx else row * cellHeightPx
-            val cx = col * cellWidthPx + cellWidthPx / 2 + dragOffset.x
-            val cy = originY + cellHeightPx / 2 + dragOffset.y
-            val toHidden = cy >= visibleBottom + dividerPx / 2
-            val rowT = ((if (toHidden) cy - hiddenTop else cy) / cellHeightPx).toInt().coerceAtLeast(0)
-            val colT = (cx / cellWidthPx).toInt().coerceIn(0, columns - 1)
-            onMove(action, toHidden, rowT * columns + colT)
-        }
-        val startDrag by rememberUpdatedState { fromHidden: Boolean ->
-            // 底部弹层向上生长：第一次进入编辑时补偿增加的高度，图标才不会脱离手指
-            dragOffset = if (!editing && !fromHidden) {
-                Offset(0f, dividerPx + hiddenRows * cellHeightPx)
-            } else {
-                Offset.Zero
-            }
-            editing = true
-        }
-
-        @Composable
-        fun Cells(items: List<MenuAction>, inHidden: Boolean) {
-            items.chunked(columns).forEachIndexed { row, rowItems ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .zIndex(if (rowItems.any { it == dragAction }) 1f else 0f),
-                ) {
-                    rowItems.forEachIndexed { col, action ->
-                        MenuCell(
-                            modifier = Modifier.weight(1f),
-                            action = action,
-                            label = labelFor(action),
-                            badge = badgeFor(action),
-                            locked = lockedFor(action),
-                            cellHeight = cellHeight,
-                            tint = if (action == MenuAction.Incognito && incognitoActive) purple
-                            else MiuixTheme.colorScheme.onSurface,
-                            dragged = dragAction == action,
-                            dragOffset = { dragOffset },
-                            dimmed = (dragAction != null && dragAction != action) || (inHidden && dragAction == null),
-                            onClick = {
-                                if (!editing) {
-                                    // 置灰项（Gecko 下不支持）：只提示，不执行
-                                    if (lockedFor(action)) {
-                                        if (action == MenuAction.GeckoExtensions) {
-                                            showWebViewUnsupportedToast(menuContext)
-                                        } else {
-                                            showGeckoUnsupportedToast(menuContext)
-                                        }
-                                    } else {
-                                        onAction(action)
-                                    }
-                                }
-                            },
-                            onDragStart = {
-                                // 长按不进编辑；等 onDrag 出现真实位移再展开隐藏区。
-                                // 系统长按（约 0.4s）后进入这里，再补足到 [MENU_LONG_PRESS_MS]（0.65s）
-                                holdJob?.cancel()
-                                if (action in longPressActions && !editing) {
-                                    holdJob = gridScope.launch {
-                                        kotlinx.coroutines.delay((MENU_LONG_PRESS_MS - systemLongPressMs).coerceAtLeast(0L))
-                                        if (dragAction == null && !editing && pendingDrag.getDistance() < enterEditThresholdPx) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            longPressNow(action)
-                                        }
-                                    }
-                                }
-                            },
-                            onDrag = { delta ->
-                                if (delta.x != 0f || delta.y != 0f) {
-                                    if (dragAction == null) {
-                                        // 已在编辑态：直接跟手；否则累计位移，拖过阈值才进入编辑
-                                        pendingDrag += delta
-                                        if (editing || pendingDrag.getDistance() >= enterEditThresholdPx) {
-                                            dragAction = action
-                                            if (!editing) {
-                                                startDrag(inHidden)
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                            dragOffset += pendingDrag
-                                            pendingDrag = Offset.Zero
-                                        }
-                                    } else {
-                                        dragOffset += delta
-                                    }
-                                }
-                            },
-                            onDragEnd = {
-                                holdJob?.cancel()
-                                if (editing && dragAction == action) {
-                                    finishDrag(action, inHidden, row, col)
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                }
-                                dragAction = null
-                                dragOffset = Offset.Zero
-                                pendingDrag = Offset.Zero
-                            },
-                            onDragCancel = {
-                                holdJob?.cancel()
-                                dragAction = null
-                                dragOffset = Offset.Zero
-                                pendingDrag = Offset.Zero
-                            },
-                        )
-                    }
-                    repeat(columns - rowItems.size) { Spacer(modifier = Modifier.weight(1f)) }
-                }
-            }
-        }
-
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-            Cells(order, inHidden = false)
-            if (editing) {
-                Box(modifier = Modifier.fillMaxWidth().height(dividerHeight)) {
-                    Text(
-                        text = "隐藏的功能（拖到线下方隐藏）",
-                        fontSize = 11.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 6.dp),
-                    )
-                    Text(
-                        text = "完成",
-                        fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .clickable { editing = false }
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        Color.Transparent,
-                                        Color.White.copy(alpha = 0.95f),
-                                        Color.Transparent,
-                                    ),
-                                ),
-                            ),
-                    )
-                }
-                if (hidden.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(cellHeight),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "把不常用的功能拖到这里",
-                            fontSize = 12.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                } else {
-                    Cells(hidden, inHidden = true)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MenuCell(
-    modifier: Modifier,
-    action: MenuAction,
-    label: String,
-    badge: Int,
-    locked: Boolean,
-    cellHeight: androidx.compose.ui.unit.Dp,
-    tint: Color,
-    dragged: Boolean,
-    dragOffset: () -> Offset,
-    dimmed: Boolean,
-    onClick: () -> Unit,
-    onDragStart: () -> Unit,
-    onDrag: (Offset) -> Unit,
-    onDragEnd: () -> Unit,
-    onDragCancel: () -> Unit,
-) {
-    val start by rememberUpdatedState(onDragStart)
-    val drag by rememberUpdatedState(onDrag)
-    val end by rememberUpdatedState(onDragEnd)
-    val cancel by rememberUpdatedState(onDragCancel)
-    Box(
-        modifier = modifier
-            .height(cellHeight)
-            .graphicsLayer {
-                if (dragged) {
-                    val offset = dragOffset()
-                    translationX = offset.x
-                    translationY = offset.y
-                    scaleX = 1.08f
-                    scaleY = 1.08f
-                }
-                alpha = if (locked) GECKO_LOCKED_ALPHA else if (dimmed) 0.6f else 1f
-            }
-            .pointerInput(action) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { start() },
-                    onDrag = { change, delta ->
-                        change.consume()
-                        drag(delta)
-                    },
-                    onDragEnd = { end() },
-                    onDragCancel = { cancel() },
-                )
-            }
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // 统一 32dp 的图标槽，各格子文字基线一致；脚本图标本身线条偏细偏小，单独放大
-            Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = action.icon,
-                    contentDescription = label,
-                    tint = tint,
-                    modifier = Modifier.size(if (action == MenuAction.ScriptMenu) 31.dp else 26.dp),
-                )
-                if (badge > 0) {
-                    CountBadge(
-                        count = badge,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 7.dp, y = (-4).dp),
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(text = label, fontSize = 11.sp, color = tint, maxLines = 1)
-        }
-    }
-}
-
-/** 标签卡片。[blurBackdrop] 非空时标题条使用 miuix-glass 模糊底，否则退回半透明纯色底。[highlight] 当前页高光描边。 */
-@Composable
-private fun TabCard(
-    item: BrowserTab,
-    blurBackdrop: LayerBackdrop?,
-    onSelect: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-    highlight: Boolean = false,
-) {
-    val thumb = item.thumbnail
-    val cardColor = if (item.incognito) Color(0xFF3D2B4F) else MiuixTheme.colorScheme.surfaceContainerHigh
-    val highlightColor = MiuixTheme.colorScheme.primary
-    Box(
-        modifier = modifier
-            .height(160.dp)
-            .then(
-                if (highlight) {
-                    Modifier.shadow(
-                        elevation = 12.dp,
-                        shape = RoundedCornerShape(16.dp),
-                        spotColor = highlightColor,
-                        ambientColor = highlightColor,
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardColor)
-            .then(
-                if (highlight) {
-                    Modifier.border(2.dp, highlightColor, RoundedCornerShape(16.dp))
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(onClick = onSelect),
-    ) {
-        if (thumb != null) {
-            Image(
-                bitmap = thumb,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                alpha = 0.45f,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (blurBackdrop != null) {
-                            Modifier.glassPanel(
-                                backdrop = blurBackdrop,
-                                shape = GlassShape(0.dp),
-                                style = GlassDefaults.style(isAppDarkTheme()),
-                                material = GlassMaterials.puredThinGlass(isAppDarkTheme()),
-                                stroke = GlassStrokes.forTheme(isAppDarkTheme()),
-                                shading = false,
-                            )
-                        } else {
-                            Modifier.background(MiuixTheme.colorScheme.surface.copy(alpha = 0.55f))
-                        },
-                    )
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    text = buildString {
-                        if (item.incognito) append("无痕 · ")
-                        append(item.title.ifBlank { "新标签页" })
-                    },
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = if (item.url.isBlank()) "主页" else hostOf(item.url),
-                    fontSize = 11.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onClose, minWidth = 28.dp, minHeight = 28.dp) {
-                    Icon(
-                        imageVector = MiuixIcons.Glass.Close,
-                        contentDescription = "关闭",
-                        modifier = Modifier.size(14.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 标签页 sheet 左上角圆形新建按钮：在当前栏（标签页 / 无痕浏览页）新建，无长按操作。 */
-@Composable
-private fun TabAddButton(
-    canAdd: Boolean,
-    onClick: () -> Unit,
-    backdrop: com.kyant.backdrop.Backdrop?,
-    modifier: Modifier = Modifier,
-) {
-    LiquidGlassButton(
-        onClick = onClick,
-        backdrop = backdrop,
-        modifier = modifier,
-        enabled = canAdd,
-    ) {
-        Icon(
-            imageVector = MiuixIcons.Glass.Add,
-            contentDescription = "新建标签页",
-            tint = MiuixTheme.colorScheme.primary,
-            modifier = Modifier.size(22.dp),
-        )
-    }
-}
-
-/** 紧凑分段切换：一个圆角底，选中块弹簧滑动（标签页 / 无痕浏览页）。 */
-@Composable
-private fun TabsSegmented(
-    labels: List<String>,
-    selected: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val haptic = LocalHapticFeedback.current
-    val thumbPosition by animateFloatAsState(
-        targetValue = selected.toFloat(),
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
-        label = "tabsSegmentedThumb",
-    )
-    val container = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-    val thumb = MiuixTheme.colorScheme.surface
-    Row(
-        modifier = modifier
-            .width(236.dp)
-            .height(40.dp)
-            .clip(CircleShape)
-            .background(container)
-            .drawBehind {
-                val segment = size.width / labels.size
-                val inset = 4.dp.toPx()
-                drawRoundRect(
-                    color = thumb,
-                    topLeft = Offset(segment * thumbPosition + inset, inset),
-                    size = Size(segment - inset * 2, size.height - inset * 2),
-                    cornerRadius = CornerRadius(size.height / 2f),
-                )
-            },
-    ) {
-        labels.forEachIndexed { index, label ->
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) {
-                        if (index != selected) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onSelect(index)
-                        }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    fontSize = 15.sp,
-                    fontWeight = if (index == selected) FontWeight.Medium else FontWeight.Normal,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}
-
-private val GoogleColors = listOf(
-    Color(0xFF4285F4),
-    Color(0xFFEA4335),
-    Color(0xFFFBBC05),
-    Color(0xFF4285F4),
-    Color(0xFF34A853),
-    Color(0xFFEA4335),
-)
 
 /**
  * 首页 Mafari 标志：液态玻璃字。
@@ -4595,7 +2693,7 @@ private val GoogleColors = listOf(
  * 字形遮罩用 saveLayer + BlendMode（SrcIn / DstOut）实现，不依赖 RuntimeShader。
  */
 @Composable
-private fun GlassLogoText(text: String, fontSize: Int, wallpaper: ImageBitmap?) {
+internal fun GlassLogoText(text: String, fontSize: Int, wallpaper: ImageBitmap?) {
     val dark = isAppDarkTheme()
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -4746,7 +2844,7 @@ private fun GlassLogoText(text: String, fontSize: Int, wallpaper: ImageBitmap?) 
 }
 
 /** 抓取远程脚本 */
-private fun fetchRemoteScript(url: String): String? = runCatching {
+internal fun fetchRemoteScript(url: String): String? = runCatching {
     val connection = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
         connectTimeout = 8000
         readTimeout = 8000
@@ -4760,9 +2858,23 @@ private fun fetchRemoteScript(url: String): String? = runCatching {
     }
 }.getOrNull()
 
+/** 下拉刷新指示器的宿主：pullProgress 每个触摸事件都在变，把读取隔离在这个小组合里，不让整个 BrowserScreen 跟着重组 */
+@Composable
+private fun BoxScope.PullSpinnerHost(tab: BrowserTab) {
+    val p = tab.pullProgress
+    if (p > 0.05f) {
+        RefreshSpinner(
+            progress = p,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 18.dp),
+        )
+    }
+}
+
 /** 顶部下拉刷新指示器：直接复用轻应用（WebAppActivity）的 RefreshSpinnerView，观感与动效完全一致 */
 @Composable
-private fun RefreshSpinner(progress: Float, modifier: Modifier = Modifier) {
+internal fun RefreshSpinner(progress: Float, modifier: Modifier = Modifier) {
     val bg = MiuixTheme.colorScheme.surface.copy(alpha = 0.92f).toArgb()
     AndroidView(
         modifier = modifier
@@ -4789,7 +2901,7 @@ private fun RefreshSpinner(progress: Float, modifier: Modifier = Modifier) {
 
 /** 从 content:// 读壁纸 */
 @Composable
-private fun rememberBlurredWallpaper(uri: String, enabled: Boolean, version: Int): ImageBitmap? {
+internal fun rememberBlurredWallpaper(uri: String, enabled: Boolean, version: Int): ImageBitmap? {
     val context = LocalContext.current
     val image by produceState<ImageBitmap?>(initialValue = null, uri, enabled, version) {
         value = if (!enabled || uri.isBlank()) {
@@ -4804,7 +2916,7 @@ private fun rememberBlurredWallpaper(uri: String, enabled: Boolean, version: Int
 }
 
 @Composable
-private fun rememberWallpaper(uri: String): ImageBitmap? {
+internal fun rememberWallpaper(uri: String): ImageBitmap? {
     val context = LocalContext.current
     val image by produceState<ImageBitmap?>(initialValue = null, uri) {
         value = if (uri.isBlank()) {

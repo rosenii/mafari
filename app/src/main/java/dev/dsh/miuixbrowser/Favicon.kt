@@ -19,10 +19,18 @@ object FaviconLoader {
 
     private val cache = ConcurrentHashMap<String, ImageBitmap?>()
 
+    /** 抓取失败的主机 → 失败时间；一段时间内不再重试（历史 / 书签长列表里没有图标的站点会反复触发加载） */
+    private val failedAt = ConcurrentHashMap<String, Long>()
+    private const val FAIL_TTL_MS = 5 * 60 * 1000L
+
     suspend fun load(host: String): ImageBitmap? {
         if (host.isBlank()) return null
-        Diag.log("favicon start $host")
         cache[host]?.let { return it }
+        failedAt[host]?.let { t ->
+            if (System.currentTimeMillis() - t < FAIL_TTL_MS) return null
+            failedAt.remove(host)
+        }
+        Diag.log("favicon start $host")
         val bitmap = runCatching {
             val urls = listOf(
                 "https://$host/favicon.ico",
@@ -38,7 +46,7 @@ object FaviconLoader {
         Diag.log("favicon done $host -> ${bitmap != null}")
         val image = bitmap?.asImageBitmap()
         // ConcurrentHashMap 不收 null，之前这里直接 NPE
-        if (image != null) cache[host] = image
+        if (image != null) cache[host] = image else failedAt[host] = System.currentTimeMillis()
         return image
     }
 

@@ -24,16 +24,22 @@ import java.util.concurrent.Executors
  */
 class GmBridge(
     private val context: Context,
-    @Suppress("unused") private val webViewProvider: () -> WebView?,
-    private val onOpenTab: (String) -> Unit,
-    private val onDownload: (url: String, name: String) -> Unit = { _, _ -> },
+    private val webViewProvider: () -> WebView?,
+    /** 主线程。[id] 由桥生成并回传给脚本，之后 [onCloseTab] 用它找回标签；宿主不支持追踪时可忽略 */
+    private val onOpenTab: (id: String, url: String, active: Boolean) -> Unit,
+    /** 主线程。[onResult] 非空时，宿主必须在下载结束 / 取消后恰好回调一次 */
+    private val onDownload: (url: String, name: String, onResult: ((ok: Boolean, error: String?) -> Unit)?) -> Unit =
+        { _, _, _ -> },
+    private val onCloseTab: (id: String) -> Unit = {},
 ) {
 
     private val prefs = context.getSharedPreferences("userscript_gm", Context.MODE_PRIVATE)
     private val pool = Executors.newCachedThreadPool()
     private val mainHandler = android.os.Handler(context.mainLooper)
 
-    private val results = ConcurrentHashMap<String, String>()
+    private class Pending(val json: String, val at: Long = System.currentTimeMillis())
+
+    private val results = ConcurrentHashMap<String, Pending>()
     private val connections = ConcurrentHashMap<String, HttpURLConnection>()
     private val aborted = ConcurrentHashMap.newKeySet<String>()
 
@@ -59,31 +65,50 @@ class GmBridge(
         return JSONArray(keys).toString()
     }
 
+    /** 批量读取（值变化监听轮询用）：{ name: rawString }，不存在的键不出现在结果里 */
+    @JavascriptInterface
+    fun getValues(scriptId: String, namesJson: String): String {
+        val out = JSONObject()
+        val names = runCatching { JSONArray(namesJson) }.getOrNull() ?: return out.toString()
+        for (i in 0 until names.length()) {
+            val name = names.optString(i)
+            prefs.getString("$scriptId::$name", null)?.let { out.put(name, it) }
+        }
+        return out.toString()
+    }
+
     // ------------------------------------------------------------------ GM_xmlhttpRequest
 
     @JavascriptInterface
     fun xhrStart(reqId: String, optionsJson: String, bodyBase64: String) {
+        purgeStaleResults()
         pool.execute {
             val result = runCatching { runXhr(reqId, optionsJson, bodyBase64) }.getOrElse { e ->
                 JSONObject().put("state", "error").put("error", e.message ?: "request failed").toString()
             }
             connections.remove(reqId)
-            if (aborted.remove(reqId)) {
-                results[reqId] = JSONObject().put("state", "abort").toString()
-            } else {
-                results[reqId] = result
-            }
+            // v2 运行时在 abort 后就停止轮询，不会再来取结果：不存，免得堆积
+            if (!aborted.remove(reqId)) results[reqId] = Pending(result)
         }
     }
 
     /** 还没好返回 null；好了返回 JSON 并清掉 */
     @JavascriptInterface
-    fun xhrPoll(reqId: String): String? = results.remove(reqId)
+    fun xhrPoll(reqId: String): String? = results.remove(reqId)?.json
 
     @JavascriptInterface
     fun xhrAbort(reqId: String) {
         aborted.add(reqId)
+        results.remove(reqId) // 结果恰好已出、尚未被取走
         connections[reqId]?.let { conn -> pool.execute { runCatching { conn.disconnect() } } }
+        // 请求若已结束，xhrStart 收尾时不会再清这个标记：延迟清掉，避免常驻
+        mainHandler.postDelayed({ if (!connections.containsKey(reqId)) aborted.remove(reqId) }, 60_000)
+    }
+
+    /** 无人认领（页面已跳转 / 脚本没轮询）的结果 60 秒后丢弃 */
+    private fun purgeStaleResults() {
+        val now = System.currentTimeMillis()
+        results.entries.removeAll { now - it.value.at > 60_000 }
     }
 
     private fun hasHeader(headers: JSONObject, name: String): Boolean =
@@ -145,9 +170,12 @@ class GmBridge(
                         }
                     }
                 }
-                if (status in intArrayOf(301, 302, 303, 307, 308) && redirects < 10 &&
-                    opt.optString("redirect", "follow") != "manual"
-                ) {
+                val redirectMode = opt.optString("redirect", "follow")
+                if (status in intArrayOf(301, 302, 303, 307, 308) && redirectMode == "error") {
+                    conn.disconnect()
+                    return JSONObject().put("state", "error").put("error", "redirect not allowed").toString()
+                }
+                if (status in intArrayOf(301, 302, 303, 307, 308) && redirects < 10 && redirectMode != "manual") {
                     val location = conn.getHeaderField("Location")
                     if (!location.isNullOrBlank()) {
                         redirects++
@@ -259,14 +287,55 @@ class GmBridge(
         }
     }
 
+    private fun isHttp(url: String) = url.startsWith("http://", true) || url.startsWith("https://", true)
+
+    /** 旧接口：不回传 id（保留给仍调用单参数版本的老运行时 / 回退路径） */
     @JavascriptInterface
     fun openTab(url: String) {
-        mainHandler.post { onOpenTab(url) }
+        openTab(url, "{}")
+    }
+
+    /** v2：返回标签 id，之后可 [closeTab]。只允许 http(s)。 */
+    @JavascriptInterface
+    fun openTab(url: String, optionsJson: String): String {
+        if (!isHttp(url)) return ""
+        val active = runCatching { JSONObject(optionsJson).optBoolean("active", true) }.getOrDefault(true)
+        val id = java.util.UUID.randomUUID().toString()
+        mainHandler.post { onOpenTab(id, url, active) }
+        return id
     }
 
     @JavascriptInterface
+    fun closeTab(id: String) {
+        mainHandler.post { onCloseTab(id) }
+    }
+
+    /** 旧接口：发起即返回，没有结果回调 */
+    @JavascriptInterface
     fun download(url: String, name: String) {
-        mainHandler.post { onDownload(url, name) }
+        if (!isHttp(url)) return
+        mainHandler.post { onDownload(url, name, null) }
+    }
+
+    /** v2：结果经 window.__mafariDlCallback_<cbId>(ok, err) 回传（仅主框架能收到，见 [callJs]） */
+    @JavascriptInterface
+    fun downloadAsync(url: String, name: String, cbId: String) {
+        if (!isHttp(url) || !SAFE_ID.matches(cbId)) {
+            callJs("__mafariDlCallback_$cbId", "false,'unsupported url'")
+            return
+        }
+        mainHandler.post {
+            var called = false
+            onDownload(url, name) { ok, err ->
+                if (!called) {
+                    called = true
+                    callJs(
+                        "__mafariDlCallback_$cbId",
+                        if (ok) "true" else "false," + JSONObject.quote(err ?: "download failed"),
+                    )
+                }
+            }
+        }
     }
 
     @JavascriptInterface
@@ -280,11 +349,120 @@ class GmBridge(
     }
 
     @JavascriptInterface
+    fun copyHtml(html: String) {
+        mainHandler.post {
+            runCatching {
+                val plain = android.text.Html.fromHtml(html, android.text.Html.FROM_HTML_MODE_COMPACT).toString()
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newHtmlText("Mafari", plain, html))
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ GM_notification
+
+    /**
+     * 回调经 window.__mafariNtfCallback_<id>(kind) 回传，kind = click | close | timeout。
+     * 不能发通知（权限被拒）时抛异常：运行时会退回 toast，且不会伪造 ondone。
+     */
+    @JavascriptInterface
+    fun notification(json: String, cbId: String) {
+        if (!SAFE_ID.matches(cbId)) error("bad callback id")
+        val o = JSONObject(json)
+        GmNotifications.post(
+            context = context,
+            title = o.optString("title"),
+            text = o.optString("text"),
+            tag = o.optString("tag"),
+            timeoutMs = o.optLong("timeout", 0L),
+            silent = o.optBoolean("silent", false),
+        ) { kind -> callJs("__mafariNtfCallback_$cbId", JSONObject.quote(kind)) }
+    }
+
+    // ------------------------------------------------------------------ JS 回调
+
+    /**
+     * 往「主框架」调一个一次性全局回调。addJavascriptInterface 对每个框架都有效，
+     * 但 evaluateJavascript 只能进主框架：在 iframe 里跑的脚本拿不到下载 / 通知的结果回调
+     * （xhr 不受影响，它走轮询）。
+     */
+    private fun callJs(fn: String, args: String) {
+        if (!SAFE_ID.matches(fn)) return
+        mainHandler.post {
+            runCatching {
+                webViewProvider()?.evaluateJavascript(
+                    "(function(){try{var f=window.$fn;if(typeof f==='function')f($args)}catch(e){}})()",
+                    null,
+                )
+            }
+        }
+    }
+
+    @JavascriptInterface
     fun cookies(url: String): String =
         runCatching { CookieManager.getInstance().getCookie(url).orEmpty() }.getOrDefault("")
 
     @JavascriptInterface
     fun setCookie(url: String, cookie: String) {
         runCatching { CookieManager.getInstance().setCookie(url, cookie) }
+    }
+
+    /**
+     * GM_cookie.list：CookieManager 只给 name=value（含 HttpOnly，但没有 path / 过期等属性），
+     * 属性按 Cookie 请求头的语义填默认值，与脚本能拿到的信息一致。
+     */
+    @JavascriptInterface
+    fun cookieList(url: String): String {
+        val arr = JSONArray()
+        if (!isHttp(url)) return arr.toString()
+        val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
+        val secure = url.startsWith("https://", true)
+        CookieManager.getInstance().getCookie(url).orEmpty().split(";").forEach { kv ->
+            val pair = kv.trim()
+            if (pair.isEmpty()) return@forEach
+            val i = pair.indexOf('=')
+            arr.put(
+                JSONObject()
+                    .put("name", if (i < 0) pair else pair.substring(0, i))
+                    .put("value", if (i < 0) "" else pair.substring(i + 1))
+                    .put("domain", host).put("hostOnly", true).put("path", "/")
+                    .put("secure", secure).put("httpOnly", false).put("session", true),
+            )
+        }
+        return arr.toString()
+    }
+
+    /** GM_cookie.set / delete（delete 以 expirationDate = 0 表示） */
+    @JavascriptInterface
+    fun cookieSet(json: String) {
+        runCatching {
+            val o = JSONObject(json)
+            val url = o.getString("url")
+            val name = o.getString("name")
+            if (!isHttp(url) || name.isBlank() || name.any { it == ';' || it == '=' || it.isWhitespace() }) return
+            val value = o.optString("value").replace(";", "%3B")
+            val sb = StringBuilder("$name=$value")
+            sb.append("; Path=").append(o.optString("path").ifBlank { "/" }.replace(";", ""))
+            o.optString("domain").takeIf { it.isNotBlank() && it != "null" }?.let { sb.append("; Domain=").append(it.replace(";", "")) }
+            if (o.optBoolean("secure", false)) sb.append("; Secure")
+            if (o.optBoolean("httpOnly", false)) sb.append("; HttpOnly")
+            o.optString("sameSite").takeIf { it in setOf("Strict", "Lax", "None") }?.let { sb.append("; SameSite=").append(it) }
+            if (o.has("expirationDate") && !o.isNull("expirationDate")) {
+                val exp = o.optLong("expirationDate", -1L)
+                if (exp >= 0) {
+                    val fmt = java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", java.util.Locale.US)
+                        .apply { timeZone = java.util.TimeZone.getTimeZone("GMT") }
+                    sb.append("; Expires=").append(fmt.format(java.util.Date(exp * 1000)))
+                }
+            }
+            val cm = CookieManager.getInstance()
+            cm.setCookie(url, sb.toString())
+            cm.flush()
+        }
+    }
+
+    private companion object {
+        /** 页面能随便调桥：回调函数名只接受这个字符集，杜绝拼进 evaluateJavascript 的注入 */
+        val SAFE_ID = Regex("[A-Za-z0-9_]{1,80}")
     }
 }

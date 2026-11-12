@@ -79,11 +79,24 @@ fun AboutScreen(
     onUpdateChannelChange: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
+    // 优先交给已安装的 Telegram 客户端（不能用无包名的 ACTION_VIEW：本应用自己可能就是默认浏览器），都没有再用应用内标签打开
+    val openTelegram: (String) -> Unit = { url ->
+        val opened = listOf("org.telegram.messenger", "org.telegram.messenger.web", "org.thunderdog.challegram", "org.telegram.plus")
+            .any { pkg ->
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage(pkg),
+                    )
+                }.isSuccess
+            }
+        if (!opened) onOpenUrl(url)
+    }
     val scope = rememberCoroutineScope()
     val kernel = webViewVersion() ?: "未知"
     val geckoKernel = remember { geckoViewVersion() }
     val ua = remember { runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault("未知") }
     val dependencyGroups = remember { parseDependencyVersions(BuildConfig.DEP_VERSIONS) }
+    val cryptoGroups = remember { parseDependencyVersions(BuildConfig.CRYPTO_ALGORITHMS) }
     var checkingUpdate by remember { mutableStateOf(false) }
 
     val pageBackdrop = rememberLayerBackdrop()
@@ -99,6 +112,7 @@ fun AboutScreen(
     val surface = MiuixTheme.colorScheme.surface
     val iconShape = RoundedCornerShape(26.dp)
     var pendingUpdate by remember { mutableStateOf<AppRelease?>(null) }
+    var showDonate by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides if (glass) liquidBackdrop else null) {
     Scaffold(
@@ -246,6 +260,9 @@ fun AboutScreen(
                     AboutRow("GeckoView 内核版本", geckoKernel ?: "未知")
                 }
 
+                SmallTitle(text = "加密算法")
+                DependencyVersionsCard(cryptoGroups)
+
                 SmallTitle(text = "依赖版本")
                 DependencyVersionsCard(dependencyGroups)
 
@@ -284,6 +301,68 @@ fun AboutScreen(
                             color = MiuixTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+
+                SmallTitle(text = "交流与反馈")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    listOf(
+                        Triple("Telegram 频道", TG_CHANNEL_URL, "更新公告与新版本推送"),
+                        Triple("Telegram 交流群", TG_GROUP_URL, "使用交流与问题反馈"),
+                    ).forEachIndexed { index, (title, url, hint) ->
+                        if (index > 0) {
+                            Spacer(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp)
+                                    .height(0.5.dp)
+                                    .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.15f)),
+                            )
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { openTelegram(url) }
+                                .padding(16.dp),
+                        ) {
+                            Text(title, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "$hint · $url",
+                                fontSize = 12.sp,
+                                color = MiuixTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
+                SmallTitle(text = "捐赠")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDonate = true }
+                            .padding(16.dp),
+                    ) {
+                        Text("捐赠", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = DONATE_SUMMARY,
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                     }
                 }
@@ -357,6 +436,9 @@ fun AboutScreen(
                     }
                 }
             }
+
+            // 捐赠：赞赏码 + 保存到相册
+            DonateSheet(show = showDonate, backdrop = if (glass) pageBackdrop else null, onDismiss = { showDonate = false })
         }
     }
     }
@@ -372,6 +454,8 @@ data class AppRelease(
 )
 
 private const val PROJECT_URL = "https://github.com/rosenii/mafari"
+private const val TG_CHANNEL_URL = "https://t.me/mafari_a"
+private const val TG_GROUP_URL = "https://t.me/Mafari_discuss"
 private const val COPYRIGHT = "Copyright © 2026 rosenii. All rights reserved."
 private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/releases?per_page=100"
 
@@ -508,7 +592,12 @@ private fun AboutRow(title: String, value: String) {
 private val DEP_GROUP_TITLES = mapOf(
     "ui" to "界面",
     "androidx" to "AndroidX",
+    "sync" to "云同步",
     "build" to "构建工具链",
+    "kem" to "密钥封装（后量子混合）",
+    "sym" to "对称加密",
+    "kdf" to "密钥派生",
+    "lib" to "实现库",
 )
 
 private class DependencyGroup(val title: String, val items: List<Pair<String, String>>)

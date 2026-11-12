@@ -17,6 +17,7 @@ jobs:
       STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       # tag → 正式 release；gecko 分支 → 预发布；其余只出 debug
       IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
       IS_GECKO_BRANCH: ${{ github.ref == 'refs/heads/gecko' }}
@@ -165,6 +166,7 @@ jobs:
 
       - name: Create GitHub Release
         if: env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true'
+        id: release
         uses: softprops/action-gh-release@v3
         with:
           files: dist/*.apk
@@ -175,3 +177,93 @@ jobs:
           # gecko 分支标预发布；不抢 latest
           prerelease: ${{ env.IS_GECKO_BRANCH == 'true' }}
           make_latest: ${{ env.IS_GECKO_BRANCH == 'true' && 'false' || 'true' }}
+
+      # 同步推送到 Telegram 频道（正式版 + 预发布）。
+      # 需要 Secrets：TELEGRAM_BOT_TOKEN（机器人需是频道管理员）；TELEGRAM_CHAT_ID 可选，默认 @mafari_a。
+      # 没配 token 就跳过；推送失败不影响发布（continue-on-error）。
+      - name: Notify Telegram
+        if: (env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true') && env.TG_TOKEN != ''
+        continue-on-error: true
+        env:
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID || '@mafari_a' }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          TAG_NAME: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('gecko-{0}', github.run_number) }}
+        run: |
+          python3 - <<'PY'
+          import glob, html, json, os, pathlib, re, subprocess
+
+          token = os.environ["TG_TOKEN"]
+          chat = os.environ["TG_CHAT"]
+          tag = os.environ["TAG_NAME"]
+          is_gecko = os.environ.get("IS_GECKO_BRANCH") == "true"
+          repo = os.environ.get("GITHUB_REPOSITORY", "")
+          url = os.environ.get("RELEASE_URL") or f"https://github.com/{repo}/releases/tag/{tag}"
+          api = f"https://api.telegram.org/bot{token}"
+          LIMIT = 49 * 1024 * 1024  # Bot API 上传上限 50 MB，留一点余量
+
+          def call(method, fields, files=None):
+              """用 curl 调 Bot API（不把 token 打进日志）；返回解析后的 JSON"""
+              cmd = ["curl", "-sS", "--max-time", "600", f"{api}/{method}"]
+              for k, v in fields.items():
+                  cmd += ["--form-string", f"{k}={v}"]
+              for k, path in (files or {}).items():
+                  cmd += ["-F", f"{k}=@{path}"]
+              r = subprocess.run(cmd, capture_output=True, text=True)
+              try:
+                  return json.loads(r.stdout)
+              except Exception:
+                  return {"ok": False, "description": (r.stderr or r.stdout)[:200]}
+
+          # 正文：取 RELEASE_NOTES.md，去掉标题行，简单转成 Telegram 支持的 HTML
+          notes = ""
+          p = pathlib.Path("dist/RELEASE_NOTES.md")
+          if p.exists():
+              lines = p.read_text(encoding="utf-8").splitlines()
+              notes = "\n".join(l for l in lines if not l.startswith("## ")).strip()
+
+          def to_html(md):
+              out = html.escape(md)
+              out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out)
+              out = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", out)
+              return out
+
+          def clip(text, n):
+              if len(text) <= n:
+                  return text
+              cut = text[:n].rsplit("\n", 1)[0]
+              return cut + "\n…"
+
+          title = f"🧪 Mafari 预发布 {tag}" if is_gecko else f"🚀 Mafari {tag}"
+          apks = sorted(glob.glob("dist/*.apk"))
+          pick = next((a for a in apks if a.endswith("mafari-release-signed.apk")), None) \
+              or next((a for a in apks if a.endswith("app-release.apk")), None) \
+              or (apks[0] if apks else None)
+          too_big = bool(pick) and os.path.getsize(pick) > LIMIT
+
+          raw_tail = f"\n\n下载 / Download: {url}"
+          if too_big:
+              raw_tail += "\n（安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
+          body = clip(notes, 3200)
+          html_text = f"<b>{html.escape(title)}</b>\n\n{to_html(body)}" if body else f"<b>{html.escape(title)}</b>"
+          html_text += f'\n\n<a href="{html.escape(url)}">下载 / Download</a>'
+          if too_big:
+              html_text += "\n（安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
+
+          res = call("sendMessage", {
+              "chat_id": chat, "text": html_text, "parse_mode": "HTML",
+              "disable_web_page_preview": "true",
+          })
+          if not res.get("ok"):
+              print("HTML 消息失败，改发纯文本：", res.get("description"))
+              res = call("sendMessage", {
+                  "chat_id": chat, "text": f"{title}\n\n{body}{raw_tail}".strip(),
+                  "disable_web_page_preview": "true",
+              })
+          print("sendMessage:", res.get("ok"), res.get("description", ""))
+
+          if pick and not too_big:
+              res = call("sendDocument", {"chat_id": chat, "caption": title}, {"document": pick})
+              print("sendDocument:", os.path.basename(pick), res.get("ok"), res.get("description", ""))
+          if not res.get("ok"):
+              raise SystemExit(1)
+          PY

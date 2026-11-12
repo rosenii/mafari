@@ -286,30 +286,6 @@ class ExtensionStore(context: Context) {
         if (changed) persist()
     }
 
-    private val engineSnap get() = appContext.getSharedPreferences("mafari_engine_switch", android.content.Context.MODE_PRIVATE)
-
-    /** 切 Gecko：记住每个脚本各自的启停状态后全部关闭（已有快照时不覆盖） */
-    fun suspendAll() {
-        val sp = engineSnap
-        if (!sp.contains("scripts_on")) {
-            sp.edit().putStringSet("scripts_on", items.filter { it.enabled }.map { it.id }.toSet()).apply()
-        }
-        setAllEnabled(false)
-    }
-
-    /** 切回 WebView：按快照恢复每个脚本的启停状态（无快照则全部开启） */
-    fun resumeAll() {
-        val sp = engineSnap
-        val saved = sp.getStringSet("scripts_on", null)
-        if (saved == null) { setAllEnabled(true); return }
-        items.forEachIndexed { index, script ->
-            val want = script.id in saved
-            if (script.enabled != want) items[index] = script.copy(enabled = want)
-        }
-        persist()
-        sp.edit().remove("scripts_on").apply()
-    }
-
     fun remove(id: String) {
         items.removeAll { it.id == id }
         persist()

@@ -8,13 +8,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 首页收藏最多显示的个数；其余只出现在书签页里。 */
-const val HOME_FAV_MAX = 12
 
 data class Favorite(
     val name: String,
     val url: String,
     /** 书签分组；「个人收藏」为默认组。 */
     val group: String = GROUP_PERSONAL,
+    /** 稳定 id：供 Floccus 书签同步识别同一条书签（旧数据首次读取时补上并落盘）。 */
+    val id: String = java.util.UUID.randomUUID().toString(),
 ) {
     companion object {
         const val GROUP_PERSONAL = "个人收藏"
@@ -24,29 +25,74 @@ data class Favorite(
 /** 主页收藏（书签）的增删改、分组 + 本地持久化。 */
 class FavoritesStore(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mafari", Context.MODE_PRIVATE)
+
+    /** load() 里发现旧数据缺 id 时置位；必须声明在 items 之前（属性按声明顺序初始化）。 */
+    private var needsPersist = false
 
     val items = mutableStateListOf<Favorite>().apply {
         addAll(load())
     }
 
+    /** 文件夹注册表（有序）：路径 → 稳定 id。空文件夹、文件夹顺序、重命名后 id 不变都靠它。 */
+    private val folderOrder = mutableListOf<String>()
+    private val folderIdByPath = HashMap<String, String>()
+
+    init {
+        current = this
+        loadFolders()
+        if (needsPersist) persist()
+        // 旧版本的明文书签 / 旧算法套件的密文：读得出来就立即以当前套件重新加密一次（读不出来绝不覆盖）
+        val raw = prefs.getString(KEY, null)
+        if (raw != null && SecureStore.needsUpgrade(raw) && SecureStore.read(appContext, raw, PURPOSE) != null) persist()
+    }
+
     private fun load(): List<Favorite> {
-        val raw = prefs.getString(KEY, null) ?: return defaults()
+        val stored = prefs.getString(KEY, null) ?: return defaults()
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return defaults()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
                 for (i in 0 until array.length()) {
                     val obj = array.getJSONObject(i)
+                    val storedId = obj.optString("id")
+                    if (storedId.isBlank()) needsPersist = true
                     add(
                         Favorite(
                             name = obj.optString("name"),
                             url = obj.optString("url"),
                             group = obj.optString("group").ifBlank { Favorite.GROUP_PERSONAL },
+                            id = storedId.ifBlank { java.util.UUID.randomUUID().toString() },
                         ),
                     )
                 }
             }
         }.getOrDefault(defaults())
+    }
+
+    private fun loadFolders() {
+        val stored = prefs.getString(KEY_FOLDERS, null) ?: return
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return
+        runCatching {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val path = o.optString("path")
+                val id = o.optString("id")
+                if (path.isNotBlank() && id.isNotBlank() && path !in folderIdByPath) {
+                    folderOrder.add(path)
+                    folderIdByPath[path] = id
+                }
+            }
+        }
+    }
+
+    private fun persistFolders() {
+        val arr = JSONArray()
+        folderOrder.forEach { arr.put(JSONObject().put("path", it).put("id", folderIdByPath[it])) }
+        val sealed = SecureStore.write(appContext, arr.toString(), PURPOSE) ?: return
+        prefs.edit().putString(KEY_FOLDERS, sealed).apply()
     }
 
     private fun defaults(): List<Favorite> = listOf(
@@ -58,81 +104,222 @@ class FavoritesStore(context: Context) {
         Favorite("淘宝", "https://www.taobao.com"),
     )
 
-    /** 按出现顺序返回全部分组名。 */
+    /** 按父目录优先的顺序返回完整文件夹路径（包含空文件夹）。 */
     fun groups(): List<String> {
+        knownFolders()
         val seen = linkedSetOf<String>()
+        seen.add(Favorite.GROUP_PERSONAL)
+        // Floccus 的固定根目录与普通文件夹同级展示。
+        listOf("书签栏", "其他书签", "移动设备书签").forEach { root ->
+            if (items.any { it.group == root } || folderOrder.any { it == root || it.startsWith("$root/") }) seen.add(root)
+        }
+        folderOrder.forEach { seen.add(it) }
         items.forEach { seen.add(it.group.ifBlank { Favorite.GROUP_PERSONAL }) }
-        if (Favorite.GROUP_PERSONAL !in seen) seen.add(Favorite.GROUP_PERSONAL)
         return seen.toList()
+    }
+
+    /** 在指定父目录下创建空文件夹；返回完整路径，重名时返回 null。 */
+    fun createFolder(parent: String, title: String): String? {
+        val name = title.trim().replace('/', '／')
+        if (name.isEmpty()) return null
+        if (parent == Favorite.GROUP_PERSONAL && name in setOf(
+                Favorite.GROUP_PERSONAL, "书签栏", "其他书签", "移动设备书签",
+            )) return null
+        val path = if (parent == Favorite.GROUP_PERSONAL) name else "$parent/$name"
+        knownFolders()
+        if (folderIdByPath.containsKey(path) || items.any { it.group == path }) return null
+        ensureFolderPath(path)
+        return path
+    }
+
+    /** 目录的父容器。自定义一级目录默认归入「个人收藏」；Floccus 固定根目录保持独立。 */
+    fun parentGroup(path: String): String? = when {
+        path.contains('/') -> path.substringBeforeLast('/')
+        path == Favorite.GROUP_PERSONAL || path in setOf("书签栏", "其他书签", "移动设备书签") -> null
+        else -> Favorite.GROUP_PERSONAL
+    }
+
+    /** 创建完整目录链，已有目录的稳定 ID 不变。目录名中的斜杠必须用全角斜杠表示。 */
+    fun ensureFolderPath(path: String): String {
+        var parts = path.split('/').map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.size > 1 && parts.first() == Favorite.GROUP_PERSONAL) parts = parts.drop(1)
+        if (parts.isEmpty()) return Favorite.GROUP_PERSONAL
+        var current = ""
+        parts.forEachIndexed { index, part ->
+            val safe = part.replace('/', '／')
+            current = if (current.isEmpty()) safe else "$current/$safe"
+            val isReservedRoot = index == 0 && safe in setOf(
+                Favorite.GROUP_PERSONAL, "书签栏", "其他书签", "移动设备书签",
+            )
+            if (!isReservedRoot) registerFolder(current)
+        }
+        return current.ifBlank { Favorite.GROUP_PERSONAL }
     }
 
     fun itemsIn(group: String): List<Favorite> =
         items.filter { (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group }
 
     /**
-     * 首页收藏：只取「个人收藏」分组的书签，最多 [HOME_FAV_MAX] 个。
+     * 首页收藏：只取「个人收藏」分组的书签（全部返回，首页按「定制主页」里选的行数截取）。
      * 返回 (在总列表 [items] 里的下标, 书签)，首页的删除 / 排序 / 编辑都靠这个下标回到总列表。
      */
     fun homeEntries(): List<Pair<Int, Favorite>> =
         items.withIndex()
             .filter { (_, f) -> f.group.ifBlank { Favorite.GROUP_PERSONAL } == Favorite.GROUP_PERSONAL }
-            .take(HOME_FAV_MAX)
             .map { it.index to it.value }
 
     /** 「个人收藏」是系统保留分组：不能删除。 */
     fun isProtectedGroup(group: String): Boolean =
-        group.ifBlank { Favorite.GROUP_PERSONAL } == Favorite.GROUP_PERSONAL
+        group.ifBlank { Favorite.GROUP_PERSONAL } in setOf(
+            Favorite.GROUP_PERSONAL, "书签栏", "其他书签", "移动设备书签",
+        )
 
     /** 删除一个分组及其中的全部书签；「个人收藏」拒绝删除，返回 false。 */
     fun removeGroup(group: String): Boolean {
         if (isProtectedGroup(group)) return false
-        val removed = items.removeAll { it.group.ifBlank { Favorite.GROUP_PERSONAL } == group }
-        if (removed) persist()
-        return removed
+        fun inTree(path: String) = path == group || path.startsWith("$group/")
+        val removed = items.removeAll { inTree(it.group.ifBlank { Favorite.GROUP_PERSONAL }) }
+        val oldSize = folderOrder.size
+        folderOrder.removeAll(::inTree)
+        folderIdByPath.keys.removeAll(::inTree)
+        val hadFolder = folderOrder.size != oldSize
+        if (hadFolder) persistFolders()
+        if (removed || hadFolder) persist()
+        return removed || hadFolder
     }
 
     /** 重命名分组：「个人收藏」不可改名；新名字为空返回 false；与已有分组同名则合并。 */
     fun renameGroup(old: String, newName: String): Boolean {
         val target = newName.trim()
         if (target.isEmpty() || isProtectedGroup(old)) return false
+        if (target in setOf(Favorite.GROUP_PERSONAL, "书签栏", "其他书签", "移动设备书签") && target != old) return false
         if (target == old) return true
-        var changed = false
-        for (i in items.indices) {
-            val f = items[i]
-            if (f.group.ifBlank { Favorite.GROUP_PERSONAL } == old) {
-                items[i] = f.copy(group = target)
-                changed = true
-            }
+        if (target.startsWith("$old/")) return false
+        val hasFolderTree = folderIdByPath.keys.any { it == old || it.startsWith("$old/") }
+        val hasBookmarks = items.any { it.group == old || it.group.startsWith("$old/") }
+        if (!hasFolderTree && !hasBookmarks) return false
+        if (folderIdByPath.keys.any { it == target || it.startsWith("$target/") } ||
+            items.any { (it.group == target || it.group.startsWith("$target/")) && !it.group.startsWith("$old/") && it.group != old }) {
+            // 已存在目标目录时拒绝隐式覆盖，避免同步 ID / 子树丢失。
+            return false
         }
-        if (changed) persist()
-        return changed
+        renameFolderPath(old, target)
+        return true
+    }
+
+    // ------------------------------------------------------------------ 书签同步（Floccus）用的结构接口
+
+    /** 所有已知文件夹路径（含祖先、含注册表里的空文件夹），按注册表顺序；顺带把新发现的登记进注册表。 */
+    fun knownFolders(): List<String> {
+        var dirty = false
+        fun reg(path: String) {
+            if (path.isBlank() || path == Favorite.GROUP_PERSONAL || path in setOf("书签栏", "其他书签", "移动设备书签") || path in folderIdByPath) return
+            folderOrder.add(path)
+            folderIdByPath[path] = java.util.UUID.randomUUID().toString()
+            dirty = true
+        }
+        fun regWithAncestors(path: String) {
+            var cur = path
+            val chain = ArrayList<String>()
+            while (cur.isNotEmpty()) {
+                chain.add(cur)
+                cur = if (cur.contains('/')) cur.substringBeforeLast('/') else ""
+            }
+            chain.asReversed().forEach { reg(it) }
+        }
+        items.map { it.group.ifBlank { Favorite.GROUP_PERSONAL } }.distinct().forEach { regWithAncestors(it) }
+        folderOrder.toList().forEach { regWithAncestors(it) }
+        if (dirty) persistFolders()
+        return folderOrder.toList()
+    }
+
+    fun folderId(path: String): String? = folderIdByPath[path]
+
+    fun folderPath(id: String): String? = folderIdByPath.entries.firstOrNull { it.value == id }?.key
+
+    /** 登记一个文件夹（已存在则返回原 id），[index] 为它在 [folderOrder] 里的位置（null = 末尾）。 */
+    fun registerFolder(path: String, index: Int? = null): String {
+        val existing = folderIdByPath[path]
+        if (existing != null) return existing
+        val id = java.util.UUID.randomUUID().toString()
+        folderIdByPath[path] = id
+        if (index != null && index in 0..folderOrder.size) folderOrder.add(index, path) else folderOrder.add(path)
+        persistFolders()
+        return id
+    }
+
+    /** 把 [path] 在注册表里挪到第 [index] 位（下标按注册表整体计）。 */
+    fun reorderFolder(path: String, index: Int) {
+        if (!folderOrder.remove(path)) return
+        folderOrder.add(index.coerceIn(0, folderOrder.size), path)
+        persistFolders()
+    }
+
+    /** 文件夹改名 / 搬家：[old] 及其全部子路径换成 [new] 前缀，id 不变，其中的书签跟着走。 */
+    fun renameFolderPath(old: String, new: String) {
+        if (old == new) return
+        fun map(p: String) = when {
+            p == old -> new
+            p.startsWith("$old/") -> new + p.substring(old.length)
+            else -> p
+        }
+        val newOrder = folderOrder.map { map(it) }
+        val newIds = HashMap<String, String>()
+        folderOrder.forEach { newIds[map(it)] = folderIdByPath[it]!! }
+        folderOrder.clear(); folderOrder.addAll(newOrder)
+        folderIdByPath.clear(); folderIdByPath.putAll(newIds)
+        for (i in items.indices) {
+            val g = items[i].group.ifBlank { Favorite.GROUP_PERSONAL }
+            val m = map(g)
+            if (m != g) items[i] = items[i].copy(group = m)
+        }
+        persistFolders()
+        persist()
+    }
+
+    /** 删除文件夹 [path] 及其下全部子文件夹和书签。 */
+    fun removeFolderTree(path: String) {
+        fun inTree(p: String) = p == path || p.startsWith("$path/")
+        folderOrder.removeAll { inTree(it) }
+        folderIdByPath.keys.removeAll { inTree(it) }
+        items.removeAll { inTree(it.group.ifBlank { Favorite.GROUP_PERSONAL }) }
+        persistFolders()
+        persist()
+    }
+
+    /** 同步接口改完 [items] 后调用落盘。 */
+    fun commitSyncChanges() = persist()
+
+    /** 是否已有同名或同地址（忽略末尾斜杠）的书签 */
+    fun exists(name: String, url: String): Boolean {
+        fun norm(u: String) = toUrl(u).trimEnd('/').lowercase()
+        val n = name.trim()
+        val u = norm(url)
+        return items.any { (n.isNotEmpty() && it.name.trim() == n) || norm(it.url) == u }
     }
 
     fun add(name: String, url: String, group: String = Favorite.GROUP_PERSONAL) {
         if (url.isBlank()) return
         val fixed = toUrl(url)
-        items.add(
-            Favorite(
-                name = name.ifBlank { hostOf(fixed) },
-                url = fixed,
-                group = group.ifBlank { Favorite.GROUP_PERSONAL },
-            ),
-        )
+        val target = ensureFolderPath(group.ifBlank { Favorite.GROUP_PERSONAL })
+        items.add(Favorite(name = name.ifBlank { hostOf(fixed) }, url = fixed, group = target))
         persist()
     }
 
     fun update(index: Int, name: String, url: String, group: String = items.getOrNull(index)?.group ?: Favorite.GROUP_PERSONAL) {
         if (index !in items.indices || url.isBlank()) return
         val fixed = toUrl(url)
+        val target = ensureFolderPath(group.ifBlank { Favorite.GROUP_PERSONAL })
         items[index] = Favorite(
             name = name.ifBlank { hostOf(fixed) },
             url = fixed,
-            group = group.ifBlank { Favorite.GROUP_PERSONAL },
+            group = target,
+            id = items[index].id,
         )
         persist()
     }
 
-    /** 拖动排序：把 from 位置的项移到 to 位置（首页只显示前 [HOME_FAV_MAX] 项，下标与总列表一致）。 */
+    /** 拖动排序：把 from 位置的项移到 to 位置（首页只显示靠前的若干项，下标与总列表一致）。 */
     fun move(from: Int, to: Int) {
         if (from !in items.indices || to !in items.indices || from == to) return
         items.add(to, items.removeAt(from))
@@ -146,10 +333,6 @@ class FavoritesStore(context: Context) {
         }
     }
 
-    fun removeAtUrl(url: String) {
-        val i = items.indexOfFirst { it.url == url }
-        if (i >= 0) remove(i)
-    }
 
     fun reset() {
         items.clear()
@@ -159,9 +342,11 @@ class FavoritesStore(context: Context) {
 
     /** 导入结果：[found] 为文件里识别到的书签数，[added] 为实际新增数（其余是已存在的重复项）。 */
     data class ImportResult(val found: Int, val added: Int)
+    private data class ParsedBookmarkData(
+        val entries: List<Triple<String, String, String>> = emptyList(),
+        val folders: List<String> = emptyList(),
+    )
 
-    /** 兼容旧调用：返回新增条数。 */
-    fun importNetscapeHtml(html: String): Int = importBookmarks(html).added
 
     /**
      * 导入书签文本。支持：
@@ -172,20 +357,21 @@ class FavoritesStore(context: Context) {
     fun importBookmarks(text: String): ImportResult {
         val body = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
         if (body.isEmpty()) return ImportResult(0, 0)
-        var parsed: List<Triple<String, String, String>> = emptyList() // 名称、网址、分组
+        var parsed = ParsedBookmarkData()
         if (body.startsWith("{") || body.startsWith("[")) {
-            parsed = runCatching { parseJsonBookmarks(body) }.getOrDefault(emptyList())
+            parsed = runCatching { parseJsonBookmarks(body) }.getOrDefault(ParsedBookmarkData())
         }
-        if (parsed.isEmpty()) parsed = parseHtmlBookmarks(body)
-        if (parsed.isEmpty()) {
-            parsed = Regex("""https?://[^\s"'<>]+""").findAll(body).map {
+        if (parsed.entries.isEmpty() && parsed.folders.isEmpty()) parsed = parseHtmlBookmarks(body)
+        if (parsed.entries.isEmpty() && parsed.folders.isEmpty()) {
+            parsed = ParsedBookmarkData(entries = Regex("""https?://[^\s"'<>]+""").findAll(body).map {
                 val u = it.value
                 Triple(hostOf(u), u, Favorite.GROUP_PERSONAL)
-            }.toList()
+            }.toList())
         }
+        parsed.folders.forEach { ensureFolderPath(it) }
         var added = 0
-        parsed.forEach { (title, href, folder) ->
-            val group = folder.ifBlank { Favorite.GROUP_PERSONAL }
+        parsed.entries.forEach { (title, href, folder) ->
+            val group = ensureFolderPath(folder.ifBlank { Favorite.GROUP_PERSONAL })
             val fixed = toUrl(href)
             // 去重：同 URL 同组跳过
             val exists = items.any { it.url == fixed && (it.group.ifBlank { Favorite.GROUP_PERSONAL }) == group }
@@ -195,7 +381,7 @@ class FavoritesStore(context: Context) {
             }
         }
         if (added > 0) persist()
-        return ImportResult(parsed.size, added)
+        return ImportResult(parsed.entries.size, added)
     }
 
     private fun skipUrl(href: String): Boolean {
@@ -205,12 +391,20 @@ class FavoritesStore(context: Context) {
 
     /**
      * 手写的 Netscape HTML 扫描（不用大正则，避免大文件栈溢出 / 回溯卡死）：
-     * H3 是文件夹名，紧随其后的 DL 开启该文件夹，/DL 结束；书签归入最内层有名字的文件夹。
+     * H3 是文件夹名，紧随其后的 DL 开启该文件夹，/DL 结束；完整祖先链会保留为多级路径。
      * href 兼容双引号 / 单引号 / 无引号，标签与属性名不区分大小写。
      */
-    private fun parseHtmlBookmarks(html: String): List<Triple<String, String, String>> {
+    private fun parseHtmlBookmarks(html: String): ParsedBookmarkData {
         val out = ArrayList<Triple<String, String, String>>()
+        val known = linkedSetOf<String>()
         val folders = ArrayList<String>()
+        fun normalizeRoot(name: String): String = when (name.trim()) {
+            "Bookmarks Menu", "书签菜单" -> Favorite.GROUP_PERSONAL
+            "Bookmarks Toolbar", "书签工具栏" -> "书签栏"
+            "Other Bookmarks" -> "其他书签"
+            "Mobile Bookmarks" -> "移动设备书签"
+            else -> name.trim()
+        }
         var pending = ""
         val n = html.length
         var i = 0
@@ -237,7 +431,10 @@ class FavoritesStore(context: Context) {
                 "dl" -> if (closing) {
                     if (folders.isNotEmpty()) folders.removeAt(folders.lastIndex)
                 } else {
-                    folders.add(pending)
+                    folders.add(if (folders.none { it.isNotBlank() }) normalizeRoot(pending) else pending.trim())
+                    val chain = folders.filter { it.isNotBlank() }.toMutableList()
+                    if (chain.firstOrNull() == Favorite.GROUP_PERSONAL) chain.removeAt(0)
+                    chain.joinToString("/").takeIf { it.isNotBlank() }?.let { known.add(it) }
                     pending = ""
                 }
                 "a" -> if (!closing) {
@@ -246,12 +443,14 @@ class FavoritesStore(context: Context) {
                     val title = if (end < 0) "" else cleanText(html.substring(i, end))
                     if (end >= 0) i = end
                     if (!skipUrl(href)) {
-                        out.add(Triple(title, href, folders.lastOrNull { it.isNotBlank() }.orEmpty()))
+                        val chain = folders.filter { it.isNotBlank() }.toMutableList()
+                        if (chain.firstOrNull() == "个人收藏") chain.removeAt(0)
+                        out.add(Triple(title, href, chain.joinToString("/").ifBlank { Favorite.GROUP_PERSONAL }))
                     }
                 }
             }
         }
-        return out
+        return ParsedBookmarkData(out, known.toList())
     }
 
     private fun attrValue(tag: String, attr: String): String {
@@ -281,15 +480,16 @@ class FavoritesStore(context: Context) {
         unescapeHtml(raw.replace(Regex("<[^>]*>"), "")).trim()
 
     /** Firefox 备份（title / uri / children）与 Chromium Bookmarks（name / url / children）。 */
-    private fun parseJsonBookmarks(text: String): List<Triple<String, String, String>> {
+    private fun parseJsonBookmarks(text: String): ParsedBookmarkData {
         val out = ArrayList<Triple<String, String, String>>()
+        val known = linkedSetOf<String>()
         fun folderTitle(o: JSONObject): String {
             val t = o.optString("title").ifBlank { o.optString("name") }
             return when (t) {
-                "bookmarksMenu" -> "书签菜单"
-                "bookmarksToolbar" -> "书签工具栏"
-                "unfiledBookmarks" -> "其他书签"
-                "mobileBookmarks" -> "移动设备书签"
+                "bookmarksMenu", "Bookmarks Menu" -> Favorite.GROUP_PERSONAL
+                "bookmarksToolbar", "Bookmarks Toolbar", "Bookmarks bar", "Bookmarks Bar" -> "书签栏"
+                "unfiledBookmarks", "Other Bookmarks", "Other bookmarks" -> "其他书签"
+                "mobileBookmarks", "Mobile Bookmarks", "Mobile bookmarks" -> "移动设备书签"
                 else -> t
             }
         }
@@ -300,12 +500,30 @@ class FavoritesStore(context: Context) {
                     val url = node.optString("uri").ifBlank { node.optString("url") }
                     if (url.isNotBlank() && node.optJSONArray("children") == null) {
                         if (!skipUrl(url)) {
-                            out.add(Triple(node.optString("title").ifBlank { node.optString("name") }, url, folder))
+                            val normalizedFolder = when {
+                                folder == Favorite.GROUP_PERSONAL -> Favorite.GROUP_PERSONAL
+                                folder.startsWith("${Favorite.GROUP_PERSONAL}/") -> folder.removePrefix("${Favorite.GROUP_PERSONAL}/")
+                                folder.isBlank() -> Favorite.GROUP_PERSONAL
+                                else -> folder
+                            }
+                            out.add(Triple(node.optString("title").ifBlank { node.optString("name") }, url, normalizedFolder))
                         }
                     } else {
                         val kids = node.optJSONArray("children")
                         if (kids != null) {
-                            walk(kids, folderTitle(node).ifBlank { folder })
+                            val title = folderTitle(node).ifBlank { folder }
+                            val next = when {
+                                title.isBlank() -> folder
+                                folder.isBlank() -> title
+                                else -> "$folder/$title"
+                            }
+                            val normalized = when {
+                                next == Favorite.GROUP_PERSONAL -> ""
+                                next.startsWith("${Favorite.GROUP_PERSONAL}/") -> next.removePrefix("${Favorite.GROUP_PERSONAL}/")
+                                else -> next
+                            }
+                            if (normalized.isNotBlank()) known.add(normalized)
+                            walk(kids, next)
                         } else {
                             // Chromium 根：{"roots":{"bookmark_bar":{...},"other":{...}}}
                             val roots = node.optJSONObject("roots") ?: return
@@ -316,10 +534,10 @@ class FavoritesStore(context: Context) {
             }
         }
         walk(if (text.startsWith("[")) JSONArray(text) else JSONObject(text), "")
-        return out
+        return ParsedBookmarkData(out, known.toList())
     }
 
-    /** 导出为 Chrome / Firefox 可导入的 Netscape Bookmark HTML。 */
+    /** 导出为保留完整多级目录结构的 Netscape Bookmark HTML。 */
     fun exportNetscapeHtml(): String {
         val sb = StringBuilder()
         sb.appendLine("<!DOCTYPE NETSCAPE-Bookmark-file-1>")
@@ -328,14 +546,21 @@ class FavoritesStore(context: Context) {
         sb.appendLine("<TITLE>Bookmarks</TITLE>")
         sb.appendLine("<H1>Bookmarks</H1>")
         sb.appendLine("<DL><p>")
-        groups().forEach { g ->
-            sb.appendLine("    <DT><H3>${escapeHtml(g)}</H3>")
-            sb.appendLine("    <DL><p>")
-            itemsIn(g).forEach { f ->
-                sb.appendLine("        <DT><A HREF=\"${escapeHtml(f.url)}\">${escapeHtml(f.name)}</A>")
+        val all = groups().toSet()
+        fun writeFolder(path: String, depth: Int) {
+            val pad = "    ".repeat(depth)
+            sb.appendLine("$pad<DT><H3>${escapeHtml(path.substringAfterLast('/'))}</H3>")
+            sb.appendLine("$pad<DL><p>")
+            val children = all.filter { parentGroup(it) == path }
+            children.forEach { writeFolder(it, depth + 1) }
+            itemsIn(path).forEach { f ->
+                sb.appendLine("${"    ".repeat(depth + 1)}<DT><A HREF=\"${escapeHtml(f.url)}\">${escapeHtml(f.name)}</A>")
             }
-            sb.appendLine("    </DL><p>")
+            sb.appendLine("$pad</DL><p>")
         }
+        // 固定根目录及个人收藏目录；没有内容的根目录不凭空导出。
+        val roots = listOf(Favorite.GROUP_PERSONAL, "书签栏", "其他书签", "移动设备书签")
+        roots.filter { it in all || itemsIn(it).isNotEmpty() }.forEach { writeFolder(it, 1) }
         sb.appendLine("</DL><p>")
         return sb.toString()
     }
@@ -347,10 +572,12 @@ class FavoritesStore(context: Context) {
                 JSONObject()
                     .put("name", it.name)
                     .put("url", it.url)
-                    .put("group", it.group),
+                    .put("group", it.group)
+                    .put("id", it.id),
             )
         }
-        prefs.edit().putString(KEY, array.toString()).apply()
+        val sealed = SecureStore.write(appContext, array.toString(), PURPOSE) ?: return
+        prefs.edit().putString(KEY, sealed).apply()
     }
 
     private fun unescapeHtml(s: String): String =
@@ -374,7 +601,14 @@ class FavoritesStore(context: Context) {
         }
     }
 
-    private companion object {
-        const val KEY = "favorites"
+    companion object {
+        /** 最近创建的实例：Floccus 书签桥靠它读写界面正在用的那份书签。 */
+        @Volatile var current: FavoritesStore? = null
+            private set
+
+        private const val KEY_FOLDERS = "favorites_folders"
+        private const val KEY = "favorites"
+        /** 加密上下文（进 AAD）：密文只能在这个用途下解开 */
+        private const val PURPOSE = SecureStore.PURPOSE_FAVORITES
     }
 }

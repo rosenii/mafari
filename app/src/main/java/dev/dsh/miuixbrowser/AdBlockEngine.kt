@@ -494,8 +494,17 @@ class ReqCtx(
     @JvmField val hostStart: Int,
     @JvmField val pageHost: String,
     @JvmField val type: Int,
-    @JvmField val thirdParty: Boolean,
-)
+) {
+    // 0 = 未计算，1 = 第三方，2 = 同站。只有带 $third-party / $~third-party 的规则才会读取，
+    // 其余请求不再为每个子资源计算两次可注册域名。
+    private var party = 0
+
+    val thirdParty: Boolean
+        get() {
+            if (party == 0) party = if (AdMatch.isThirdParty(host, pageHost)) 1 else 2
+            return party == 1
+        }
+}
 
 object AdMatch {
 
@@ -508,12 +517,17 @@ object AdMatch {
     fun registrable(host: String): String {
         if (host.isEmpty() || host[0] == '[') return host
         if (host.all { it.isDigit() || it == '.' }) return host
-        val parts = host.split('.')
-        if (parts.size <= 2) return host
-        val last = parts[parts.size - 1]
-        val second = parts[parts.size - 2]
-        val n = if (last.length == 2 && second in SLD) 3 else 2
-        return parts.takeLast(n).joinToString(".")
+        // 请求热路径：用 lastIndexOf 定位末尾几段，避免 split / takeLast / joinToString 产生的临时对象
+        val d1 = host.lastIndexOf('.')
+        if (d1 < 0) return host
+        val d2 = host.lastIndexOf('.', d1 - 1)
+        if (d2 < 0) return host // 只有两段
+        val lastLen = host.length - d1 - 1
+        if (lastLen == 2 && host.substring(d2 + 1, d1) in SLD) {
+            val d3 = host.lastIndexOf('.', d2 - 1)
+            return if (d3 < 0) host else host.substring(d3 + 1)
+        }
+        return host.substring(d2 + 1)
     }
 
     /**
@@ -818,7 +832,6 @@ class AdEngine(lists: List<ParsedList>) {
             hostStart = range[0],
             pageHost = pageHost,
             type = AdMatch.inferType(url, accept),
-            thirdParty = AdMatch.isThirdParty(host, pageHost),
         )
         val hit = block.find(ctx) ?: return false
         if (hit.important) return true

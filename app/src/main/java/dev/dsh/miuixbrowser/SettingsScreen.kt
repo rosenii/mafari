@@ -94,9 +94,9 @@ fun SettingsScreen(
     onOpenPrivacyEnhance: () -> Unit,
     onOpenCookies: () -> Unit = {},
     onOpenBookmarks: () -> Unit,
+    onOpenBackup: () -> Unit = {},
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
-    onEngineScripts: (resume: Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
@@ -104,7 +104,9 @@ fun SettingsScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
+    var showDonate by remember { mutableStateOf(false) }
     var showHomeSheet by remember { mutableStateOf(false) }
+    var showHomeUrlDialog by remember { mutableStateOf(false) }
     var showProxyDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var reclaimable by remember { mutableStateOf(0L) }
@@ -194,8 +196,8 @@ fun SettingsScreen(
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
                         title = "高级材质",
-                        summary = "开启后提供精美组件效果",
-                        items = listOf("miuix-glass", "liquid glass", "关闭模糊"),
+                        summary = "柔光玻璃 / 液态玻璃 / 纯色",
+                        items = listOf("柔光玻璃", "液态玻璃", "纯色"),
                         selectedIndex = settings.blurMode.coerceIn(0, 2),
                         onSelectedIndexChange = { settings.updateBlurMode(it) },
                     )
@@ -211,7 +213,7 @@ fun SettingsScreen(
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
                         title = "地址栏显示",
-                        items = listOf("网站标题", "主域名", "完整域名"),
+                        items = listOf("网站标题", "主域名", "完整网址"),
                         selectedIndex = settings.addressDisplay.coerceIn(0, 2),
                         onSelectedIndexChange = { settings.updateAddressDisplay(it) },
                     )
@@ -223,7 +225,7 @@ fun SettingsScreen(
                         onSelectedIndexChange = { settings.updateTabsStyle(it) },
                     )
                     SettingsRow(
-                        title = "首页内容显示",
+                        title = "定制主页",
                         summary = homeContentSummary(settings),
                         onClick = { showHomeSheet = true },
                     )
@@ -341,13 +343,11 @@ fun SettingsScreen(
                                 Toast.makeText(context, "当前设备不是 arm64-v8a，无法使用 Gecko 内核", Toast.LENGTH_SHORT).show()
                             } else if (index != settings.browserEngine) {
                                 settings.updateBrowserEngine(index)
-                                // 切 Gecko：记住当前状态并关闭去广告 / 脚本 / 网页增强 / 隐私增强保护；切回 WebView：恢复切换前状态
+                                // 切 Gecko：记住当前状态并关闭去广告 / 隐私增强保护（脚本两种内核通用，保持不变）；切回 WebView：恢复切换前状态
                                 if (index == ENGINE_GECKO) {
                                     settings.suspendForGecko()
-                                    onEngineScripts(false)
                                 } else {
                                     settings.resumeFromGecko()
-                                    onEngineScripts(true)
                                 }
                                 Toast.makeText(
                                     context,
@@ -357,7 +357,7 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    // 按内核显示：拓展属于 Gecko；网页增强 / 去广告 / 脚本依赖 WebView 专有 API
+                    // 按内核显示：拓展属于 Gecko；网页增强 / 去广告依赖 WebView 专有 API；脚本管理两种内核通用
                     EngineRow(visible = settings.geckoMode) {
                         SettingsRow(
                             title = "拓展",
@@ -365,6 +365,7 @@ fun SettingsScreen(
                             onClick = onOpenGeckoExtensions,
                         )
                     }
+                    // 网页增强是 WebView 的总开关（脚本 + 去广告）；Gecko 下脚本只受脚本菜单里的开关控制
                     EngineRow(visible = !settings.geckoMode) {
                         AppSwitchPreference(
                             title = "网页增强",
@@ -388,13 +389,11 @@ fun SettingsScreen(
                             onClick = onOpenAdBlock,
                         )
                     }
-                    EngineRow(visible = !settings.geckoMode) {
-                        SettingsRow(
-                            title = "脚本管理",
-                            summary = "用户脚本 / 油猴脚本",
-                            onClick = onOpenScripts,
-                        )
-                    }
+                    SettingsRow(
+                        title = "脚本管理",
+                        summary = "用户脚本 / 油猴脚本",
+                        onClick = onOpenScripts,
+                    )
                     SettingsRow(
                         title = "代理",
                         summary = if (settings.proxyEnabled && settings.proxyHost.isNotBlank()) {
@@ -413,6 +412,20 @@ fun SettingsScreen(
                             onClick = onOpenGeckoDebug,
                         )
                     }
+                }
+
+                SmallTitle(text = "数据")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    SettingsRow(
+                        title = "备份与同步",
+                        summary = "加密备份导出 · 从备份文件恢复 · ${CipherSuites.default.shortName} 混合抗量子加密",
+                        onClick = onOpenBackup,
+                    )
                     SettingsRow(
                         title = "清理缓存",
                         summary = "每次冷启动自动清理 · 同系统「清除缓存」范围，保留未完成的下载 · 当前可清理 " +
@@ -446,12 +459,19 @@ fun SettingsScreen(
                     insideMargin = PaddingValues(0.dp),
                 ) {
                     SettingsRow(
+                        title = "捐赠",
+                        summary = DONATE_SUMMARY,
+                        onClick = { showDonate = true },
+                    )
+                    SettingsRow(
                         title = "关于 Mafari",
                         summary = "版本 " + BuildConfig.VERSION_NAME,
                         onClick = onOpenAbout,
                     )
                 }
             }
+
+            DonateSheet(show = showDonate, backdrop = if (glass) backdrop else null, onDismiss = { showDonate = false })
 
             // UA 选择放在设置页自己的 Scaffold 里：浏览主界面的覆盖层会被二级页面盖住
             UaDialog(
@@ -661,13 +681,49 @@ fun SettingsScreen(
 
             AppBottomSheet(
                 show = showHomeSheet,
-                title = "首页内容显示",
+                title = "定制主页",
                 backdrop = if (glass) backdrop else null,
                 onDismissRequest = { showHomeSheet = false },
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
+                    AppDropdownPreference(
+                        title = "自定义主页",
+                        items = listOf("默认主页", "新建标签页", "指定页面"),
+                        selectedIndex = settings.homeMode.coerceIn(0, 2),
+                        onSelectedIndexChange = {
+                            // 指定页面要先填网址，确认后才切换模式；其它两项立即生效
+                            if (it == HOME_MODE_CUSTOM) showHomeUrlDialog = true else settings.updateHomeMode(it)
+                        },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                    if (settings.homeMode == HOME_MODE_CUSTOM) {
+                        SettingsRow(
+                            title = "指定页面地址",
+                            summary = settings.homeCustomUrl.ifBlank { "未设置" },
+                            onClick = { showHomeUrlDialog = true },
+                        )
+                    }
+                    AppDropdownPreference(
+                        title = "LOGO 标识",
+                        items = listOf("显示", "隐藏"),
+                        selectedIndex = if (settings.homeShowLogo) 0 else 1,
+                        onSelectedIndexChange = { settings.updateHomeShowLogo(it == 0) },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                    AppDropdownPreference(
+                        title = "个人收藏",
+                        items = (1..HOME_FAV_ROWS_MAX).map { "显示${it}行" } + "不显示",
+                        selectedIndex = if (settings.homeFavRows == 0) HOME_FAV_ROWS_MAX else settings.homeFavRows - 1,
+                        onSelectedIndexChange = { settings.updateHomeFavRows(if (it >= HOME_FAV_ROWS_MAX) 0 else it + 1) },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
                     listOf(
-                        HOME_FAVORITES to "个人收藏",
                         HOME_PRIVACY to "隐私报告",
                         HOME_RECENT to "最近浏览",
                         HOME_DOWNLOADS to "下载项",
@@ -683,11 +739,63 @@ fun SettingsScreen(
                         )
                     }
                     Text(
-                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
+                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动；收藏超出所选行数时，最后一格显示「更多」，点击进入书签页）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
                     )
+                }
+            }
+
+            // 自定义主页 → 指定页面：输入网址
+            var homeUrlText by remember(showHomeUrlDialog) { mutableStateOf(settings.homeCustomUrl) }
+            AppGlassDialog(
+                show = showHomeUrlDialog,
+                title = "指定页面",
+                backdrop = if (glass) backdrop else null,
+                onDismissRequest = { showHomeUrlDialog = false },
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "启动应用、点击主页按钮、新建标签页时都会打开这个页面（无痕标签页除外）。请输入完整网址，例如 https://www.baidu.com",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                    TextField(
+                        value = homeUrlText,
+                        onValueChange = { homeUrlText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "网址",
+                        singleLine = true,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AppDialogButton(
+                            onClick = { showHomeUrlDialog = false },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(text = "取消", style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                val text = homeUrlText.trim()
+                                if (text.isEmpty() || !looksLikeUrl(text)) {
+                                    Toast.makeText(context, "请输入有效的网址", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    settings.updateHomeCustomUrl(text)
+                                    settings.updateHomeMode(HOME_MODE_CUSTOM)
+                                    showHomeUrlDialog = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = top.yukonga.miuix.kmp.glass.GlassDialogButtonRole.Primary,
+                        ) {
+                            Text(text = "保存", style = MiuixTheme.textStyles.button)
+                        }
+                    }
                 }
             }
 
@@ -960,10 +1068,15 @@ private fun SearchSheet(
 
 private fun homeContentSummary(settings: AppSettings): String {
     val shown = buildList {
-        if (settings.homeShowFavorites) add("收藏")
+        if (settings.homeShowFavorites) add("收藏${settings.homeFavRows}行")
         if (settings.homeShowPrivacy) add("隐私报告")
         if (settings.homeShowRecent) add("最近浏览")
         if (settings.homeShowDownloads) add("下载项")
     }
-    return if (shown.isEmpty()) "首页只显示标志" else shown.joinToString(" · ")
+    val mode = when (settings.homeMode) {
+        HOME_MODE_NEW_TAB -> "主页按钮：新建标签页 · "
+        HOME_MODE_CUSTOM -> "指定页面 · "
+        else -> ""
+    }
+    return mode + if (shown.isEmpty()) (if (settings.homeShowLogo) "首页只显示标志" else "首页无内容") else shown.joinToString(" · ")
 }

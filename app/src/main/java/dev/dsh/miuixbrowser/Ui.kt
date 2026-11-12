@@ -26,45 +26,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 统一的「图标 + 文字」小按钮（MIUIX 配色，高 32dp） */
-@Composable
-fun IconTextAction(
-    icon: ImageVector,
-    label: String,
-    modifier: Modifier = Modifier,
-    primary: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val haptic = LocalHapticFeedback.current
-    val contentColor = if (primary) Color.White else MiuixTheme.colorScheme.onSurface
-    val background = if (primary) {
-        MiuixTheme.colorScheme.primary
-    } else {
-        MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-    }
-    Row(
-        modifier = modifier
-            .height(32.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(background)
-            .clickable {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onClick()
-            }
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = contentColor,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(text = label, fontSize = 12.sp, color = contentColor, maxLines = 1)
-    }
-}
 
 
 /** 跟随 MIUIX 的 color mode 判断深色，而不是直接读系统深色。 */

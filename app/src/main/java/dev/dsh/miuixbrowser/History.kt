@@ -9,12 +9,20 @@ data class HistoryEntry(val url: String, val title: String, val time: Long)
 
 class HistoryStore(context: Context) {
 
+    private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mafari_history", Context.MODE_PRIVATE)
 
     val items = mutableStateListOf<HistoryEntry>().apply { addAll(load()) }
 
+    init {
+        // 旧版本的明文历史 / 旧算法套件的密文：读得出来就立即以当前套件重新加密一次（读不出来绝不覆盖）
+        val raw = prefs.getString(KEY, null)
+        if (raw != null && SecureStore.needsUpgrade(raw) && SecureStore.read(appContext, raw, PURPOSE) != null) persist()
+    }
+
     private fun load(): List<HistoryEntry> {
-        val raw = prefs.getString(KEY, null) ?: return emptyList()
+        val stored = prefs.getString(KEY, null) ?: return emptyList()
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return emptyList()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -61,15 +69,29 @@ class HistoryStore(context: Context) {
         persist()
     }
 
+    /** 主线程只拷一份快照（HistoryEntry 不可变），JSON 序列化与写 prefs 交给单线程后台，按提交顺序执行 */
     private fun persist() {
-        val array = JSONArray()
-        items.forEach {
-            array.put(JSONObject().put("url", it.url).put("title", it.title).put("time", it.time))
+        val snapshot = items.toList()
+        writer.execute {
+            runCatching {
+                val array = JSONArray()
+                for (e in snapshot) {
+                    array.put(JSONObject().put("url", e.url).put("title", e.title).put("time", e.time))
+                }
+                val sealed = SecureStore.write(appContext, array.toString(), PURPOSE) ?: return@runCatching
+                prefs.edit().putString(KEY, sealed).apply()
+            }
         }
-        prefs.edit().putString(KEY, array.toString()).apply()
     }
 
     private companion object {
         const val KEY = "entries"
+        /** 加密上下文（进 AAD）：密文只能在这个用途下解开，不能被挪去冒充别的数据 */
+        const val PURPOSE = SecureStore.PURPOSE_HISTORY
+
+        private val writer: java.util.concurrent.ExecutorService =
+            java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                Thread(r, "mafari-history-writer").apply { isDaemon = true }
+            }
     }
 }

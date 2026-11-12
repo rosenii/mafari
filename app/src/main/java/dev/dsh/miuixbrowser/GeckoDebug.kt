@@ -25,11 +25,13 @@ import androidx.compose.runtime.setValue
  * - [systemFont]：网页字体跟随系统字体。把浏览器「默认字体」从 Gecko 自带字体改成系统字体：
  *   未指定字体的网页默认用无衬线，且各语言的 sans-serif 通用族指向系统的 sans-serif（含用户在系统里换的字体）。
  *   不再屏蔽网页自己指定的字体（旧版 use_document_fonts=0 会让图标字体失效，已弃用并在启动时清掉）
+ *   系统字体的识别与「让 Gecko 枚举得到」见 [GeckoSystemFont]；更换系统字体后重启应用即可同步
  */
 object GeckoDebug {
 
     private const val FILE = "mafari_gecko_debug"
     private var prefs: SharedPreferences? = null
+    private var appCtx: Context? = null
 
     var remoteDebug by mutableStateOf(false); private set
     var aboutConfig by mutableStateOf(false); private set
@@ -44,6 +46,7 @@ object GeckoDebug {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         prefs = p
+        appCtx = context.applicationContext
         remoteDebug = p.getBoolean("remote_debug", false)
         aboutConfig = p.getBoolean("about_config", false)
         profiler = p.getBoolean("profiler", false)
@@ -120,27 +123,72 @@ object GeckoDebug {
 
     fun updateSystemFont(v: Boolean) {
         systemFont = v; save { putBoolean("system_font", v) }
+        prepareSystemFont(force = true)
+    }
+
+    /**
+     * 在创建 Gecko 运行时之前调用（[GeckoRuntimeHolder.get]）：重新读取系统字体，把字体文件以软链接放进 Gecko profile，
+     * 再记下字体偏好。Gecko 只在启动时枚举字体，所以必须赶在运行时创建前把软链接建好。
+     */
+    fun prepareSystemFont(force: Boolean = false) {
+        val ctx = appCtx ?: return
+        val sys = if (systemFont) GeckoSystemFont.resolve(force) else null
+        val created = GeckoSystemFont.syncProfileFonts(ctx, sys)
+        if (created > 0 && GeckoRuntimeHolder.peek() != null) {
+            Diag.log("system font: new font files linked, restart app to let Gecko enumerate them")
+        }
         applyFonts()
+    }
+
+    /**
+     * 回到前台时调用：系统字体变了（换字体后进程没被杀的情况）就重新同步字体偏好；
+     * 同时补建软链接（首次安装时 Gecko 的 profile 目录要等运行时第一次启动后才有，此时才能建，重启应用后生效）。
+     */
+    fun refreshSystemFont() {
+        val ctx = appCtx ?: return
+        if (!systemFont) return
+        val before = GeckoSystemFont.resolve()?.signature
+        val sys = GeckoSystemFont.resolve(force = true)
+        GeckoSystemFont.syncProfileFonts(ctx, sys)
+        if (before != sys?.signature) {
+            Diag.log("system font: changed, re-apply prefs")
+            applyFonts()
+        }
     }
 
     private val FONT_LANGS = listOf(
         "x-western", "x-cyrillic", "el", "he", "ar", "th", "x-unicode", "ja", "ko", "zh-CN", "zh-TW", "zh-HK",
     )
 
+    /** 语言 → 系统 fonts.xml 里对应的回退家族 lang 前缀（只有中日韩需要，其它语言走主字体 + Gecko 自己的回退） */
+    private fun cjkKey(lang: String): String? = when (lang) {
+        "zh-CN" -> "zh-Hans"
+        "zh-TW", "zh-HK" -> "zh-Hant"
+        "ja" -> "ja"
+        "ko" -> "ko"
+        else -> null
+    }
+
     /**
-     * 开：默认字体用无衬线，并让各语言的 sans-serif 通用族指向系统的 sans-serif 家族（由系统 fonts.xml 解析，
-     * 用户在系统里换了字体也跟着变），而不是 Gecko 偏好里写死的 Roboto / Noto 等。
+     * 开：默认字体用无衬线，并把各语言的 sans-serif 指向系统字体的「真实族名」。
+     * 族名由 [GeckoSystemFont] 读系统 fonts.xml + 字体文件 name 表得到（Gecko 的 font.name.* 要的是族名，
+     * 写成 "sans-serif" 它在 Android 上不一定认，会退回自带的 Roboto / Noto）。中日韩另把系统指定的回退家族写进
+     * font.name-list，汉字也跟着系统走。读不到系统字体（个别厂商主题字体不在 fonts.xml 里）时退回旧写法。
      * 关：清掉这些用户值回到 Gecko 默认；同时清掉旧版遗留的 use_document_fonts，避免升级后残留。
      */
     private fun applyFonts() {
         GeckoPrefs.set("browser.display.use_document_fonts", GeckoPrefs.CLEAR)
+        val sys = if (systemFont) GeckoSystemFont.resolve() else null
         FONT_LANGS.forEach { lang ->
             if (systemFont) {
                 GeckoPrefs.set("font.default.$lang", "sans-serif")
-                GeckoPrefs.set("font.name.sans-serif.$lang", "sans-serif")
+                GeckoPrefs.set("font.name.sans-serif.$lang", sys?.main ?: "sans-serif")
+                val extra = cjkKey(lang)?.let { sys?.cjk?.get(it) }?.takeIf { it != sys?.main }
+                GeckoPrefs.set("font.name-list.sans-serif.$lang", extra ?: GeckoPrefs.CLEAR)
             } else {
                 GeckoPrefs.set("font.default.$lang", GeckoPrefs.CLEAR)
                 GeckoPrefs.set("font.name.sans-serif.$lang", GeckoPrefs.CLEAR)
+                GeckoPrefs.set("font.name-list.sans-serif.$lang", GeckoPrefs.CLEAR)
             }
         }
     }
@@ -179,6 +227,12 @@ object GeckoDebug {
                 else -> if (r) "运行中" else "关闭"
             },
             "运行日志" to if (Diag.enabled) "已开启" else "关闭",
+            "自动填充" to GeckoAutofill.describe(context),
+            "默认字体" to when {
+                !systemFont -> "未开启"
+                GeckoProtection.resistFingerprint -> GeckoSystemFont.describe() + "；强力抗指纹已开启，Gecko 只会向网页暴露基础字体"
+                else -> GeckoSystemFont.describe()
+            },
         )
     }
 

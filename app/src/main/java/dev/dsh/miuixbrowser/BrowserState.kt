@@ -28,6 +28,25 @@ import androidx.compose.runtime.setValue
 import java.net.URLEncoder
 
 private val SCHEME_REGEX = Regex("^[A-Za-z][A-Za-z0-9+.\\-]*://")
+/**
+ * assets 里的注入脚本只读一次：applyPrivacy 在每次切换标签 / 改设置时都会跑，
+ * 原来每次都在主线程重新打开 asset 并读全文。
+ */
+private object InjectAssets {
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun read(context: Context, name: String): String? {
+        cache[name]?.let { return it }
+        val text = runCatching {
+            context.applicationContext.assets.open(name).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }.getOrNull() ?: return null
+        cache[name] = text
+        return text
+    }
+}
+
+private val CHROME_MAJOR_REGEX = Regex("Chrome/(\\d+)")
+
 private val DOMAIN_REGEX = Regex("^[A-Za-z0-9\\-._~%]+(\\.[A-Za-z0-9\\-._~%]+)+$")
 private val IPV4_REGEX = Regex("^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$")
 private val SINGLE_LABEL_REGEX = Regex("^[A-Za-z0-9][A-Za-z0-9\\-_]*$")
@@ -292,6 +311,12 @@ class BrowserTab(
     /** 遇到拓展安装包链接（.xpi）：Gecko 内核下由界面弹出安装确认 */
     var onExtensionLink: ((String) -> Unit)? = null
 
+    /** Gecko 内核遇到 .user.js 链接：与 WebView 一致，交给界面弹出「导入脚本」 */
+    internal fun geckoUserScriptLink(link: String) {
+        if (!isGecko) return
+        onUserScriptLink?.invoke(link)
+    }
+
     internal fun geckoExtensionLink(link: String) {
         // 拓展只属于 Gecko：WebView 标签不识别拓展链接
         if (!isGecko) return
@@ -453,8 +478,14 @@ class BrowserTab(
         }
     }
 
-    /** 打开新标签页（GM_openInTab 用） */
-    var onOpenNewTab: ((String) -> Unit)? = null
+    /** 打开新标签页（GM_openInTab 用）：桥生成的 [id]、地址、是否切到前台 */
+    var onGmOpenTab: ((id: String, url: String, active: Boolean) -> Unit)? = null
+
+    /** 关闭 [onGmOpenTab] 打开的标签（GM_openInTab 返回对象的 close()） */
+    var onGmCloseTab: ((id: String) -> Unit)? = null
+
+    /** GM_download：带结果回调的下载请求（走与普通下载相同的确认弹窗） */
+    var onGmDownload: ((url: String, name: String, onResult: ((Boolean, String?) -> Unit)?) -> Unit)? = null
 
     private val scriptHandlers = mutableListOf<androidx.webkit.ScriptHandler>()
     private var installedScriptsSignature = ""
@@ -474,8 +505,6 @@ class BrowserTab(
         runCatching { cb?.onReceiveValue(null) }
     }
 
-    /** 是否正在全屏自定义视图 */
-    val isCustomViewShowing: Boolean get() = customView != null
 
     /** 退出视频全屏（返回键调用） */
     fun exitCustomView() {
@@ -644,6 +673,8 @@ class BrowserTab(
     private var adblockDocStart = false
 
     private fun initWebView() {
+        // 原生滚动回调（API 23+）：底栏收起 / 展开由滚动事件唤醒，不再靠定时轮询
+        webView.setOnScrollChangeListener { _, _, _, _, _ -> scrollSignal.trySend(Unit) }
         runCatching { webView.addJavascriptInterface(AdBlockBridge { !incognito || adblockInIncognito }, "MafariAdblock") }
         runCatching { webView.addJavascriptInterface(blobBridge, "MafariBlob") }
         // 仅降级路径：WebView 不支持 DOCUMENT_START_SCRIPT 时才安装无参的指纹桥；主路径不向页面暴露任何指纹接口
@@ -680,15 +711,22 @@ class BrowserTab(
                 GmBridge(
                     appContext,
                     { webView },
-                    { target -> onOpenNewTab?.invoke(target) },
-                    { link, name ->
-                        onDownload?.invoke(
-                            link,
-                            null,
-                            if (name.isBlank()) null else "attachment; filename=\"$name\"",
-                            null,
-                        )
+                    { id, target, active -> onGmOpenTab?.invoke(id, target, active) },
+                    { link, name, onResult ->
+                        val gm = onGmDownload
+                        if (gm != null) {
+                            gm(link, name, onResult)
+                        } else {
+                            onDownload?.invoke(
+                                link,
+                                null,
+                                if (name.isBlank()) null else "attachment; filename=\"$name\"",
+                                null,
+                            )
+                            onResult?.invoke(false, "unsupported")
+                        }
                     },
+                    { id -> onGmCloseTab?.invoke(id) },
                 ),
                 "MafariGM",
             )
@@ -1003,7 +1041,7 @@ class BrowserTab(
      * [onNotFound] 在没找到可标记元素时回调。
      */
     fun markAdAtTouch(onNotFound: () -> Unit) {
-        if (webViewOrNull == null) { onNotFound(); return }
+        if (isGecko || webViewOrNull == null) { onNotFound(); return }
         @Suppress("DEPRECATION")
         val scale = webView.scale.takeIf { it > 0f } ?: webView.context.resources.displayMetrics.density
         val cssX = lastTouchX / scale
@@ -1131,7 +1169,8 @@ class BrowserTab(
      * 脚本列表 / 缓存资源变化时重建；系统不支持该特性时由 injectMissingUserScripts 兜底。
      */
     private fun syncUserScripts() {
-        // 用户脚本依赖 WebView 的 document-start 注入；Gecko 内核需要走 WebExtension（见 docs/GECKO.md）
+        // Gecko 内核：走内置 WebExtension（GeckoGm），与 WebView 共用同一份运行时（见 docs/GECKO_GM.md）
+        if (isGecko) { syncGeckoScripts(); return }
         if (destroyed || webViewOrNull == null) return
         if (!scriptsActive()) {
             scriptHandlers.forEach { handler -> runCatching { handler.remove() } }
@@ -1174,6 +1213,46 @@ class BrowserTab(
         Diag.log("userscript: document-start handlers=${scriptHandlers.size}/${enabled.size}")
     }
 
+    /** Gecko 下没有「网页增强」总开关：只看脚本总开关（脚本菜单里的开关） */
+    internal fun gmScriptsEnabled(): Boolean = scriptsEnabled
+
+    /** Gecko：注册是全局的（不是按标签），所以这里只汇报「当前脚本集 + 总开关」，无痕范围由扩展的「允许在无痕中运行」决定 */
+    private fun syncGeckoScripts() {
+        if (destroyed) return
+        val enabledAll = scriptsEnabled
+        GeckoGm.remember(userScripts, enabledAll)
+        val needFetch = userScripts.filter { it.enabled && ScriptResources.missing(appContext, it.code).isNotEmpty() }
+        if (needFetch.isNotEmpty() && !prefetchingScripts) {
+            prefetchingScripts = true
+            Thread {
+                val changed = needFetch.map { ScriptResources.prefetch(appContext, it.code) }.any { it }
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    prefetchingScripts = false
+                    if (changed) syncGeckoScripts()
+                }
+            }.start()
+        }
+        GeckoGm.update(appContext, userScripts, enabledAll)
+    }
+
+    /** Gecko 主框架上报的菜单命令 JSON 与端口（navigation 时清空） */
+    @Volatile private var gmMenuJson: String = "[]"
+    @Volatile private var gmMenuPort: org.mozilla.geckoview.WebExtension.Port? = null
+    private val gmRan = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    internal fun gmMenuReported(json: String, port: org.mozilla.geckoview.WebExtension.Port) {
+        gmMenuJson = json
+        gmMenuPort = port
+    }
+
+    internal fun gmRanReported(id: String) { gmRan.add(id) }
+
+    internal fun gmResetPage() {
+        gmMenuJson = "[]"
+        gmMenuPort = null
+        gmRan.clear()
+    }
+
     /**
      * 兜底：页面加载完后问一下页面里已经「见过」哪些脚本（运行时一进来就登记），
      * 没见过的（特性不支持、或 handler 安装晚于本次导航）再用 evaluateJavascript 补注入主框架。
@@ -1199,6 +1278,16 @@ class BrowserTab(
 
     /** 当前页面里脚本通过 GM_registerMenuCommand 注册的命令（仅主框架） */
     fun queryMenuCommands(onResult: (List<ScriptMenuCommand>) -> Unit) {
+        if (isGecko) {
+            onResult(runCatching {
+                val array = org.json.JSONArray(gmMenuJson)
+                (0 until array.length()).map { i ->
+                    val o = array.getJSONObject(i)
+                    ScriptMenuCommand(o.optString("id"), o.optString("title"), o.optString("script"))
+                }
+            }.getOrDefault(emptyList()))
+            return
+        }
         val js = "(function(){try{return window.__mafariMenuList?window.__mafariMenuList():'[]'}catch(e){return '[]'}})()"
         evaluateJs(js) { raw ->
             val list = runCatching {
@@ -1215,12 +1304,14 @@ class BrowserTab(
 
     /** 当前页面（主框架）里真正匹配并运行的脚本数量 */
     fun queryRunningScripts(onResult: (Int) -> Unit) {
+        if (isGecko) { onResult(gmRan.size); return }
         val js = "(function(){try{return Object.keys(window.__mafariRan||{}).length}catch(e){return 0}})()"
         evaluateJs(js) { raw -> onResult(raw?.trim()?.toIntOrNull() ?: 0) }
     }
 
     /** 当前页面（主框架）里真正匹配并运行的脚本 id */
     fun queryRunningScriptIds(onResult: (List<String>) -> Unit) {
+        if (isGecko) { onResult(gmRan.toList()); return }
         val js = "(function(){try{return JSON.stringify(Object.keys(window.__mafariRan||{}))}catch(e){return '[]'}})()"
         evaluateJs(js) { raw ->
             val ids = runCatching {
@@ -1233,6 +1324,7 @@ class BrowserTab(
     }
 
     fun runMenuCommand(id: String) {
+        if (isGecko) { gmMenuPort?.let { GeckoGm.runMenuCommand(it, id) }; return }
         evaluateJs(
             "(function(){try{window.__mafariMenuRun&&window.__mafariMenuRun(" + org.json.JSONObject.quote(id) + ")}catch(e){}})()",
             null,
@@ -1281,6 +1373,12 @@ class BrowserTab(
 
     /** 强制刷新（下拉刷新 / 脚本开关后刷新）：不像 [reload] 那样在加载中变成「停止」 */
     fun refresh() = engineReload()
+
+    /**
+     * 滚动事件信号（WebView 的 OnScrollChangeListener / Gecko 的 ScrollDelegate 触发，CONFLATED 合并）。
+     * 底栏手势协程据此休眠 / 唤醒，页面静止时不再每 80ms 空转。
+     */
+    val scrollSignal = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
     /** 页面滚动位置（像素）：底栏自动收起 / 下拉刷新判断用 */
     val scrollOffsetY: Int
@@ -1355,6 +1453,7 @@ class BrowserTab(
         pageHost = runCatching { Uri.parse(u).host }.getOrNull().orEmpty()
         loading = true
         errorText = null
+        gmResetPage()
         syncNav()
     }
 
@@ -1565,7 +1664,14 @@ class BrowserTab(
         if (url.isEmpty() && !openedFromLink) {
             // 从主页进入新页面：记下 WebView 历史的当前位置，返回到这一层就回主页
             fromHome = true
-            homeAnchor = historyIndex()
+            // Gecko：清空旧历史，第一页就是历史起点，之后只看 canGoBack，不再依赖会过期 / 漏回调的历史下标
+            // WebView：没有可靠的清空办法，沿用下标锚点
+            if (gecko != null) {
+                gecko.purgeHistory()
+                homeAnchor = -1
+            } else {
+                homeAnchor = historyIndex()
+            }
             savedUrl = ""
         }
         parked = false
@@ -1689,8 +1795,8 @@ class BrowserTab(
 
         val script = buildString {
             if (webrtcDisabled) {
-                runCatching {
-                    append(appContext.assets.open("mafari_no_webrtc.js").bufferedReader(Charsets.UTF_8).use { it.readText() })
+                InjectAssets.read(appContext, "mafari_no_webrtc.js")?.let {
+                    append(it)
                     append('\n')
                 }
             }
@@ -1722,6 +1828,9 @@ class BrowserTab(
                 )
             }
         }
+        // 切换标签 / 改无关设置也会走到这里；脚本内容没变就不要卸载再重新注册
+        if (script == appliedPrivacyScript) return
+        appliedPrivacyScript = script
         runCatching { privacyHandler?.remove() }
         privacyHandler = null
         if (script.isNotBlank() &&
@@ -1729,9 +1838,15 @@ class BrowserTab(
         ) {
             runCatching {
                 privacyHandler = androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
-            }.onFailure { Diag.log("privacy script install failed: ${it.message}") }
+            }.onFailure {
+                appliedPrivacyScript = null // 安装失败：下次允许重试
+                Diag.log("privacy script install failed: ${it.message}")
+            }
         }
     }
+
+    /** 上一次成功交给 WebView 的隐私脚本全文（null = 尚未安装 / 上次失败） */
+    private var appliedPrivacyScript: String? = null
 
     private var privacyHandler: androidx.webkit.ScriptHandler? = null
 
@@ -2085,7 +2200,7 @@ class BrowserTab(
 
     /** 与本机 WebView 内核主版本一致的桌面 Chrome UA（遵循 UA 精简格式 Chrome/主版本.0.0.0） */
     private fun desktopUserAgent(): String {
-        val major = Regex("Chrome/(\\d+)").find(defaultUserAgent)?.groupValues?.get(1)
+        val major = CHROME_MAJOR_REGEX.find(defaultUserAgent)?.groupValues?.get(1)
             ?: return DESKTOP_UA
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
@@ -2100,8 +2215,7 @@ class BrowserTab(
         if (!enabled) return
         if (!androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) return
         runCatching {
-            val script = appContext.assets.open("mafari_desktop.js")
-                .bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val script = InjectAssets.read(appContext, "mafari_desktop.js") ?: return@runCatching
             desktopHandler = androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
         }.onFailure { Diag.log("desktop script install failed: ${it.message}") }
     }
@@ -2238,7 +2352,14 @@ class BrowserTab(
             return
         }
         // 回到「从主页进入」的第一页：再返回就是主页，而不是继续翻进入主页之前的旧历史
-        if (fromHome && historyIndex() <= homeAnchor + 1) {
+        Diag.log("nav: goBack fromHome=$fromHome idx=${historyIndex()} anchor=$homeAnchor engineCanGoBack=${engineCanGoBack()} url=$url")
+        // 下标可能还停在上一页（见 GeckoTabEngine.historyStale）：这时只信 canGoBack，不用下标去判断「已在第一页」
+        val idxStale = gecko?.historyStale == true
+        val atFirstPage = fromHome && when {
+            gecko != null -> !engineCanGoBack() && !idxStale
+            else -> !engineCanGoBack() || historyIndex() <= homeAnchor + 1
+        }
+        if (atFirstPage) {
             engineStop()
             fromHome = false
             parked = true
@@ -2248,7 +2369,8 @@ class BrowserTab(
             syncNav()
             return
         }
-        if (engineCanGoBack()) {
+        // 刚提交新页面、canGoBack 还没跟上时也先尝试后退：真在第一页时是空操作，不会误把标签收回主页
+        if (engineCanGoBack() || (fromHome && idxStale)) {
             fpInjector?.prepareHistory(-1)
             gecko?.goBack() ?: webView.goBack()
         } else if (openedFromLink) {
@@ -2421,8 +2543,40 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         // 页面自己要开的新标签（window.open / 允许的重定向 / GM_openInTab）以它为 opener
         tab.onOpenInNewTab = { u -> newTab(u, tab.incognito, tab, fromLink = true) }
         tab.onRequestClose = { closeTab(tabs.indexOf(tab)) }
-        tab.onOpenNewTab = tab.onOpenInNewTab
+        tab.onGmOpenTab = { id, u, active ->
+            val opened = openTabInternal(u, tab.incognito, tab, fromLink = active, makeActive = active)
+            if (opened != null) gmTabs[id] = opened
+        }
+        tab.onGmCloseTab = { id ->
+            gmTabs.remove(id)?.let { t ->
+                val i = tabs.indexOf(t)
+                if (i >= 0) closeTab(i)
+            }
+        }
         return tab
+    }
+
+    /** 「自定义主页」选了「指定页面」且填了有效网址时返回该网址，否则 null */
+    private fun customHomeUrl(): String? {
+        if (readHomeMode(context) != HOME_MODE_CUSTOM) return null
+        val raw = readHomeCustomUrl(context).trim()
+        return if (raw.isEmpty()) null else toUrl(raw)
+    }
+
+    /**
+     * 点击主页按钮（底栏 / 更多菜单）：按「定制主页 → 自定义主页」处理。
+     * 默认主页：回到内置主页；新建标签页：新建并切到一个新标签页；指定页面：当前标签打开该页面。
+     */
+    fun goHome(tab: BrowserTab = activeTab) {
+        when (readHomeMode(context)) {
+            HOME_MODE_NEW_TAB -> newTab(incognito = tab.incognito, opener = tab)
+            HOME_MODE_CUSTOM -> {
+                val target = customHomeUrl()
+                if (target == null) tab.goHome()
+                else if (tab.url.trimEnd('/') != target.trimEnd('/')) tab.load(target)
+            }
+            else -> tab.goHome()
+        }
     }
 
     /**
@@ -2436,9 +2590,22 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         /** 由页面里的链接打开：第一页返回直接关闭并回到 opener，不经过本标签的主页 */
         fromLink: Boolean = false,
     ) {
-        if (target.isEmpty()) {
+        openTabInternal(target, incognito, opener, fromLink, makeActive = true)
+    }
+
+    /** [newTab] 的实现；[makeActive] = false 为后台打开（GM_openInTab({ active: false })），返回新标签（没建成返回 null） */
+    private fun openTabInternal(
+        target: String,
+        incognito: Boolean,
+        opener: BrowserTab?,
+        fromLink: Boolean,
+        makeActive: Boolean,
+    ): BrowserTab? {
+        // 新建空白标签时，若设置了「指定页面」就打开它（无痕标签保持空白）
+        val loadTarget = if (target.isEmpty() && !incognito) customHomeUrl().orEmpty() else target
+        if (loadTarget.isEmpty()) {
             val cur = tabs.getOrNull(activeIndex)
-            if (cur != null && cur.isBlank && cur.incognito == incognito) return
+            if (cur != null && cur.isBlank && cur.incognito == incognito) return null
         }
         if (tabs.size >= MAX_TABS) {
             android.widget.Toast.makeText(
@@ -2446,16 +2613,21 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
                 "最多同时打开 $MAX_TABS 个标签页",
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
-            return
+            return null
         }
         // 切走前给当前标签拍一张缩略图
-        tabs.getOrNull(activeIndex)?.captureThumbnailNow()
+        if (makeActive) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
         val tab = createTab(incognito, opener)
-        tab.openedFromLink = fromLink && opener != null && target.isNotEmpty()
+        // 翻译 / 拓展选项页 / 外部链接等没有标 fromLink 的入口也一样：有来源标签、有目标地址，返回就该直接回来源
+        tab.openedFromLink = (fromLink || makeActive) && opener != null && target.isNotEmpty()
         tabs.add(tab)
-        activate(tabs.lastIndex)
-        if (target.isNotEmpty()) tab.load(target)
+        if (makeActive) activate(tabs.lastIndex)
+        if (loadTarget.isNotEmpty()) tab.load(loadTarget)
+        return tab
     }
+
+    /** GM_openInTab 返回的 id → 标签；仅主线程访问，标签被移除时一并清掉 */
+    private val gmTabs = HashMap<String, BrowserTab>()
 
     /** 站点标识：小写 host，忽略开头的 www. */
     private fun siteKey(url: String): String? {
@@ -2517,10 +2689,6 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         }
     }
 
-    /** 当前标签是否无痕 */
-    val activeIncognito: Boolean
-        get() = activeTab.incognito
-
     /** 切换当前标签无痕状态（无痕时新开标签，已有无痕则关闭回普通） */
     fun toggleIncognito() {
         if (activeTab.incognito) {
@@ -2556,13 +2724,20 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
 
     fun select(index: Int) {
         // 切走前给当前标签拍一张缩略图
-        if (index != activeIndex) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
+        if (index != activeIndex) {
+            tabs.getOrNull(activeIndex)?.let {
+                it.captureThumbnailNow()
+                // 手动切走后，关闭它就按最近使用顺序回退，不再强行跳回当初的来源标签
+                it.openerId = -1
+            }
+        }
         activate(index)
     }
 
     /** 从列表里摘掉一个标签（不负责挑选下一个当前标签） */
     private fun detach(tab: BrowserTab) {
         tabs.remove(tab)
+        gmTabs.values.removeAll { it === tab }
         recentIds.remove(tab.id)
         // 以它为 opener 的标签改挂到它的 opener 上，层级链不断
         tabs.forEach { if (it.openerId == tab.id) it.openerId = tab.openerId }
@@ -2617,33 +2792,6 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         }
     }
 
-    /** 后台打开，返回目标标签下标（同站已有则复用，失败返回 -1）。无痕下打开的标签仍是无痕 */
-    fun newTabInBackground(target: String, incognito: Boolean = activeTab.incognito): Int {
-        // 同站已有标签：切换前不抢焦点，由调用方决定是否 select
-        val idx = findSiteTab(target, incognito)
-        if (idx >= 0) {
-            val existing = tabs[idx]
-            if (existing.url.isNotEmpty() && !isSiteRoot(toUrl(target)) &&
-                !existing.url.equals(toUrl(target), ignoreCase = true)
-            ) {
-                existing.load(target)
-            }
-            return idx
-        }
-        if (tabs.size >= MAX_TABS) {
-            android.widget.Toast.makeText(
-                context,
-                "最多同时打开 $MAX_TABS 个标签页",
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-            return -1
-        }
-        val tab = createTab(incognito, tabs.getOrNull(activeIndex))
-        tab.openedFromLink = true
-        tabs.add(tab)
-        tab.load(target)
-        return tabs.lastIndex
-    }
 
     /**
      * 清空某一栏的标签：[incognito] 为 true 清无痕栏，false 清普通栏，另一栏不受影响。
@@ -2665,12 +2813,6 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         }
     }
 
-    fun closeAll() {
-        tabs.forEach { it.close() }
-        tabs.clear()
-        recentIds.clear()
-        newTab()
-    }
 
     companion object {
         const val MAX_TABS = 99
