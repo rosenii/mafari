@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.ByteArrayOutputStream
@@ -131,6 +132,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
 
     var showDefaultPw by remember { mutableStateOf(false) }
     var defaultPwSet by remember { mutableStateOf(BackupAuto.hasPassword(context)) }
+    var defaultPwInitial by remember { mutableStateOf("") }   // 验证通过后才读出，关闭时清空
     var autoMode by remember { mutableIntStateOf(BackupAuto.mode(context)) }
     var showPasswordDialog by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -239,11 +241,56 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     val autoPushReady = defaultPwSet && (webdavConfig != null || gitConfig != null)
     val working = busy || restoring || webdavTask != null || gitTask != null
 
-    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) {
-            restoreUri = uri
-            showRestorePassword = true
+    /** 先过生物识别（失败可退回锁屏密码），通过才执行 [onOk]。 */
+    fun requireAuth(subtitle: String, onOk: () -> Unit) {
+        BiometricGate.authenticate(context, "验证身份", subtitle) { ok -> if (ok) onOk() }
+    }
+
+    /** 用 [password] 解密并校验当前待恢复的来源；[fromDefault] 为真时失败会退回手动输入口令。 */
+    fun runRestore(password: CharArray, fromDefault: Boolean) {
+        val uri = restoreUri
+        val remote = restoreBytes
+        if (uri == null && remote == null) {
+            password.fill('\u0000')
+            return
         }
+        restoring = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = remote ?: uri?.let { u ->
+                        context.contentResolver.openInputStream(u)?.use { BackupManager.readAll(it) }
+                    } ?: error("无法读取所选文件")
+                    BackupManager.prepareRestore(context, bytes, password)
+                }.onFailure { password.fill('\u0000') }
+            }
+            restoring = false
+            val plan = result.getOrNull()
+            if (plan != null) {
+                restoreUri = null
+                restoreBytes = null
+                restorePlan = plan
+            } else if (fromDefault) {
+                Toast.makeText(context, failText("默认口令未能解密", result.exceptionOrNull()) + "，请手动输入口令", Toast.LENGTH_LONG).show()
+                showRestorePassword = true
+            } else {
+                restoreUri = null
+                restoreBytes = null
+                Toast.makeText(context, failText("无法恢复", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** 拿到备份来源后：有默认口令先用它解密，否则（或失败时）弹口令框。 */
+    fun beginRestore(uri: Uri?, bytes: ByteArray?) {
+        restoreUri = uri
+        restoreBytes = bytes
+        val saved = BackupAuto.password(context)
+        if (saved == null) showRestorePassword = true else runRestore(saved.toCharArray(), fromDefault = true)
+    }
+
+    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) beginRestore(uri, null)
     }
 
     /** 按 [exportTarget] 把备份写到本地文件 / WebDAV / Git；[password] 用完即清零。 */
@@ -405,17 +452,18 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                             summary = if (webdavTask != null && exportTarget != ExportTarget.WEBDAV) webdavTask else "最新一份备份",
                                             enabled = cfg != null && !working,
                                             onClick = {
-                                                exportTarget = ExportTarget.FILE
-                                                webdavTask = "正在获取最新备份…"
-                                                scope.launch {
-                                                    val result = withContext(Dispatchers.IO) { runCatching { WebDavClient(cfg!!).downloadLatest() } }
-                                                    webdavTask = null
-                                                    val got = result.getOrNull()
-                                                    if (got != null) {
-                                                        restoreBytes = got.second
-                                                        showRestorePassword = true
-                                                    } else {
-                                                        Toast.makeText(context, failText("获取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                                                requireAuth("从服务器恢复备份") {
+                                                    exportTarget = ExportTarget.FILE
+                                                    webdavTask = "正在获取最新备份…"
+                                                    scope.launch {
+                                                        val result = withContext(Dispatchers.IO) { runCatching { WebDavClient(cfg!!).downloadLatest() } }
+                                                        webdavTask = null
+                                                        val got = result.getOrNull()
+                                                        if (got != null) {
+                                                            beginRestore(null, got.second)
+                                                        } else {
+                                                            Toast.makeText(context, failText("获取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                                                        }
                                                     }
                                                 }
                                             },
@@ -459,17 +507,18 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                             summary = if (gitTask != null && exportTarget != ExportTarget.GIT) gitTask else "最新一份备份",
                                             enabled = cfg != null && !working,
                                             onClick = {
-                                                exportTarget = ExportTarget.FILE
-                                                gitTask = "正在拉取仓库…"
-                                                scope.launch {
-                                                    val result = withContext(Dispatchers.IO) { runCatching { GitSyncClient(context, cfg!!).download() } }
-                                                    gitTask = null
-                                                    val got = result.getOrNull()
-                                                    if (got != null) {
-                                                        restoreBytes = got
-                                                        showRestorePassword = true
-                                                    } else {
-                                                        Toast.makeText(context, failText("拉取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                                                requireAuth("从仓库恢复备份") {
+                                                    exportTarget = ExportTarget.FILE
+                                                    gitTask = "正在拉取仓库…"
+                                                    scope.launch {
+                                                        val result = withContext(Dispatchers.IO) { runCatching { GitSyncClient(context, cfg!!).download() } }
+                                                        gitTask = null
+                                                        val got = result.getOrNull()
+                                                        if (got != null) {
+                                                            beginRestore(null, got)
+                                                        } else {
+                                                            Toast.makeText(context, failText("拉取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                                                        }
                                                     }
                                                 }
                                             },
@@ -492,7 +541,12 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 title = "默认加密口令",
                                 summary = if (defaultPwSet) "已设置，导出 / 上传 / 推送不再询问" else "未设置",
                                 enabled = !working,
-                                onClick = { showDefaultPw = true },
+                                onClick = {
+                                    requireAuth("查看 / 修改默认口令") {
+                                        defaultPwInitial = BackupAuto.password(context).orEmpty()
+                                        showDefaultPw = true
+                                    }
+                                },
                             )
                             AppDropdownPreference(
                                 backdrop = sheetBackdrop,
@@ -527,7 +581,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 title = "从本地备份文件恢复",
                                 summary = if (restoring) "正在解密并校验…" else "选择 .${BackupFormat.EXTENSION} 文件",
                                 enabled = !working,
-                                onClick = { openLauncher.launch(arrayOf("*/*")) },
+                                onClick = { requireAuth("从本地备份文件恢复") { openLauncher.launch(arrayOf("*/*")) } },
                             )
                         }
                     }
@@ -642,13 +696,18 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
             DefaultPasswordDialog(
                 show = showDefaultPw,
                 isSet = defaultPwSet,
+                initial = defaultPwInitial,
                 backdrop = sheetBackdrop,
-                onDismiss = { showDefaultPw = false },
+                onDismiss = {
+                    showDefaultPw = false
+                    defaultPwInitial = ""
+                },
                 onSave = { pw ->
                     val r = runCatching { BackupAuto.setPassword(context, pw) }
                     if (r.isSuccess) {
                         defaultPwSet = true
                         showDefaultPw = false
+                        defaultPwInitial = ""
                         Toast.makeText(context, "默认口令已保存", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, failText("保存失败", r.exceptionOrNull()), Toast.LENGTH_LONG).show()
@@ -659,6 +718,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     defaultPwSet = false
                     autoMode = 0
                     showDefaultPw = false
+                    defaultPwInitial = ""
                 },
             )
 
@@ -770,32 +830,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 },
                 onConfirm = { password ->
                     showRestorePassword = false
-                    val uri = restoreUri
-                    val remote = restoreBytes
-                    restoreUri = null
-                    restoreBytes = null
-                    if (uri == null && remote == null) {
-                        password.fill('\u0000')
-                    } else {
-                        restoring = true
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val bytes = remote ?: uri?.let { u ->
-                                        context.contentResolver.openInputStream(u)?.use { BackupManager.readAll(it) }
-                                    } ?: error("无法读取所选文件")
-                                    BackupManager.prepareRestore(context, bytes, password)
-                                }.onFailure { password.fill('\u0000') }
-                            }
-                            restoring = false
-                            val plan = result.getOrNull()
-                            if (plan != null) {
-                                restorePlan = plan
-                            } else {
-                                Toast.makeText(context, failText("无法恢复", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    }
+                    runRestore(password, fromDefault = false)
                 },
             )
 
@@ -1075,13 +1110,16 @@ private fun PasswordDialog(
 private fun DefaultPasswordDialog(
     show: Boolean,
     isSet: Boolean,
+    initial: String,
     backdrop: Backdrop?,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
     onClear: () -> Unit,
 ) {
-    var password by remember(show) { mutableStateOf("") }
-    var confirm by remember(show) { mutableStateOf("") }
+    var password by remember(show) { mutableStateOf(initial) }
+    var confirm by remember(show) { mutableStateOf(initial) }
+    var visible by remember(show) { mutableStateOf(false) }
+    val transform = if (visible) VisualTransformation.None else PasswordVisualTransformation()
     val tooShort = password.isNotEmpty() && password.length < MIN_PASSWORD_LEN
     val mismatch = confirm.isNotEmpty() && confirm != password
     val valid = password.length >= MIN_PASSWORD_LEN && password == confirm
@@ -1101,7 +1139,7 @@ private fun DefaultPasswordDialog(
                     modifier = Modifier.fillMaxWidth(),
                     label = "口令（至少 $MIN_PASSWORD_LEN 位）",
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = transform,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
                 TextField(
@@ -1110,8 +1148,17 @@ private fun DefaultPasswordDialog(
                     modifier = Modifier.fillMaxWidth(),
                     label = "再次输入",
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = transform,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+                Text(
+                    text = if (visible) "隐藏口令" else "显示口令",
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { visible = !visible }
+                        .padding(horizontal = 4.dp, vertical = 6.dp),
                 )
             }
             FieldHint(if (tooShort) "口令至少 $MIN_PASSWORD_LEN 位" else if (mismatch) "两次输入不一致" else null)
