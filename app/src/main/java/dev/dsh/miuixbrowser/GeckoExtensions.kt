@@ -221,6 +221,8 @@ object GeckoExtensionStore {
         FloccusPatcher.allowUnsigned(context, true) // 改过的包没有签名，先放开签名校验
         val first = installOnce(context, patched)
         if (first.isSuccess) return first
+        // 已经装着改包版（例如更新时用户点了取消）：保持签名校验关闭，也不要拿没打补丁的原包去覆盖它
+        if (items.any { it.id == BookmarksBridge.EXT_ID }) return first
         Diag.log("ext: patched install failed (${first.exceptionOrNull()}), retrying original")
         FloccusPatcher.allowUnsigned(context, false)
         val second = installOnce(context, uri)
@@ -337,7 +339,13 @@ object GeckoExtensionStore {
         var updated = 0
         val snapshot = items.toList()
         for (item in snapshot) {
-            if (item.id == BookmarksBridge.EXT_ID) continue // 官方更新包没有书签垫片，更新会让同步失效：需重新安装新版
+            if (item.id == BookmarksBridge.EXT_ID) {
+                // 官方更新包没有书签垫片，不能走内核的 update：改为下载最新版、重新打补丁后覆盖安装
+                if (runCatching { updateFloccus(context, item) }
+                        .onFailure { Diag.log("ext: floccus update failed: $it") }
+                        .getOrDefault(false)) updated++
+                continue
+            }
             val before = item.version
             val after = runCatching { controller.update(item.ext).await() }.getOrNull()
             val newVersion = after?.metaData?.version
@@ -346,6 +354,25 @@ object GeckoExtensionStore {
         markChecked(context)
         refresh(context)
         return updated to snapshot.size
+    }
+
+    /**
+     * Floccus 的更新：查 GitHub 最新正式版 → 比当前版本新才下载 → 走 [install]（会重新打补丁并放开签名校验），
+     * 同 id 覆盖安装即升级，账号与设置保留在拓展自己的存储里。true = 已升级，false = 已是最新；失败抛异常。
+     * 调用方负责之后的 [refresh]。
+     */
+    private suspend fun updateFloccus(context: Context, item: GeckoExtItem): Boolean {
+        val latest = withContext(Dispatchers.IO) { FloccusPatcher.latestRelease() }
+            ?: error("查询 Floccus 最新版本失败")
+        if (!FloccusPatcher.isNewer(latest.version, item.version)) return false
+        Diag.log("ext: floccus ${item.version} -> ${latest.version}")
+        val file = withContext(Dispatchers.IO) { FloccusPatcher.downloadRelease(context, latest) }
+        try {
+            install(context, "file://" + file.absolutePath).getOrThrow()
+        } finally {
+            file.delete()
+        }
+        return true
     }
 
     // ------------------------------------------------------------------ 管理：启停 / 卸载 / 单个更新
@@ -366,7 +393,7 @@ object GeckoExtensionStore {
 
     /** 检查单个拓展的更新：true = 已更新到新版本，false = 已是最新 */
     suspend fun updateOne(context: Context, item: GeckoExtItem): Result<Boolean> = runCatching {
-        if (item.id == BookmarksBridge.EXT_ID) return@runCatching false
+        if (item.id == BookmarksBridge.EXT_ID) return@runCatching updateFloccus(context, item)
         val after = controller(context).update(item.ext).await()
         val newVersion = after?.metaData?.version
         val changed = after != null && !newVersion.isNullOrEmpty() && newVersion != item.version

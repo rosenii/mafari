@@ -20,12 +20,19 @@ import java.util.zip.ZipOutputStream
  *     运行用不到；官方包解压后 62MB，去掉后约 15MB，在手机上安装 / 读取都快些。
  * 其它拓展原样安装，不受影响。
  *
+ * 更新：官方更新包没有垫片，不能交给内核的 update；[latestRelease] / [downloadRelease] 去 GitHub 取最新正式版的
+ * Firefox 构建包，再走同一条改包安装（同 id 覆盖安装即升级），见 GeckoExtensionStore.updateFloccus。
+ *
  * 注意：改过的包没有 Mozilla 签名，需要内核允许未签名拓展（nightly 默认允许）。
  */
 object FloccusPatcher {
     private const val SHIM_ASSET = "mafari-bookmarks-shim.js"
     private const val SHIM_NAME = "mafari-bookmarks-shim.js"
     private const val SIGN_PREF = "xpinstall.signatures.required"
+    private const val RELEASES_API = "https://api.github.com/repos/floccusaddon/floccus/releases/latest"
+
+    /** GitHub 上的一个 Floccus 正式版：[version] 已去掉前缀 v，[url] 是 Firefox 构建包（zip）的下载地址。 */
+    data class Release(val version: String, val url: String)
 
     private fun flags(context: Context) = context.getSharedPreferences("mafari", Context.MODE_PRIVATE)
 
@@ -63,6 +70,76 @@ object FloccusPatcher {
     }.getOrElse {
         Diag.log("floccus: patch skipped: $it")
         uri
+    }
+
+    /**
+     * GitHub 上 Floccus 最新「正式版」（releases/latest 不含预发布）的 Firefox 构建包；查不到 / 没有该包返回 null。
+     * 阻塞网络调用：请在 IO 线程调用。
+     */
+    fun latestRelease(): Release? {
+        return try {
+            val c = (URL(RELEASES_API).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 30_000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 mafari")
+                setRequestProperty("Accept", "application/vnd.github+json")
+            }
+            val body = try {
+                if (c.responseCode !in 200..299) error("HTTP ${c.responseCode}")
+                c.inputStream.bufferedReader().readText()
+            } finally {
+                c.disconnect()
+            }
+            val j = JSONObject(body)
+            if (j.optBoolean("prerelease") || j.optBoolean("draft")) return null
+            val version = j.optString("tag_name").trim().removePrefix("v").removePrefix("V")
+            val assets = j.optJSONArray("assets") ?: return null
+            var url: String? = null
+            for (i in 0 until assets.length()) {
+                val a = assets.optJSONObject(i) ?: continue
+                val name = a.optString("name")
+                // 形如 floccus-build-v5.13.0-firefox.zip；旧版也可能是 .xpi
+                if (name.contains("firefox", true) && (name.endsWith(".zip", true) || name.endsWith(".xpi", true))) {
+                    url = a.optString("browser_download_url").takeIf { it.isNotBlank() }
+                    if (url != null) break
+                }
+            }
+            if (version.isEmpty() || url == null) null else Release(version, url)
+        } catch (t: Throwable) {
+            Diag.log("floccus: latest release lookup failed: $t")
+            null
+        }
+    }
+
+    /** [latest] 是否比 [current] 新（按 . 分段的数字比较，忽略 -beta 之类后缀）；[current] 读不出来时一律当作不更新。 */
+    fun isNewer(latest: String, current: String): Boolean {
+        fun parts(v: String) = v.trim().removePrefix("v").substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+        if (current.isBlank()) return false
+        val a = parts(latest)
+        val b = parts(current)
+        for (i in 0 until maxOf(a.size, b.size)) {
+            val x = a.getOrElse(i) { 0 }
+            val y = b.getOrElse(i) { 0 }
+            if (x != y) return x > y
+        }
+        return false
+    }
+
+    /**
+     * 把 [release] 下载到缓存目录（与 [prepare] 的临时目录分开，prepare 开头会清空自己的目录），
+     * 并确认它确实是未打过补丁的 Floccus 包；返回文件，失败抛异常。阻塞：请在 IO 线程调用。
+     */
+    fun downloadRelease(context: Context, release: Release): File {
+        val dir = File(context.cacheDir, "floccus_update").apply { mkdirs() }
+        dir.listFiles()?.forEach { it.delete() }
+        val file = download(release.url, File(dir, "floccus-${release.version}-firefox.xpi"))
+        val ok = runCatching { isFloccus(file) }.getOrDefault(false)
+        if (!ok) {
+            file.delete()
+            error("下载的不是有效的 Floccus 包")
+        }
+        return file
     }
 
     private fun download(url: String, target: File): File {

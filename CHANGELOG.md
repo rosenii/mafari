@@ -4,6 +4,8 @@
 
 ## [未发布]
 
+- 新增（Gecko / Floccus）：「检查更新」现在也能升级 Floccus —— 此前官方更新包没有书签垫片，更新会让同步失效，所以一直跳过它。现改为查 GitHub `floccusaddon/floccus` 最新正式版（不含预发布），比当前版本新才下载其 Firefox 构建包，重新打补丁后覆盖安装（同 id 升级，账号与设置保留）；权限有变化时照常弹确认框
+- 修复（Gecko / Floccus）：已装着改包版 Floccus 时，再装 / 更新失败或被取消会把「放开签名校验」重新关上，导致已装的 Floccus 下次启动被禁用，且会拿没打补丁的原包重试 —— 现在这种情况直接保持原状返回失败
 - 修复（Gecko / Floccus）：设置里选「本地目标文件夹」一直转圈、列不出浏览器书签 —— 按 Floccus 5.13.0 包核对后确认：该选择器在设置页（`options.html`，工具栏弹窗是同一个页面）里调用 `browser.bookmarks.getTree()`，而设置页是在标签页 / 弹出页的 session 里打开的扩展页，GeckoView 对它的 `sendNativeMessage` 走 session 级通道，之前只在扩展级挂了委托，消息没有接收端。现在 ①`BookmarksBridge.attachSession` 把委托挂到每个标签页 / 弹出页 session（新建 session、刷新拓展列表、打开弹出页时都会挂）；②shim 里页面的调用先经 `runtime.sendMessage` 交后台页代发（后台页走扩展级），无人应答再直连；③shim 对 Floccus 选文件夹前探测 Vivaldi 的 `tabs.query({active, currentWindow})` 加 3 秒兜底，避免它挂住时选择器空转；④桥只接受 Floccus 自己页面的消息，并在整树读取与失败时写日志（`diag.txt` 里搜 `bookmarks:`）
 - 修复（Gecko / Floccus）：Floccus 的分隔线（`type: separator`）此前会被桥当成「新文件夹」创建 —— 现存成 `separator.floccus.org` 占位书签，对 Floccus 仍以 separator 节点呈现，位置可原样往返
 - 优化（Gecko / Floccus）：改包安装时去掉 `dist/node-tests/`（约 26MB 测试包）和全部 `.map`，解压后体积由 62MB 降到约 15MB，安装更快
