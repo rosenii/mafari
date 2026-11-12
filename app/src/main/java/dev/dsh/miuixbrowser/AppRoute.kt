@@ -31,7 +31,7 @@ sealed interface AppRoute : NavKey {
     /** 设置 → 隐私与安全 → Cookie 管理（两个内核共用） */
     data object CookiePage : AppRoute
 
-    /** 设置 → 备份与同步（目前：加密备份导出） */
+    /** 设置 → 备份与同步（加密备份导出 / 从备份文件恢复） */
     data object BackupPage : AppRoute
 
     /** 设置 → 隐私与安全 → 隐私增强保护（WebView：DNT / WebRTC / 指纹） */

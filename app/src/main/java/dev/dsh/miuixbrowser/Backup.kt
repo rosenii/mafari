@@ -1,6 +1,7 @@
 package dev.dsh.miuixbrowser
 
 import android.content.Context
+import android.content.Intent
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator
 import org.bouncycastle.crypto.params.Argon2Parameters
 import org.json.JSONArray
@@ -11,6 +12,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.security.GeneralSecurityException
 import java.security.SecureRandom
@@ -294,6 +296,165 @@ object BackupManager {
             .put("units", JSONArray(units.keys.toList()))
         units["meta.json"] = meta.toString().toByteArray(Charsets.UTF_8)
         return units to skipped
+    }
+
+    /**
+     * 解密并校验后的恢复计划。所有校验、解析、设备密文重新加密都在 [prepareRestore] 里完成，
+     * 所以 [applyRestore] 开始写入之前任何失败都不会改动现有数据。
+     */
+    class RestorePlan internal constructor(
+        val createdAt: Long,
+        val label: String,
+        val versionName: String,
+        /** 备份里实际可恢复的 SharedPreferences 名 */
+        val prefNames: List<String>,
+        internal val prefs: Map<String, Map<String, Any>>,
+        internal val files: Map<String, ByteArray>,
+    ) {
+        val itemCount: Int get() = prefs.values.sumOf { it.size } + files.size
+    }
+
+    /** 读取备份文件的字节数上限（防止选错文件拖垮内存） */
+    const val MAX_BACKUP_BYTES = 64 shl 20
+
+    /** 从 [input] 读出备份文件全部字节；超过上限抛 [CryptoException]。 */
+    fun readAll(input: InputStream): ByteArray {
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            if (out.size() + n > MAX_BACKUP_BYTES) throw CryptoException("文件过大，不像是 Mafari 备份")
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
+    /**
+     * 解密备份并生成恢复计划（耗时：Argon2id，调用方放 IO 线程）。口令用完会被清零。
+     * 只接受白名单内的单元名（[PREFS] / [FILES]），其余一律忽略。
+     */
+    fun prepareRestore(context: Context, file: ByteArray, password: CharArray): RestorePlan {
+        val app = context.applicationContext
+        val contents = try {
+            BackupFormat.read(file, password)
+        } finally {
+            password.fill('\u0000')
+        }
+
+        val meta = contents.units["meta.json"]
+            ?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() }
+            ?: throw CryptoException("备份缺少元数据，可能不是 Mafari 备份")
+
+        val prefs = LinkedHashMap<String, Map<String, Any>>()
+        val files = LinkedHashMap<String, ByteArray>()
+        for ((name, bytes) in contents.units) {
+            when {
+                name.startsWith("prefs/") -> {
+                    val pref = name.removePrefix("prefs/")
+                    if (pref in PREFS) prefs[pref] = parsePrefs(app, pref, bytes)
+                }
+                name.startsWith("files/") -> {
+                    val rel = name.removePrefix("files/")
+                    if (rel in FILES) files[rel] = bytes
+                }
+            }
+        }
+        if (prefs.isEmpty() && files.isEmpty()) throw CryptoException("备份里没有可恢复的数据")
+
+        return RestorePlan(
+            createdAt = contents.createdAt,
+            label = contents.label,
+            versionName = meta.optString("versionName"),
+            prefNames = prefs.keys.toList(),
+            prefs = prefs,
+            files = files,
+        )
+    }
+
+    private fun parsePrefs(app: Context, pref: String, bytes: ByteArray): Map<String, Any> {
+        val root = try {
+            JSONObject(String(bytes, Charsets.UTF_8))
+        } catch (e: Exception) {
+            throw CryptoException("备份中的 $pref 数据已损坏", e)
+        }
+        val out = LinkedHashMap<String, Any>()
+        for (key in root.keys()) {
+            val entry = root.optJSONObject(key) ?: throw CryptoException("备份中的 $pref 数据格式错误")
+            try {
+                val value: Any = when (entry.getString("t")) {
+                    "s" -> {
+                        val text = entry.getString("v")
+                        val purpose = DEVICE_ENCRYPTED[pref]?.get(key)
+                        if (purpose != null) {
+                            // 备份里存的是明文：写回前用本机密钥重新封装，和正常运行时的存储形态一致
+                            if (EncryptionEngine.isEncryptedString(text)) throw CryptoException("备份中的 $pref 数据格式错误")
+                            SecureStore.write(app, text, purpose) ?: throw CryptoException("无法用本机密钥加密收藏 / 历史，恢复已取消")
+                        } else {
+                            text
+                        }
+                    }
+                    "i" -> entry.getInt("v")
+                    "l" -> entry.getLong("v")
+                    "f" -> entry.getDouble("v").toFloat()
+                    "b" -> entry.getBoolean("v")
+                    "ss" -> {
+                        val arr = entry.getJSONArray("v")
+                        LinkedHashSet<String>().also { set -> for (i in 0 until arr.length()) set.add(arr.getString(i)) }
+                    }
+                    else -> throw CryptoException("备份中的 $pref 含有未知类型的数据")
+                }
+                out[key] = value
+            } catch (e: CryptoException) {
+                throw e
+            } catch (e: Exception) {
+                throw CryptoException("备份中的 $pref 数据格式错误", e)
+            }
+        }
+        return out
+    }
+
+    /**
+     * 写入恢复计划：每个出现在备份里的 SharedPreferences 整体替换（clear + put，commit 同步落盘），
+     * 备份里没有的保持不动。收藏 / 历史等有内存缓存的数据，必须在这之后重启进程才会生效。
+     * 在 IO 线程调用。
+     */
+    fun applyRestore(context: Context, plan: RestorePlan) {
+        val app = context.applicationContext
+        for ((name, values) in plan.prefs) {
+            val editor = app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
+            for ((key, value) in values) {
+                when (value) {
+                    is String -> editor.putString(key, value)
+                    is Int -> editor.putInt(key, value)
+                    is Long -> editor.putLong(key, value)
+                    is Float -> editor.putFloat(key, value)
+                    is Boolean -> editor.putBoolean(key, value)
+                    is Set<*> -> editor.putStringSet(key, value.map { it.toString() }.toSet())
+                }
+            }
+            if (!editor.commit()) throw IOException("写入 $name 失败")
+        }
+        for ((rel, bytes) in plan.files) {
+            val target = File(app.filesDir, rel)
+            target.parentFile?.mkdirs()
+            val tmp = File(target.parentFile, target.name + ".restore")
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(target)) {
+                target.delete()
+                if (!tmp.renameTo(target)) throw IOException("写入 $rel 失败")
+            }
+        }
+    }
+
+    /** 重启应用：拉起启动 Activity（清空任务栈），随后结束当前进程，让所有内存缓存重新从磁盘加载。 */
+    fun restartApp(context: Context) {
+        val app = context.applicationContext
+        app.packageManager.getLaunchIntentForPackage(app.packageName)?.let {
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            app.startActivity(it)
+        }
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     /** 导出：收集 → 加密 → 写入 [out]（调用方负责在 IO 线程调用并关闭流）。口令用完会被清零。 */

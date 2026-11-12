@@ -411,6 +411,20 @@ fun SettingsScreen(
                             onClick = onOpenGeckoDebug,
                         )
                     }
+                }
+
+                SmallTitle(text = "数据")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    SettingsRow(
+                        title = "备份与同步",
+                        summary = "加密备份导出 · 从备份文件恢复 · X25519 + ML-KEM-768 混合抗量子加密",
+                        onClick = onOpenBackup,
+                    )
                     SettingsRow(
                         title = "清理缓存",
                         summary = "每次冷启动自动清理 · 同系统「清除缓存」范围，保留未完成的下载 · 当前可清理 " +
@@ -433,20 +447,6 @@ fun SettingsScreen(
                                 ).show()
                             }
                         },
-                    )
-                }
-
-                SmallTitle(text = "数据")
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
-                    insideMargin = PaddingValues(0.dp),
-                ) {
-                    SettingsRow(
-                        title = "备份与同步",
-                        summary = "加密备份导出 · X25519 + ML-KEM-768 混合抗量子加密 · AES-256-GCM",
-                        onClick = onOpenBackup,
                     )
                 }
 
