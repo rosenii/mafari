@@ -1304,7 +1304,8 @@ fun BrowserScreen(
             // 按实际字体宽度计算地址栏所需空间：固定按钮区 + 地址文字 + 地址栏内边距。
             // 不设置人为最小宽度，短文字不会留下空白；只有屏幕可用宽度作为上限。
             val textMeasurer = rememberTextMeasurer()
-            val addressMeasureText = displayAddress.ifBlank { "搜索或输入网址" }
+            // 输入/编辑地址时不随输入内容动态缩放，宽度固定为「搜索或输入网址」占位文字的宽度
+            val addressMeasureText = if (editing) "搜索或输入网址" else displayAddress.ifBlank { "搜索或输入网址" }
             val measuredAddressPx = textMeasurer.measure(
                 text = AnnotatedString(addressMeasureText),
                 style = TextStyle(fontSize = 15.sp),
@@ -1313,7 +1314,8 @@ fun BrowserScreen(
             val measuredAddressWidth = with(LocalDensity.current) { measuredAddressPx.toDp() }
             val fixedToolbarWidth = 44.dp * 4 + 12.dp + 24.dp
             val loadingIndicatorWidth = if (tab.loading) 15.dp else 0.dp
-            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth
+            val refreshWidth = if (shouldShowAddressRefresh(displayAddress, tab.loading, editing)) AddressRefreshWidth else 0.dp
+            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth
             // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
             val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
             val animatedBarWidth by animateDpAsState(
@@ -1499,7 +1501,9 @@ fun BrowserScreen(
                     tab.captureThumbnailNow()
                     sheet = Sheet.Tabs
                 },
+                onNewTab = { state.newTab(incognito = tab.incognito) },
                 onMore = { sheet = Sheet.Menu },
+                onRefresh = { tab.reload() },
             )
                 }
                 } // end else (!barMinimized)
@@ -1609,7 +1613,7 @@ fun BrowserScreen(
                 Sheet.Link -> hostOf(linkUrl)
                 Sheet.Image -> "图片"
                 Sheet.Element -> "页面元素"
-                Sheet.Menu -> "菜单"
+                Sheet.Menu -> null // 更多菜单不显示标题
                 Sheet.Tabs -> null // 标签页自定义头部（渐进模糊 + 添加/删除）
                 else -> null
             },
