@@ -129,7 +129,9 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
     val sheetBackdrop = if (glass) backdrop else null
 
-    var showLocalSheet by remember { mutableStateOf(false) }
+    var showDefaultPw by remember { mutableStateOf(false) }
+    var defaultPwSet by remember { mutableStateOf(BackupAuto.hasPassword(context)) }
+    var autoMode by remember { mutableIntStateOf(BackupAuto.mode(context)) }
     var showPasswordDialog by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var pendingPassword by remember { mutableStateOf<CharArray?>(null) }
@@ -234,6 +236,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
         }
     }
 
+    val autoPushReady = defaultPwSet && (webdavConfig != null || gitConfig != null)
     val working = busy || restoring || webdavTask != null || gitTask != null
 
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -241,6 +244,75 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
             restoreUri = uri
             showRestorePassword = true
         }
+    }
+
+    /** 按 [exportTarget] 把备份写到本地文件 / WebDAV / Git；[password] 用完即清零。 */
+    fun performExport(password: CharArray) {
+        val cfg = webdavConfig
+        if (exportTarget == ExportTarget.FILE) {
+            pendingPassword = password
+            saveLauncher.launch(BackupManager.suggestedFileName())
+        } else if (exportTarget == ExportTarget.GIT) {
+            val git = gitConfig
+            if (git == null) {
+                password.fill('\u0000')
+            } else {
+                gitTask = "正在加密并推送…"
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val buffer = ByteArrayOutputStream()
+                            val summary = BackupManager.export(context, buffer, password)
+                            GitSyncClient(context, git).upload(buffer.toByteArray())
+                            summary
+                        }.onFailure { password.fill('\u0000') }
+                    }
+                    gitTask = null
+                    val summary = result.getOrNull()
+                    if (summary != null) {
+                        GitStore.markPushed(context)
+                        lastPush = GitStore.lastPush(context)
+                    }
+                    Toast.makeText(
+                        context,
+                        if (summary != null) doneText(context, "已推送", summary) else failText("推送失败", result.exceptionOrNull()),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }
+        } else if (cfg == null) {
+            password.fill('\u0000')
+        } else {
+            webdavTask = "正在加密并上传…"
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val buffer = ByteArrayOutputStream()
+                        val summary = BackupManager.export(context, buffer, password)
+                        WebDavClient(cfg).upload(buffer.toByteArray())
+                        summary
+                    }.onFailure { password.fill('\u0000') }
+                }
+                webdavTask = null
+                val summary = result.getOrNull()
+                if (summary != null) {
+                    WebDavStore.markUploaded(context)
+                    lastUpload = WebDavStore.lastUpload(context)
+                }
+                Toast.makeText(
+                    context,
+                    if (summary != null) doneText(context, "已上传", summary) else failText("上传失败", result.exceptionOrNull()),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    /** 有默认口令就直接用，否则弹口令对话框。 */
+    fun startExport(target: ExportTarget) {
+        exportTarget = target
+        val saved = BackupAuto.password(context)
+        if (saved != null) performExport(saved.toCharArray()) else showPasswordDialog = true
     }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides liquid) {
@@ -274,27 +346,6 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    // ———— 本地：导出与恢复合并成一栏，点开 sheet 选择 ————
-                    item { SmallTitle(text = "本地") }
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                            insideMargin = PaddingValues(0.dp),
-                        ) {
-                            ArrowPreference(
-                                title = "本地备份与恢复",
-                                summary = when {
-                                    busy -> "正在加密并导出…"
-                                    restoring -> "正在解密并校验…"
-                                    else -> "导出 / 导入 .${BackupFormat.EXTENSION} 加密备份"
-                                },
-                                enabled = !working,
-                                onClick = { showLocalSheet = true },
-                            )
-                        }
-                    }
-                    item { Note(SCOPE_NOTE) }
-
                     // ———— 云同步：WebDAV / Git 左右切换 ————
                     item { SmallTitle(text = "云同步") }
                     item {
@@ -347,10 +398,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                                 else -> "加密后上传"
                                             },
                                             enabled = cfg != null && !working,
-                                            onClick = {
-                                                exportTarget = ExportTarget.WEBDAV
-                                                showPasswordDialog = true
-                                            },
+                                            onClick = { startExport(ExportTarget.WEBDAV) },
                                         )
                                         ArrowPreference(
                                             title = "从服务器恢复",
@@ -404,10 +452,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                                 else -> "加密后提交并推送"
                                             },
                                             enabled = cfg != null && !working,
-                                            onClick = {
-                                                exportTarget = ExportTarget.GIT
-                                                showPasswordDialog = true
-                                            },
+                                            onClick = { startExport(ExportTarget.GIT) },
                                         )
                                         ArrowPreference(
                                             title = "从仓库恢复",
@@ -436,6 +481,58 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         }
                     }
 
+                    // ———— 默认加密口令 + 自动推送 ————
+                    item { SmallTitle(text = "口令与自动推送") }
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            ArrowPreference(
+                                title = "默认加密口令",
+                                summary = if (defaultPwSet) "已设置，导出 / 上传 / 推送不再询问" else "未设置",
+                                enabled = !working,
+                                onClick = { showDefaultPw = true },
+                            )
+                            AppDropdownPreference(
+                                backdrop = sheetBackdrop,
+                                title = "自动推送同步",
+                                summary = if (autoPushReady) null else "需先设默认口令并配置云同步",
+                                items = BackupAuto.INTERVAL_LABELS,
+                                selectedIndex = autoMode.coerceIn(0, 3),
+                                onSelectedIndexChange = {
+                                    autoMode = it
+                                    BackupAuto.setMode(context, it)
+                                },
+                                enabled = autoPushReady,
+                            )
+                        }
+                    }
+                    item { Note("自动推送在启动应用时按间隔执行，推送到所有已配置的 WebDAV / Git。") }
+
+                    // ———— 本地备份与恢复 ————
+                    item { SmallTitle(text = "本地备份与恢复") }
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            ArrowPreference(
+                                title = "导出加密备份到本地",
+                                summary = if (busy) "正在加密并导出…" else "保存为 .${BackupFormat.EXTENSION} 文件",
+                                enabled = !working,
+                                onClick = { startExport(ExportTarget.FILE) },
+                            )
+                            ArrowPreference(
+                                title = "从本地备份文件恢复",
+                                summary = if (restoring) "正在解密并校验…" else "选择 .${BackupFormat.EXTENSION} 文件",
+                                enabled = !working,
+                                onClick = { openLauncher.launch(arrayOf("*/*")) },
+                            )
+                        }
+                    }
+                    item { Note(SCOPE_NOTE) }
+
                     item { SmallTitle(text = "加密方案") }
                     item {
                         Card(
@@ -463,37 +560,6 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         }
                     }
                     item { Note("口令不会保存，忘记后无法解密。") }
-                }
-            }
-
-            // ———— 本地备份与恢复 sheet ————
-            AppBottomSheet(
-                show = showLocalSheet,
-                title = "本地备份与恢复",
-                backdrop = sheetBackdrop,
-                onDismissRequest = { showLocalSheet = false },
-            ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
-                    SheetRow(
-                        title = "导出加密备份",
-                        summary = "保存为 .${BackupFormat.EXTENSION} 文件",
-                        enabled = !working,
-                        onClick = {
-                            showLocalSheet = false
-                            exportTarget = ExportTarget.FILE
-                            showPasswordDialog = true
-                        },
-                    )
-                    SheetRow(
-                        title = "从备份文件恢复",
-                        summary = "选择 .${BackupFormat.EXTENSION} 文件",
-                        enabled = !working,
-                        onClick = {
-                            showLocalSheet = false
-                            openLauncher.launch(arrayOf("*/*"))
-                        },
-                    )
-                    Note(SCOPE_NOTE, horizontal = 4.dp)
                 }
             }
 
@@ -573,6 +639,29 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 },
             )
 
+            DefaultPasswordDialog(
+                show = showDefaultPw,
+                isSet = defaultPwSet,
+                backdrop = sheetBackdrop,
+                onDismiss = { showDefaultPw = false },
+                onSave = { pw ->
+                    val r = runCatching { BackupAuto.setPassword(context, pw) }
+                    if (r.isSuccess) {
+                        defaultPwSet = true
+                        showDefaultPw = false
+                        Toast.makeText(context, "默认口令已保存", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, failText("保存失败", r.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                    }
+                },
+                onClear = {
+                    BackupAuto.clearPassword(context)
+                    defaultPwSet = false
+                    autoMode = 0
+                    showDefaultPw = false
+                },
+            )
+
             PasswordDialog(
                 show = showPasswordDialog,
                 backdrop = sheetBackdrop,
@@ -584,64 +673,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 },
                 onConfirm = { password ->
                     showPasswordDialog = false
-                    val cfg = webdavConfig
-                    if (exportTarget == ExportTarget.FILE) {
-                        pendingPassword = password
-                        saveLauncher.launch(BackupManager.suggestedFileName())
-                    } else if (exportTarget == ExportTarget.GIT) {
-                        val git = gitConfig
-                        if (git == null) {
-                            password.fill('\u0000')
-                        } else {
-                            gitTask = "正在加密并推送…"
-                            scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        val buffer = ByteArrayOutputStream()
-                                        val summary = BackupManager.export(context, buffer, password)
-                                        GitSyncClient(context, git).upload(buffer.toByteArray())
-                                        summary
-                                    }.onFailure { password.fill('\u0000') }
-                                }
-                                gitTask = null
-                                val summary = result.getOrNull()
-                                if (summary != null) {
-                                    GitStore.markPushed(context)
-                                    lastPush = GitStore.lastPush(context)
-                                }
-                                Toast.makeText(
-                                    context,
-                                    if (summary != null) doneText(context, "已推送", summary) else failText("推送失败", result.exceptionOrNull()),
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                        }
-                    } else if (cfg == null) {
-                        password.fill('\u0000')
-                    } else {
-                        webdavTask = "正在加密并上传…"
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching {
-                                    val buffer = ByteArrayOutputStream()
-                                    val summary = BackupManager.export(context, buffer, password)
-                                    WebDavClient(cfg).upload(buffer.toByteArray())
-                                    summary
-                                }.onFailure { password.fill('\u0000') }
-                            }
-                            webdavTask = null
-                            val summary = result.getOrNull()
-                            if (summary != null) {
-                                WebDavStore.markUploaded(context)
-                                lastUpload = WebDavStore.lastUpload(context)
-                            }
-                            Toast.makeText(
-                                context,
-                                if (summary != null) doneText(context, "已上传", summary) else failText("上传失败", result.exceptionOrNull()),
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    }
+                    performExport(password)
                 },
             )
 
@@ -952,6 +984,7 @@ private fun DialogActions(
     confirmRole: GlassDialogButtonRole = GlassDialogButtonRole.Primary,
     onDelete: (() -> Unit)? = null,
     deleteEnabled: Boolean = true,
+    deleteText: String = "删除此配置",
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -977,7 +1010,7 @@ private fun DialogActions(
                 modifier = Modifier.fillMaxWidth(),
                 role = GlassDialogButtonRole.Destructive,
             ) {
-                Text(text = "删除此配置", style = MiuixTheme.textStyles.button)
+                Text(text = deleteText, style = MiuixTheme.textStyles.button)
             }
         }
     }
@@ -1033,6 +1066,62 @@ private fun PasswordDialog(
                 confirmEnabled = valid,
                 onConfirm = { onConfirm(password.toCharArray()) },
                 onCancel = onDismiss,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DefaultPasswordDialog(
+    show: Boolean,
+    isSet: Boolean,
+    backdrop: Backdrop?,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    var password by remember(show) { mutableStateOf("") }
+    var confirm by remember(show) { mutableStateOf("") }
+    val tooShort = password.isNotEmpty() && password.length < MIN_PASSWORD_LEN
+    val mismatch = confirm.isNotEmpty() && confirm != password
+    val valid = password.length >= MIN_PASSWORD_LEN && password == confirm
+
+    AppGlassDialog(
+        show = show,
+        title = "默认加密口令",
+        summary = if (isSet) "输入新口令可替换；加密存本机，忘记后无法找回备份" else "加密存本机，忘记后无法找回备份",
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            DialogFields {
+                TextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "口令（至少 $MIN_PASSWORD_LEN 位）",
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+                TextField(
+                    value = confirm,
+                    onValueChange = { confirm = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "再次输入",
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+            }
+            FieldHint(if (tooShort) "口令至少 $MIN_PASSWORD_LEN 位" else if (mismatch) "两次输入不一致" else null)
+            DialogActions(
+                confirmText = "保存",
+                confirmEnabled = valid,
+                onConfirm = { onSave(password) },
+                onCancel = onDismiss,
+                onDelete = if (isSet) onClear else null,
+                deleteText = "清除默认口令",
             )
         }
     }

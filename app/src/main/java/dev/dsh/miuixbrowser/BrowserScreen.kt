@@ -320,6 +320,8 @@ fun BrowserScreen(
         runCatching { extensions.bootstrapRecommended() }
         runCatching { extensions.autoUpdateIfDue() }
     }
+    // 按设置的间隔把加密备份自动推送到已配置的云同步目标（需已设默认口令）
+    LaunchedEffect(Unit) { runCatching { BackupAuto.runIfDue(context) } }
     val history = remember { HistoryStore(context) }
     val tab = state.activeTab
     // 页面加载期间也禁用 MIUIX 采集，避免 URL 尚未更新时误把 WebView 帧送进 RuntimeShader。

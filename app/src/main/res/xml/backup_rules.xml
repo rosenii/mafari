@@ -5,4 +5,5 @@
     <exclude domain="sharedpref" path="mafari_history.xml" />
     <exclude domain="sharedpref" path="mafari_webdav.xml" />
     <exclude domain="sharedpref" path="mafari_git.xml" />
+    <exclude domain="sharedpref" path="mafari_backup_auto.xml" />
 </full-backup-content>
