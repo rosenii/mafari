@@ -2346,7 +2346,11 @@ class BrowserTab(
         }
         // 回到「从主页进入」的第一页：再返回就是主页，而不是继续翻进入主页之前的旧历史
         Diag.log("nav: goBack fromHome=$fromHome idx=${historyIndex()} anchor=$homeAnchor engineCanGoBack=${engineCanGoBack()} url=$url")
-        if (fromHome && historyIndex() <= homeAnchor + 1) {
+        // 下标可能还停在上一页（见 GeckoTabEngine.historyStale）：这时只信 canGoBack，不用下标去判断「已在第一页」
+        val idxStale = gecko?.historyStale == true
+        val atFirstPage = fromHome &&
+            if (idxStale) !engineCanGoBack() else (!engineCanGoBack() || historyIndex() <= homeAnchor + 1)
+        if (atFirstPage) {
             engineStop()
             fromHome = false
             parked = true
@@ -2604,7 +2608,8 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         // 切走前给当前标签拍一张缩略图
         if (makeActive) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
         val tab = createTab(incognito, opener)
-        tab.openedFromLink = fromLink && opener != null && target.isNotEmpty()
+        // 翻译 / 拓展选项页 / 外部链接等没有标 fromLink 的入口也一样：有来源标签、有目标地址，返回就该直接回来源
+        tab.openedFromLink = (fromLink || makeActive) && opener != null && target.isNotEmpty()
         tabs.add(tab)
         if (makeActive) activate(tabs.lastIndex)
         if (loadTarget.isNotEmpty()) tab.load(loadTarget)
@@ -2709,7 +2714,13 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
 
     fun select(index: Int) {
         // 切走前给当前标签拍一张缩略图
-        if (index != activeIndex) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
+        if (index != activeIndex) {
+            tabs.getOrNull(activeIndex)?.let {
+                it.captureThumbnailNow()
+                // 手动切走后，关闭它就按最近使用顺序回退，不再强行跳回当初的来源标签
+                it.openerId = -1
+            }
+        }
         activate(index)
     }
 

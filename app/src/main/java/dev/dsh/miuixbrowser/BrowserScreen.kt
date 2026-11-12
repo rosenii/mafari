@@ -916,6 +916,16 @@ fun BrowserScreen(
                     barHidden = true
                     return@runCatching
                 }
+                // 主页（页面被盖住）上：引擎里的页面可能还在惯性滚动 / 回调滚动事件，
+                // 不能让它把底栏重新收起，否则主页上没有任何手势能唤出底栏
+                if (tab.url.isEmpty()) {
+                    barHidden = false
+                    last = tab.scrollOffsetY.coerceAtLeast(0)
+                    lastShow = last
+                    scrollDownAccum = 0f
+                    scrollUpAccum = 0f
+                    return@runCatching
+                }
                 val offset = tab.scrollOffsetY.coerceAtLeast(0)
                 val dy = offset - last
                 moved = dy != 0

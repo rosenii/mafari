@@ -118,6 +118,16 @@ class GeckoTabEngine(
     var historyIndex = -1
         private set
 
+    /**
+     * Gecko 的 onLocationChange 与 onHistoryStateChange 是两条独立回调：页面提交后，
+     * historyIndex 可能还停在上一页的值。提交已发生而下标还没更新时视为「过期」，
+     * 返回逻辑不能拿它去判断「已经在第一页」（否则会提前掉回主页）。
+     */
+    private var lastLocationAt = 0L
+    private var lastHistoryAt = 0L
+    val historyStale: Boolean
+        get() = lastLocationAt > lastHistoryAt && SystemClock.uptimeMillis() - lastLocationAt < 800L
+
     /** 页面滚动位置：供底栏自动收起 / 下拉刷新判断 */
     var scrollY = 0
         private set
@@ -518,6 +528,7 @@ class GeckoTabEngine(
             ) {
                 if (url.isNullOrEmpty()) return
                 lastUrl = url
+                lastLocationAt = SystemClock.uptimeMillis()
                 tab.geckoLocation(url)
             }
 
@@ -590,6 +601,7 @@ class GeckoTabEngine(
                 historyList: GeckoSession.HistoryDelegate.HistoryList,
             ) {
                 historyIndex = historyList.currentIndex
+                lastHistoryAt = SystemClock.uptimeMillis()
                 tab.geckoNavChanged()
             }
         }
