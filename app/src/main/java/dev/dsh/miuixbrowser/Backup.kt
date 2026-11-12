@@ -14,39 +14,43 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.security.GeneralSecurityException
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 /*
  * 加密备份文件（.mfbak）——可跨设备恢复，所以不依赖本机 Keystore：
  *
- *   每次导出现生成一对全新的混合密钥（X25519 + ML-KEM-768），备份里的每个单元都用
- *   [EncryptionEngine] 封进版本化信封（KEM → KEK → 封装随机 DEK → AES-256-GCM）。
- *   备份私钥再用「口令 → Argon2id → AES-256-GCM」包裹后放进文件头部之后。
+ *   每次导出现生成一对全新的密钥（算法套件见 CipherSuite.kt），备份里的每个单元都用
+ *   [EncryptionEngine] 封进版本化信封。备份私钥再用「口令 → KDF → AES-256-GCM」包裹后放进文件头部之后。
  *   恢复时：口令 → 解出备份私钥 → 逐单元解信封。
  *
- * 文件布局（整数一律大端）：
- *   "MFBK" | 版本 u8 | KDF 编号 u8（1 = Argon2id v1.3） | m_KiB u32 | t u8 | p u8
- *   | 单元数 u16 | 创建时间 i64 | 标签长度 u16 | 标签 UTF-8 | salt 16 | pk_x 32 | pk_pq 1184
- *   ↑ 以上全部是包裹私钥的 AAD（头部、KDF 参数、公钥任何一位被改，口令都解不开）
- *   | 包裹 IV 12 | 包裹后的私钥 2448
+ * 文件头里记录了「用的是哪个算法套件、哪个口令 KDF」，所以以后新增 / 更换套件，旧备份依然能读，
+ * 新备份也只是文件头里的套件号不同。写入永远用最新版本，读取支持所有已发布版本。
+ *
+ * 版本 2（当前写入，整数一律大端）：
+ *   "MFBK" | 版本 u8 = 2 | KDF 编号 u8（1 = Argon2id v1.3） | m_KiB u32 | t u8 | p u8
+ *   | 套件号 u8 | 单元数 u16 | 创建时间 i64 | 标签长度 u16 | 标签 UTF-8 | salt 16
+ *   | 公钥长度 u16 | 公钥 | 包裹私钥长度 u16
+ *   ↑ 以上全部是包裹私钥的 AAD（头部、KDF 参数、套件号、公钥任何一位被改，口令都解不开）
+ *   | 包裹 IV 12 | 包裹后的私钥
  *   | 重复 n 次：名称长度 u16 | 名称 | 信封长度 u32 | 信封
  *
+ * 版本 1（只读兼容；套件固定为 1，公钥 / 私钥长度由套件决定，没有显式的套件号 / 长度字段）：
+ *   "MFBK" | 版本 u8 = 1 | KDF 编号 u8 | m_KiB u32 | t u8 | p u8
+ *   | 单元数 u16 | 创建时间 i64 | 标签长度 u16 | 标签 UTF-8 | salt 16 | 公钥
+ *   | 包裹 IV 12 | 包裹后的私钥 | 单元…（同上）
+ *
  * 单元名同时是该信封的上下文（AAD 的一部分），把单元改名 / 互换会解密失败。
+ *
+ * 新增口令 KDF：在 [BackupFormat.deriveKey] 里加一个编号；改变包裹方式或头布局：新增文件版本。
  */
 object BackupFormat {
 
-    const val VERSION = 1
+    /** 当前写入的文件版本；读取支持 1..VERSION */
+    const val VERSION = 2
     const val EXTENSION = "mfbak"
-
-    /** 界面上展示的方案名 */
-    const val SCHEME_NAME = "X25519 + ML-KEM-768 混合封装 · HKDF-SHA-384 · AES-256-GCM"
 
     data class KdfParams(
         val memoryKiB: Int = 65_536, // 64 MiB
@@ -54,19 +58,42 @@ object BackupFormat {
         val parallelism: Int = 1,
     )
 
-    class Contents(val createdAt: Long, val label: String, val units: Map<String, ByteArray>)
+    class Contents(
+        val createdAt: Long,
+        val label: String,
+        val units: Map<String, ByteArray>,
+        /** 文件版本 */
+        val version: Int = VERSION,
+        /** 备份使用的算法套件号 */
+        val suiteId: Int = CipherSuites.DEFAULT_ID,
+    )
 
     private val MAGIC = "MFBK".toByteArray(Charsets.US_ASCII)
     private const val KDF_ARGON2ID = 1
     private const val SALT_LEN = 16
     private const val IV_LEN = 12
-    private const val WRAPPED_LEN = HybridKem.X_LEN + HybridKem.PQ_SK_LEN + 16
-    private const val UNIT_CONTEXT = "mafari.backup.v1/"
+    private const val TAG_LEN = 16
+    private const val V1_SUITE_ID = CipherSuites.HYBRID_768
 
     // 读取时的上限：防止被构造的文件拖垮内存
     private const val MAX_MEMORY_KIB = 262_144
     private const val MAX_ITERATIONS = 10
     private const val MAX_UNITS = 4096
+
+    private fun unitContext(version: Int) = "mafari.backup.v$version/"
+
+    private class Header(
+        val version: Int,
+        val kdfId: Int,
+        val kdf: KdfParams,
+        val suite: CipherSuite,
+        val unitCount: Int,
+        val createdAt: Long,
+        val label: ByteArray,
+        val salt: ByteArray,
+        val pub: ByteArray,
+        val aad: ByteArray,
+    )
 
     fun write(
         units: Map<String, ByteArray>,
@@ -75,13 +102,16 @@ object BackupFormat {
         kdf: KdfParams = KdfParams(),
         createdAt: Long = System.currentTimeMillis(),
         rng: SecureRandom = SecureRandom(),
+        suiteId: Int = CipherSuites.DEFAULT_ID,
     ): ByteArray {
         require(password.isNotEmpty()) { "口令不能为空" }
         require(units.size <= MAX_UNITS)
 
-        val pair = HybridKem.generate(rng)
-        val engine = EncryptionEngine(StaticKeyProvider(pair), rng)
+        val suite = CipherSuites.get(suiteId)
+        val pair = suite.generateKeyPair(rng)
+        val engine = EncryptionEngine(StaticKeyProvider(pair), rng, suite.id)
         val salt = ByteArray(SALT_LEN).also { rng.nextBytes(it) }
+        val wrappedLen = suite.privateKeyLen + TAG_LEN
 
         val head = ByteArrayOutputStream()
         DataOutputStream(head).apply {
@@ -91,26 +121,27 @@ object BackupFormat {
             writeInt(kdf.memoryKiB)
             writeByte(kdf.iterations)
             writeByte(kdf.parallelism)
+            writeByte(suite.id)
             writeShort(units.size)
             writeLong(createdAt)
             val labelBytes = label.toByteArray(Charsets.UTF_8)
             writeShort(labelBytes.size)
             write(labelBytes)
             write(salt)
-            write(pair.pub.x)
-            write(pair.pub.pq)
+            writeShort(pair.pub.bytes.size)
+            write(pair.pub.bytes)
+            writeShort(wrappedLen)
         }
         val aad = head.toByteArray()
 
-        val wrapKey = argon2id(password, salt, kdf)
+        val wrapKey = deriveKey(KDF_ARGON2ID, password, salt, kdf)
         val iv = ByteArray(IV_LEN).also { rng.nextBytes(it) }
-        val privBlob = pair.priv.x + pair.priv.pq
         val wrapped = try {
-            gcm(true, wrapKey, iv, aad, privBlob)
+            aesGcm(true, wrapKey, iv, aad, pair.priv.bytes)
         } finally {
             wrapKey.fill(0)
-            privBlob.fill(0)
         }
+        check(wrapped.size == wrappedLen)
 
         val out = ByteArrayOutputStream()
         out.write(aad)
@@ -119,7 +150,7 @@ object BackupFormat {
         val data = DataOutputStream(out)
         for ((name, bytes) in units) {
             val nameBytes = name.toByteArray(Charsets.UTF_8)
-            val envelope = engine.seal(bytes, UNIT_CONTEXT + name)
+            val envelope = engine.seal(bytes, unitContext(VERSION) + name)
             data.writeShort(nameBytes.size)
             data.write(nameBytes)
             data.writeInt(envelope.size)
@@ -132,58 +163,70 @@ object BackupFormat {
     fun read(file: ByteArray, password: CharArray): Contents {
         try {
             val input = DataInputStream(ByteArrayInputStream(file))
-            val magic = ByteArray(4).also { input.readFully(it) }
-            if (!magic.contentEquals(MAGIC)) throw CryptoException("不是 Mafari 备份文件")
-            val version = input.readUnsignedByte()
-            if (version != VERSION) throw CryptoException("不支持的备份版本：$version")
-            if (input.readUnsignedByte() != KDF_ARGON2ID) throw CryptoException("不支持的口令派生算法")
-            val kdf = KdfParams(input.readInt(), input.readUnsignedByte(), input.readUnsignedByte())
-            if (kdf.memoryKiB !in 8..MAX_MEMORY_KIB || kdf.iterations !in 1..MAX_ITERATIONS || kdf.parallelism !in 1..4) {
-                throw CryptoException("口令派生参数超出允许范围")
-            }
-            val unitCount = input.readUnsignedShort()
-            if (unitCount > MAX_UNITS) throw CryptoException("备份单元数异常")
-            val createdAt = input.readLong()
-            val labelBytes = ByteArray(input.readUnsignedShort()).also { input.readFully(it) }
-            val salt = ByteArray(SALT_LEN).also { input.readFully(it) }
-            val pkX = ByteArray(HybridKem.X_LEN).also { input.readFully(it) }
-            val pkPq = ByteArray(HybridKem.PQ_PK_LEN).also { input.readFully(it) }
-            val aadLen = file.size - input.available()
-            val aad = file.copyOfRange(0, aadLen)
+            val header = readHeader(file, input)
+            val suite = header.suite
             val iv = ByteArray(IV_LEN).also { input.readFully(it) }
-            val wrapped = ByteArray(WRAPPED_LEN).also { input.readFully(it) }
+            val wrapped = ByteArray(suite.privateKeyLen + TAG_LEN).also { input.readFully(it) }
 
-            val wrapKey = argon2id(password, salt, kdf)
-            val privBlob = try {
-                gcm(false, wrapKey, iv, aad, wrapped)
+            val wrapKey = deriveKey(header.kdfId, password, header.salt, header.kdf)
+            val privBytes = try {
+                aesGcm(false, wrapKey, iv, header.aad, wrapped)
             } catch (e: CryptoException) {
                 throw CryptoException("口令错误，或备份文件已损坏 / 被篡改", e)
             } finally {
                 wrapKey.fill(0)
             }
-            val priv = HybridPrivateKey(
-                privBlob.copyOfRange(0, HybridKem.X_LEN),
-                privBlob.copyOfRange(HybridKem.X_LEN, privBlob.size),
-            )
-            privBlob.fill(0)
-            val engine = EncryptionEngine(StaticKeyProvider(HybridKeyPair(HybridPublicKey(pkX, pkPq), priv)))
+            val pair = SuiteKeyPair(SuitePublicKey(suite.id, header.pub), SuitePrivateKey(suite.id, privBytes))
+            val engine = EncryptionEngine(StaticKeyProvider(pair), writeSuiteId = suite.id)
+            val context = unitContext(header.version)
 
             val units = LinkedHashMap<String, ByteArray>()
-            repeat(unitCount) {
+            repeat(header.unitCount) {
                 val name = String(ByteArray(input.readUnsignedShort()).also { b -> input.readFully(b) }, Charsets.UTF_8)
                 val envLen = input.readInt()
                 if (envLen < 0 || envLen > input.available()) throw CryptoException("备份文件被截断")
                 val envelope = ByteArray(envLen).also { b -> input.readFully(b) }
-                units[name] = engine.open(envelope, UNIT_CONTEXT + name)
+                units[name] = engine.open(envelope, context + name)
             }
             if (input.available() != 0) throw CryptoException("备份文件尾部有多余数据")
-            return Contents(createdAt, String(labelBytes, Charsets.UTF_8), units)
+            return Contents(header.createdAt, String(header.label, Charsets.UTF_8), units, header.version, suite.id)
         } catch (e: IOException) {
             throw CryptoException("备份文件格式错误或被截断", e)
         }
     }
 
-    private fun argon2id(password: CharArray, salt: ByteArray, kdf: KdfParams): ByteArray {
+    /** 解析到「包裹 IV」之前的全部头部（也就是 AAD 的范围）。 */
+    private fun readHeader(file: ByteArray, input: DataInputStream): Header {
+        val magic = ByteArray(4).also { input.readFully(it) }
+        if (!magic.contentEquals(MAGIC)) throw CryptoException("不是 Mafari 备份文件")
+        val version = input.readUnsignedByte()
+        if (version !in 1..VERSION) throw CryptoException("不支持的备份版本：$version")
+
+        val kdfId = input.readUnsignedByte()
+        if (kdfId != KDF_ARGON2ID) throw CryptoException("不支持的口令派生算法")
+        val kdf = KdfParams(input.readInt(), input.readUnsignedByte(), input.readUnsignedByte())
+        if (kdf.memoryKiB !in 8..MAX_MEMORY_KIB || kdf.iterations !in 1..MAX_ITERATIONS || kdf.parallelism !in 1..4) {
+            throw CryptoException("口令派生参数超出允许范围")
+        }
+        // v1 没有套件号字段，固定为套件 1
+        val suite = if (version >= 2) CipherSuites.get(input.readUnsignedByte()) else CipherSuites.get(V1_SUITE_ID)
+        val unitCount = input.readUnsignedShort()
+        if (unitCount > MAX_UNITS) throw CryptoException("备份单元数异常")
+        val createdAt = input.readLong()
+        val label = ByteArray(input.readUnsignedShort()).also { input.readFully(it) }
+        val salt = ByteArray(SALT_LEN).also { input.readFully(it) }
+        if (version >= 2 && input.readUnsignedShort() != suite.publicKeyLen) throw CryptoException("备份公钥长度与算法套件不符")
+        val pub = ByteArray(suite.publicKeyLen).also { input.readFully(it) }
+        if (version >= 2 && input.readUnsignedShort() != suite.privateKeyLen + TAG_LEN) {
+            throw CryptoException("备份私钥长度与算法套件不符")
+        }
+        val aadLen = file.size - input.available()
+        return Header(version, kdfId, kdf, suite, unitCount, createdAt, label, salt, pub, file.copyOfRange(0, aadLen))
+    }
+
+    /** 口令 → 32 字节密钥。新增 KDF：在这里加一个编号，并在 [readHeader] 放行。 */
+    internal fun deriveKey(kdfId: Int, password: CharArray, salt: ByteArray, kdf: KdfParams): ByteArray {
+        if (kdfId != KDF_ARGON2ID) throw CryptoException("不支持的口令派生算法")
         val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
             .withVersion(Argon2Parameters.ARGON2_VERSION_13)
             .withIterations(kdf.iterations)
@@ -199,21 +242,6 @@ object BackupFormat {
             pw.fill(0)
         }
         return out
-    }
-
-    private fun gcm(encrypt: Boolean, key: ByteArray, iv: ByteArray, aad: ByteArray, input: ByteArray): ByteArray {
-        try {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(
-                if (encrypt) Cipher.ENCRYPT_MODE else Cipher.DECRYPT_MODE,
-                SecretKeySpec(key, "AES"),
-                GCMParameterSpec(128, iv),
-            )
-            cipher.updateAAD(aad)
-            return cipher.doFinal(input)
-        } catch (e: GeneralSecurityException) {
-            throw CryptoException(if (encrypt) "加密失败" else "解密失败", e)
-        }
     }
 }
 
@@ -306,6 +334,10 @@ object BackupManager {
         val createdAt: Long,
         val label: String,
         val versionName: String,
+        /** 备份文件使用的算法套件简称（界面展示） */
+        val suiteName: String,
+        /** 备份文件格式版本 */
+        val formatVersion: Int,
         /** 备份里实际可恢复的 SharedPreferences 名 */
         val prefNames: List<String>,
         internal val prefs: Map<String, Map<String, Any>>,
@@ -366,6 +398,8 @@ object BackupManager {
             createdAt = contents.createdAt,
             label = contents.label,
             versionName = meta.optString("versionName"),
+            suiteName = CipherSuites.find(contents.suiteId)?.shortName ?: "套件 ${contents.suiteId}",
+            formatVersion = contents.version,
             prefNames = prefs.keys.toList(),
             prefs = prefs,
             files = files,
@@ -461,7 +495,7 @@ object BackupManager {
     fun export(context: Context, out: OutputStream, password: CharArray): Summary {
         try {
             val (units, skipped) = collect(context)
-            val label = "Mafari ${BuildConfig.VERSION_NAME} | X25519+ML-KEM-768 / HKDF-SHA-384 / AES-256-GCM | Argon2id"
+            val label = "Mafari ${BuildConfig.VERSION_NAME} | ${CipherSuites.default.name} | Argon2id"
             val bytes = BackupFormat.write(units, password, label)
             out.write(bytes)
             out.flush()

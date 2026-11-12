@@ -422,7 +422,7 @@ fun SettingsScreen(
                 ) {
                     SettingsRow(
                         title = "备份与同步",
-                        summary = "加密备份导出 · 从备份文件恢复 · X25519 + ML-KEM-768 混合抗量子加密",
+                        summary = "加密备份导出 · 从备份文件恢复 · ${CipherSuites.default.shortName} 混合抗量子加密",
                         onClick = onOpenBackup,
                     )
                     SettingsRow(

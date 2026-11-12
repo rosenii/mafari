@@ -56,15 +56,19 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private const val MIN_PASSWORD_LEN = 8
 
-/** 加密方案说明（界面展示用）：(项目, 内容) */
-private val SCHEME_ROWS = listOf(
-    "密钥封装" to "X25519 + ML-KEM-768 混合 KEM（后量子）；两个共享密钥拼接后派生，任一算法被攻破仍安全",
-    "密钥派生" to "HKDF-SHA-384 → KEK",
-    "密钥保护" to "每个单元一个随机 32 字节 DEK，由 KEK 经 AES-256-GCM 封装（AAD = 信封头）",
-    "数据加密" to "AES-256-GCM（AAD = 信封头 + 单元名），版本化信封 v1",
-    "口令保护" to "备份私钥由口令经 Argon2id（64 MiB · 3 轮）派生的密钥包裹",
-    "文件格式" to ".${BackupFormat.EXTENSION} · 每次导出使用全新密钥对",
-)
+/** 加密方案说明（界面展示用）：(项目, 内容)。随默认算法套件变化。 */
+private fun schemeRows(): List<Pair<String, String>> {
+    val suite = CipherSuites.default
+    return listOf(
+        "算法套件" to "#${suite.id} · ${suite.shortName}（文件头记录套件号，将来升级后旧备份仍可读取）",
+        "密钥封装" to suite.kemDescription,
+        "密钥派生" to suite.kdfDescription,
+        "密钥保护" to "每个单元一个随机 32 字节 DEK，由 KEK 经 AES-256-GCM 封装（AAD = 信封头）",
+        "数据加密" to "AES-256-GCM（AAD = 信封头 + 单元名），版本化信封 v${Envelope.VERSION}",
+        "口令保护" to "备份私钥由口令经 Argon2id（64 MiB · 3 轮）派生的密钥包裹",
+        "文件格式" to ".${BackupFormat.EXTENSION} v${BackupFormat.VERSION} · 每次导出使用全新密钥对",
+    )
+}
 
 private val INCLUDED = "书签 · 历史 · 应用设置 · Cookie 策略 · 脚本及其数据 · 去广告配置 · 菜单与 Gecko 保护配置"
 private val EXCLUDED = "不含：下载的文件、网页缓存、网站登录状态 / Cookie 本体（由浏览器内核管理）、已安装的拓展包"
@@ -221,7 +225,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SCHEME_ROWS.forEach { (label, value) ->
+                                schemeRows().forEach { (label, value) ->
                                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                                         Text(
                                             text = label,
@@ -461,6 +465,7 @@ private fun RestoreConfirmDialog(
         buildString {
             append("备份时间：").append(time).append('\n')
             if (plan.versionName.isNotBlank()) append("来源版本：").append(plan.versionName).append('\n')
+            append("加密方案：").append(plan.suiteName).append(" · 文件格式 v").append(plan.formatVersion).append('\n')
             append("包含 ").append(plan.itemCount).append(" 项数据\n\n")
             append("恢复会覆盖当前的书签、历史、设置等对应数据，且无法撤销；完成后应用将自动重启。")
         }

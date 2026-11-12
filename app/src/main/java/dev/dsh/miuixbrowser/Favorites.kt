@@ -31,9 +31,9 @@ class FavoritesStore(context: Context) {
     }
 
     init {
-        // 旧版本留下的明文书签：立即以密文重写一次
+        // 旧版本的明文书签 / 旧算法套件的密文：读得出来就立即以当前套件重新加密一次（读不出来绝不覆盖）
         val raw = prefs.getString(KEY, null)
-        if (raw != null && SecureStore.isLegacyPlaintext(raw)) persist()
+        if (raw != null && SecureStore.needsUpgrade(raw) && SecureStore.read(appContext, raw, PURPOSE) != null) persist()
     }
 
     private fun load(): List<Favorite> {
