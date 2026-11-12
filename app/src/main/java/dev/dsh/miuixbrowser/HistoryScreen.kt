@@ -1070,6 +1070,18 @@ private fun GroupTreePicker(
 ) {
     var open by remember { mutableStateOf(false) }
     val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    fun tick() = haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+    // 手风琴：只展开 [path] 及其各级祖先，其余分组（含同级、其子孙）全部收起
+    fun expandOnly(path: String) {
+        expanded.clear()
+        var cur = path
+        expanded[cur] = true
+        while (cur.contains('/')) {
+            cur = cur.substringBeforeLast('/')
+            expanded[cur] = true
+        }
+    }
     val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupPickerArrow")
     val line = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -1078,8 +1090,10 @@ private fun GroupTreePicker(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .clickable {
+                    tick()
                     if (!open) {
-                        // 打开时把当前选中项的各级祖先展开，直接看到它
+                        // 打开时只展开当前选中项的各级祖先，直接看到它
+                        expanded.clear()
                         var cur = current
                         while (cur.contains('/')) {
                             cur = cur.substringBeforeLast('/')
@@ -1128,7 +1142,7 @@ private fun GroupTreePicker(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 260.dp)
+                    .heightIn(max = 400.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
                 rows.forEach { (path, depth) ->
@@ -1142,8 +1156,9 @@ private fun GroupTreePicker(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
+                                tick()
                                 onSelect(path)
-                                if (hasKids) expanded[path] = true else open = false
+                                if (hasKids) expandOnly(path) else open = false
                             }
                             .padding(start = (depth * 18).dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1169,7 +1184,10 @@ private fun GroupTreePicker(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .clickable { expanded[path] = !isOpen },
+                                    .clickable {
+                                        tick()
+                                        if (isOpen) expanded[path] = false else expandOnly(path)
+                                    },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
@@ -1237,6 +1255,7 @@ internal fun FavoriteEditorDialog(
             val childMap = remember(groups) { groupChildren(groups) }
             val knownPaths = remember(childMap) { childMap.values.flatten().toSet() }
             val current = group.trim().ifBlank { Favorite.GROUP_PERSONAL }
+            val chipHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
             if (childMap.keys.any { it.isNotEmpty() } || groups.size > 3) {
                 GroupTreePicker(
                     childMap = childMap,
@@ -1271,7 +1290,10 @@ internal fun FavoriteEditorDialog(
                                     if (selected) MiuixTheme.colorScheme.primary
                                     else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                                 )
-                                .clickable { group = g }
+                                .clickable {
+                                    chipHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    group = g
+                                }
                                 .padding(horizontal = 14.dp, vertical = 8.dp),
                         )
                     }
