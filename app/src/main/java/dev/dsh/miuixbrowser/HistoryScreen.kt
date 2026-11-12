@@ -1191,7 +1191,7 @@ private fun GroupTreePicker(
 }
 
 @Composable
-private fun FavoriteEditorDialog(
+internal fun FavoriteEditorDialog(
     show: Boolean,
     initial: Favorite?,
     groups: List<String>,
@@ -1200,9 +1200,12 @@ private fun FavoriteEditorDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, url: String, group: String) -> Unit,
     onDelete: (() -> Unit)? = null,
+    /** 新建时预填的名称 / 网址（initial 为空才生效） */
+    prefillName: String = "",
+    prefillUrl: String = "",
 ) {
-    var name by remember(initial, show) { mutableStateOf(initial?.name ?: "") }
-    var url by remember(initial, show) { mutableStateOf(initial?.url ?: "") }
+    var name by remember(initial, show) { mutableStateOf(initial?.name ?: prefillName) }
+    var url by remember(initial, show) { mutableStateOf(initial?.url ?: prefillUrl) }
     // 分组默认选中已有的：编辑时是它当前的组，新建时是「个人收藏」；也可以在下面输入框里写新名字
     var group by remember(initial, show) { mutableStateOf(initial?.group ?: Favorite.GROUP_PERSONAL) }
     AppGlassDialog(

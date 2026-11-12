@@ -375,6 +375,9 @@ fun BrowserScreen(
     var barMinimized by remember { mutableStateOf(false) }
     var favEditing by remember { mutableStateOf(false) }
     var showFavEditor by remember { mutableStateOf(false) }
+    var showBookmarkCreate by remember { mutableStateOf(false) }
+    var bookmarkPrefillName by remember { mutableStateOf("") }
+    var bookmarkPrefillUrl by remember { mutableStateOf("") }
     // 二级页面返回栈：官方 miuix-nav NavDisplay。栈底是浏览主界面。
     val backStack = remember { navBackStackOf(AppRoute.Browser) }
     fun pushPage(route: AppRoute) {
@@ -1050,6 +1053,7 @@ fun BrowserScreen(
                 tab.clearFind()
                 showFind = false
             }
+            showBookmarkCreate -> showBookmarkCreate = false
             showFavEditor -> showFavEditor = false
             sheet != Sheet.None -> sheet = Sheet.None
             tab.canGoBack -> tab.goBack()
@@ -1808,7 +1812,7 @@ fun BrowserScreen(
                                         java.net.URLEncoder.encode(tab.url, "UTF-8"),
                                 )
                             }
-                            MenuAction.Favorite, MenuAction.AddBookmark -> if (tab.url.isNotBlank()) {
+                            MenuAction.Favorite -> if (tab.url.isNotBlank()) {
                                 val favName = tab.title.ifBlank { hostOf(tab.url) }
                                 val msg = if (favorites.exists(favName, tab.url)) {
                                     "已添加此书签"
@@ -1818,6 +1822,7 @@ fun BrowserScreen(
                                 }
                                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                             }
+                            MenuAction.Bookmarks -> pushPage(AppRoute.Library(0))
                             MenuAction.Share -> if (tab.url.isNotBlank()) {
                                 runCatching {
                                     context.startActivity(
@@ -1856,7 +1861,7 @@ fun BrowserScreen(
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
                     // 长按 0.65 秒（图标不动）：直接进入管理页；单击保持原有操作
-                    longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.GeckoExtensions),
+                    longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.Bookmarks, MenuAction.GeckoExtensions),
                     onLongPressAction = { action ->
                         when (action) {
                             MenuAction.ScriptMenu -> {
@@ -1866,6 +1871,13 @@ fun BrowserScreen(
                             MenuAction.Favorite -> {
                                 sheet = Sheet.None
                                 pushPage(AppRoute.Library(0))
+                            }
+                            // 长按「书签」：弹出新建书签弹窗，自动填入当前页标题和网址
+                            MenuAction.Bookmarks -> {
+                                sheet = Sheet.None
+                                bookmarkPrefillName = tab.title.ifBlank { hostOf(tab.url) }
+                                bookmarkPrefillUrl = tab.url
+                                showBookmarkCreate = true
                             }
                             MenuAction.GeckoExtensions ->
                                 if (!settings.geckoMode) {
@@ -2396,6 +2408,22 @@ fun BrowserScreen(
             onQuery = { tab.findAll(it) },
             onPrev = { tab.findNext(false) },
             onNext = { tab.findNext(true) },
+        )
+
+        FavoriteEditorDialog(
+            show = showBookmarkCreate,
+            initial = null,
+            groups = favorites.groups(),
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            liquidBackdrop = if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null,
+            prefillName = bookmarkPrefillName,
+            prefillUrl = bookmarkPrefillUrl,
+            onDismiss = { showBookmarkCreate = false },
+            onConfirm = { name, url, group ->
+                favorites.add(name, url, group)
+                showBookmarkCreate = false
+                android.widget.Toast.makeText(context, "添加书签成功", android.widget.Toast.LENGTH_SHORT).show()
+            },
         )
 
         FavoriteEditor(

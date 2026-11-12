@@ -376,7 +376,7 @@ internal fun BottomBar(
                 )
                 // 网页加载完毕（非加载中、非输入中）时，地址栏最右端显示刷新图标
                 if (showRefresh) {
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(2.dp))
                     AddressRefreshButton(onClick = onRefresh)
                 }
             }
@@ -581,8 +581,8 @@ internal fun PressIcon(
 internal fun shouldShowAddressRefresh(address: String, loading: Boolean, editing: Boolean): Boolean =
     address.isNotEmpty() && !loading && !editing
 
-/** 地址栏内刷新图标占用的宽度（按钮 28dp + 左侧间距 4dp），用于底栏宽度计算。 */
-internal val AddressRefreshWidth = 32.dp
+/** 地址栏内刷新图标占用的宽度（按钮 24dp + 左侧间距 2dp），用于底栏宽度计算。 */
+internal val AddressRefreshWidth = 26.dp
 
 /** 地址栏最右端的刷新按钮 */
 @Composable
@@ -590,7 +590,7 @@ internal fun AddressRefreshButton(onClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
     Box(
         modifier = Modifier
-            .size(28.dp)
+            .size(24.dp)
             .clip(CircleShape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -609,7 +609,7 @@ internal fun AddressRefreshButton(onClick: () -> Unit) {
             contentDescription = "刷新",
             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             // 视觉上略微下移（只移图标，点击区域不变）
-            modifier = Modifier.offset(y = 2.dp).size(iconSize),
+            modifier = Modifier.offset(y = 1.dp).size(iconSize),
         )
     }
 }
