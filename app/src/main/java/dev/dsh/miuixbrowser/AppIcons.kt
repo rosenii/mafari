@@ -39,6 +39,16 @@ object AppIcons {
         )
     }
 
+    /** 刷新：不闭合圆圈（缺口在右上）+ 顺时针箭头，类似 iOS 的 arrow.clockwise。 */
+    val Refresh: ImageVector by lazy {
+        stroked(
+            "Refresh",
+            "M17.3,6.7A7.5,7.5 0 1 1 12,4.5",
+            "M9,1.9L12,4.5L9,7.1",
+            width = 2.0f,
+        )
+    }
+
     /** 文件夹：带标签耳朵的圆角轮廓（书签分组用）。 */
     val Folder: ImageVector by lazy {
         stroked(

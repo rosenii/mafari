@@ -178,7 +178,6 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.glass.Settings
 import top.yukonga.miuix.kmp.icon.glass.Search
-import top.yukonga.miuix.kmp.icon.glass.Refresh
 import top.yukonga.miuix.kmp.icon.glass.Phone
 import top.yukonga.miuix.kmp.icon.glass.More
 import top.yukonga.miuix.kmp.icon.glass.Info
@@ -603,11 +602,13 @@ internal fun AddressRefreshButton(onClick: () -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
+        // 图标尺寸与地址栏文字（15.sp）一致
+        val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
         Icon(
-            imageVector = MiuixIcons.Glass.Refresh,
+            imageVector = AppIcons.Refresh,
             contentDescription = "刷新",
             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(iconSize),
         )
     }
 }
