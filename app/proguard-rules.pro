@@ -19,3 +19,8 @@
 -dontwarn java.lang.management.**
 -dontwarn org.slf4j.impl.**
 -dontwarn com.googlecode.javaewah.**
+# JGit / JSch 大量按名字反射：JGitText 的字段由 NLS 按名字赋值，JSch 的算法类按配置里的类名 Class.forName；
+# 混淆或裁剪会让 Git 同步在 release 包里失效，整体保留（体积代价可接受）
+-keep class org.eclipse.jgit.** { *; }
+-keep class com.jcraft.jsch.** { *; }
+-dontwarn com.jcraft.jsch.**

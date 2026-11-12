@@ -29,7 +29,7 @@ data class WebDavConfig(val url: String, val username: String, val password: Str
 /** 纯函数部分（URL 规整、文件名、PROPFIND 解析），放这里便于 JVM 单测。 */
 object WebDavNames {
     const val REMOTE_DIR = "Mafari"
-    const val KEEP_BACKUPS = 5
+    const val KEEP_BACKUPS = 10
 
     private val NAME_REGEX = Regex("""mafari-backup-\d{8}-\d{6}\.${BackupFormat.EXTENSION}""")
     private val HREF_REGEX = Regex("""<(?:[A-Za-z0-9_.-]+:)?href\s*>([^<]*)</(?:[A-Za-z0-9_.-]+:)?href\s*>""", RegexOption.IGNORE_CASE)

@@ -364,6 +364,8 @@ object SecureStore {
     const val PURPOSE_HISTORY = "mafari.history.entries"
     const val PURPOSE_WEBDAV = "mafari.webdav.password"
     const val PURPOSE_GIT = "mafari.git.token"
+    const val PURPOSE_GIT_KEY = "mafari.git.deploykey"
+    const val PURPOSE_GIT_KEY_PASS = "mafari.git.keypass"
 
     fun isLegacyPlaintext(raw: String) = !EncryptionEngine.isEncryptedString(raw)
 

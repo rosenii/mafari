@@ -17,6 +17,8 @@ val bouncyCastleVersion = "1.82"
 val okhttpVersion = "4.12.0"
 // Git 同步：JGit 5.13 是最后一个面向 Java 8 的版本，Android 上可用（6.x 起要求 Java 11）
 val jgitVersion = "5.13.3.202401111512-r"
+// Deploy key（SSH）：JGit 的 JSch 传输 + mwiede 维护的 JSch 分支（同包名直接替换，支持 ed25519 / rsa-sha2；原版 0.1.55 连 GitHub 已不可用）
+val jschVersion = "0.2.21"
 val navigationEventVersion = "1.2.0"
 // GeckoView nightly（仅 arm64-v8a）。默认 "+" = 取 Mozilla Maven 上最新的 nightly；
 // 要锁定版本（推荐，nightly 的 API 偶尔会改）在 gradle.properties 写 geckoViewVersion=152.0.20260801093011
@@ -56,8 +58,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 10062
-        versionName = "v99.1.62"
+        versionCode = 10063
+        versionName = "v99.1.63"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -113,6 +115,7 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             excludes += "/META-INF/{DEPENDENCIES,INDEX.LIST}"
+            excludes += "/META-INF/versions/**/module-info.class"
         }
     }
 }
@@ -144,6 +147,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:$okhttpVersion")
     // Git 同步（纯 Java 实现，无需系统 git）
     implementation("org.eclipse.jgit:org.eclipse.jgit:$jgitVersion")
+    implementation("org.eclipse.jgit:org.eclipse.jgit.ssh.jsch:$jgitVersion") {
+        exclude(group = "com.jcraft", module = "jsch")
+    }
+    implementation("com.github.mwiede:jsch:$jschVersion")
     testImplementation("junit:junit:4.13.2")
     // 第二内核：GeckoView nightly（arm64-v8a）
     implementation("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")

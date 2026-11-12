@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -151,6 +152,27 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     var gitConfigError by remember { mutableStateOf<String?>(null) }
     var gitTask by remember { mutableStateOf<String?>(null) }
     var lastPush by remember { mutableStateOf(GitStore.lastPush(context)) }
+    var gitImportedKey by remember { mutableStateOf<String?>(null) }
+    val keyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val text = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readNBytes(32 * 1024 + 1) }
+                            ?: error("无法读取所选文件")
+                        if (bytes.size > 32 * 1024) error("文件过大，不像是私钥")
+                        String(bytes, Charsets.UTF_8)
+                    }
+                }
+                val got = text.getOrNull()
+                if (got != null) {
+                    gitImportedKey = got
+                } else {
+                    Toast.makeText(context, "导入失败：" + (text.exceptionOrNull()?.message ?: "未知错误"), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
     var lastUpload by remember { mutableStateOf(WebDavStore.lastUpload(context)) }
     var restoreBytes by remember { mutableStateOf<ByteArray?>(null) }
     val working = busy || restoring || webdavTask != null || gitTask != null
@@ -306,7 +328,10 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         ) {
                             ArrowPreference(
                                 title = "仓库设置",
-                                summary = cfg?.url?.substringAfter("://")?.trimEnd('/')?.removeSuffix(".git") ?: "未配置",
+                                summary = cfg?.let {
+                                    it.url.substringAfter("://").substringAfterLast('@').trimEnd('/').removeSuffix(".git") +
+                                        if (it.useSsh) " · Deploy key" else ""
+                                } ?: "未配置",
                                 enabled = !working,
                                 onClick = {
                                     gitConfigError = null
@@ -354,7 +379,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     }
                     item {
                         Text(
-                            text = "每次备份提交为 ${GitNames.FILE_NAME}，历史即版本；仅支持 http(s) 地址，建议用私有仓库。",
+                            text = "每次备份提交为 ${GitNames.FILE_NAME}，只留最近 ${GitNames.HISTORY_KEEP} 个提交（旧的会强制推送裁掉，分支需允许强推）；支持令牌或 SSH Deploy key，建议私有仓库。",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
@@ -488,6 +513,9 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 testing = gitTesting,
                 error = gitConfigError,
                 backdrop = if (glass) backdrop else null,
+                importedKey = gitImportedKey,
+                onImportedKeyConsumed = { gitImportedKey = null },
+                onPickKey = { keyPicker.launch(arrayOf("*/*")) },
                 onDismiss = { if (!gitTesting) showGitConfig = false },
                 onSave = { cfg ->
                     gitTesting = true
@@ -885,50 +913,115 @@ private fun GitConfigDialog(
     testing: Boolean,
     error: String?,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    importedKey: String?,
+    onImportedKeyConsumed: () -> Unit,
+    onPickKey: () -> Unit,
     onDismiss: () -> Unit,
     onSave: (GitConfig) -> Unit,
     onClear: () -> Unit,
 ) {
+    var useKey by remember(show) { mutableStateOf(initial?.useSsh == true) }
     var url by remember(show) { mutableStateOf(initial?.url.orEmpty()) }
     var user by remember(show) { mutableStateOf(initial?.username.orEmpty()) }
     var token by remember(show) { mutableStateOf(initial?.token.orEmpty()) }
+    var key by remember(show) { mutableStateOf(initial?.deployKey.orEmpty()) }
+    var keyPass by remember(show) { mutableStateOf(initial?.keyPassphrase.orEmpty()) }
     var branch by remember(show) { mutableStateOf(initial?.branch.orEmpty()) }
-    val normalizedUrl = GitNames.normalizeRepoUrl(url)
+
+    LaunchedEffect(importedKey) {
+        if (importedKey != null) {
+            key = importedKey
+            useKey = true
+            onImportedKeyConsumed()
+        }
+    }
+
+    val normalizedUrl = GitNames.normalizeAddress(url, useKey)
     val normalizedBranch = GitNames.normalizeBranch(branch)
-    val valid = normalizedUrl != null && normalizedBranch != null
+    val normalizedKey = if (useKey) GitNames.normalizePrivateKey(key) else null
+    val valid = normalizedUrl != null && normalizedBranch != null && (!useKey || normalizedKey != null)
 
     AppGlassDialog(
         show = show,
         title = "Git 仓库",
-        summary = "令牌填在下方，不要写进地址",
+        summary = if (useKey) "Deploy key 需有写权限；私钥只存本机" else "令牌填在下方，不要写进地址",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AppDialogButton(
+                    onClick = { useKey = false },
+                    enabled = !testing,
+                    modifier = Modifier.weight(1f),
+                    role = if (!useKey) GlassDialogButtonRole.Primary else GlassDialogButtonRole.Normal,
+                ) {
+                    Text(text = "令牌", style = MiuixTheme.textStyles.button)
+                }
+                AppDialogButton(
+                    onClick = { useKey = true },
+                    enabled = !testing,
+                    modifier = Modifier.weight(1f),
+                    role = if (useKey) GlassDialogButtonRole.Primary else GlassDialogButtonRole.Normal,
+                ) {
+                    Text(text = "Deploy key", style = MiuixTheme.textStyles.button)
+                }
+            }
             TextField(
                 value = url,
                 onValueChange = { url = it },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                label = "仓库地址（https://…）",
+                label = if (useKey) "仓库地址（git@主机:用户/仓库.git）" else "仓库地址（https://…）",
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             )
-            TextField(
-                value = user,
-                onValueChange = { user = it },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                label = "用户名（可选）",
-                singleLine = true,
-            )
-            TextField(
-                value = token,
-                onValueChange = { token = it },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                label = "访问令牌 / 密码",
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            )
+            if (useKey) {
+                TextField(
+                    value = key,
+                    onValueChange = { key = it },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    label = "私钥（粘贴 -----BEGIN … 全文）",
+                    minLines = 2,
+                    maxLines = 3,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                AppDialogButton(
+                    onClick = onPickKey,
+                    enabled = !testing,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                ) {
+                    Text(text = "从文件导入私钥", style = MiuixTheme.textStyles.button)
+                }
+                TextField(
+                    value = keyPass,
+                    onValueChange = { keyPass = it },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    label = "私钥口令（没有则留空）",
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+            } else {
+                TextField(
+                    value = user,
+                    onValueChange = { user = it },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    label = "用户名（可选）",
+                    singleLine = true,
+                )
+                TextField(
+                    value = token,
+                    onValueChange = { token = it },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    label = "访问令牌 / 密码",
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                )
+            }
             TextField(
                 value = branch,
                 onValueChange = { branch = it },
@@ -938,7 +1031,9 @@ private fun GitConfigDialog(
             )
             val hint = when {
                 error != null -> error
-                url.isNotBlank() && normalizedUrl == null -> "地址需为 http(s)://主机/路径，且不含账号密码"
+                url.isNotBlank() && normalizedUrl == null ->
+                    if (useKey) "SSH 地址形如 git@主机:用户/仓库.git" else "地址需为 http(s)://主机/路径，且不含账号密码"
+                useKey && key.isNotBlank() && normalizedKey == null -> "私钥格式不对：需要 OpenSSH / PEM 文本（-----BEGIN … PRIVATE KEY-----）"
                 normalizedBranch == null -> "分支名不合法"
                 else -> null
             }
@@ -960,7 +1055,13 @@ private fun GitConfigDialog(
                 AppDialogButton(
                     onClick = {
                         if (normalizedUrl != null && normalizedBranch != null) {
-                            onSave(GitConfig(normalizedUrl, user.trim(), token, normalizedBranch))
+                            onSave(
+                                if (useKey && normalizedKey != null) {
+                                    GitConfig(normalizedUrl, "", "", normalizedBranch, normalizedKey, keyPass)
+                                } else {
+                                    GitConfig(normalizedUrl, user.trim(), token, normalizedBranch)
+                                },
+                            )
                         }
                     },
                     enabled = valid && !testing,
