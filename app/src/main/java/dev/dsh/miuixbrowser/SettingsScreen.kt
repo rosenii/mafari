@@ -94,6 +94,7 @@ fun SettingsScreen(
     onOpenPrivacyEnhance: () -> Unit,
     onOpenCookies: () -> Unit = {},
     onOpenBookmarks: () -> Unit,
+    onOpenBackup: () -> Unit = {},
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
@@ -432,6 +433,20 @@ fun SettingsScreen(
                                 ).show()
                             }
                         },
+                    )
+                }
+
+                SmallTitle(text = "数据")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    SettingsRow(
+                        title = "备份与同步",
+                        summary = "加密备份导出 · X25519 + ML-KEM-768 混合抗量子加密 · AES-256-GCM",
+                        onClick = onOpenBackup,
                     )
                 }
 

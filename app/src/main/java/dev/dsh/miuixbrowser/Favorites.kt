@@ -386,6 +386,6 @@ class FavoritesStore(context: Context) {
     private companion object {
         const val KEY = "favorites"
         /** 加密上下文（进 AAD）：密文只能在这个用途下解开 */
-        const val PURPOSE = "mafari.favorites.items"
+        const val PURPOSE = SecureStore.PURPOSE_FAVORITES
     }
 }

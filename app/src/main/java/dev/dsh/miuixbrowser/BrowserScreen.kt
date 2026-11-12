@@ -2384,6 +2384,7 @@ fun BrowserScreen(
             onOpenCookies = { pushPage(AppRoute.CookiePage) },
             onOpenPrivacyEnhance = { pushPage(AppRoute.PrivacyEnhancePage) },
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
+            onOpenBackup = { pushPage(AppRoute.BackupPage) },
             onOpenAbout = { pushPage(AppRoute.About) },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
             blurEnabled = settings.blurEnabled,
@@ -2421,6 +2422,12 @@ fun BrowserScreen(
         CookieScreen(
             settings = settings,
             currentUrl = tab.url,
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.BackupPage> {
+        BackupScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )

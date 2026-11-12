@@ -82,6 +82,12 @@ interface HybridKeyProvider {
     fun privateKey(): HybridPrivateKey
 }
 
+/** 固定密钥对（内存里），用于备份文件：每次导出现生成一对，不依赖设备 Keystore。 */
+class StaticKeyProvider(private val pair: HybridKeyPair) : HybridKeyProvider {
+    override fun publicKey() = pair.pub
+    override fun privateKey() = pair.priv
+}
+
 internal fun sha384(data: ByteArray): ByteArray = MessageDigest.getInstance("SHA-384").digest(data)
 
 /** RFC 5869 HKDF，哈希为 SHA-384。 */
@@ -481,6 +487,10 @@ class AndroidKeyVault(context: Context) : HybridKeyProvider {
  *  - 写：永远写密文，加密失败时返回 null（绝不回退写明文）。
  */
 object SecureStore {
+
+    /** 各加密存储单元的上下文（进 AAD）。备份导出时也要靠它解开设备密文。 */
+    const val PURPOSE_FAVORITES = "mafari.favorites.items"
+    const val PURPOSE_HISTORY = "mafari.history.entries"
 
     fun isLegacyPlaintext(raw: String) = !EncryptionEngine.isEncryptedString(raw)
 

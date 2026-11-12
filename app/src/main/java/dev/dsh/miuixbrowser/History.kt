@@ -87,7 +87,7 @@ class HistoryStore(context: Context) {
     private companion object {
         const val KEY = "entries"
         /** 加密上下文（进 AAD）：密文只能在这个用途下解开，不能被挪去冒充别的数据 */
-        const val PURPOSE = "mafari.history.entries"
+        const val PURPOSE = SecureStore.PURPOSE_HISTORY
 
         private val writer: java.util.concurrent.ExecutorService =
             java.util.concurrent.Executors.newSingleThreadExecutor { r ->
