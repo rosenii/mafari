@@ -1,0 +1,924 @@
+{
+  "Error001": {
+    "message": "E001: A pasta à ser criada não existe"
+  },
+  "Error002": {
+    "message": "E002: O favorito à ser atualizado não existe"
+  },
+  "Error003": {
+    "message": "E003: A pasta a ser removida não existe. Isso é uma anomalia. Parabéns."
+  },
+  "Error004": {
+    "message": "E004: A pasta destino não existe"
+  },
+  "Error005": {
+    "message": "E005: A pasta à ser criada não existe"
+  },
+  "Error006": {
+    "message": "E006: A pasta à atualizar não existe"
+  },
+  "Error007": {
+    "message": "E007: A pasta à mover não existe"
+  },
+  "Error008": {
+    "message": "E008: A pasta de onde mover não existe"
+  },
+  "Error009": {
+    "message": "E009: A pasta para onde mover não existe"
+  },
+  "Error010": {
+    "message": "E010: Não foi possível encontrar uma pasta para ordenar"
+  },
+  "Error011": {
+    "message": "E011: O item na ordem das pastas não é um filho: {0}"
+  },
+  "Error012": {
+    "message": "E012: A ordenação de pastas está a faltar em alguns dos filhos da pasta"
+  },
+  "Error013": {
+    "message": "E013: A pasta à remover não existe"
+  },
+  "Error014": {
+    "message": "E014: A pasta pai para remover a pasta especificada não existe."
+  },
+  "Error015": {
+    "message": "E015: Dados de resposta inesperados do servidor"
+  },
+  "Error016": {
+    "message": "E016: Tempo limite para o pedido excedido. Verifique a configuração do seu servidor."
+  },
+  "Error017": {
+    "message": "E017: Erro de rede: Verifique sua conexão de rede, os detalhes de sua conta e as configurações de TLS/SSL."
+  },
+  "Error018": {
+    "message": "E018: Não foi possível se autenticar com o servidor"
+  },
+  "Error019": {
+    "message": "E019: Status HTTP {0}. Pedido {1} falhou. Verifique a configuração e o registo de erros do seu servidor."
+  },
+  "Error020": {
+    "message": "E020: Não foi possível analisar a resposta do servidor."
+  },
+  "Error021": {
+    "message": "E021: O estado do servidor é inconsistente. A pasta está presente na lista de ordem filha, mas não na estrutura de pastas."
+  },
+  "Error022": {
+    "message": "E022: A pasta {0} contém supostamente favorito não existente {1}."
+  },
+  "Error023": {
+    "message": "E023: Impossível remover o ficheiro de segurança, considere a deletar {0} manualmente."
+  },
+  "Error024": {
+    "message": "E024: Estado HTTP {0} ao tentar determinar o estado do arquivo de segurança {1}."
+  },
+  "Error025": {
+    "message": "E025: Arquivos de configuração de marcadores não devem começar com uma barra: '/'"
+  },
+  "Error026": {
+    "message": "E026: Processo de sincronização foi cancelado"
+  },
+  "Error027": {
+    "message": "E027: Processo de sincronização foi interrompido"
+  },
+  "Error028": {
+    "message": "E028: Não foi possível se autenticar com o servidor"
+  },
+  "Error029": {
+    "message": "E029: Segurança contra falhas: A execução da sincronização atual excluiria {0}% de seus links no servidor. Recusando-se a executar. Desative essa proteção contra falhas nas configurações de perfil se você quiser continuar mesmo assim."
+  },
+  "Error030": {
+    "message": "E030: Falha ao descriptografar o arquivo de favoritos. A senha pode estar errada ou o arquivo pode estar corrompido."
+  },
+  "Error031": {
+    "message": "E031: Não foi possível autenticar com o Google Drive. Por favor, conecte o floccus com sua conta do Google novamente."
+  },
+  "Error032": {
+    "message": "E032: Erro OAuth. Erro de validação de token. Reconecte sua Conta do Google."
+  },
+  "Error033": {
+    "message": "E033: Redirecionamento detectado. Certifique-se de que o servidor oferece suporte ao método de sincronização selecionado e que o URL inserido está correto e não redireciona para um local diferente. Se o redirecionamento fizer parte da sua configuração, você pode desativar essa verificação nas configurações."
+  },
+  "Error034": {
+    "message": "E034: O arquivo de favoritos no servidor está ilegível. Talvez você esqueceu de definir uma senha de criptografia, ou você colocou o formato de arquivos incorreto."
+  },
+  "Error035": {
+    "message": "E035: Falha ao criar o seguinte marcador no servidor: {0} -- O aplicativo de marcadores está atualizado?"
+  },
+  "Error036": {
+    "message": "E036: Permissões ausentes para acessar o servidor de sincronização"
+  },
+  "Error037": {
+    "message": "E037: O recurso está bloqueado"
+  },
+  "Error038": {
+    "message": "E038: Não foi possível encontrar o arquivo local"
+  },
+  "Error039": {
+    "message": "E039: Falha ao criar o seguinte favorito no servidor: {0}"
+  },
+  "Error040": {
+    "message": "E040: Não foi possível encontrar o nome do seu arquivo no Google Drive"
+  },
+  "Error041": {
+    "message": "E041: O tamanho do arquivo de favoritos remotos é diferente do conteúdo que foi realmente baixado do servidor. Isso pode ser um problema temporário de rede. Se esse erro persistir, entre em contato com o administrador do servidor."
+  },
+  "Error042": {
+    "message": "E042: Não foi possível recuperar o tamanho do arquivo de favoritos remoto. É impossível verificar se o arquivo de favoritos foi baixado por completo. Se esse erro persistir, entre em contato com o administrador do servidor."
+  },
+  "Error043": {
+    "message": "E043: Segurança contra falhas: A execução da sincronização atual aumentaria sua contagem de links no servidor em {0}%. Recusando-se a executar. Desative essa proteção contra falhas nas configurações de perfil se você quiser continuar mesmo assim."
+  },
+  "Error044": {
+    "message": "E044: Falha na operação de envio do Git: {0}"
+  },
+  "Error045": {
+    "message": "E045: Caminho de pasta inesperado. A pasta de sincronização local para esse perfil costumava estar em `{0}`, mas agora está em `{1}`. Certifique-se de que essa seja a intenção e defina a pasta de sincronização local novamente nas configurações do perfil."
+  },
+  "Error046": {
+    "message": "E046: URL inválido. `{0}` não é um URL válido."
+  },
+  "Error047": {
+    "message": "E047: Falha ao analisar o arquivo XBEL. Os dados do XBEL parecem estar corrompidos ou incompletos. Você pode tentar remover o arquivo no servidor para permitir que o floccus o recrie. Certifique-se de fazer um backup primeiro."
+  },
+  "Error049": {
+    "message": "E049: Segurança contra falhas: A execução de sincronização atual aumentaria sua contagem de links locais neste perfil em {0}%. Recusando-se a executar. Desative essa proteção contra falhas nas configurações do perfil se você quiser continuar mesmo assim."
+  },
+  "Error050": {
+    "message": "E050: Failsafe: A execução da sincronização atual excluiria {0}% de seus links locais neste perfil. Recusando-se a executar. Desative essa proteção contra falhas nas configurações do perfil se você quiser continuar mesmo assim."
+  },
+  "LabelWebdavurl": {
+    "message": "WebDAV URL"
+  },
+  "DescriptionWebdavurl": {
+    "message": "por exemplo. com nextcloud: https://example.com/remote.php/webdav/"
+  },
+  "LabelNextcloudurl": {
+    "message": "Nextcloud URL"
+  },
+  "LabelUsername": {
+    "message": "Usuário"
+  },
+  "LabelPassword": {
+    "message": "Senha"
+  },
+  "LabelBookmarksfile": {
+    "message": "Arquivo de Favoritos"
+  },
+  "DescriptionBookmarksfile": {
+    "message": "um caminho para o local em que o arquivo de favoritos residirá no servidor, em relação ao URL do WebDAV (todas as pastas no caminho já devem existir). Por exemplo, personal_stuff/bookmarks.xbel"
+  },
+ "DescriptionBookmarksfilegoogle": {
+   "message": "o nome do arquivo de favoritos que residirá em seu Google Drive. Não insira o caminho completo do arquivo, apenas o nome do arquivo. Certifique-se de que esse nome seja exclusivo em seu Drive. Por exemplo, mybookmarks.xbel"
+ },
+  "DescriptionBookmarksfilegit": {
+    "message": "um caminho para o arquivo de favoritos em relação à raiz do repositório do Git (todas as pastas no caminho já devem existir). por exemplo, coisas_pessoais/favoritos.x"
+  },
+  "LabelServerfolder": {
+    "message": "Servidor alvo"
+  },
+  "DescriptionServerfolder": {
+    "message": "Quando estiver sincronizando, seus favoritos nesse navegador serão armazenados como links sob esse caminho no servidor. Note que esse caminho representa uma pasta no aplicativo do Nextcloud Bookmarks, não uma pasta nos Arquivos do Nextcloud. Deixe isso vazio para colocar todos os links na pasta mais acima no servidor. "
+  },
+  "DescriptionServerfolderlinkwarden": {
+    "message": "Ao sincronizar, seus favoritos neste navegador serão armazenados como links nesta coleção e somente os links desta coleção serão sincronizados com este navegador."
+  },
+  "DescriptionServerfolderkarakeep": {
+    "message": "Durante a sincronização, seus favoritos nesse navegador serão armazenados como links nessa coleção e somente os links nessa coleção serão sincronizados com esse navegador."
+  },
+  "LabelLocaltarget": {
+    "message": "Alvo local"
+  },
+  "DescriptionLocaltarget": {
+    "message": "Escolha aqui, se você quer sincronizar favoritos do navegador, ou abas do navegador."
+  },
+  "LabelLocalfolder": {
+    "message": "Pasta dos Favoritos"
+  },
+  "DescriptionLocalfolder": {
+    "message": "Favoritos nessa pasta de favoritos serão armazenados como links no servidor e links no servidor serão armazenados como Favoritos na pasta de favoritos desse navegador."
+  },
+  "LabelRootfolder": {
+    "message": "Pasta raiz"
+  },
+  "LabelNewfolder": {
+    "message": "Pasta recém criada"
+  },
+  "LabelSelectfolder": {
+    "message": "Selecione uma pasta"
+  },
+  "LabelOptions": {
+    "message": "Opções"
+  },
+  "LabelSyncnow": {
+    "message": "Sincronizar agora"
+  },
+  "LabelCancelsync": {
+    "message": "Cancelar sincronização"
+  },
+  "LabelSyncall": {
+    "message": "Sincronizar todos os perfis"
+  },
+  "LabelAutosync": {
+    "message": "Sincronização baseada em alterações"
+  },
+  "StatusLastsynced": {
+    "message": "Útima sincronização há: {0}"
+  },
+  "StatusNeversynced": {
+    "message": "Ainda não sincronizado"
+  },
+  "StatusAllgood": {
+    "message": "Tudo certo"
+  },
+  "StatusDisabled": {
+    "message": "Desabilitado"
+  },
+  "StatusError": {
+    "message": "Erro"
+  },
+  "StatusSyncing": {
+    "message": "Sincronizando"
+  },
+  "StatusScheduled": {
+    "message": "Agendado"
+  },
+  "LabelReset": {
+    "message": "Redefinir"
+  },
+  "DescriptionReset": {
+    "message": "Redefinir pasta sincronizada para criar uma nova"
+  },
+  "LabelChoosefolder": {
+    "message": "Escolha uma pasta"
+  },
+  "DescriptionChoosefolder": {
+    "message": "Defina uma pasta existente para sincronizar"
+  },
+  "LabelRemoveaccount": {
+    "message": "Remover perfil"
+  },
+  "DescriptionRemoveaccount": {
+    "message": "Excluir esta conta (isso não removerá seus favoritos)"
+  },
+  "LabelSyncfromscratch": {
+    "message": "Iniciar sincronização do zero"
+  },
+  "LabelResetCache": {
+    "message": "Redefinir cache"
+  },
+  "DescriptionResetcache": {
+    "message": "Marque para limpar o cache e garante que a próxima sincronização não irá apagar nada, apenas juntar os marcadores locais com os do servidor."
+  },
+  "LabelParallelsync": {
+    "message": "Acelere a sincronização"
+  },
+  "DescriptionParallelsync": {
+    "message": "Marque esta caixa para processar várias pastas em paralelo para acelerar a sincronização. Esse recurso é experimental e dificulta a leitura dos logs de depuração."
+  },
+  "LabelStrategy": {
+    "message": "Estratégia de sincronização"
+  },
+  "DescriptionStrategy": {
+    "message": "Esta opção determina como sincronizar os favoritos em diferentes dispositivos. Normalmente, você desejará manter as alterações de todos os lados se forem compatíveis, mas às vezes você pode querer sobrescrever as alterações (incluindo adições e exclusões) de outros navegadores ou sobrescrever as alterações feitas localmente."
+  },
+  "LabelStrategydefault": {
+    "message": "Sempre mescle alterações locais com alterações de outros navegadores (recomendado)"
+  },
+  "LabelStrategyslave": {
+    "message": "Sempre desfaça as alterações locais e baixe as alterações de outros navegadores"
+  },
+  "LabelStrategyoverwrite": {
+    "message": "Sempre carregue alterações locais e desfaça alterações de outros navegadores"
+  },
+  "LabelSave": {
+    "message": "Salvar"
+  },
+  "LabelSelect": {
+    "message": "Selecionar"
+  },
+  "LabelCancel": {
+    "message": "Cancelar"
+  },
+  "LabelAdd": {
+    "message": "Adicionar"
+  },
+  "LabelChange": {
+    "message": "Mudar"
+  },
+  "LabelRemove": {
+    "message": "Remover"
+  },
+  "LabelBack": {
+    "message": "Voltar"
+  },
+  "LabelAdapternextcloudfolders": {
+    "message": "Nextcloud Bookmarks"
+  },
+  "DescriptionAdapternextcloudfolders": {
+    "message": "Sincronize seus favoritos com o aplicativo de Favoritos para o Nextcloud (Uma plataforma de colaboração em conjunto onde você pode usar seu próprio servidor ou pagar uma conta em uma nuvem de varias hospedeiros.) Com o aplicativos Nextcloud Bookmarks você consegue sincronizar apenas http, ftp, e favoritos javascript. Tenha certeza que você tem instalado o aplicativo de Favoritos na loja de aplicativos do Nextcloud. Essa opção não pode usada com uma criptografia ponta a ponta."
+  },
+  "LabelAdapternextcloud": {
+    "message": "Favoritos do Nextcloud (legado)"
+  },
+  "DescriptionAdapternextcloud": {
+    "message": "A opção legado é um compatível com no mínimo a versão 0.11 do aplicativo de Favoritos. Isso irá emular as pasta usando etiquetas contendo caminhos das pastas. Isso não é o uso recomendado para perfis novos."
+  },
+  "LabelAdapterwebdav": {
+    "message": "Compartilhamento WebDAV"
+  },
+  "DescriptionAdapterwebdav": {
+    "message": "Sincronize seus favoritos armazenando-os em um arquivo no compartilhamento WebDAV. Não há interface de usuário da web para esta opção e você pode usar com qualquer servidor compatível com WebDAV, seja na nuvem ou em seu próprio servidor. Você pode escolher usar criptografia ponta a ponta, quando usar essa opção."
+  },
+  "LabelAddaccount": {
+    "message": "Adicionar perfil"
+  },
+  "LabelOpenintab": {
+    "message": "Abrir na guia"
+  },
+  "LabelDebuglogs": {
+    "message": "Logs de depuração"
+  },
+  "LabelFunddevelopment": {
+    "message": "💸 Apoiar o desenvolvimento"
+  },
+  "DescriptionFunddevelopment": {
+    "message": "O trabalho no floco é mantido por um modelo de assinatura voluntária. Se você acha que o que eu faço vale a pena, e se você puder gastar algumas moedinhas por mês que não faça falta, por favor, apoie meu trabalho. Além disso, considere dar uma avaliação ao floccus na loja de addons de sua escolha. Obrigado! 💙"
+  },
+  "LabelUntitledfolder": {
+    "message": "Pasta sem título"
+  },
+  "LabelSetkeybutton": {
+    "message": "Definir senha"
+  },
+  "LabelKey": {
+    "message": "Digite sua senha de desbloqueio"
+  },
+  "LabelKey2": {
+    "message": "Digite sua senha mais uma vez"
+  },
+  "LabelUnlock": {
+    "message": "Desbloquear o floccus"
+  },
+  "LabelRemovekey": {
+    "message": "Remover senha"
+  },
+  "LabelRemovedkey": {
+    "message": "Senha removida"
+  },
+  "LabelSyncinterval": {
+    "message": "Intervalo de sincronização"
+  },
+  "DescriptionSyncinterval": {
+    "message": "O intervalo de tempo entre duas sincronizações é executado em minutos. O padrão é 15 minutos."
+  },
+  "LabelChooseadapter": {
+    "message": "Como você deseja sincronizar?"
+  },
+  "LabelOptionsscreen": {
+    "message": "{0} opções",
+    "description": "Title of the options screen. The placeholder holds the profile type."
+  },
+  "LabelPaypal": {
+    "message": "Paypal"
+  },
+  "DescriptionPaypal": {
+    "message": "Faça uma doação única ou recorrente via Paypal para apoiar o projeto"
+  },
+  "LabelOpencollective": {
+    "message": "OpenCollective"
+  },
+  "DescriptionOpencollective": {
+    "message": "Faça uma doação regular via OpenCollective para apoiar o projeto"
+  },
+  "LabelLiberapay": {
+    "message": "Liberapay"
+  },
+  "DescriptionLiberapay": {
+    "message": "Faça uma doação regular via Liberapay para apoiar o projeto"
+  },
+  "LabelGithubsponsors": {
+    "message": "Patrocinadores do GitHub"
+  },
+  "DescriptionGithubsponsors": {
+    "message": "Faça uma doação regular via Patrocinadores do GitHub para apoiar o projeto"
+  },
+  "LabelPatreon": {
+    "message": "Patreon"
+  },
+  "DescriptionPatreon": {
+    "message": "Faça uma doação via Patreon para apoiar o projeto"
+  },
+  "LabelKofi": {
+    "message": "Kofi"
+  },
+  "DescriptionKofi": {
+    "message": "Faça uma doação única ou recorrente via Ko-fi para apoiar o projeto"
+  },
+  "LegacyAdapterDeprecation": {
+    "message": "Esse perfil do tipo legado está depreciado e em breve será removido. Por favor, troque para uma versão mais nova de sincronização do Nextcloud. Melhoras na performance e precisão esperam por você."
+  },
+  "LabelUpdated": {
+    "message": "⚡ Floccus foi atualizado"
+  },
+  "DescriptionUpdated": {
+    "message": "Parabéns, a atualização mais recente do floccus chegou à sua máquina!"
+  },
+  "LabelReleaseNotes": {
+    "message": "Leia as notas de versão"
+  },
+  "LabelOptionsServerDetails": {
+    "message": "Detalhes do servidor"
+  },
+  "LabelOptionsFolderMapping": {
+    "message": "Mapeamento de pasta"
+  },
+  "LabelOptionsSyncBehavior": {
+    "message": "Comportamento de sincronização"
+  },
+  "LabelOptionsDangerous": {
+    "message": "Ações perigosas"
+  },
+  "LabelAccountDeleted": {
+    "message": "Perfil excluído"
+  },
+  "DescriptionAccountDeleted": {
+    "message": "Esse perfil foi excluído"
+  },
+  "LabelNoAccount": {
+    "message": "Nenhum perfil"
+  },
+  "DescriptionNoAccount": {
+    "message": "Adicione novos perfis ou importe perfis de um arquivo, para então começar a sincronizar."
+  },
+  "LabelLoginFlowStart": {
+    "message": "Entrar com Nextcloud"
+  },
+  "LabelLoginFlowStop": {
+    "message": "Abortar o login do Nextcloud"
+  },
+  "LabelLoginFlowError": {
+    "message": "Falha no login do Nextcloud"
+  },
+  "LabelNewAccount": {
+    "message": "Adicionar perfil"
+  },
+  "LabelNewImport": {
+    "message": "Importar"
+  },
+  "LabelNestedSync": {
+    "message": "Contas agrupadas"
+  },
+  "DescriptionNestedSync": {
+    "message": "Você pode agrupar perfis para que uma pasta principal pertença à conta A e uma subpasta às contas A e B. Deseja permitir que outros perfis também sincronizem a pasta desta perfil também?"
+  },
+  "LabelNestedSyncNo": {
+    "message": "Não, ignore a pasta desse perfil em outros perfis"
+  },
+  "LabelNestedSyncYes": {
+    "message": "Sim, incluir a pasta desse perfil em outros perfis"
+  },
+  "LabelImportExport": {
+    "message": "Importar/Exportar perfis"
+  },
+  "LabelExport": {
+    "message": "Exportar perfis"
+  },
+  "LabelImport": {
+    "message": "Importar perfis"
+  },
+  "DescriptionExport": {
+    "message": "Selecione os perfis abaixo que você gostaria de exportar para um arquivo, para que você possa facilmente recriar os mesmos perfis em um dispositivo ou navegador diferente."
+  },
+  "DescriptionImport": {
+    "message": "Importar um arquivo com perfis exportados aqui para recriar perfis exportados em um dispositivo ou navegador diferente. Certifique-se de definir as pastas de sincronização correta novamente após a importação."
+  },
+  "LabelFolderNotFound": {
+    "message": "Pasta não encontrada"
+  },
+  "LabelSyncTabs": {
+    "message": "Navegar nas abas"
+  },
+  "DescriptionSyncTabs": {
+    "message": "Os links que são armazenados no servidor serão abertos como guias do navegador no seu navegador e as guias abertas do navegador existentes são armazenadas como links no servidor. Observe que, dependendo de quantos links são armazenados no servidor, já que todos eles serão abertos como guias na próxima correção de sincronização, isso pode sobrecarregar seu navegador."
+  },
+  "LabelTabs": {
+    "message": "Abas"
+  },
+  "LabelSyncDown": {
+    "message": "Puxar para baixo"
+  },
+  "DescriptionSyncDown": {
+    "message": "Baixe as alterações de outros navegadores & substitua as alterações locais"
+  },
+  "LabelSyncUp": {
+    "message": "Empurrar para cima"
+  },
+  "DescriptionSyncUp": {
+    "message": "Envie as alterações locais & substitua alterações de outros navegadores"
+  },
+  "LabelSyncDownOnce": {
+    "message": "Puxar para baixo uma vez"
+  },
+  "LabelSyncUpOnce": {
+    "message": "Empurrar para cima uma vez"
+  },
+  "LabelSyncNormal": {
+    "message": "Mesclar"
+  },
+  "DescriptionSyncNormal": {
+    "message": "Mesclar alterações locais com alterações de outros navegadores"
+  },
+  "DescriptionFilesPermission": {
+    "message": "Certifique-se de dar permissão ao floccus para não apenas usar o aplicativo de favoritos, mas também o aplicativo de arquivos NextCloud."
+  },
+  "DescriptionExtension": {
+    "message": "Sincronize seus favoritos de forma privada entre navegadores e dispositivos"
+  },
+  "LabelFailsafe": {
+    "message": "Mecanismo de proteção"
+  },
+  "DescriptionFailsafe": {
+    "message": "Às vezes, erros de configuração ou bugs de software podem causar a remoção não intencional de dados, que são perdidos, ou a duplicação não intencional de dados, que são difíceis de classificar. Para evitar que isso aconteça, o floccus não excluirá mais de 20% dos seus favoritos de uma só vez e também não adicionará mais de 20% à sua contagem de links de uma só vez, a menos que você desative essa proteção contra falhas aqui."
+  },
+  "LabelFailsafeon": {
+    "message": "Ativado. Não excluirá nem adicionará mais de 20% de/para seus favoritos locais sem perguntar antes. (Recomendado)"
+  },
+  "LabelFailsafeoff": {
+    "message": "Desativado. Permitirá remover ou adicionar mais de 20% de/para seus favoritos locais sem confirmar com você."
+  },
+  "StatusFailsafeoff": {
+    "message": "Segurança contra falhas desativada. Você corre o risco de perda ou duplicação não intencional de dados. Recomenda-se ativar a proteção contra falhas nas configurações de perfil."
+  },
+  "LabelAdaptergoogledrive": {
+    "message": "Google Drive"
+  },
+  "DescriptionAdaptergoogledrive": {
+    "message": "Sincronize favoritos por meio de um arquivo (Opcionalmente criptografado) armazenado em seu Google Drive. Ele pode sincronizar favoritos http, ftp, dados, arquivos e javascript. Você pode usar criptografia ponta a ponta quando usar essa opção."
+  },
+  "LabelLogingoogle": {
+    "message": "Entrar com o Google"
+  },
+  "DescriptionLogingoogle": {
+    "message": "Conecte sua conta do Google para armazenar o arquivo de sincronização de favoritos em seu Google Drive."
+  },
+  "DescriptionLoggedingoogle": {
+    "message": "Você conectou sua conta do Google para armazenar o arquivo de sincronização de favoritos em seu Google Drive."
+  },
+  "LabelPassphrase": {
+    "message": "Senha"
+  },
+  "DescriptionPassphrase": {
+    "message": "Defina uma senha para criptografar seu arquivo de favoritos. Se você não definir nenhuma senha, nenhuma criptografia será feita."
+  },
+  "LabelClientcert": {
+    "message": "Enviar credenciais do cliente"
+  },
+  "DescriptionClientcert": {
+    "message": "Habilite esta opção se seu servidor exigir um certificado de cliente ou cookies para autenticação. Isso pode causar efeitos colaterais indesejados, pois o floccus compartilhará cookies com o perfil normal do seu navegador."
+  },
+  "LabelAllowredirects": {
+    "message": "Permitir redirecionamentos na URL do servidor"
+  },
+  "DescriptionAllowredirects": {
+    "message": "Habilite esta opção, se você receber erros de redirecionamento durante a sincronização, que você acredita serem injustificados."
+  },
+  "LabelSearch": {
+    "message": "Pesquisar favoritos"
+  },
+  "LabelSearchfolder": {
+    "message": "Pesquisar {0}"
+  },
+  "LabelEdititem": {
+    "message": "Editar"
+  },
+  "LabelDeleteitem": {
+    "message": "Remover"
+  },
+  "DescriptionReallydeleteitem": {
+    "message": "Você realmente quer apagar esse item?"
+  },
+  "LabelNobookmarks": {
+    "message": "Nenhum favorito aqui"
+  },
+  "LabelAddbookmark": {
+    "message": "Adicionar favorito"
+  },
+  "LabelEditbookmark": {
+    "message": "Editar favorito"
+  },
+  "LabelAddfolder": {
+    "message": "Adicionar pasta"
+  },
+  "LabelEditfolder": {
+    "message": "Editar pasta"
+  },
+  "LabelSlugline": {
+    "message": "Sincronização privada de favoritos"
+  },
+  "LabelDownloadlogs": {
+    "message": "Baixar logs"
+  },
+  "LabelDownloadfulllogs": {
+    "message": "Logs completos"
+  },
+  "LabelDownloadanonymizedlogs": {
+    "message": "Logs editados"
+  },
+  "DescriptionDownloadlogs": {
+    "message": "O Floccus registra todas as suas ações em um arquivo de log que você mesmo pode examinar ou enviar aos desenvolvedores para fins de depuração. Em logs redigidos, nomes de pastas e favoritos, bem como URLs, são codificados de forma irreversível usando uma função hash criptográfica. Ao enviar logs redigidos, certifique-se de verificar o arquivo baixado em busca de dados confidenciais que podem não ter sido capturados pelo processo de anonimização."
+  },
+  "ErrorFolderloopselected": {
+    "message": "Não é possível mover uma pasta para dentro dela mesma"
+  },
+  "ErrorNofolderselected": {
+    "message": "Nenhuma pasta selecionada"
+  },
+  "LabelAllownetwork": {
+    "message": "Permitir uso da rede"
+  },
+  "DescriptionAllownetwork": {
+    "message": "O Flockus pode usar a rede além de se conectar ao seu servidor de sincronização para obter informações adicionais sobre seus favoritos (como ícones, etc.). Aqui você pode ativar esse uso da rede."
+  },
+  "LabelMobilesettings": {
+    "message": "Configurações para celular"
+  },
+  "LabelContinuefloccus":{
+    "message": "Continuar no floccus"
+  },
+  "LabelAbout":{
+    "message": "Sobre"
+  },
+  "LabelCurrentversion": {
+    "message": "Versão atual"
+  },
+  "DescriptionCurrentversion": {
+    "message": "Sua versão atualmente instalada do floccus é:"
+  },
+  "LabelContributors": {
+    "message": "Contribuidores"
+  },
+  "DescriptionContributors": {
+    "message": "Estas pessoas ajudaram a fazer o floccus possível"
+  },
+  "LabelSortcustom": {
+    "message": "Personalizado"
+  },
+  "LabelSorturl": {
+    "message": "Link"
+  },
+  "LabelSorttitle": {
+    "message": "Título"
+  },
+  "LabelSyncmethod": {
+    "message": "Método de sincronização"
+  },
+  "LabelSyncserver": {
+    "message": "Servidor de sincronização"
+  },
+  "LabelSyncfolders": {
+    "message": "Pastas de sincronização"
+  },
+  "LabelSyncbehavior": {
+    "message": "Comportamento de sincronização"
+  },
+  "LabelContinue": {
+    "message": "Continuar"
+  },
+  "LabelDone": {
+    "message": "Feito"
+  },
+  "LabelConnect": {
+    "message": "Conectar"
+  },
+  "LabelServersetup": {
+    "message": "Com qual servidor você deseja sincronizar?"
+  },
+  "LabelGoogledrivesetup": {
+    "message": "Entrar com Google Drive"
+  },
+  "LabelSyncfoldersetup": {
+    "message": "Quais pastas deseja sincronizar?"
+  },
+  "LabelSyncbehaviorsetup": {
+    "message": "Como quer que a sincronização funcione?"
+  },
+  "LabelAccountcreated": {
+    "message": "Perfil criado"
+  },
+  "DescriptionAccountcreated": {
+    "message": "Mais um detalhe: a sincronização não é um backup. Certifique-se de ter backups regulares de seus favoritos.\n\nObserve também que a combinação do floccus com a sincronização de favoritos incorporada no navegador não é compatível e você pode acabar com duplicatas."
+  },
+  "DescriptionNonhttps": {
+    "message": "Você entrou em um servidor que usa um protocolo inseguro. Recomenda-se usar apenas servidores com suporte para HTTPS."
+  },
+  "LabelFiletype": {
+    "message": "Formato de arquivo"
+  },
+  "DescriptionFiletype": {
+    "message": "Você pode escolher qual formato de arquivo deseja usar para armazenar favoritos na nuvem."
+  },
+  "LabelFiletypehtml": {
+    "message": "HTML, um formato aberto amplamente suportado (experimental)"
+  },
+  "LabelFiletypexbel": {
+    "message": "XBEL, um formato simples e aberto"
+  },
+  "LabelImportbookmarks": {
+    "message": "Importar favoritos"
+  },
+  "DescriptionImportbookmarks": {
+    "message": "Importar um arquivo HTML contendo favoritos para a pasta atual"
+  },
+  "LabelExportBookmarks": {
+    "message": "Exportar Favoritos"
+  },
+  "DescriptionExportBookmarks" : {
+    "message": "Você pode exportar todos os favoritos nesta conta como um arquivo HTML compatível com todos os principais navegadores."
+  },
+  "LabelShareitem": {
+    "message": "Compartilhar"
+  },
+  "LabelImportsuccessful": {
+    "message": "Perfil(is) importado(s) com sucesso"
+  },
+  "DescriptionSyncinprogress": {
+    "message": "Sincronização em progresso."
+  },
+  "DescriptionSyncscheduled": {
+    "message": "Esse perfil será sincronizado em breve. Nós estamos esperando pelos seus outros dispositivos, ou seus outros perfis nesse dispositivo, para finalizar a sincronização."
+  },
+  "LabelAdaptergit": {
+    "message": "Git usando HTTPS"
+  },
+  "DescriptionAdaptergit": {
+    "message": "A opção Git sincroniza seus favoritos armazenando-os em um arquivo no repositório Git fornecido. Não há interface de usuário da Web para essa opção, mas você pode usá-la com qualquer servidor de hospedagem Git, como Github, Gitlab, Gitea etc. Ele pode sincronizar http, ftp, dados, arquivos e marcadores de javascript. Você não pode usar a criptografia de ponta a ponta ao usar essa opção. No momento, essa opção não está disponível no aplicativo móvel."
+  },
+  "LabelGiturl": {
+    "message": "Repositório URL usando HTTP"
+  },
+  "LabelGitbranch": {
+    "message": "Ramo do Git"
+  },
+  "LabelTelemetry": {
+    "message": "Relatório de erros automatizado"
+  },
+  "DescriptionTelemetry": {
+    "message": "Floccus pode automaticamente enviar dados de erro para mim, o desenvolvedor. Esta é uma tremenda ajuda para descobrir e resolver insetos no floccus mais rapidamente e ajudará a melhorar sua experiência com o floccus a longo prazo. Mesmo quando o relatório de erros está ativado, os desenvolvedores de floccus nunca poderão ver seus favoritos."
+  },
+  "DescriptionTelemetrysyncmethod": {
+    "message": "Novo: Além das informações de erro, o floccus agora também envia informações sobre o método de sincronização que você está usando, se essa opção estiver ativada. Isso nos ajuda a aprimorar o floccus e a garantir que os métodos de sincronização estejam funcionando conforme o esperado."
+  },
+  "LabelTelemetryenable": {
+    "message": "Enviar automaticamente dados de erro e informações sobre o método de sincronização que está sendo usado para os desenvolvedores do floccus"
+  },
+  "LabelTelemetrydisable": {
+    "message": "Não envie nenhum dado para os desenvolvedores do floccus"
+  },
+  "LabelAccountlabel": {
+    "message": "Rótulo de perfil"
+  },
+  "DescriptionAccountlabel": {
+    "message": "Dê a este perfil um nome para que você possa reconhecê-lo mais facilmente"
+  },
+  "LabelClickcount": {
+    "message": "Contagem de cliques"
+  },
+  "DescriptionClickcount": {
+    "message": "Enviar estatísticas sobre quais Favoritos, você mais visitou para o seu servidor do Nextcloud, para que consiga organizar por numero de cliques."
+  },
+  "DescriptionGoogleplayreview": {
+    "message": "Escreva uma avaliação no Google Play"
+  },
+  "DescriptionAppstorereview": {
+    "message": "Escreva uma avaliação na App Store"
+  },
+  "DescriptionChromereview": {
+    "message": "Escreva uma avaliação na Chrome Web Store"
+  },
+  "DescriptionAlternativereview": {
+    "message": "Escreva uma avaliação no AlternativeTo.net"
+  },
+  "DescriptionMozillareview": {
+    "message": "Escreva uma avaliação no Mozilla Addons"
+  },
+  "DescriptionEdgereview": {
+    "message": "Escreva uma avaliação no Edge Addons"
+  },
+  "LabelWritereview": {
+    "message": "💙 Compartilhe o amor!"
+  },
+  "DescriptionWritereview": {
+    "message": "Se você está empolgado sobre o floccus, deixe o mundo saber fazendo uma avaliação em uma das plataformas abaixo."
+  },
+  "DescriptionDonateintervention": {
+    "message": "Gosta de sincronizar seus favoritos? Me apoie!"
+  },
+  "LabelDonate": {
+    "message": "Doe"
+  },
+  "DescriptionDisabledaftererror": {
+    "message": "Tentou 10 vezes antes de desabilitar esse perfil"
+  },
+  "DescriptionBookmarkexists": {
+    "message": "Esse favorito já existe no perfil selecionado"
+  },
+  "LabelReportproblem": {
+    "message": "Reportar problema"
+  },
+  "DescriptionReportproblem": {
+    "message": "Se você deseja entrar em contato com os desenvolvedores diretamente com um problema concreto, você pode fazer por aqui:"
+  },
+  "LabelAdapterKarakeep":  {
+    "message": "Karakeep"
+  },
+  "DescriptionAdapterKarakeep":  {
+    "message": "Sincronize seus favoritos com o aplicativo Karakeep auto-hospedado de código aberto. Essa opção não pode fazer uso de criptografia de ponta a ponta e não suporta a manutenção da ordem dos favoritos entre as sincronizações."
+  },
+  "LabelApiKey":  {
+    "message": "Chave da API"
+  },
+  "LabelKarakeepurl":  {
+    "message": "O URL do seu servidor Karakeep"
+  },
+  "LabelKarakeepconnectionerror": {
+    "message": "Falha ao conectar-se ao servidor do Karakeep"
+  },
+  "LabelAdapterlinkwarden":  {
+    "message": "Linkwarden"
+  },
+  "DescriptionAdapterlinkwarden":  {
+    "message": "Sincronize seus favoritos com o aplicativo Linkwarden de código aberto, hospedado em seu próprio servidor ou na nuvem em cloud.linkwarden.app. Ele só pode sincronizar marcadores http, ftp e javascript. Essa opção não pode fazer uso de criptografia de ponta a ponta e não oferece suporte à manutenção da ordem dos favoritos entre as sincronizações."
+  },
+  "LabelLinkwardenurl":  {
+    "message": "O URL do seu servidor do Linkwarden"
+  },
+  "LabelAccesstoken":  {
+    "message": "Token de acesso"
+  },
+  "LabelLinkwardenconnectionerror": {
+    "message": "Falha ao conectar ao seu servidor do Linkwarden"
+  },
+  "LabelSearchresultsotherfolders": {
+    "message": "Resultado de outras pastas"
+  },
+  "LabelScheduledforcesync": {
+    "message": "Forçar sincronização"
+  },
+  "DescriptionScheduledforcesync": {
+    "message": "Você realmente quer forçar a sincronização? Sincronizar 2 dispositivos ao mesmo tempo pode causar danos irreparaveis e corromper os seus dados. Tenha certeza que nenhum outro dispositivo, está sincronizando ao mesmo tempo antes de continuar. "
+  },
+  "DescriptionAutosync": {
+    "message": "A ativação da sincronização baseada em alterações garantirá que uma sincronização seja executada sempre que você fizer alterações localmente."
+  },
+  "LabelOpeninnewtab": {
+    "message": "Visualizar em uma nova guia"
+  },
+  "LabelGivefeedback": {
+    "message": "Dar feedback"
+  },
+  "LabelYourname": {
+    "message": "Seu nome"
+  },
+  "LabelYouremail": {
+    "message": "Seu e-mail (opcional)"
+  },
+  "LabelYourmessage": {
+    "message": "Sua mensagem de feedback"
+  },
+  "LabelSubmitfeedback": {
+    "message": "Enviar comentários"
+  },
+  "DescriptionFeedbacklegal": {
+    "message": "Este formulário de feedback é alimentado pelo Sentry. Ao pressionar enviar, você concorda em armazenar os dados inseridos nos servidores do Sentry. Nenhum de seus dados de favoritos será enviado ao Sentry."
+  },
+  "DescriptionFeedbackhowto": {
+    "message": "Obrigado por dedicar seu tempo para dar feedback aos desenvolvedores do floccus! Se o seu feedback estiver relacionado a um problema, certifique-se de incluir as etapas realizadas, o que você esperava e o que aconteceu em vez disso. Se o seu feedback for sobre uma solicitação de recurso, certifique-se de incluir o caso de uso ou o problema que esse recurso resolveria para você. Se você incluir seu e-mail, poderemos entrar em contato com você. Obrigado!"
+  },
+  "LabelFeedbacksent": {
+    "message": "Obrigado por seu feedback!"
+  },
+  "LabelFaq":{
+    "message": "Verifique as perguntas frequentes"
+  },
+  "StatusSyncingfailed": {
+    "message": "Falha na sincronização"
+  },
+  "StatusSyncingcomplete": {
+    "message": "Sincronização concluída"
+  },
+  "NotificationSyncingprofile": {
+    "message": "Perfil de sincronização {0}"
+  },
+  "NotificationSyncingsucceeded": {
+    "message": "Sincronização do perfil {0} bem-sucedida"
+  },
+  "NotificationSyncingfailed": {
+    "message": "Falha na sincronização do perfil {0}"
+  },
+  "LabelSyncintervalenabled": {
+    "message": "Sincronização baseada em tempo"
+  },
+  "DescriptionSyncintervalenabled": {
+    "message": "A ativação da sincronização baseada em tempo agendará automaticamente uma execução de sincronização desse perfil a cada poucos minutos"
+  }
+}

@@ -1570,7 +1570,6 @@ fun BrowserScreen(
                 Sheet.Link -> hostOf(linkUrl)
                 Sheet.Image -> "图片"
                 Sheet.Element -> "页面元素"
-                Sheet.Menu -> "菜单"
                 Sheet.Tabs -> null // 标签页自定义头部（渐进模糊 + 添加/删除）
                 else -> null
             },

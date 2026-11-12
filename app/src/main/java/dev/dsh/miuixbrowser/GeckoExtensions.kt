@@ -157,10 +157,9 @@ object GeckoExtensionStore {
             ensureDelegate(runtime)
             val list = runtime.webExtensionController.list().await() ?: emptyList()
             items.clear()
-            items.addAll(list.filter { !it.isBuiltIn }.map { toItem(it) }.sortedBy { it.name.lowercase() })
+            items.addAll(list.filter { !it.isBuiltIn || it.id == BookmarksBridge.EXT_ID }.map { toItem(it) }.sortedBy { it.name.lowercase() })
             items.forEach { loadIcon(it) }
             items.forEach { attachActionDelegate(it.ext) }
-            items.forEach { BookmarksBridge.attach(context, it.ext) }
         } finally {
             loading.value = false
         }
@@ -225,9 +224,7 @@ object GeckoExtensionStore {
         promptSignal = signal
         try {
             val ext: WebExtension? = coroutineScope {
-                // Floccus 需要 browser.bookmarks：安装前改包加垫片（其它拓展原样安装）
-                val installUri = withContext(Dispatchers.IO) { FloccusPatcher.prepare(context, uri) }
-                val job = async { runCatching { invokeInstall(controller, installUri).await() } }
+                val job = async { runCatching { invokeInstall(controller, uri).await() } }
                 // 先等「确认框有结果」或「安装自己结束（下载失败 / 文件无效等）」
                 // 0 = 同意，1 = 取消，2 = 安装已自行结束；超时返回 null（不能让 select 本身返回 null，会和超时混淆）
                 val first: Int = withTimeoutOrNull(PROMPT_TIMEOUT_MS) {
@@ -322,7 +319,6 @@ object GeckoExtensionStore {
         var updated = 0
         val snapshot = items.toList()
         for (item in snapshot) {
-            if (item.id == BookmarksBridge.EXT_ID) continue // 官方更新包没有书签垫片，更新会让同步失效：需重新安装新版
             val before = item.version
             val after = runCatching { controller.update(item.ext).await() }.getOrNull()
             val newVersion = after?.metaData?.version
@@ -351,7 +347,6 @@ object GeckoExtensionStore {
 
     /** 检查单个拓展的更新：true = 已更新到新版本，false = 已是最新 */
     suspend fun updateOne(context: Context, item: GeckoExtItem): Result<Boolean> = runCatching {
-        if (item.id == BookmarksBridge.EXT_ID) return@runCatching false
         val after = controller(context).update(item.ext).await()
         val newVersion = after?.metaData?.version
         val changed = after != null && !newVersion.isNullOrEmpty() && newVersion != item.version

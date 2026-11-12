@@ -61,9 +61,7 @@ class MenuOrderStore(context: Context) {
             prefs.getString(key, null)?.split(",")?.filter { it.isNotBlank() }.orEmpty()
                 .mapNotNull { id -> MenuAction.entries.firstOrNull { it.id == id } }
         hidden.addAll(read(KEY_HIDDEN).filter { it != MenuAction.Settings }.distinct())
-        val saved = read(KEY).filter { it !in hidden }.distinct()
-        // 从未自定义过：用默认排序（收藏 / 历史 / 桌面版 / 设置 … 按面板里的位置）
-        order.addAll(if (prefs.contains(KEY)) saved else DEFAULT_ORDER.filter { it !in hidden })
+        order.addAll(read(KEY).filter { it !in hidden }.distinct())
         // 新增的项补到末尾；「拓展」默认排在「脚本」后面（WebView 下同样显示，只是置灰，见 BrowserScreen 的 lockedFor）
         MenuAction.entries.forEach {
             if (it != MenuAction.GeckoExtensions && it !in order && it !in hidden) order.add(it)
@@ -91,15 +89,8 @@ class MenuOrderStore(context: Context) {
             .apply()
     }
 
-    companion object {
-        /** 默认排序（四列宫格，自上而下）：其余功能依次排在后面。 */
-        val DEFAULT_ORDER = listOf(
-            MenuAction.Favorite, MenuAction.History, MenuAction.Desktop, MenuAction.Settings,
-            MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
-            MenuAction.Home, MenuAction.ScriptMenu, MenuAction.GeckoExtensions, MenuAction.Refresh,
-        )
-
-        private const val KEY = "order"
-        private const val KEY_HIDDEN = "hidden"
+    private companion object {
+        const val KEY = "order"
+        const val KEY_HIDDEN = "hidden"
     }
 }

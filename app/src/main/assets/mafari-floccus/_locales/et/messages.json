@@ -1,0 +1,999 @@
+{
+  "Error001": {
+    "message": "E001: Seda kausta pole olemas, kuhu sa soovid sisu luua"
+  },
+  "Error002": {
+    "message": "E002: Uuendatavat järjehoidjat pole olemas"
+  },
+  "Error003": {
+    "message": "E003: Seda kausta pole olemas, kust sa soovid välja liikuda. See on korralik anomaalia. Õnnitlused."
+  },
+  "Error004": {
+    "message": "E004: Seda kausta pole olemas, kuhu sa soovid liikuda"
+  },
+  "Error005": {
+    "message": "E005: Uuendatavat kausta ülemkausta pole olemas"
+  },
+  "Error006": {
+    "message": "E006: Uuendatavat kausta pole olemas"
+  },
+  "Error007": {
+    "message": "E006: Teisaldatavat kausta pole olemas"
+  },
+  "Error008": {
+    "message": "E008: Seda kausta pole olemas, kust sa soovid välja liikuda"
+  },
+  "Error009": {
+    "message": "E009: Seda kausta pole olemas, kuhu sa soovid sisse liikuda"
+  },
+  "Error010": {
+    "message": "E010: Ei leidnud järjestatavat kausta"
+  },
+  "Error011": {
+    "message": "E011: Kausta tellimise objekt ei ole tegelik laps: {0}"
+  },
+  "Error012": {
+    "message": "E012: Kaustade järjestamisel puuduvad mõned kausta lapsed"
+  },
+  "Error013": {
+    "message": "E013: Eemaldatav kaust ei ole olemas"
+  },
+  "Error014": {
+    "message": "E014: Vanemkaust, millest kaust eemaldada, ei ole olemas"
+  },
+  "Error015": {
+    "message": "E015: Ootamatud vastusandmed serverilt"
+  },
+  "Error016": {
+    "message": "E016: Taotlus on aegunud. Kontrollige oma serveri konfiguratsiooni"
+  },
+  "Error017": {
+    "message": "E017: Võrguviga: Palun kontrolli võrguühenduse toimimist, kasutajakonto andmeid ja TLS/SSL-seadistusi."
+  },
+  "Error018": {
+    "message": "E018: Ei õnnestunud serveriga autentimine."
+  },
+  "Error019": {
+    "message": "E019: HTTP olekukood {0}. Ebaõnnestunud {1}-päring: {2}. Vaata oma logisid ja kontrolli oma serveri seadistusi."
+  },
+  "Error020": {
+    "message": "E020: Serveri vastuse töötlemine ei õnnestunud."
+  },
+  "Error021": {
+    "message": "E021: Vastuoluline serveri olek. Kaust on olemas lapsjärjestuse nimekirjas, kuid mitte kaustapuus."
+  },
+  "Error022": {
+    "message": "E022: Kaust {0} sisaldab väidetavalt olematut järjehoidjat. {1}"
+  },
+  "Error023": {
+    "message": "E023: Ei ole võimalik kustutada lukustusfaili, kaaluge {0} käsitsi kustutamist."
+  },
+  "Error024": {
+    "message": "E024: HTTP staatus {0} lukustusfaili staatuse määramise ajal {1}"
+  },
+  "Error025": {
+    "message": "E025: järjehoidjate faili seadistus ei tohi alata kaldkriipsuga: '/'"
+  },
+  "Error026": {
+    "message": "E026: Sünkroniseerimisprotsess on tühistatud"
+  },
+  "Error027": {
+    "message": "E027: Sünkroniseerimisprotsess on katkestatud"
+  },
+  "Error028": {
+    "message": "E028: Ei õnnestunud autentida veebiserveris."
+  },
+  "Error029": {
+    "message": "E029: Veaohutus: {0} % teie linkidest serveris. Keeldub täitmisest. Lülitage see failsafe profiili seadetes välja, kui soovite siiski jätkata. Kui te seda ei põhjustanud, võite kasutada käsitsi sünkroonimisnuppe, et tühistada selle seadme kohalik olek serveri olekuga. Kui te usute, et tegemist on veaga, võtke arendajatega ühendust ja esitage selle käivitamise silumislogi."
+  },
+  "Error030": {
+    "message": "E030: Ei õnnestunud järjehoidjate faili dekrüpteerimine. Salasõna võib olla vale või fail võib olla rikutud."
+  },
+  "Error031": {
+    "message": "E031: Google Drive'iga ei õnnestunud autentimine. Palun ühendage floccus uuesti oma Google'i kontoga."
+  },
+  "Error032": {
+    "message": "E032: OAuth viga. Tokeni valideerimisviga. Palun ühendage oma Google'i konto uuesti."
+  },
+  "Error033": {
+    "message": "E033: Ümbersuunamine tuvastatud. Palun veenduge, et server toetab valitud sünkroonimismeetodit ja sisestatud URL on õige, et see ei suunaks ümber mujale. Kui ümbersuunamine on osa teie seadistustest, saate selle kontrolli seadetes välja lülitada."
+  },
+  "Error034": {
+    "message": "E034: Kauglehtede fail ei ole loetav. Võib-olla unustasite määrata krüpteerimisfraasi või seadsite vale failiformaadi."
+  },
+  "Error035": {
+    "message": "E035: Ei õnnestunud veebiserveris luua järgnevat järjehoidjat: {0} - kas ikka kasutad järjehoidjate rakenduse viimast versiooni?"
+  },
+  "Error036": {
+    "message": "E036: Puuduvad õigused ligipääsuks sünkroniseerimisserverile"
+  },
+  "Error037": {
+    "message": "E037: Ressurss on lukustatud"
+  },
+  "Error038": {
+    "message": "E038: Selle profiili kohaliku kausta leidmine ei õnnestunud. Palun vali profiili seadistustest sünkroonitav kaust."
+  },
+  "Error039": {
+    "message": "E039: Ei õnnestunud veebiserveris uuendada järgnevat järjehoidjat: {0}"
+  },
+  "Error040": {
+    "message": "E040: Ei õnnestunud otsida sinu faili Google Drive'ist"
+  },
+  "Error041": {
+    "message": "E041: Kauglehtede faili suurus erineb serverist tegelikult alla laaditud sisust. See võib olla ajutine võrguprobleem. Kui see viga püsib, võtke ühendust serveri administraatoriga."
+  },
+  "Error042": {
+    "message": "E042: Kaugse järjehoidjate faili suurust ei õnnestunud välja selgitada. Ei ole võimalik kontrollida, kas järjehoidjate faili laaditi alla täies mahus. Kui see viga püsib, võtke ühendust serveri administraatoriga."
+  },
+  "Error043": {
+    "message": "E043: Veaohutus: {0} %. Keeldub täitmisest. Lülitage see failsafe profiili seadetes välja, kui soovite siiski jätkata. Kui te seda ei põhjustanud, võite kasutada käsitsi sünkroonimisnuppe, et tühistada selle seadme kohalik olek serveri olekuga. Kui te usute, et tegemist on veaga, võtke arendajatega ühendust ja esitage selle käivitamise silumislogi."
+  },
+  "Error044": {
+    "message": "E044: Git push operatsioon ebaõnnestus: {0}"
+  },
+  "Error045": {
+    "message": "E045: Kausta ootamatu asukoht. Selle profiili kohalik sünkroonimiskaust oli asukohas `{0}`, aga nüüd on uues kohas `{1}`. Palun kontrolli, kas see nii peabki olema ja seadista profiili seadistustest kohalik sünkroonimiskaust uuesti."
+  },
+  "Error046": {
+    "message": "E046: Vale võrguaadress. „{0}“ ei ole korrektne või õige võrguaadress."
+  },
+  "Error047": {
+    "message": "E047: XBEL-faili analüüsimine ei õnnestunud. XBEL-andmed tunduvad olevat vigased või ebatäielikud. Võid proovida eemaldada faili serverist, et floccus saaks selle uuesti luua. Tee kindlasti esmalt varukoopia."
+  },
+  "Error049": {
+    "message": "E049: Veaohutus: {0} %. Keeldub täitmisest. Lülitage see failsafe profiili seadetes välja, kui soovite siiski jätkata. Kui te seda ei põhjustanud, võite kasutada käsitsi sünkroonimisnuppe, et tühistada serveri olek selle seadme lokaalse olekuga. Kui te usute, et tegemist on veaga, võtke arendajatega ühendust ja esitage selle käivitamise silumislogi."
+  },
+  "Error050": {
+    "message": "E050: Failsafe: {0} % teie kohalikest linkidest selles profiilis. Keeldub täitmisest. Lülitage see failsafe profiili seadetes välja, kui soovite siiski jätkata. Kui te seda ei põhjustanud, võite kasutada käsitsi sünkroonimisnuppe, et tühistada serveri olek selle seadme kohaliku olekuga. Kui te usute, et tegemist on veaga, võtke arendajatega ühendust ja esitage selle käivitamise silumislogi."
+  },
+  "Error051": {
+    "message": "E051: Dropboxiga ei õnnestunud autentimine. Palun ühendage floccus uuesti oma Dropboxi kontoga."
+  },
+  "Error052": {
+    "message": "E052: OAuth-viga. Tokeni valideerimisviga. Palun ühendage oma Dropboxi konto uuesti."
+  },
+  "Error053": {
+    "message": "E053: Dropboxis ei õnnestunud faili nime otsida"
+  },
+  "Error054": {
+    "message": "E054: Dropboxi malli ei õnnestunud saada"
+  },
+  "Error055": {
+    "message": "E055: Allalaaditud Google Drive’i järjehoidjate faili suurus erineb serveri poolt näidatud suurusest. Tegemist võib olla ajutise võrguühenduse probleemiga. Kui viga püsib, proovi palun hiljem uuesti."
+  },
+  "Error056": {
+    "message": "E056: Üleslaaditud Google Drive’i järjehoidjate faili suurus erineb suurusest, mille server pärast üleslaadimise kontrollimist näitas. floccus proovis üleslaadimist uuesti, kuid ei suutnud tulemust kinnitada. Palun proovi hiljem uuesti."
+  },
+  "Error057": {
+    "message": "E057: Ootamatu kaust serveris: „{0}“. Palun kontrolli serverikaustade seadistusi.."
+  },
+  "Error058": {
+    "message": "E058: Sinu järjehoidjate fail ei asu Dropboxi juurkaustas ning Dropboxis on mitu sama nimega faili: {0}. Floccus ei suuda kindlaks teha, millist neist kasutada. Paiguta õige fail Dropboxi juurkausta või muuda teiste nimesid."
+  },
+  "LabelWebdavurl": {
+    "message": "WebDAVi võrguaadress"
+  },
+  "DescriptionWebdavurl": {
+    "message": "nt. Nextcloudi puhul: https://domeen.com/remote.php/webdav/"
+  },
+  "LabelNextcloudurl": {
+    "message": "Nextcloudi võrguaadress"
+  },
+  "LabelUsername": {
+    "message": "Kasutajanimi"
+  },
+  "LabelPassword": {
+    "message": "Salasõna"
+  },
+  "LabelBookmarksfile": {
+    "message": "Järjehoidjate fail"
+  },
+  "DescriptionBookmarksfile": {
+    "message": "tee, kus järjehoidjate fail asub serveris, suhteline teie WebDAV URL-i suhtes (kõik tee kaustad peavad olema juba olemas). nt personal_stuff/bookmarks.xbel"
+  },
+ "DescriptionBookmarksfilegoogle": {
+   "message": "järjehoidjate faili nimi, mis asub teie Google Drive'is. Ärge sisestage faili täielikku teekonda, vaid ainult faili nime. Veenduge, et see nimi on teie Drive'is unikaalne. nt mybookmarks.xbel."
+ },
+ "DescriptionBookmarksfiledropbox": {
+   "message": "järjehoidjate faili nimi, mis asub teie Dropboxis. Ärge sisestage faili täielikku teekonda, vaid ainult faili nime. Veenduge, et see nimi on Dropboxis unikaalne. nt mybookmarks.xbel."
+ },
+  "DescriptionBookmarksfilegit": {
+    "message": "tee järjehoidjate faili juurde, mis on suhteline teie Git-repositooriumi juurest (kõik tee kaustad peavad olema juba olemas). nt personal_stuff/bookmarks.xbel"
+  },
+  "LabelServerfolder": {
+    "message": "Serveri sihtmärk"
+  },
+  "DescriptionServerfolder": {
+    "message": "Sünkroonimisel salvestatakse teie järjehoidjad selles brauseris selle tee all olevate linkidena serveris. Pange tähele, et see tee tähistab Nextcloudi järjehoidjate rakenduse kausta, mitte Nextcloudi failide kausta. Jätke see tühjaks, et kõik lingid lihtsalt panna serveris olevasse kõige ülemisse kausta."
+  },
+  "DescriptionServerfolderlinkwarden": {
+    "message": "Sünkroonimisel salvestatakse teie järjehoidjad selles brauseris selle kollektsiooni alla kuuluvate linkidena ja ainult selle kollektsiooni alla kuuluvad lingid sünkroonitakse selle brauseriga."
+  },
+  "DescriptionServerfolderkarakeep": {
+    "message": "Sünkroonimisel salvestatakse teie järjehoidjad selles brauseris selle kollektsiooni alla kuuluvate linkidena ja ainult selle kollektsiooni alla kuuluvad lingid sünkroonitakse selle brauseriga."
+  },
+  "LabelLocaltarget": {
+    "message": "Kohalik eesmärk"
+  },
+  "DescriptionLocaltarget": {
+    "message": "Vali siin, kas sa soovid sünkroniseerida veebibrauseri järjehoidjaid või veebibrauseri vahekaarte"
+  },
+  "LabelLocalfolder": {
+    "message": "Järjehoidjate kaust"
+  },
+  "DescriptionLocalfolder": {
+    "message": "Järjehoidjad selles kaustas salvestatakse serverisse linkidena ja lingid serveris salvestatakse järjehoidjatena selles brauseri järjehoidjate kaustas."
+  },
+  "LabelRootfolder": {
+    "message": "Juurkaust"
+  },
+  "LabelNewfolder": {
+    "message": "Hiljuti loodud kaust"
+  },
+  "LabelSelectfolder": {
+    "message": "Valige kaust"
+  },
+  "LabelOptions": {
+    "message": "Valikud"
+  },
+  "LabelSyncnow": {
+    "message": "Sünkroniseeri kohe"
+  },
+  "LabelCancelsync": {
+    "message": "Katksesta sünkroniseerimine"
+  },
+  "LabelSyncall": {
+    "message": "Sünkroniseeri kõik profiilid"
+  },
+  "LabelAutosync": {
+    "message": "Muutusepõhine sünkroonimine"
+  },
+  "StatusLastsynced": {
+    "message": "Viimati sünkroniseeritud: {0} tagasi"
+  },
+  "StatusNeversynced": {
+    "message": "Pole veel sünkroniseeritud"
+  },
+  "StatusAllgood": {
+    "message": "Kõik on korras"
+  },
+  "StatusDisabled": {
+    "message": "Pole kasutusel"
+  },
+  "StatusError": {
+    "message": "Viga"
+  },
+  "StatusSyncing": {
+    "message": "Sünkroniseerimisel"
+  },
+  "StatusScheduled": {
+    "message": "Ajastatud"
+  },
+  "StatusAuthorizationneeded": {
+    "message": "Sisselogimine on nõutav"
+  },
+  "DescriptionAuthorizationneeded": {
+    "message": "See profiil pole veel sinu kasutajakontoga seotud ja seega sünkroonimise toimimiseks pead seda esmalt tegema. Sisselogimiseks ava profiili valikud."
+  },
+  "LabelAuthorize": {
+    "message": "Logi sisse"
+  },
+  "DescriptionImportauthorizationneeded": {
+    "message": "Profiili(de) importimine õnnestus. Kasutajakontosid ja salasõna ei saa seadmete vahel ümber tõsta, seega kui kasutad Google Drive'i või Dropboxi, siis pead esmalt nendesse teenustesse sisse logima ja alles siis saab sünkroonimine toimida."
+  },
+  "DescriptionImportsyncfolderneeded": {
+    "message": "Profiili(de) importimine õnnestus. Profiilikaustu ei saa üle seadmete tuvastada, seega kohalik kaust, kuhu tahad selle profiili sünkroonida."
+  },
+  "LabelReset": {
+    "message": "Lähtesta"
+  },
+  "DescriptionReset": {
+    "message": "Uue sünkroniseeritud kausta loomiseks lähtesta vana kaust"
+  },
+  "LabelChoosefolder": {
+    "message": "Vali kaust"
+  },
+  "DescriptionChoosefolder": {
+    "message": "Lisa olemasolevale kaustale sünkroniseerimine"
+  },
+  "LabelRemoveaccount": {
+    "message": "Eemalda profiil"
+  },
+  "DescriptionRemoveaccount": {
+    "message": "Kustuta see profil (sellega sa ei eemalda oma järjehoidjaid)"
+  },
+  "LabelSyncfromscratch": {
+    "message": "Käivita sünkroniseerimine puhtalt kohalt"
+  },
+  "LabelResetCache": {
+    "message": "Lähtesta andmepuhver"
+  },
+  "DescriptionResetcache": {
+    "message": "Klõpsake seda nuppu, et lähtestada vahemälu, nii et järgmine sünkroniseerimine ei kustuta garanteeritult andmeid, vaid lihtsalt ühendab serveri ja kohalikud järjehoidjad kokku."
+  },
+  "LabelParallelsync": {
+    "message": "Kiirendada sünkroniseerimist"
+  },
+  "DescriptionParallelsync": {
+    "message": "Märkige see ruut, et sünkroniseerimise kiirendamiseks töödelda paralleelselt mitut kausta. See funktsioon on eksperimentaalne ja raskendab silumispäevikute lugemist."
+  },
+  "LabelStrategy": {
+    "message": "Sünkroonimisstrateegia"
+  },
+  "DescriptionStrategy": {
+    "message": "See valik määrab, kuidas sünkroonida järjehoidjaid erinevates seadmetes. Tavaliselt soovite säilitada kõikidest külgedest tehtud muudatused, kui need on ühilduvad, kuid mõnikord võite soovida teiste brauserite muudatusi (sealhulgas lisandeid ja kustutusi) üle kirjutada või kohalikult tehtud muudatusi üle kirjutada."
+  },
+  "LabelStrategydefault": {
+    "message": "Ühendage alati kohalikud muudatused teiste brauserite muudatustega (soovitatav)."
+  },
+  "LabelStrategyslave": {
+    "message": "Alati tühistage kohalikud muudatused ja laadige alla muudatused teistest brauseritest"
+  },
+  "LabelStrategyoverwrite": {
+    "message": "Laadige alati üles kohalikud muudatused ja tühistage muudatused teistest brauseritest"
+  },
+  "LabelSave": {
+    "message": "Salvesta"
+  },
+  "LabelSelect": {
+    "message": "Valige"
+  },
+  "LabelCancel": {
+    "message": "Tühista"
+  },
+  "LabelAdd": {
+    "message": "Lisa"
+  },
+  "LabelChange": {
+    "message": "Muuda"
+  },
+  "LabelRemove": {
+    "message": "Eemaldage"
+  },
+  "LabelBack": {
+    "message": "Tagasi"
+  },
+  "LabelAdapternextcloudfolders": {
+    "message": "Nextcloudi järjehoidjad"
+  },
+  "DescriptionAdapternextcloudfolders": {
+    "message": "Sünkroonige oma järjehoidjad avatud lähtekoodiga Nextcloudi järjehoidjate rakendusega (avatud lähtekoodiga koostööplatvorm, mida saate kas ise hostida või hankida konto pilves asuva instantsi jaoks ühelt erinevatest hosteritest). Nextcloudi Bookmarksiga saate sünkroonida ainult http-, ftp- ja javascript-varamärke. Veenduge, et olete Nextcloudi rakenduste poest paigaldanud Nextcloudi rakenduse Bookmarks. Selle valikuga ei saa kasutada otsekohalduse krüpteerimist."
+  },
+  "LabelAdapternextcloud": {
+    "message": "Nextcloudi järjehoidjad (vana versioon)"
+  },
+  "DescriptionAdapternextcloud": {
+    "message": "Vanemvalik on ühilduv vähemalt rakenduse Bookmarks versiooniga v0.11. See emuleerib kaustu, kasutades kausta tee sisaldavaid silte. Seda ei ole soovitatav kasutada uute profiilide puhul."
+  },
+  "LabelAdapterwebdav": {
+    "message": "WebDAV-jagamine"
+  },
+  "DescriptionAdapterwedavexamples": {
+    "message": "nt. Koofr, pCloud, IceDrive, kDrive, MagentaCLOUD, Disroot, Mailbox.org, Synology NAS, GMX, WEB.DE"
+  },
+  "DescriptionAdapterwebdav": {
+    "message": "Sünkroonige oma järjehoidjad, salvestades need faili etteantud WebDAV-jagis. Selle valiku jaoks ei ole lisatud veebi kasutajaliidest ja seda saab kasutada mis tahes WebDAV-ühilduvusega serveriga, kas isehostitud või pilves. Sellega saab sünkroonida http-, ftp-, andme-, faili- ja javascripti järjehoidjaid. Selle valiku kasutamisel saate valida lõpuni kestva krüpteerimise."
+  },
+  "LabelAddaccount": {
+    "message": "Profiili lisamine"
+  },
+  "LabelOpenintab": {
+    "message": "Avaneb vahekaardil"
+  },
+  "LabelDebuglogs": {
+    "message": "Vigade kõrvaldamise logid"
+  },
+  "LabelFunddevelopment": {
+    "message": "💸 Fondi arendamine"
+  },
+  "DescriptionFunddevelopment": {
+    "message": "Töö floccuse kallal toimub vabatahtliku tellimusmudeli alusel. Kui te arvate, et see, mida ma teen, on seda väärt ja kui te suudate iga kuu ilma raskusteta paar münti säästa, siis palun toetage minu tööd. Palun kaaluge ka floccuse hindamist oma valitud addonipoes. Aitäh! 💙"
+  },
+  "LabelUntitledfolder": {
+    "message": "Untitled folder (pealkirjata kaust)"
+  },
+  "LabelSetkeybutton": {
+    "message": "Määra paroolfraas"
+  },
+  "LabelKey": {
+    "message": "Sisestage oma avamisfraas"
+  },
+  "LabelKey2": {
+    "message": "Sisestage oma salasõna teist korda"
+  },
+  "LabelUnlock": {
+    "message": "Lukustage floccus"
+  },
+  "LabelRemovekey": {
+    "message": "Salasõna eemaldamine"
+  },
+  "LabelRemovedkey": {
+    "message": "Salasõna eemaldatud"
+  },
+  "LabelSyncinterval": {
+    "message": "Sünkroniseerimisintervall"
+  },
+  "DescriptionSyncinterval": {
+    "message": "Kahe sünkroonimise vaheline ajavahemik minutites. Vaikimisi on 15 minutit."
+  },
+  "LabelChooseadapter": {
+    "message": "Kuidas soovite sünkroonida?"
+  },
+  "LabelOptionsscreen": {
+    "message": "{0} valikud",
+    "description": "Title of the options screen. The placeholder holds the profile type."
+  },
+  "LabelPaypal": {
+    "message": "Paypal"
+  },
+  "DescriptionPaypal": {
+    "message": "Tehke ühekordne või regulaarne annetus paypal'i kaudu, et toetada projekti."
+  },
+  "LabelOpencollective": {
+    "message": "OpenCollective"
+  },
+  "DescriptionOpencollective": {
+    "message": "Teha regulaarseid annetusi OpenCollective'i kaudu, et toetada projekti"
+  },
+  "LabelLiberapay": {
+    "message": "Liberapay"
+  },
+  "DescriptionLiberapay": {
+    "message": "Teha regulaarseid annetusi Liberapay kaudu, et toetada projekti"
+  },
+  "LabelGithubsponsors": {
+    "message": "GitHubi sponsorid"
+  },
+  "DescriptionGithubsponsors": {
+    "message": "Teha regulaarseid annetusi GitHubi sponsorite kaudu, et projekti toetada."
+  },
+  "LabelPatreon": {
+    "message": "Patreon"
+  },
+  "DescriptionPatreon": {
+    "message": "Tehke regulaarne annetus Patreoni kaudu, et toetada projekti"
+  },
+  "LabelKofi": {
+    "message": "Kofi"
+  },
+  "DescriptionKofi": {
+    "message": "Tehke Ko-fi kaudu regulaarne või ühekordne annetus projekti toetamiseks."
+  },
+  "LegacyAdapterDeprecation": {
+    "message": "See vana profiiltüüp on aegunud ja see eemaldatakse peagi. Palun lülitage üle uuele nextcloudi sünkroonimismeetodile. Parem jõudlus ja täpsus ootavad teid."
+  },
+  "LabelUpdated": {
+    "message": "⚡ Floccus uuendati"
+  },
+  "DescriptionUpdated": {
+    "message": "Palju õnne, floccuse viimane uuendus on teie masinasse jõudnud!"
+  },
+  "LabelReleaseNotes": {
+    "message": "Loe väljalaske märkusi"
+  },
+  "LabelOptionsServerDetails": {
+    "message": "Serveri andmed"
+  },
+  "LabelOptionsFolderMapping": {
+    "message": "Kaustade kaardistamine"
+  },
+  "LabelOptionsSyncBehavior": {
+    "message": "Sünkroniseerimise käitumine"
+  },
+  "LabelOptionsDangerous": {
+    "message": "Ohtlikud tegevused"
+  },
+  "LabelAccountDeleted": {
+    "message": "Profiil on kustutatud"
+  },
+  "DescriptionAccountDeleted": {
+    "message": "See profiil on kustutatud"
+  },
+  "LabelNoAccount": {
+    "message": "Profiile veel pole"
+  },
+  "DescriptionNoAccount": {
+    "message": "Lisa uusi profiile või impordi neid failist, alles seejärel saad alustada sünkroniseerimisega."
+  },
+  "LabelLoginFlowStart": {
+    "message": "Logi sisse Nextcloudiga"
+  },
+  "LabelLoginFlowStop": {
+    "message": "Katkesta sisselogimine Nextcloudiga"
+  },
+  "LabelLoginFlowError": {
+    "message": "Nextcloudiga ei õnnestunud sisse logida"
+  },
+  "LabelNewAccount": {
+    "message": "Lisa profiil"
+  },
+  "LabelNewImport": {
+    "message": "Impordi"
+  },
+  "LabelNestedSync": {
+    "message": "Sisestatud profiilid"
+  },
+  "DescriptionNestedSync": {
+    "message": "Saate profiilid pesitseda nii, et vanemkaust kuulub profiilile A ja alamkaust profiilile A ja B. Kas soovite lubada ka teistel profiilidel selle profiili kausta sünkroonida?"
+  },
+  "LabelNestedSyncNo": {
+    "message": "Ei, ignoreeri selle profiili kausta teistes profiilides"
+  },
+  "LabelNestedSyncYes": {
+    "message": "Jah, lisage selle profiili kaust teistesse profiilidesse."
+  },
+  "LabelImportExport": {
+    "message": "Import/eksport profiilid"
+  },
+  "LabelExport": {
+    "message": "Profiilide eksportimine"
+  },
+  "LabelImport": {
+    "message": "Profiilide importimine"
+  },
+  "DescriptionExport": {
+    "message": "Valige allpool profiilid, mida soovite faili eksportida, et saaksite samu profiile hõlpsasti uuesti luua teises seadmes või brauseris."
+  },
+  "DescriptionImport": {
+    "message": "Impordi siin eksporditud profiile sisaldav fail, et uuesti luua teise seadme või brauseri abil eksporditud profiilid. Veenduge, et pärast importimist seate õiged sünkroonimiskaustad uuesti."
+  },
+  "LabelFolderNotFound": {
+    "message": "Kausta ei leitud"
+  },
+  "LabelSyncTabs": {
+    "message": "Brauseri vahekaardid"
+  },
+  "DescriptionSyncTabs": {
+    "message": "Serverisse salvestatud lingid avatakse teie brauseris brauseri vahekaartidena ja olemasolevad avatud brauseri vahekaardid salvestatakse serveris olevate linkidena. Pange tähele, et sõltuvalt sellest, kui palju linke on serverisse salvestatud, võib see teie brauseri ülekoormata, kuna need kõik avatakse järgmisel sünkroonimisel vahekaartidena."
+  },
+  "LabelTabs": {
+    "message": "Registrid"
+  },
+  "LabelSyncDown": {
+    "message": "Tõmba alla"
+  },
+  "DescriptionSyncDown": {
+    "message": "Muudatuste allalaadimine teistest brauseritest ja kohalike muudatuste ülekirjutamine"
+  },
+  "LabelSyncUp": {
+    "message": "Tõuske üles"
+  },
+  "DescriptionSyncUp": {
+    "message": "Kohalike muudatuste üleslaadimine ja teiste brauserite muudatuste ülekirjutamine"
+  },
+  "LabelSyncDownOnce": {
+    "message": "Tõmba üks kord alla"
+  },
+  "LabelSyncUpOnce": {
+    "message": "Lükake kord üles"
+  },
+  "LabelSyncNormal": {
+    "message": "Ühinemine"
+  },
+  "DescriptionSyncNormal": {
+    "message": "Kohalike muudatuste ühendamine teiste brauserite muudatustega"
+  },
+  "DescriptionFilesPermission": {
+    "message": "Veenduge, et annate floccusele loa kasutada mitte ainult järjehoidjate rakendust, vaid ka Nextcloudi failirakendust."
+  },
+  "DescriptionExtension": {
+    "message": "Sünkroonige oma järjehoidjad privaatselt kõigis brauserites ja seadmetes"
+  },
+  "LabelFailsafe": {
+    "message": "Failsafe"
+  },
+  "DescriptionFailsafe": {
+    "message": "Mõnikord võivad seadistuse ja tarkvara vead põhjustada andmete ettekavatsemata eemaldamist ja seega ka jäädavat andmekadu. Aga samas võib tekkida ka topeltandmeid, mida hiljem on vaevaline korda saada. Selliste olukordade vältimiseks floccus ei kustuta ega lisa ühe korraga enam kui 20% sinu järjehoidjatest. Kui sa seda aga ise teadlikult soovid, siis saad siin tõrkekindluse loogika välja lülitada."
+  },
+  "LabelFailsafeon": {
+    "message": "Lubatud. Ei kustuta ega lisa rohkem kui 20% oma kohalikest järjehoidjatest ilma teid eelnevalt küsimata. (Soovitatav)"
+  },
+  "LabelFailsafeoff": {
+    "message": "Invaliidistunud. Lubab eemaldada või lisada rohkem kui 20% oma kohalikest järjehoidjatest ilma teiega kinnitamata."
+  },
+  "StatusFailsafeoff": {
+    "message": "Failsafe välja lülitatud. Teil on oht, et andmed võivad tahtmatult kaduda või dubleeruda. Soovitatav on lülitada failsafe sisse profiili seadetes."
+  },
+  "LabelAdaptergoogledrive": {
+    "message": "Google Drive"
+  },
+  "DescriptionAdaptergoogledrive": {
+    "message": "Sünkroonige järjehoidjad (valikuliselt krüpteeritud) faili kaudu, mis on salvestatud teie Google Drive'is. Sellega saab sünkroonida http-, ftp-, andme-, faili- ja javascript-leselehte. Selle valiku kasutamisel saate valida lõpuni krüpteerimise."
+  },
+  "LabelLogingoogle": {
+    "message": "Sisene Google'iga"
+  },
+  "DescriptionLogingoogle": {
+    "message": "Ühendage oma Google'i konto, et salvestada järjehoidja sünkroonimisfail Google Drive'isse."
+  },
+  "DescriptionLoggedingoogle": {
+    "message": "Olete ühendanud oma Google'i konto, et salvestada järjehoidja sünkroonimisfaili oma Google Drive'i."
+  },
+  "LabelAdapterdropbox": {
+    "message": "Dropbox"
+  },
+  "DescriptionAdapterdropbox": {
+    "message": "Sünkroonige järjehoidjad Dropboxi salvestatud (valikuliselt krüpteeritud) faili kaudu. See võib sünkroonida http-, ftp-, andme-, faili- ja javascript-lesemärke. Selle valiku kasutamisel saate valida lõpuni krüpteerimise."
+  },
+  "LabelLogindropbox": {
+    "message": "Dropboxiga sisselogimine"
+  },
+  "DescriptionLogindropbox": {
+    "message": "Ühendage oma Dropboxi konto, et salvestada järjehoidja sünkroonimisfail Dropboxi."
+  },
+  "DescriptionLoggedindropbox": {
+    "message": "Olete ühendanud oma Dropboxi konto, et salvestada järjehoidja sünkroonimisfaili oma Dropboxis."
+  },
+  "LabelPassphrase": {
+    "message": "Salasõna"
+  },
+  "DescriptionPassphrase": {
+    "message": "Määrake järjehoidjate faili krüpteerimiseks salasõna, kui te ei määra salasõna, siis krüpteerimist ei toimu."
+  },
+  "LabelClientcert": {
+    "message": "Saada kliendi volitused"
+  },
+  "DescriptionClientcert": {
+    "message": "Lubage see valik, kui teie server nõuab autentimiseks kliendisertifikaati või küpsiseid. See võib põhjustada soovimatuid kõrvalmõjusid, kuna floccus jagab küpsiseid teie tavalise brauseri sessiooniga."
+  },
+  "LabelAllowredirects": {
+    "message": "Luba ümbersuunamised serveri URL-is"
+  },
+  "DescriptionAllowredirects": {
+    "message": "Lülita see valik sisse, kui sünkroonimise ajal ilmnevad sinu arvates põhjendamatud ümbersuunamisvead."
+  },
+  "LabelSearch": {
+    "message": "Otsi järjehoidjaid"
+  },
+  "LabelSearchfolder": {
+    "message": "Otsing: {0}"
+  },
+  "LabelEdititem": {
+    "message": "Muuda"
+  },
+  "LabelDeleteitem": {
+    "message": "Kustuta"
+  },
+  "DescriptionReallydeleteitem": {
+    "message": "Kas sa kindlasti soovid selle kirje kustutada?"
+  },
+  "LabelNobookmarks": {
+    "message": "Siin pole veel järjehoidjaid"
+  },
+  "LabelAddbookmark": {
+    "message": "Lisa järjehoidja"
+  },
+  "LabelEditbookmark": {
+    "message": "Muuda järjehoidjat"
+  },
+  "LabelAddfolder": {
+    "message": "Lisa kaust"
+  },
+  "LabelEditfolder": {
+    "message": "Muuda kausta"
+  },
+  "LabelSlugline": {
+    "message": "Privaatne järjehoidjate sünkroniseerimine"
+  },
+  "LabelDownloadlogs": {
+    "message": "Laadi logid alla"
+  },
+  "LabelDownloadfulllogs": {
+    "message": "Täismahus logid"
+  },
+  "LabelDownloadanonymizedlogs": {
+    "message": "Kohendatud logid"
+  },
+  "DescriptionDownloadlogs": {
+    "message": "Floccus logib kõik oma tegevused logifaili, mida saate ise uurida või saata arendajatele silumiseks. Redigeeritud logides on kaustade ja järjehoidjate nimed, samuti URL-aadressid krüptograafilise hashing-funktsiooni abil pöördumatult kodeeritud. Redigeeritud logide saatmisel kontrollige allalaaditud faili ikka veel tundlike andmete suhtes, mida anonüümseks muutmise protsess ei oleks võinud tabada."
+  },
+  "ErrorFolderloopselected": {
+    "message": "Sa ei saa kausta iseendasse teiseldada"
+  },
+  "ErrorNofolderselected": {
+    "message": "Sa poel ühtegi kausta valinud"
+  },
+  "LabelAllownetwork": {
+    "message": "Luba võrguühenduse kasutamine"
+  },
+  "DescriptionAllownetwork": {
+    "message": "Lisaks tavapärasele sünkroniseerimisele suudab Floccus kasutada võrguühendust ka muudel eesmärkidel (näiteks õigete saidiikoonide allalaadimiseks). Siinkohal saad sellise võimaluse lubada."
+  },
+  "LabelMobilesettings": {
+    "message": "Mobiili seaded"
+  },
+  "LabelContinuefloccus":{
+    "message": "Jätkata flokki"
+  },
+  "LabelAbout":{
+    "message": "Rakenduse teave"
+  },
+  "LabelCurrentversion": {
+    "message": "Praegune versioon"
+  },
+  "DescriptionCurrentversion": {
+    "message": "Hetkel paigaldatus Floccuse versioon on:"
+  },
+  "LabelContributors": {
+    "message": "Kaasautorid"
+  },
+  "DescriptionContributors": {
+    "message": "Need inimesed on teinud Floccuse olemasolu võimalikuks"
+  },
+  "LabelSortcustom": {
+    "message": "Kohandatud"
+  },
+  "LabelSorturl": {
+    "message": "Link"
+  },
+  "LabelSorttitle": {
+    "message": "Pealkiri"
+  },
+  "LabelSortadded": {
+    "message": "Lisamise kuupäev"
+  },
+  "LabelSyncmethod": {
+    "message": "Sünkroonimismeetod"
+  },
+  "LabelSyncserver": {
+    "message": "Sünkroonimisserver"
+  },
+  "LabelSyncfolders": {
+    "message": "Kaustade sünkroonimine"
+  },
+  "LabelSyncbehavior": {
+    "message": "Sünkroniseerimise käitumine"
+  },
+  "LabelContinue": {
+    "message": "Jätka"
+  },
+  "LabelDone": {
+    "message": "Valmis"
+  },
+  "LabelConnect": {
+    "message": "Ühendage"
+  },
+  "LabelServersetup": {
+    "message": "Millise serveriga soovite sünkroonida?"
+  },
+  "LabelGoogledrivesetup": {
+    "message": "Sisene Google Drive'ile"
+  },
+  "LabelDropboxsetup": {
+    "message": "Dropboxi sisselogimine"
+  },
+  "LabelSyncfoldersetup": {
+    "message": "Milliseid kaustu soovite sünkroonida?"
+  },
+  "LabelSyncbehaviorsetup": {
+    "message": "Kuidas soovite, et sünkroonimine toimiks?"
+  },
+  "LabelAccountcreated": {
+    "message": "Loodud profiil"
+  },
+  "DescriptionAccountcreated": {
+    "message": "Veel üks oluline asi: sünkroonimine ei tähenda varundust. Palun kontrolli, et sul on oma järjehoidjatest olemas varukoopia.\n\nLisaks palun arvesta, et floccuse kombineerimine baruseri sisemise järjehoidjate sünkroonimisega pole toetatud ja võib lõppeda järjehoidjate topeltkirjete tekkimisega."
+  },
+  "DescriptionNonhttps": {
+    "message": "Olete sisenenud serverisse, mis kasutab ebaturvalist protokolli. Soovitatav on kasutada ainult HTTPS-i toetavaid servereid."
+  },
+  "LabelFiletype": {
+    "message": "Faili formaat"
+  },
+  "DescriptionFiletype": {
+    "message": "Saate valida, millist failivormingut soovite kasutada järjehoidjate salvestamiseks pilves."
+  },
+  "LabelFiletypehtml": {
+    "message": "HTML, laialt toetatud avatud formaat (eksperimentaalne)"
+  },
+  "LabelFiletypexbel": {
+    "message": "XBEL, lihtne, avatud formaat"
+  },
+  "LabelImportbookmarks": {
+    "message": "Impordi järjehoidjaid"
+  },
+  "DescriptionImportbookmarks": {
+    "message": "Impordi järjehoidjatega html-fail antud kausta"
+  },
+  "LabelExportBookmarks": {
+    "message": "Ekspordi järjehoidjaid"
+  },
+  "DescriptionExportBookmarks" : {
+    "message": "Sa võid kõik selles profiilis leiduvad järjehoidjad eksportida html-faili, mida oskavad kasutada kõik brauserid."
+  },
+  "LabelShareitem": {
+    "message": "Jaga"
+  },
+  "LabelImportsuccessful": {
+    "message": "Edukalt imporditud profiil(id)"
+  },
+  "DescriptionSyncinprogress": {
+    "message": "Sünkroniseerimine on käimas."
+  },
+  "DescriptionSyncscheduled": {
+    "message": "See profiil sünkroniseeritakse peagi. Me ootame kas teie teiste seadmete või selle seadme teiste profiilide sünkroonimise lõpetamist."
+  },
+  "LabelAdaptergit": {
+    "message": "Git üle HTTPS"
+  },
+  "DescriptionAdaptergit": {
+    "message": "Git-valik sünkroonib su järjehoidjad, salvestades need failina antud Git-hoidlasse. Sellel valikul puudub kaasnev veebiliides, kuid saad seda kasutada mis tahes Giti hostinguteenusega, nagu GitHub, GitLab, Gitea jne. See suudab sünkroonida http-, ftp-, andme-, faili- ja javascript-järjehoidjaid. Selle valiku kasutamisel ei saa kasutada läbivat krüptimist."
+  },
+  "LabelGiturl": {
+    "message": "Hoiukoha URL, kasutades HTTP"
+  },
+  "LabelGitbranch": {
+    "message": "Git-haru"
+  },
+  "LabelAccountlabel": {
+    "message": "Profiili silt"
+  },
+  "DescriptionAccountlabel": {
+    "message": "Anna sellele profiilile nimi, et seda oleks lihtsam ära tunda."
+  },
+  "LabelClickcount": {
+    "message": "Loendage klikke"
+  },
+  "DescriptionClickcount": {
+    "message": "Selleks, et toimiks järjestamine järjehoidjate kasutamise alusel, saada statistikat Nextcloudi serverisse"
+  },
+  "DescriptionGoogleplayreview": {
+    "message": "Kirjutage ülevaade Google Play's"
+  },
+  "DescriptionAppstorereview": {
+    "message": "Kirjutage arvustus App Store'is"
+  },
+  "DescriptionChromereview": {
+    "message": "Kirjutage ülevaade Chrome WebStore'i kohta"
+  },
+  "DescriptionAlternativereview": {
+    "message": "Kirjutage hinnang alternatiivTo.net kohta"
+  },
+  "DescriptionMozillareview": {
+    "message": "Kirjutage ülevaade Mozilla Addons kohta"
+  },
+  "DescriptionEdgereview": {
+    "message": "Kirjutage ülevaade Edge Addons kohta"
+  },
+  "LabelWritereview": {
+    "message": "💙 Jaga armastust!"
+  },
+  "DescriptionWritereview": {
+    "message": "Kui oled põnevil floccuse üle, anna maailmale teada, jättes hinnangu ühel allolevatest platvormidest."
+  },
+  "DescriptionDonateintervention": {
+    "message": "Kas sulle meeldib järjehoidjate sünkroniseerimine? Siis palun toeta mind!"
+  },
+  "LabelDonate": {
+    "message": "Annetada"
+  },
+  "DescriptionDisabledaftererror": {
+    "message": "Proovitud 10 korda enne selle profiili väljalülitamist"
+  },
+  "DescriptionBookmarkexists": {
+    "message": "See järjehoidja juba leidub valitud profiilis"
+  },
+  "LabelReportproblem": {
+    "message": "Probleemi teatamine"
+  },
+  "DescriptionReportproblem": {
+    "message": "Kui soovite võtta otse ühendust arendajatega konkreetse probleemiga, saate seda teha siin:"
+  },
+  "LabelAdapterKarakeep":  {
+    "message": "Karakeep"
+  },
+  "DescriptionAdapterKarakeep":  {
+    "message": "Sünkrooni oma järjehoidjad avatud lähtekoodiga omas serveris hallatava Karakeep-rakendusega. See suudab sünkroonida ainult HTTP-järjehoidjaid. See valik ei võimalda kasutada läbivat krüptimist ega toeta järjehoidjate järjekorra säilitamist sünkroonimise käigus."
+  },
+  "LabelApiKey":  {
+    "message": "API võti"
+  },
+  "LabelKarakeepurl":  {
+    "message": "Teie Karakeepi serveri URL"
+  },
+  "LabelKarakeepconnectionerror": {
+    "message": "Karakeepi serveriga ühenduse loomine ebaõnnestus"
+  },
+  "LabelAdapterlinkwarden":  {
+    "message": "Linkwarden"
+  },
+  "DescriptionAdapterlinkwarden":  {
+    "message": "Sünkroonige oma järjehoidjad avatud lähtekoodiga Linkwardeni rakendusega, mis asub kas teie enda serveris või pilves aadressil cloud.linkwarden.app. See saab sünkroonida ainult http-, ftp- ja javascript-lesemärke. See valik ei saa kasutada otsast lõpuni krüpteerimist ega toeta järjehoidjate järjekorra säilitamist sünkroonide vahel."
+  },
+  "LabelLinkwardenurl":  {
+    "message": "Teie Linkwardeni serveri URL"
+  },
+  "LabelAccesstoken":  {
+    "message": "Juurdepääsutunnus"
+  },
+  "LabelLinkwardenconnectionerror": {
+    "message": "Linkwardeni serveriga ei õnnestunud ühendust luua"
+  },
+  "LabelSearchresultsotherfolders": {
+    "message": "Tulemused teistest kaustadest"
+  },
+  "LabelScheduledforcesync": {
+    "message": "Sünkroonimise sundimine"
+  },
+  "DescriptionScheduledforcesync": {
+    "message": "Kas sa tõesti tahad sünkroonimist sundida? Kahe seadmega samaaegne sünkroonimine võib kaasa tuua ettenägematuid tagajärgi, sealhulgas teie andmete kahjustumise. Enne kinnitamist veenduge, et ükski teine seade ei ole hetkel sünkroonimas."
+  },
+  "DescriptionAutosync": {
+    "message": "Ajapõhise sünkroonimise sisselülitamisel käivitub selle profiili sünkroonimine siis, kui oled kohalikke andmeid muutnud."
+  },
+  "LabelOpeninnewtab": {
+    "message": "Avage see vaade uues vahekaardis"
+  },
+  "LabelFaq":{
+    "message": "Vaata KKK-dest"
+  },
+  "StatusSyncingfailed": {
+    "message": "Sünkroonimine ei õnnestunud"
+  },
+  "StatusSyncingcomplete": {
+    "message": "Sünkroonimine lõpetatud"
+  },
+  "NotificationSyncingprofile": {
+    "message": "Sünkroonimisprofiil {0}"
+  },
+  "NotificationSyncingsucceeded": {
+    "message": "Profiili {0} sünkroonimine õnnestus"
+  },
+  "NotificationSyncingfailed": {
+    "message": "Profiili sünkroonimine ebaõnnestus {0}"
+  },
+  "LabelSyncintervalenabled": {
+    "message": "Ajapõhine sünkroonimine"
+  },
+  "DescriptionSyncintervalenabled": {
+    "message": "Ajapõhise sünkroonimise sisselülitamisel käivitub selle profiili sünkroonimine iga paari minuti järel"
+  },
+  "LabelPredefinedwebdavurls": {
+    "message": "Eelmääratletud serverite võrguaadressid"
+  },
+  "DescriptionPredefinedwebdavurls": {
+    "message": "Vali oma teenus"
+  },
+  "LabelShowpassword": {
+    "message": "Näita salasõna"
+  },
+  "LabelHidepassword": {
+    "message": "Peida salasõna"
+  },
+  "LabelTitle": {
+    "message": "Pealkiri"
+  },
+  "LabelLink": {
+    "message": "Link"
+  },
+  "LabelParentfolder": {
+    "message": "Ülemkaust"
+  },
+  "LabelTags": {
+    "message": "Sildid"
+  },
+  "DescriptionTags": {
+    "message": "Sisesta sildi nimi ja vajuta Enter-klahvi"
+  },
+  "LabelSearchbytag": {
+    "message": "Otsi järjehoidjaid, mille silt on „{0}“"
+  },
+  "LabelHome": {
+    "message": "Avaleht"
+  },
+  "LabelSortby": {
+    "message": "Järjestus"
+  },
+  "LabelMoreactions": {
+    "message": "Täiendavad tegevused"
+  },
+  "LabelServerconnectionsuccessful": {
+    "message": "Ühendamine serveriga õnnestus"
+  },
+  "LabelSynconstartup": {
+    "message": "Sünkrooni käivitamisel"
+  },
+  "DescriptionSynconstartup": {
+    "message": "Sisselülitamisel kuulub see profiil käivitamisel sünkroonimisele. Sobib olukorraks, kus sa ei taha oodata korralist sünkroonimist ja tahad, et järjehoidjad oleks kohe uuendatud."
+  }
+}

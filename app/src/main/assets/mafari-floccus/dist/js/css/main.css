@@ -1,0 +1,178 @@
+
+.spinning[data-v-211d35c2] {
+  animation: spin-211d35c2 2s infinite linear;
+}
+@media (min-width: 420px) {
+.account-card__statusColumn[data-v-211d35c2] {
+    min-width: max-content;
+}
+}
+@media (max-width: 419px) {
+.account-card__header[data-v-211d35c2] {
+    flex-direction: column;
+}
+.account-card__footer[data-v-211d35c2] {
+    flex-direction: column !important;
+}
+.account-card__actions[data-v-211d35c2] {
+    flex-direction: column !important;
+}
+.account-card__actions .ms-0[data-v-211d35c2] {
+    margin-inline-start: 4px !important;
+}
+.account-card__options[data-v-211d35c2] {
+    flex-direction: column !important;
+}
+}
+@keyframes spin-211d35c2 {
+0% {
+    transform: rotate(360deg);
+}
+99.9% {
+    transform: rotate(0deg);
+}
+}
+
+
+.fab[data-v-db5dd366] {
+  position: absolute;
+  bottom: 0;
+  inset-inline-end: 20px;
+}
+
+
+.options[data-v-3ce776a2] {
+  max-width: 600px;
+  margin: 0 auto;
+}
+.form-buttons[data-v-3ce776a2] {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.v-stepper__content[data-v-3ce776a2] {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+.v-stepper__content .v-form[data-v-3ce776a2],
+.v-stepper__content .headline[data-v-3ce776a2],
+.v-stepper__content .form-buttons[data-v-3ce776a2] {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.headline[data-v-3ce776a2] {
+  margin-bottom: 16px;
+}
+
+
+.tag-chip[data-v-7054710c] {
+  height: 18px;
+}
+
+
+.loading[data-v-700830db] {
+  margin: 45vh 45vw;
+}
+.sync--active[data-v-700830db] {
+  animation: spin-700830db 2s infinite linear;
+}
+.search--active[data-v-700830db] {
+  animation: spin-700830db 2s infinite linear;
+}
+@keyframes spin-700830db {
+0% {
+    transform: rotate(360deg);
+}
+99.9% {
+    transform: rotate(0deg);
+}
+}
+.sync-dropdown-hint[data-v-700830db]::after {
+  content: '⛛';
+  position: absolute;
+  font-size: 0.45em;
+  top: 30px;
+  inset-inline-start: 30px;
+}
+.list-full-height[data-v-700830db] {
+  min-height: 95vh;
+  margin-bottom: 60px;
+}
+.tag-bar[data-v-700830db] {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  /* momentum scrolling on iOS */
+  -webkit-overflow-scrolling: touch;
+  /* the bar is dragged, not scrollbar-clicked */
+  scrollbar-width: none;
+}
+.tag-bar[data-v-700830db]::-webkit-scrollbar {
+  display: none;
+}
+.tag-bar__chip[data-v-700830db] {
+  flex: 0 0 auto;
+}
+
+
+.loading[data-v-5cdc220c] {
+  margin: 40vh 40vw;
+}
+
+
+.options[data-v-399ed786] {
+    max-width: 600px;
+    margin: 0 auto;
+}
+@media screen and (min-width: 600px) {
+.v-card--flat[data-v-399ed786] {
+    width: 48%
+}
+}
+a[data-v-399ed786]:link {
+  color: inherit;
+  text-decoration: none;
+}
+
+
+.options[data-v-4ab9e5ac] {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+
+.options[data-v-1594a9e7] {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+
+[dir="rtl"] .v-application {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Arabic", "Cairo", Roboto, Tahoma, sans-serif !important;
+}
+[dir="rtl"] .v-icon.mdi-arrow-left {
+  transform: scaleX(-1);
+}
+
+/*
+ * Extension popups are sized to their content, so the body needs a min-width
+ * or the popup collapses. Apply it by default and only lift it on small touch
+ * screens (mobile browsers open the popup as a full-width page): some desktop
+ * browsers (e.g. Samsung Internet on Windows) don't match device-width queries
+ * in popups, so the min-width must not depend on one matching.
+ */
+body {
+  min-width: 420px;
+}
+@media screen and (pointer: coarse) and (max-device-width: 419px) {
+body {
+    min-width: 0;
+}
+}
+
+
+/*# sourceMappingURL=main.css.map*/

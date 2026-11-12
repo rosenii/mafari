@@ -1,0 +1,2 @@
+"use strict";(globalThis.webpackChunkfloccus||=[]).push([[3931],{33931(t,n,c){c.r(n),c.d(n,{default:()=>s});var e=c(77254),a=function(){var t=this._self._c;return t("div",{staticClass:"native-scroll-container"},[t(e.A,[t("NewAccountContent")],1)],1)};a._withStripped=!0;const o={name:"NewAccount",components:{NewAccountContent:c(54712).A},data:()=>({drawer:!1})},s=(0,c(14486).A)(o,a,[],!1,null,"0833785a",null).exports}}]);
+//# sourceMappingURL=3931.js.map
