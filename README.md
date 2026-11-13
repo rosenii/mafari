@@ -135,7 +135,7 @@ Gecko 版会从 Mozilla Maven 拉取 GeckoView Nightly；Nightly 的 Java API �
 
 ### 应用内更新如何选包
 
-同一个 Release 里有 `-gecko.apk` 与按架构分的 `-lite-<架构>.apk`；应用内「检查更新」按当前安装包的变体（`BuildConfig.FLAVOR`）选择同名后缀的那个（lite 再按本机 ABI 挑对应架构），不会把一个版本升级成另一个。改安装包命名时请同步 `AboutScreen.kt` 的 `pickApkUrl`。
+同一个 Release 里有 `-gecko.apk` 与按架构分的 `-lite-<架构>.apk`。应用内「检查更新」由「关于 → 版本」里的**更新通道**决定拉哪个：`lite`（正式发布的 `-lite` 包，按本机 ABI 挑架构）、`gecko`（正式发布的 `-gecko` 包，仅 arm64-v8a）、`canary-lite` / `canary-gecko`（最新构建预发布或正式发布中发布时间最新的，取对应后缀的包）。旧版本升级上来默认 `gecko`（设备无 arm64 时为 `lite`）。改安装包命名时请同步 `AboutScreen.kt` 的 `pickApkUrl`。
 
 ### GitHub Actions 自动发布
 

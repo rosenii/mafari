@@ -254,8 +254,8 @@ fun AboutScreen(
                         backdrop = if (glass) pageBackdrop else null,
                         title = "Mafari",
                         summary = BuildConfig.VERSION_NAME,
-                        items = listOf("stable", "dev", "gecko"),
-                        selectedIndex = updateChannel.coerceIn(0, 2),
+                        items = UpdateChannel.NAMES,
+                        selectedIndex = updateChannel.coerceIn(0, UpdateChannel.NAMES.lastIndex),
                         onSelectedIndexChange = onUpdateChannelChange,
                     )
                     AboutRow("WebView 内核版本", kernel)
@@ -484,31 +484,44 @@ private const val TG_GROUP_URL = "https://t.me/Mafari_discuss"
 private const val COPYRIGHT = "Copyright © 2026 rosenii. All rights reserved."
 private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/releases?per_page=100"
 
-/** 最多翻几页：gecko 分支每次构建都发一个预发布，stable / dev 的 release 会被挤到很靠后的页里 */
+/** 最多翻几页：预发布每次构建都发一个，正式 release 会被挤到很靠后的页里 */
 private const val RELEASES_MAX_PAGES = 6
 
-/** gecko 分支预发布的 tag：gecko-<CI 构建号> */
-private val GECKO_TAG = Regex("^gecko-(\\d+)$")
+/**
+ * 更新通道（持久化的是下标，顺序不要改）：
+ * - lite：正式发布版里带 `-lite` 后缀、与本机架构匹配的安装包
+ * - gecko：正式发布版里带 `-gecko` 后缀的安装包
+ * - canary-lite：最新构建预发布 或 正式发布（取发布时间最新的）里带 `-lite`、匹配架构的安装包
+ * - canary-gecko：同上，取 `-gecko` 安装包
+ */
+object UpdateChannel {
+    const val LITE = 0
+    const val GECKO = 1
+    const val CANARY_LITE = 2
+    const val CANARY_GECKO = 3
+    val NAMES = listOf("lite", "gecko", "canary-lite", "canary-gecko")
 
-/** gecko 预发布 tag 里的构建号；不是 gecko tag 返回 0 */
-internal fun geckoBuildOf(tag: String): Int = GECKO_TAG.matchEntire(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    fun isCanary(channel: Int) = channel == CANARY_LITE || channel == CANARY_GECKO
+    fun flavorOf(channel: Int) = if (channel == GECKO || channel == CANARY_GECKO) "gecko" else "lite"
 
-/** 预览类后缀；带这些后缀的 tag 归入 dev 分支（-dev 为主，其余预览后缀一并算 dev） */
-private val PRE_TAG = Regex("(dev|alpha|beta|rc|snapshot)", RegexOption.IGNORE_CASE)
-
-/** tag 是否属于指定分支：0=stable（-stable 或无预览后缀） 1=dev（带预览后缀） */
-internal fun tagMatchesChannel(tag: String, channel: Int): Boolean {
-    // gecko 分支的预发布 tag（gecko-<构建号>）只属于 gecko 渠道，不混进 stable / dev
-    if (GECKO_TAG.matches(tag)) return channel == 2
-    if (channel == 2) return false
-    val isPre = PRE_TAG.containsMatchIn(tag)
-    return if (channel == 1) isPre else !isPre
+    /** 没有选择记录（含从旧版本升级）时的默认通道：gecko；设备没有 arm64-v8a（跑不了 GeckoView）时退到 lite */
+    fun default(): Int =
+        if (android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) GECKO else LITE
 }
 
+/** CI 构建预发布的 tag：gecko-<构建号> / dual-<构建号>（run number 同一个 workflow 内单调递增，可互相比较） */
+private val CI_TAG = Regex("^(?:gecko|dual)-(\\d+)$")
+
+/** CI 构建预发布 tag 里的构建号；不是构建 tag 返回 0 */
+internal fun ciBuildOf(tag: String): Int = CI_TAG.matchEntire(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+/** 预览类后缀；带这些后缀的 tag 不算正式发布 */
+private val PRE_TAG = Regex("(dev|alpha|beta|rc|snapshot)", RegexOption.IGNORE_CASE)
+
 /**
- * 拉取指定分支（0=stable 1=dev 2=gecko 预发布）的最新 release：版本号、页面地址、APK 直链。
- * 按页（每页 100 条、最多 6 页）从新到旧找，只保留 tag 后缀匹配分支、非草稿的，再按版本号取最高者；
- * 找到匹配分支的 release 就不再往后翻（gecko 预发布刷屏时，stable 的 release 可能在第 2 页以后）。
+ * 拉取指定通道的最新 release（见 [UpdateChannel]）：版本号、页面地址、与通道变体 / 本机架构匹配的 APK 直链。
+ * 按页（每页 100 条、最多 6 页）从新到旧找，只保留非草稿、且带匹配安装包的 release；
+ * 正式通道按版本号取最高者，canary 通道按发布时间取最新者；找到匹配的 release 就不再往后翻。
  * 直连 + 公共 GitHub 加速镜像并发探测，连通者优先。
  */
 internal fun fetchLatestRelease(channel: Int): AppRelease? {
@@ -536,14 +549,14 @@ private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? {
             val candidate = parseRelease(o, channel) ?: continue
             matchedInPage = true
             val current = best
-            val newer = if (channel == 2) {
-                current == null || geckoBuildOf(candidate.version) > geckoBuildOf(current.version)
-            } else {
-                current == null || isNewerVersion(candidate.version, current.version)
+            val newer = when {
+                current == null -> true
+                UpdateChannel.isCanary(channel) -> candidate.publishedAt > current.publishedAt
+                else -> isNewerVersion(candidate.version, current.version)
             }
             if (newer) best = candidate
         }
-        // 已找到本分支的 release，或者已经是最后一页（不足一整页）
+        // 已找到本通道的 release，或者已经是最后一页（不足一整页）
         if (matchedInPage || array.length() < 100) break
     }
     return best
@@ -569,10 +582,15 @@ private fun fetchReleasePage(url: String): org.json.JSONArray? = runCatching {
 private fun apkFlavorOf(name: String): String? =
     Regex("[-_.](gecko|lite)(?=[-_.])", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.lowercase()
 
+/** 文件名里可能出现的架构标记（x86_64 要排在 x86 前面） */
+private val KNOWN_ABIS = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+
 /**
- * 同一个 release 里同时带 gecko / lite 两个安装包：只下载与当前安装包同变体的那个，
- * 否则会把有内核版「升级」成无内核版（或反过来）。
- * 优先同变体；其次是文件名不带变体标记的旧版附件；只剩另一变体时返回 null（界面回落为「查看更新」打开发布页）。
+ * 按通道变体（"lite" / "gecko"）和本机架构挑安装包：
+ * - gecko：只有 arm64-v8a 设备能用（GeckoView 只发布 arm64），否则返回 null；
+ * - lite：按本机支持的 ABI 优先级（Build.SUPPORTED_ABIS）挑文件名带该架构的；
+ *   文件名完全不带架构标记的 lite 包视为通用包，作为兜底；不会退回到架构不匹配的包。
+ * 没有匹配的返回 null（该 release 不参与本通道）。
  */
 internal fun pickApkUrl(assets: org.json.JSONArray?, flavor: String): String? {
     if (assets == null) return null
@@ -583,23 +601,27 @@ internal fun pickApkUrl(assets: org.json.JSONArray?, flavor: String): String? {
         if (link.endsWith(".apk", ignoreCase = true)) apks.add(a.optString("name", link.substringAfterLast('/')) to link)
     }
     val same = apks.filter { apkFlavorOf(it.first) == flavor }
-    // lite 按架构分包（Mafari-<标签>-lite-arm64-v8a.apk）：按本机首选 ABI 顺序挑；挑不到再退回第一个
-    val byAbi = android.os.Build.SUPPORTED_ABIS.firstNotNullOfOrNull { abi ->
+    val abis = android.os.Build.SUPPORTED_ABIS
+    if (flavor == "gecko") {
+        return if (abis.any { it == "arm64-v8a" }) same.firstOrNull()?.second else null
+    }
+    val byAbi = abis.firstNotNullOfOrNull { abi ->
         same.firstOrNull { it.first.contains(abi, ignoreCase = true) }
     }
-    return (byAbi ?: same.firstOrNull())?.second
-        ?: apks.firstOrNull { apkFlavorOf(it.first) == null }?.second
+    return (byAbi ?: same.firstOrNull { n -> KNOWN_ABIS.none { n.first.contains(it, ignoreCase = true) } })?.second
 }
 
-/** 一条 release → AppRelease；草稿 / 不属于该分支的返回 null */
+/** 一条 release → AppRelease；草稿 / 不属于该通道 / 没有匹配安装包的返回 null */
 private fun parseRelease(o: org.json.JSONObject, channel: Int): AppRelease? {
     if (o.optBoolean("draft", false)) return null
     val tag = o.optString("tag_name", "")
-    if (tag.isBlank() || !tagMatchesChannel(tag, channel)) return null
-    // gecko 渠道：只看 GitHub 标为「预发布」的
-    if (channel == 2 && !o.optBoolean("prerelease", false)) return null
+    if (tag.isBlank()) return null
+    // 正式通道（lite / gecko）：只要正式发布，排除 CI 构建预发布、GitHub 标为预发布的、带 dev/alpha/beta/rc 后缀的
+    if (!UpdateChannel.isCanary(channel)) {
+        if (ciBuildOf(tag) > 0 || o.optBoolean("prerelease", false) || PRE_TAG.containsMatchIn(tag)) return null
+    }
+    val apkUrl = pickApkUrl(o.optJSONArray("assets"), UpdateChannel.flavorOf(channel)) ?: return null
     val pageUrl = o.optString("html_url", "").ifBlank { PROJECT_URL + "/releases" }
-    val apkUrl = pickApkUrl(o.optJSONArray("assets"), BuildConfig.FLAVOR)
     return AppRelease(
         version = tag,
         pageUrl = pageUrl,

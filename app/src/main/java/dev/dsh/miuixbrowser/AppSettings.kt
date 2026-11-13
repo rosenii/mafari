@@ -179,22 +179,22 @@ class AppSettings(context: Context) {
         prefs.edit().putString(KEY_IGNORED_UPDATE, version).apply()
     }
 
-    /** 更新分支：0=stable 1=dev 2=gecko（gecko 分支的预发布）。未设置过时跟随当前安装包 */
+    /**
+     * 更新通道：0=lite 1=gecko 2=canary-lite 3=canary-gecko（见 [UpdateChannel]）。
+     * 用新 key 存储：旧版本的 update_channel（0=stable 1=dev 2=gecko）含义不同，不沿用，
+     * 所以从旧版本升级上来的用户一律走默认通道 gecko（设备没有 arm64 时退到 lite）。
+     */
     var updateChannel by mutableStateOf(
         if (prefs.contains(KEY_UPDATE_CHANNEL)) {
-            prefs.getInt(KEY_UPDATE_CHANNEL, 0).coerceIn(0, 2)
-        } else if (BuildConfig.GECKO_BUILD > 0) {
-            2
-        } else if (BuildConfig.VERSION_NAME.contains("dev", ignoreCase = true)) {
-            1
+            prefs.getInt(KEY_UPDATE_CHANNEL, UpdateChannel.GECKO).coerceIn(0, UpdateChannel.NAMES.lastIndex)
         } else {
-            0
+            UpdateChannel.default()
         },
     )
         private set
 
     fun updateUpdateChannel(channel: Int) {
-        updateChannel = channel.coerceIn(0, 2)
+        updateChannel = channel.coerceIn(0, UpdateChannel.NAMES.lastIndex)
         prefs.edit().putInt(KEY_UPDATE_CHANNEL, updateChannel).apply()
     }
 
@@ -627,7 +627,7 @@ class AppSettings(context: Context) {
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"
         const val KEY_APP_ICON = "app_icon"
         const val KEY_IGNORED_UPDATE = "ignored_update"
-        const val KEY_UPDATE_CHANNEL = "update_channel"
+        const val KEY_UPDATE_CHANNEL = "update_channel_v2" // 旧 "update_channel" 含义不同（stable/dev/gecko），已弃用
         const val KEY_ENGINE = "browser_engine"
         const val KEY_DL_THREADS = "download_threads"
         const val KEY_DL_MIN_MB = "download_multithread_min_mb"

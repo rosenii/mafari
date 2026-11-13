@@ -75,14 +75,13 @@ object UpdateChecker {
 
 /**
  * 是否有可更新的版本（启动自动检查与「检查更新」按钮共用）：
- * - stable / dev：按版本号逐段比较；
- * - gecko 预发布：tag 是 CI 构建号（gecko-123），不能和 v99.x 的版本号比（构建号一过 99 就永远「更新」）。
+ * - 正式发布（lite / gecko 通道，以及 canary 里选到的正式 release）：按版本号逐段比较；
+ * - CI 构建预发布（tag 是 gecko-123 / dual-123，不能和 v99.x 的版本号比）：
  *   本机有构建号（BuildConfig.GECKO_BUILD）时比构建号；老包没有构建号时，看安装时间是否晚于该预发布的发布时间。
  */
-fun isUpdateAvailable(context: Context, rel: AppRelease, channel: Int): Boolean {
-    if (channel != 2) return isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
-    val remote = geckoBuildOf(rel.version)
-    if (remote == 0) return false
+fun isUpdateAvailable(context: Context, rel: AppRelease, @Suppress("UNUSED_PARAMETER") channel: Int): Boolean {
+    val remote = ciBuildOf(rel.version)
+    if (remote == 0) return isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
     if (BuildConfig.GECKO_BUILD > 0) return remote > BuildConfig.GECKO_BUILD
     if (rel.publishedAt == 0L) return false
     val installedAt = runCatching {
@@ -92,8 +91,8 @@ fun isUpdateAvailable(context: Context, rel: AppRelease, channel: Int): Boolean 
 }
 
 /** 「已是最新版本」提示里显示的当前版本 */
-fun currentVersionLabel(channel: Int): String =
-    if (channel == 2 && BuildConfig.GECKO_BUILD > 0) "gecko-${BuildConfig.GECKO_BUILD}"
+fun currentVersionLabel(@Suppress("UNUSED_PARAMETER") channel: Int): String =
+    if (BuildConfig.GECKO_BUILD > 0) "gecko-${BuildConfig.GECKO_BUILD}"
     else BuildConfig.VERSION_NAME.removePrefix("v")
 
 /**
@@ -138,7 +137,7 @@ fun UpdateSheet(
                 .padding(bottom = 16.dp),
         ) {
             Text(
-                text = (if (geckoBuildOf(release.version) > 0 && BuildConfig.GECKO_BUILD > 0) {
+                text = (if (BuildConfig.GECKO_BUILD > 0) {
                     "gecko-${BuildConfig.GECKO_BUILD}"
                 } else {
                     BuildConfig.VERSION_NAME

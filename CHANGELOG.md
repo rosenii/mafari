@@ -4,6 +4,7 @@
 
 ## [未发布]
 
+- 调整：更新通道由 stable / dev / gecko 改为 lite / gecko / canary-lite / canary-gecko。lite、gecko 只拉正式发布的 `-lite`（按本机架构）/ `-gecko` 包；canary-* 取最新构建预发布（gecko-N / dual-N）或正式发布中最新的、带对应后缀的包。通道改用新 key 存储，从旧版本升级的用户默认 gecko（设备无 arm64-v8a 时为 lite）；dual 分支构建同样写入构建号
 - 构建：拆分为 `gecko`（Gecko 版）与 `lite`（无内核版）两个 product flavor，同一份源码、一次 CI 同时产出两个安装包。lite 里 GeckoView 仅 `compileOnly`、不进 APK（`BuildConfig.GECKO_ENABLED = false`），Gecko 专属资源（内置拓展、shim）移到 `src/gecko/assets`，按架构拆成 `liteArm64` / `liteArm32` / `liteX64` 三个包（新增 abi 维度，各包只含对应架构的 so）；共用代码经 `EngineSupport` 判断，lite 下不会触碰 Gecko 类
 - 发布：Release 同时附带 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite-<架构>.apk`（arm64-v8a / armeabi-v7a / x86_64 各一个，及 `SHA256SUMS.txt`），Release 由 Gradle 直接签名；Telegram 推送两个包（超过 50MB 的只给链接）
 - 优化：「检查更新」按当前安装包的变体选择同名后缀的 APK（lite 再按本机 ABI 选对应架构），不会把 Gecko 版升级成无内核版（反之亦然）
