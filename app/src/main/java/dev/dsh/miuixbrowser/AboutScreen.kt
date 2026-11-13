@@ -491,7 +491,7 @@ private const val RELEASES_MAX_PAGES = 6
  * 更新通道（持久化的是下标，顺序不要改）：
  * - lite：正式发布版里带 `-lite` 后缀、与本机架构匹配的安装包
  * - gecko：正式发布版里带 `-gecko` 后缀的安装包
- * - canary-lite：最新构建预发布 或 正式发布（取发布时间最新的）里带 `-lite`、匹配架构的安装包
+ * - canary-lite：最新构建预发布（gecko-N）或正式发布（dual 分支直接发布的也算，取发布时间最新的）里带 `-lite`、匹配架构的安装包
  * - canary-gecko：同上，取 `-gecko` 安装包
  */
 object UpdateChannel {
@@ -509,8 +509,8 @@ object UpdateChannel {
         if (android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) GECKO else LITE
 }
 
-/** CI 构建预发布的 tag：gecko-<构建号> / dual-<构建号>（run number 同一个 workflow 内单调递增，可互相比较） */
-private val CI_TAG = Regex("^(?:gecko|dual)-(\\d+)$")
+/** gecko 分支 CI 构建预发布的 tag：gecko-<构建号> */
+private val CI_TAG = Regex("^gecko-(\\d+)$")
 
 /** CI 构建预发布 tag 里的构建号；不是构建 tag 返回 0 */
 internal fun ciBuildOf(tag: String): Int = CI_TAG.matchEntire(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0

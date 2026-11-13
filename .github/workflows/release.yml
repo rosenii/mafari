@@ -21,7 +21,8 @@ jobs:
       # tag → 正式 release；gecko 分支 → 预发布；其余只出 debug
       IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
       IS_GECKO_BRANCH: ${{ github.ref == 'refs/heads/gecko' }}
-      # dual 分支：同时构建 gecko + lite 两个变体，同样发预发布（tag 为 dual-<n>，不进应用内更新渠道、不抢 latest）
+      # dual 分支：同时构建 gecko + lite 两个变体，直接发布为正式 release（tag = 应用版本名，如 v2.1.3，标 latest，进 lite / gecko 更新通道）；
+      # 同一版本名重复构建会覆盖该 release 的安装包，要让用户收到更新请先提高版本名
       IS_DUAL_BRANCH: ${{ github.ref == 'refs/heads/dual' }}
       # 预发布分支（gecko 或 dual）：tag 前缀 = 分支名
       IS_PRE_BRANCH: ${{ github.ref == 'refs/heads/gecko' || github.ref == 'refs/heads/dual' }}
@@ -71,6 +72,11 @@ jobs:
           CODE=$(grep -E '^\s*versionCode\s*=' app/build.gradle.kts | head -1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           echo "APP_VERSION_NAME=$NAME" >> "$GITHUB_ENV"
           echo "APP_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+          # 发布 tag：版本 tag 推送用 tag 名；dual 直接发布用应用版本名；gecko 预发布用 gecko-<构建号>
+          if [ "$IS_RELEASE_TAG" = "true" ]; then RTAG="$GITHUB_REF_NAME"
+          elif [ "$IS_DUAL_BRANCH" = "true" ]; then RTAG="$NAME"
+          else RTAG="gecko-$GITHUB_RUN_NUMBER"; fi
+          echo "RELEASE_TAG_NAME=$RTAG" >> "$GITHUB_ENV"
           echo "version: $NAME ($CODE)"
 
       - name: Prepare keystore
@@ -95,14 +101,15 @@ jobs:
           MAFARI_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         run: bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release --stacktrace
 
-      # 统一命名：Mafari-<标签>-gecko.apk、Mafari-<标签>-lite-<架构>.apk
+      # 统一命名：Mafari-<版本名>-gecko.apk、Mafari-<版本名>-lite-<架构>.apk
       # 应用内「检查更新」靠文件名里的 -gecko / -lite 选择与当前安装包同变体的那一个，改名请同步 AboutScreen.pickApkUrl
       - name: Collect APKs
         run: |
           set -e
           mkdir -p dist
-          if [ "$IS_RELEASE_TAG" = "true" ]; then LABEL="$GITHUB_REF_NAME"
-          elif [ "$IS_PRE_BRANCH" = "true" ]; then LABEL="$PRE_PREFIX-$GITHUB_RUN_NUMBER"
+          # 文件名统一用版本名（去掉 v 前缀）：Mafari-2.1.3-gecko.apk、Mafari-2.1.3-lite-arm64-v8a.apk
+          if [ "$IS_RELEASE_TAG" = "true" ]; then LABEL="${GITHUB_REF_NAME#v}"
+          elif [ "$IS_PRE_BRANCH" = "true" ]; then LABEL="${APP_VERSION_NAME#v}"
           else LABEL="$(echo "$GITHUB_SHA" | cut -c1-7)-debug"; fi
           if [ -f mafari-release.jks ] && { [ "$IS_RELEASE_TAG" = "true" ] || [ "$IS_PRE_BRANCH" = "true" ]; }; then TYPE=release; else TYPE=debug; fi
           echo "label=$LABEL type=$TYPE"
@@ -156,10 +163,9 @@ jobs:
               prefix = os.environ.get("PRE_PREFIX", "gecko")
               app_name = os.environ.get("APP_VERSION_NAME", "")
               app_code = os.environ.get("APP_VERSION_CODE", "")
-              header = f"## 预发布 {prefix}-{run_no}\n\n"
+              header = f"## {app_name} ({app_code})\n\n"
               body = (
-                  f"来自 `{prefix}` 分支的自动预发布构建。\n\n"
-                  f"- 版本：{app_name} ({app_code})\n"
+                  f"来自 `{prefix}` 分支的{'发布' if prefix == 'dual' else '自动预发布'}构建。\n\n"
                   f"- 提交：`{sha}`\n"
                   f"- 分支：`{prefix}`\n"
               )
@@ -199,12 +205,12 @@ jobs:
           body_path: dist/RELEASE_NOTES.md
           generate_release_notes: true
           # tag 用 tag 名；gecko 自动生成 gecko-<run_number> 作为 tag
-          tag_name: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('{0}-{1}', env.PRE_PREFIX, github.run_number) }}
-          # dual 预发布标题：应用版本名 (版本号)；其余沿用 tag 名
+          tag_name: ${{ env.RELEASE_TAG_NAME }}
+          # dual 发布标题：应用版本名 (版本号)；其余沿用 tag 名
           name: ${{ env.IS_DUAL_BRANCH == 'true' && format('{0} ({1})', env.APP_VERSION_NAME, env.APP_VERSION_CODE) || '' }}
           # gecko 分支标预发布；不抢 latest
-          prerelease: ${{ env.IS_PRE_BRANCH == 'true' }}
-          make_latest: ${{ env.IS_PRE_BRANCH == 'true' && 'false' || 'true' }}
+          prerelease: ${{ env.IS_GECKO_BRANCH == 'true' }}
+          make_latest: ${{ env.IS_GECKO_BRANCH == 'true' && 'false' || 'true' }}
 
       # 同步推送到 Telegram 频道（正式版 + 预发布）。
       # 需要 Secrets：TELEGRAM_BOT_TOKEN（机器人需是频道管理员）；TELEGRAM_CHAT_ID 可选，默认 @mafari_a。
@@ -215,7 +221,7 @@ jobs:
         env:
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID || '@mafari_a' }}
           RELEASE_URL: ${{ steps.release.outputs.url }}
-          TAG_NAME: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('{0}-{1}', env.PRE_PREFIX, github.run_number) }}
+          TAG_NAME: ${{ env.RELEASE_TAG_NAME }}
         run: |
           python3 - <<'PY'
           import glob, html, json, os, pathlib, re, subprocess
@@ -223,7 +229,7 @@ jobs:
           token = os.environ["TG_TOKEN"]
           chat = os.environ["TG_CHAT"]
           tag = os.environ["TAG_NAME"]
-          is_gecko = os.environ.get("IS_PRE_BRANCH") == "true"
+          is_gecko = os.environ.get("IS_GECKO_BRANCH") == "true"  # 仅 gecko 分支是预发布；dual 是正式发布
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           url = os.environ.get("RELEASE_URL") or f"https://github.com/{repo}/releases/tag/{tag}"
           api = f"https://api.telegram.org/bot{token}"
@@ -261,38 +267,66 @@ jobs:
               cut = text[:n].rsplit("\n", 1)[0]
               return cut + "\n…"
 
-          title = f"🧪 Mafari 预发布 {tag}" if is_gecko else f"🚀 Mafari {tag}"
-          # 两个变体（gecko / lite）都发；超过 Bot API 上限的只在消息里给下载链接
+          app_name = os.environ.get("APP_VERSION_NAME") or tag
+          title = f"🧪 Mafari 预发布 {app_name} ({os.environ.get('APP_VERSION_CODE', '')})" if is_gecko else f"🚀 Mafari {tag}"
+          # 概述 + 安装包放在同一条消息里：安装包作为一组文档（相册）发出，概述作为第一个文档的 caption（上限 1024 字符）。
+          # 超过 Bot API 上限的安装包不上传，只在 caption 里给下载链接
           apks = sorted(glob.glob("dist/*.apk"))
           sendable = [a for a in apks if os.path.getsize(a) <= LIMIT]
           too_big = len(sendable) < len(apks)
+          CAP = 1024
 
-          raw_tail = f"\n\n下载 / Download: {url}"
+          head_html = f"<b>{html.escape(title)}</b>"
+          tail_html = f'\n\n<a href="{html.escape(url)}">下载 / Download</a>'
+          tail_raw = f"\n\n下载 / Download: {url}"
           if too_big:
-              raw_tail += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
-          body = clip(notes, 3200)
-          html_text = f"<b>{html.escape(title)}</b>\n\n{to_html(body)}" if body else f"<b>{html.escape(title)}</b>"
-          html_text += f'\n\n<a href="{html.escape(url)}">下载 / Download</a>'
-          if too_big:
-              html_text += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
+              tail_html += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
+              tail_raw += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
 
-          res = call("sendMessage", {
-              "chat_id": chat, "text": html_text, "parse_mode": "HTML",
-              "disable_web_page_preview": "true",
-          })
-          if not res.get("ok"):
-              print("HTML 消息失败，改发纯文本：", res.get("description"))
+          def build_caption(parse_html):
+              head, tail = (head_html, tail_html) if parse_html else (title, tail_raw)
+              body = notes
+              while True:
+                  text = to_html(body) if parse_html else body
+                  cap = head + (("\n\n" + text) if text else "") + tail
+                  if len(cap) <= CAP or not body:
+                      return cap
+                  # 逐步缩短概述直到放得下
+                  body = clip(body, max(0, int(len(body) * 0.8) - 1))
+                  if len(body) < 20:
+                      body = ""
+
+          def send_group(caption, parse_html):
+              """一条消息发出所有安装包（多个用相册，单个用 sendDocument）"""
+              fields = {"chat_id": chat, "caption": caption}
+              if parse_html:
+                  fields["parse_mode"] = "HTML"
+              if len(sendable) == 1:
+                  return call("sendDocument", fields, {"document": sendable[0]})
+              media, files = [], {}
+              for i, apk in enumerate(sendable):
+                  item = {"type": "document", "media": f"attach://f{i}"}
+                  if i == 0:
+                      item["caption"] = caption
+                      if parse_html:
+                          item["parse_mode"] = "HTML"
+                  media.append(item)
+                  files[f"f{i}"] = apk
+              return call("sendMediaGroup", {"chat_id": chat, "media": json.dumps(media)}, files)
+
+          if sendable:
+              res = send_group(build_caption(True), True)
+              if not res.get("ok"):
+                  print("HTML 消息失败，改发纯文本：", res.get("description"))
+                  res = send_group(build_caption(False), False)
+              print("send apks:", [os.path.basename(a) for a in sendable], res.get("ok"), res.get("description", ""))
+          else:
+              # 没有可上传的安装包：只发概述 + 链接
               res = call("sendMessage", {
-                  "chat_id": chat, "text": f"{title}\n\n{body}{raw_tail}".strip(),
+                  "chat_id": chat, "text": build_caption(True), "parse_mode": "HTML",
                   "disable_web_page_preview": "true",
               })
-          print("sendMessage:", res.get("ok"), res.get("description", ""))
-
-          ok_all = True
-          for apk in sendable:
-              res = call("sendDocument", {"chat_id": chat, "caption": f"{title}\n{os.path.basename(apk)}"}, {"document": apk})
-              print("sendDocument:", os.path.basename(apk), res.get("ok"), res.get("description", ""))
-              ok_all = ok_all and bool(res.get("ok"))
-          if not (res.get("ok") and ok_all):
+              print("sendMessage:", res.get("ok"), res.get("description", ""))
+          if not res.get("ok"):
               raise SystemExit(1)
           PY

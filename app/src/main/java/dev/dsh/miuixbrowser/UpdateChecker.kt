@@ -64,7 +64,7 @@ object UpdateChecker {
                     context = context,
                     url = url,
                     userAgent = null,
-                    fileName = "mafari-${rel.version.removePrefix("v")}.apk",
+                    fileName = apk.substringBefore('?').substringAfterLast('/').ifBlank { "mafari-${rel.version.removePrefix("v")}.apk" },
                     mimeType = "application/vnd.android.package-archive",
                 )
                 Toast.makeText(context, "已开始下载，完成后可在下载页安装", Toast.LENGTH_LONG).show()
@@ -77,7 +77,7 @@ object UpdateChecker {
  * 是否有可更新的版本（启动自动检查与「检查更新」按钮共用）：
  * - 通道变体与已装变体不同：一律视为有更新（切换变体）；
  * - 正式发布（lite / gecko 通道，以及 canary 里选到的正式 release）：按版本号逐段比较；
- * - CI 构建预发布（tag 是 gecko-123 / dual-123，不能和 v99.x 的版本号比）：
+ * - CI 构建预发布（tag 是 gecko-123，不能和 v99.x 的版本号比）：
  *   本机有构建号（BuildConfig.GECKO_BUILD）时比构建号；老包没有构建号时，看安装时间是否晚于该预发布的发布时间。
  */
 fun isUpdateAvailable(context: Context, rel: AppRelease, channel: Int): Boolean {

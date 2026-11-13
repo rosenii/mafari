@@ -2,10 +2,17 @@
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
 
+## [2.1.4]
+-调整：从此版本起，gecko版正式进入主线发布
+-调整：从此版本起，独立维护的无内核版本只会在大版本发布同步功能推送。
+-提醒：lite版功能更新和bug修复推送更及时，但比单独维护的无内核版的体积会稍大一些约5MB
+
 ## [2.1.3]
 
 - 调整：更新通道由 stable / dev / gecko 改为 lite / gecko / canary-lite / canary-gecko。lite、gecko 只拉正式发布的 `-lite`（按本机架构）/ `-gecko` 包；canary-* 取最新构建预发布（gecko-N / dual-N）或正式发布中最新的、带对应后缀的包。通道改用新 key 存储，从旧版本升级的用户默认 gecko（设备无 arm64-v8a 时为 lite）；dual 分支构建同样写入构建号
 - 优化：切换更新通道的变体（lite ⇄ gecko）时，即使版本号相同也会提示更新，下载另一变体的安装包
+- 发布：安装包文件名统一为 `Mafari-<版本名>-gecko.apk` / `Mafari-<版本名>-lite-<架构>.apk`（如 `Mafari-2.1.3-lite-arm64-v8a.apk`，无 v 前缀）；预发布的发布说明与 Telegram 标题改用版本名 (版本号)，不再出现 gecko-N / dual-N；应用内下载沿用安装包原文件名
+- 发布：Telegram 推送改为一条消息：安装包作为一组文档发出，概述 + 下载链接放在第一个文档的说明里（超过 1024 字符自动截短；超过 50MB 的包只给链接）
 - 发布：dual 预发布的标题改为「应用版本名 (版本号)」，发布说明附带 CHANGELOG 中对应版本的更新日志
 - 构建：拆分为 `gecko`（Gecko 版）与 `lite`（无内核版）两个 product flavor，同一份源码、一次 CI 同时产出两个安装包。lite 里 GeckoView 仅 `compileOnly`、不进 APK（`BuildConfig.GECKO_ENABLED = false`），Gecko 专属资源（内置拓展、shim）移到 `src/gecko/assets`，按架构拆成 `liteArm64` / `liteArm32` / `liteX64` 三个包（新增 abi 维度，各包只含对应架构的 so）；共用代码经 `EngineSupport` 判断，lite 下不会触碰 Gecko 类
 - 发布：Release 同时附带 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite-<架构>.apk`（arm64-v8a / armeabi-v7a / x86_64 各一个，及 `SHA256SUMS.txt`），Release 由 Gradle 直接签名；Telegram 推送两个包（超过 50MB 的只给链接）
