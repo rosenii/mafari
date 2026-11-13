@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -112,8 +113,8 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
     LaunchedEffect(Unit) {
-        while (true) {
-            blockedTotal = AdBlock.blockedTotal
+        AdBlock.blockedFlow.conflate().collect {
+            blockedTotal = it
             delay(1000)
         }
     }

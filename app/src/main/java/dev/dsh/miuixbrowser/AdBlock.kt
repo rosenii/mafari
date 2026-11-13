@@ -17,6 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -188,6 +190,11 @@ object AdBlock {
     /** 累计拦截的请求数（跨启动） */
     val blockedTotal: Long get() = baseTotal + blockedSession.get()
 
+    private val _blockedFlow = MutableStateFlow(0L)
+
+    /** 累计拦截数的变化流：拦截发生时才更新，UI 订阅它即可，不必定时轮询（StateFlow 自带合并 / 去重）。 */
+    val blockedFlow: StateFlow<Long> get() = _blockedFlow
+
     @Synchronized
     fun init(context: Context) {
         if (inited) return
@@ -200,6 +207,7 @@ object AdBlock {
         cosmetic = prefs.getBoolean("cosmetic", true)
         autoUpdate = prefs.getInt("auto_update", 2).coerceIn(0, 3)
         baseTotal = prefs.getLong("blocked_total", 0L)
+        _blockedFlow.value = baseTotal + blockedSession.get()
         fastEnabled = enabled
         fastCosmetic = cosmetic
         fpCanvas = prefs.getBoolean("fp_canvas", false)
@@ -509,6 +517,7 @@ object AdBlock {
         if (!hit) return null
 
         val n = blockedSession.incrementAndGet()
+        _blockedFlow.value = baseTotal + n
         if (n % 40L == 0L) prefs.edit().putLong("blocked_total", baseTotal + n).apply()
         return blockedResponse(AdMatch.inferType(url, accept))
     }

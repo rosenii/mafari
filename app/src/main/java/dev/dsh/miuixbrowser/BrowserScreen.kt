@@ -936,7 +936,6 @@ fun BrowserScreen(
         var scrollDownAccum = 0f
         var scrollUpAccum = 0f
         while (true) {
-            var moved = false
             runCatching {
                 if (tab.geckoFullscreen) {
                     barHidden = true
@@ -954,7 +953,6 @@ fun BrowserScreen(
                 }
                 val offset = tab.scrollOffsetY.coerceAtLeast(0)
                 val dy = offset - last
-                moved = dy != 0
                 when {
                     offset <= 12 -> {
                         barHidden = false
@@ -987,14 +985,14 @@ fun BrowserScreen(
                 }
                 last = offset
             }
-            // 滚动中保持 80ms 采样（累计阈值手感不变）；静止后改为等原生滚动事件唤醒，
-            // 1 秒超时只用来兜底（全屏状态切换、导航后偏移被重置等没有滚动事件的情况）
-            if (moved || tab.geckoFullscreen) {
-                delay(80)
-            } else {
-                withTimeoutOrNull(1000L) { tab.scrollSignal.receive() }
-            }
+            // 纯事件驱动：只在引擎滚动事件（CONFLATED 合并，只取最新位置）或下面补发的信号到来时处理一次。
+            // 底栏阈值按 dy 累计，与采样间隔无关，所以不再需要 80ms 定时采样，也不再有静止时的超时唤醒。
+            tab.scrollSignal.receive()
         }
+    }
+    // 没有滚动事件、但偏移 / 状态可能已变的时刻补发一次信号：全屏切换、换页、加载状态变化（导航后偏移被重置）
+    LaunchedEffect(tab.id, tab.geckoFullscreen, tab.url, tab.loading) {
+        tab.scrollSignal.trySend(Unit)
     }
 
     val statusBarHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -1549,9 +1547,18 @@ fun BrowserScreen(
             scriptMenuItems = emptyList()
         } else if (!tab.loading) {
             kotlinx.coroutines.delay(500)
+            // 脚本菜单命令没有「注册完成」事件可订阅，不能纯事件驱动；改成递增退避：
+            // 刚加载完 document-idle 脚本 / 延迟注册命令最容易出现，先密后疏（0.5s → 1.5s → 3s → 5s），
+            // 之后保持 5 秒一次，菜单关闭或页面重新加载时本协程被取消。
+            var gap = 500L
             while (true) {
                 refreshScriptSheet()
-                kotlinx.coroutines.delay(1500)
+                kotlinx.coroutines.delay(gap)
+                gap = when {
+                    gap < 1500L -> 1500L
+                    gap < 3000L -> 3000L
+                    else -> 5000L
+                }
             }
         }
     }

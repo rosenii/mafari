@@ -14,6 +14,11 @@ import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 用户脚本的原始能力桥：GM_setValue / GM_xmlhttpRequest / GM_notification / GM_openInTab 等。
@@ -33,7 +38,17 @@ class GmBridge(
     private val onCloseTab: (id: String) -> Unit = {},
 ) {
 
-    private val pool = Executors.newCachedThreadPool()
+    // 有界线程池：核心 4 / 最大 8 线程，队列 64；空闲线程 30 秒回收。队列满时拒绝并回调错误，不再无限开线程。
+    private val pool = ThreadPoolExecutor(
+        4, 8, 30L, TimeUnit.SECONDS, LinkedBlockingQueue(64),
+        object : java.util.concurrent.ThreadFactory {
+            private val n = AtomicInteger(0)
+            override fun newThread(r: Runnable) = Thread(r, "gm-xhr-${n.incrementAndGet()}").apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.AbortPolicy(),
+    ).apply { allowCoreThreadTimeOut(true) }
+    // abort 只做 disconnect：单独一条线程，请求池满时也能立刻中断连接
+    private val abortPool = Executors.newSingleThreadExecutor { r -> Thread(r, "gm-xhr-abort").apply { isDaemon = true } }
     private val mainHandler = android.os.Handler(context.mainLooper)
 
     private class Pending(val json: String, val at: Long = System.currentTimeMillis())
@@ -79,13 +94,20 @@ class GmBridge(
     @JavascriptInterface
     fun xhrStart(reqId: String, optionsJson: String, bodyBase64: String) {
         purgeStaleResults()
-        pool.execute {
-            val result = runCatching { runXhr(reqId, optionsJson, bodyBase64) }.getOrElse { e ->
-                JSONObject().put("state", "error").put("error", e.message ?: "request failed").toString()
+        try {
+            pool.execute {
+                val result = runCatching { runXhr(reqId, optionsJson, bodyBase64) }.getOrElse { e ->
+                    JSONObject().put("state", "error").put("error", e.message ?: "request failed").toString()
+                }
+                connections.remove(reqId)
+                // v2 运行时在 abort 后就停止轮询，不会再来取结果：不存，免得堆积
+                if (!aborted.remove(reqId)) results[reqId] = Pending(result)
             }
-            connections.remove(reqId)
-            // v2 运行时在 abort 后就停止轮询，不会再来取结果：不存，免得堆积
-            if (!aborted.remove(reqId)) results[reqId] = Pending(result)
+        } catch (_: RejectedExecutionException) {
+            // 并发请求过多（队列已满）：直接给脚本一个错误结果，而不是无限排队
+            results[reqId] = Pending(
+                JSONObject().put("state", "error").put("error", "too many concurrent requests").toString(),
+            )
         }
     }
 
@@ -97,7 +119,7 @@ class GmBridge(
     fun xhrAbort(reqId: String) {
         aborted.add(reqId)
         results.remove(reqId) // 结果恰好已出、尚未被取走
-        connections[reqId]?.let { conn -> pool.execute { runCatching { conn.disconnect() } } }
+        connections[reqId]?.let { conn -> abortPool.execute { runCatching { conn.disconnect() } } }
         // 请求若已结束，xhrStart 收尾时不会再清这个标记：延迟清掉，避免常驻
         mainHandler.postDelayed({ if (!connections.containsKey(reqId)) aborted.remove(reqId) }, 60_000)
     }

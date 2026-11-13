@@ -165,6 +165,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -896,10 +897,10 @@ internal fun PrivacyReportCard(
         return
     }
     val context = LocalContext.current
-    // 拦截计数在后台线程累加、不是 Compose 状态：可见期间低频轮询
+    // 拦截计数由 AdBlock.blockedFlow 推送：有拦截才更新；conflate + delay 把刷新限制在每 1.5 秒至多一次，空闲时不唤醒
     val blocked by produceState(AdBlock.blockedTotal) {
-        while (true) {
-            value = AdBlock.blockedTotal
+        AdBlock.blockedFlow.conflate().collect {
+            value = it
             delay(1500)
         }
     }
