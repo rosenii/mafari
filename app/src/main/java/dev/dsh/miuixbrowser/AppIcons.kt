@@ -39,6 +39,42 @@ object AppIcons {
         )
     }
 
+    /** 刷新：不闭合圆圈（缺口在右上）+ 顺时针箭头，类似 iOS 的 arrow.clockwise。 */
+    val Refresh: ImageVector by lazy {
+        stroked(
+            "Refresh",
+            "M17.3,6.7A7.5,7.5 0 1 1 12,4.5",
+            "M9,1.9L12,4.5L9,7.1",
+            width = 2.0f,
+        )
+    }
+
+    /** 加密安全锁：圆角锁身 + 锁梁 + 锁孔。图形撑满 24 视口（约 3~21），视觉大小与其他顶栏图标一致。 */
+    val Lock: ImageVector by lazy {
+        stroked(
+            "Lock",
+            "M6.8,10V7.8A5.2,5.2 0 0 1 17.2,7.8V10",
+            "M5.5,10H18.5A2.5,2.5 0 0 1 21,12.5V18.5A2.5,2.5 0 0 1 18.5,21H5.5A2.5,2.5 0 0 1 3,18.5V12.5A2.5,2.5 0 0 1 5.5,10Z",
+            "M12,14.2V17.2",
+        )
+    }
+
+    /** 书签：上端平、下端 V 形缺口的书签轮廓。 */
+    val Bookmark: ImageVector by lazy {
+        stroked(
+            "Bookmark",
+            "M6.5,4.5A1.5,1.5 0 0 1 8,3H16A1.5,1.5 0 0 1 17.5,4.5V20.2L12,16.4L6.5,20.2Z",
+        )
+    }
+
+    /** 文件夹：带标签耳朵的圆角轮廓（书签分组用）。 */
+    val Folder: ImageVector by lazy {
+        stroked(
+            "Folder",
+            "M3.5,7.5A2,2 0 0 1 5.5,5.5H9.3L11.3,8H18.5A2,2 0 0 1 20.5,10V17.5A2,2 0 0 1 18.5,19.5H5.5A2,2 0 0 1 3.5,17.5Z",
+        )
+    }
+
     /** 脚本：尖括号 + 斜杠。 */
     val Script: ImageVector by lazy {
         stroked(

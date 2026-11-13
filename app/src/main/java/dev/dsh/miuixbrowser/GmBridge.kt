@@ -33,7 +33,6 @@ class GmBridge(
     private val onCloseTab: (id: String) -> Unit = {},
 ) {
 
-    private val prefs = context.getSharedPreferences("userscript_gm", Context.MODE_PRIVATE)
     private val pool = Executors.newCachedThreadPool()
     private val mainHandler = android.os.Handler(context.mainLooper)
 
@@ -46,23 +45,21 @@ class GmBridge(
     // ------------------------------------------------------------------ values
 
     @JavascriptInterface
-    fun getValue(scriptId: String, key: String): String? = prefs.getString("$scriptId::$key", null)
+    fun getValue(scriptId: String, key: String): String? = GmStore.get(context, scriptId, key)
 
     @JavascriptInterface
     fun setValue(scriptId: String, key: String, value: String) {
-        prefs.edit().putString("$scriptId::$key", value).apply()
+        GmStore.set(context, scriptId, key, value)
     }
 
     @JavascriptInterface
     fun deleteValue(scriptId: String, key: String) {
-        prefs.edit().remove("$scriptId::$key").apply()
+        GmStore.delete(context, scriptId, key)
     }
 
     @JavascriptInterface
     fun listValues(scriptId: String): String {
-        val prefix = "$scriptId::"
-        val keys = prefs.all.keys.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
-        return JSONArray(keys).toString()
+        return JSONArray(GmStore.keys(context, scriptId)).toString()
     }
 
     /** 批量读取（值变化监听轮询用）：{ name: rawString }，不存在的键不出现在结果里 */
@@ -72,7 +69,7 @@ class GmBridge(
         val names = runCatching { JSONArray(namesJson) }.getOrNull() ?: return out.toString()
         for (i in 0 until names.length()) {
             val name = names.optString(i)
-            prefs.getString("$scriptId::$name", null)?.let { out.put(name, it) }
+            GmStore.get(context, scriptId, name)?.let { out.put(name, it) }
         }
         return out.toString()
     }

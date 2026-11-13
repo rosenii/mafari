@@ -6,9 +6,11 @@ import org.json.JSONObject
 import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.logging.HttpLoggingInterceptor
 import java.io.IOException
 import java.net.URLDecoder
 import java.text.SimpleDateFormat
@@ -82,9 +84,22 @@ class WebDavClient(private val config: WebDavConfig) {
     private val base: String = WebDavNames.normalizeBaseUrl(config.url) ?: throw WebDavException("服务器地址需以 http:// 或 https:// 开头")
 
     private val http = OkHttpClient.Builder()
+        // 强制 HTTP/1.1：部分 WebDAV 服务 / 前置代理在 HTTP/2 下处理 PUT 有问题（返回 405，或只创建 0 字节文件）
+        .protocols(listOf(Protocol.HTTP_1_1))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        .apply {
+            // 仅 debug：记录请求行与头（logcat 标签 OkHttp），Authorization 脱敏，不记录请求体（备份是二进制密文）
+            if (BuildConfig.DEBUG) {
+                addInterceptor(
+                    HttpLoggingInterceptor().apply {
+                        level = HttpLoggingInterceptor.Level.HEADERS
+                        redactHeader("Authorization")
+                    },
+                )
+            }
+        }
         .build()
 
     private fun request(url: String): Request.Builder {
@@ -159,17 +174,45 @@ class WebDavClient(private val config: WebDavConfig) {
         }
     }
 
-    /** 上传并清理旧备份；返回上传后的文件名。 */
+    /** 上传、校验大小并清理旧备份；返回上传后的文件名。 */
     fun upload(bytes: ByteArray, name: String = WebDavNames.newBackupName()): String {
         ensureDir()
+        val url = WebDavNames.fileUrl(base, name)
         val body = bytes.toRequestBody("application/octet-stream".toMediaType())
-        call(request(WebDavNames.fileUrl(base, name)).put(body).build()) {
-            if (it.code !in 200..204) fail(it.code, "上传备份")
+        call(request(url).put(body).build()) {
+            // 301/302/303 重定向会把 PUT 改成 GET，此时返回 200 但文件并没有上传
+            if (it.request.method != "PUT") {
+                throw WebDavException("服务器把上传请求重定向到了别处（HTTP ${it.code}），请检查地址是否缺少路径或应使用 https://")
+            }
+            when (it.code) {
+                in 200..204 -> Unit
+                405 -> throw WebDavException("服务器拒绝了上传请求（HTTP 405）：该地址可能不允许 PUT，或服务器 / 代理与应用的 WebDAV 请求不兼容")
+                else -> fail(it.code, "上传备份")
+            }
+        }
+        // 校验：服务器上的大小必须与本地一致；部分服务会「成功」但只留下 0 字节文件
+        val remoteSize = remoteSize(name)
+        if (remoteSize != null && remoteSize != bytes.size.toLong()) {
+            runCatching { delete(name) }
+            throw WebDavException("上传后校验失败：服务器上的文件为 $remoteSize 字节，应为 ${bytes.size} 字节")
         }
         // 清理失败不影响上传结果
         runCatching { listBackups().drop(WebDavNames.KEEP_BACKUPS).forEach { old -> delete(old) } }
         return name
     }
+
+    /** 读取服务器上某个备份的大小；服务器不返回 getcontentlength 时为 null（无法校验，视为通过）。 */
+    private fun remoteSize(name: String): Long? = runCatching {
+        val xml = """<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><getcontentlength/></prop></propfind>"""
+            .toRequestBody("application/xml".toMediaType())
+        val req = request(WebDavNames.fileUrl(base, name)).header("Depth", "0").method("PROPFIND", xml).build()
+        call(req) {
+            if (it.code != 207 && it.code != 200) return@call null
+            val text = it.body?.string().orEmpty()
+            Regex("""<(?:\w+:)?getcontentlength[^>]*>\s*(\d+)\s*</""", RegexOption.IGNORE_CASE)
+                .find(text)?.groupValues?.get(1)?.toLongOrNull()
+        }
+    }.getOrNull()
 
     fun download(name: String): ByteArray {
         require(WebDavNames.isBackupName(name))

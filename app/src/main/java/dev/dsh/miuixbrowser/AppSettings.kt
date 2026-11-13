@@ -207,7 +207,7 @@ class AppSettings(context: Context) {
 
     /** 当前是否处于 Gecko 模式：选了 Gecko 且本机架构支持（不支持时新标签会自动退回 WebView） */
     val geckoMode: Boolean
-        get() = browserEngine == ENGINE_GECKO && GeckoRuntimeHolder.supported()
+        get() = browserEngine == ENGINE_GECKO && EngineSupport.geckoAvailable()
 
     fun updateBrowserEngine(engine: Int) {
         browserEngine = engine.coerceIn(ENGINE_WEBVIEW, ENGINE_GECKO)

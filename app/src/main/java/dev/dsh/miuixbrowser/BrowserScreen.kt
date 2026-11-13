@@ -375,6 +375,9 @@ fun BrowserScreen(
     var barMinimized by remember { mutableStateOf(false) }
     var favEditing by remember { mutableStateOf(false) }
     var showFavEditor by remember { mutableStateOf(false) }
+    var showBookmarkCreate by remember { mutableStateOf(false) }
+    var bookmarkPrefillName by remember { mutableStateOf("") }
+    var bookmarkPrefillUrl by remember { mutableStateOf("") }
     // 二级页面返回栈：官方 miuix-nav NavDisplay。栈底是浏览主界面。
     val backStack = remember { navBackStackOf(AppRoute.Browser) }
     fun pushPage(route: AppRoute) {
@@ -833,9 +836,9 @@ fun BrowserScreen(
         }
         tab.onUserScriptLink = { url -> pendingScript = url }
         tab.onExtensionLink = { link ->
-            val store = GeckoExtensionStore
-            // 拓展只属于 Gecko：WebView 标签不识别、不安装拓展链接
-            if (tab.isGecko && store.beginLinkInstall(link)) {
+            // 拓展只属于 Gecko：WebView 标签不识别、不安装拓展链接（无内核版里连 GeckoExtensionStore 都不碰）
+            val store = if (EngineSupport.GECKO_BUNDLED && tab.isGecko) GeckoExtensionStore else null
+            if (store != null && store.beginLinkInstall(link)) {
                 android.widget.Toast.makeText(context, "正在安装拓展…", android.widget.Toast.LENGTH_SHORT).show()
                 scope.launch {
                     try {
@@ -1050,6 +1053,7 @@ fun BrowserScreen(
                 tab.clearFind()
                 showFind = false
             }
+            showBookmarkCreate -> showBookmarkCreate = false
             showFavEditor -> showFavEditor = false
             sheet != Sheet.None -> sheet = Sheet.None
             tab.canGoBack -> tab.goBack()
@@ -1230,7 +1234,7 @@ fun BrowserScreen(
                         liquidBackdrop = if (settings.liquidGlass && wallpaperBitmap != null) wallpaperLiquidBackdrop else null,
                         order = settings.homeOrder,
                         onReorder = { settings.updateHomeOrder(it) },
-                        recent = history.items,
+                        recent = history.recent,
                         onOpenDownloads = { pushPage(AppRoute.Downloads) },
                         onHide = { kind ->
                             settings.updateHomeShow(kind, false)
@@ -1304,7 +1308,8 @@ fun BrowserScreen(
             // 按实际字体宽度计算地址栏所需空间：固定按钮区 + 地址文字 + 地址栏内边距。
             // 不设置人为最小宽度，短文字不会留下空白；只有屏幕可用宽度作为上限。
             val textMeasurer = rememberTextMeasurer()
-            val addressMeasureText = displayAddress.ifBlank { "搜索或输入网址" }
+            // 输入/编辑地址时不随输入内容动态缩放，宽度固定为「搜索或输入网址」占位文字的宽度
+            val addressMeasureText = if (editing) "搜索或输入网址" else displayAddress.ifBlank { "搜索或输入网址" }
             val measuredAddressPx = textMeasurer.measure(
                 text = AnnotatedString(addressMeasureText),
                 style = TextStyle(fontSize = 15.sp),
@@ -1313,7 +1318,8 @@ fun BrowserScreen(
             val measuredAddressWidth = with(LocalDensity.current) { measuredAddressPx.toDp() }
             val fixedToolbarWidth = 44.dp * 4 + 12.dp + 24.dp
             val loadingIndicatorWidth = if (tab.loading) 15.dp else 0.dp
-            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth
+            val refreshWidth = if (shouldShowAddressRefresh(displayAddress, tab.loading, editing)) AddressRefreshWidth else 0.dp
+            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth
             // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
             val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
             val animatedBarWidth by animateDpAsState(
@@ -1499,7 +1505,9 @@ fun BrowserScreen(
                     tab.captureThumbnailNow()
                     sheet = Sheet.Tabs
                 },
+                onNewTab = { state.newTab(incognito = tab.incognito) },
                 onMore = { sheet = Sheet.Menu },
+                onRefresh = { tab.reload() },
             )
                 }
                 } // end else (!barMinimized)
@@ -1609,7 +1617,7 @@ fun BrowserScreen(
                 Sheet.Link -> hostOf(linkUrl)
                 Sheet.Image -> "图片"
                 Sheet.Element -> "页面元素"
-                Sheet.Menu -> "菜单"
+                Sheet.Menu -> null // 更多菜单不显示标题
                 Sheet.Tabs -> null // 标签页自定义头部（渐进模糊 + 添加/删除）
                 else -> null
             },
@@ -1814,6 +1822,7 @@ fun BrowserScreen(
                                 }
                                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                             }
+                            MenuAction.Bookmarks -> pushPage(AppRoute.Library(0))
                             MenuAction.Share -> if (tab.url.isNotBlank()) {
                                 runCatching {
                                     context.startActivity(
@@ -1852,7 +1861,7 @@ fun BrowserScreen(
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
                     // 长按 0.65 秒（图标不动）：直接进入管理页；单击保持原有操作
-                    longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.GeckoExtensions),
+                    longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.Bookmarks, MenuAction.GeckoExtensions),
                     onLongPressAction = { action ->
                         when (action) {
                             MenuAction.ScriptMenu -> {
@@ -1862,6 +1871,13 @@ fun BrowserScreen(
                             MenuAction.Favorite -> {
                                 sheet = Sheet.None
                                 pushPage(AppRoute.Library(0))
+                            }
+                            // 长按「书签」：弹出新建书签弹窗，自动填入当前页标题和网址
+                            MenuAction.Bookmarks -> {
+                                sheet = Sheet.None
+                                bookmarkPrefillName = tab.title.ifBlank { hostOf(tab.url) }
+                                bookmarkPrefillUrl = tab.url
+                                showBookmarkCreate = true
                             }
                             MenuAction.GeckoExtensions ->
                                 if (!settings.geckoMode) {
@@ -2239,13 +2255,15 @@ fun BrowserScreen(
             )
         }
 
-        GeckoExtMenuSheet(
-            show = geckoExtSheetShow,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
-            activeSession = state.activeTab.geckoSession,
-            onOpenUrl = { url -> state.newTab(url, tab.incognito) },
-            onDismiss = { geckoExtSheetShow = false },
-        )
+        if (EngineSupport.GECKO_BUNDLED) {
+            GeckoExtMenuSheet(
+                show = geckoExtSheetShow,
+                backdrop = if (homeBlurAvailable) homeBackdrop else null,
+                activeSession = state.activeTab.geckoSession,
+                onOpenUrl = { url -> state.newTab(url, tab.incognito) },
+                onDismiss = { geckoExtSheetShow = false },
+            )
+        }
 
         ScriptMenuSheet(
             show = scriptSheetShow,
@@ -2394,6 +2412,22 @@ fun BrowserScreen(
             onNext = { tab.findNext(true) },
         )
 
+        FavoriteEditorDialog(
+            show = showBookmarkCreate,
+            initial = null,
+            groups = favorites.groups(),
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            liquidBackdrop = if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null,
+            prefillName = bookmarkPrefillName,
+            prefillUrl = bookmarkPrefillUrl,
+            onDismiss = { showBookmarkCreate = false },
+            onConfirm = { name, url, group ->
+                favorites.add(name, url, group)
+                showBookmarkCreate = false
+                android.widget.Toast.makeText(context, "添加书签成功", android.widget.Toast.LENGTH_SHORT).show()
+            },
+        )
+
         FavoriteEditor(
             show = showFavEditor,
             initial = favorites.items.getOrNull(editingFavIndex),
@@ -2439,6 +2473,14 @@ fun BrowserScreen(
             blurEnabled = settings.blurEnabled,
             updateChannel = settings.updateChannel,
             onUpdateChannelChange = { settings.updateUpdateChannel(it) },
+            onOpenPrivacyPolicy = { pushPage(AppRoute.PrivacyPolicyPage) },
+        )
+    }
+    entry<AppRoute.PrivacyPolicyPage> {
+        PrivacyPolicyScreen(
+            onBack = { popPage() },
+            onOpenUrl = { openInBrowser(it) },
+            blurEnabled = settings.blurEnabled,
         )
     }
     entry<AppRoute.Downloads> {

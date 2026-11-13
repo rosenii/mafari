@@ -20,7 +20,8 @@
 | 设备要求 | 所有支持的 Android 设备 | 内核仅 arm64-v8a；其它架构自动使用 WebView |
 | 扩展 | 油猴脚本 | 油猴脚本 + Firefox 扩展（AMO / `.xpi`） |
 | 去广告 | 内置规则引擎 | WebView 标签可用；Gecko 标签使用内置跟踪保护或自行安装 uBlock Origin |
-| 发布 | 打 tag 自动发布正式版 | `gecko` 分支每次构建发布预发布版 |
+| 安装包 | Release 里的 `Mafari-<版本>-lite.apk` | Release 里的 `Mafari-<版本>-gecko.apk` |
+| 发布 | 同一个 Release 同时带两个安装包：打 tag 发正式版，`gecko` 分支每次构建发预发布版 | 同左 |
 
 ## 社区
 
@@ -112,14 +113,32 @@
 ```bash
 # 需要 JDK 17+（推荐 21）、Android SDK（platforms;android-37.0、build-tools;36.0.0）
 # 根工程 Gradle 9.9.0；miuix 源码在 ./miuix，由 includeBuild 参与构建
-./gradlew :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleLiteDebug     # 无内核版 → app/build/outputs/apk/lite/debug/app-lite-debug.apk
+./gradlew :app:assembleGeckoDebug    # Gecko 版  → app/build/outputs/apk/gecko/debug/app-gecko-debug.apk
+./gradlew :app:assembleLiteRelease :app:assembleGeckoRelease   # 发布包（需签名环境变量，见下）
 ```
 
+两个版本是同一份源码的两个 product flavor（`app/build.gradle.kts`）：
+
+| | `lite`（无内核版） | `gecko`（Gecko 版） |
+| --- | --- | --- |
+| GeckoView 依赖 | 仅 `compileOnly`，**不进 APK** | `implementation` |
+| `BuildConfig.GECKO_ENABLED` | `false` | `true` |
+| ABI | arm64-v8a / armeabi-v7a / x86_64 | arm64-v8a |
+| Gecko 专属资源 | 不含（`src/gecko/assets`） | 含 |
+
+共用代码里凡是会走到 Gecko 类的地方都要先判断 `EngineSupport.GECKO_BUNDLED`（或 `EngineSupport.geckoAvailable()`），否则 lite 运行时会 `NoClassDefFoundError`。
+
 Gecko 版会从 Mozilla Maven 拉取 GeckoView Nightly；Nightly 的 Java API 偶尔变化，建议在 `gradle.properties` 锁定 `geckoViewVersion=<版本>`。
+两个版本默认使用同一个应用 ID（可互相覆盖升级）；想让它们能同时安装，加 `-PgeckoAppIdSuffix=.gecko`。
+
+### 应用内更新如何选包
+
+同一个 Release 里有 `-gecko.apk` 与 `-lite.apk` 两个安装包；应用内「检查更新」按当前安装包的变体（`BuildConfig.FLAVOR`）选择同名后缀的那个，不会把一个版本升级成另一个。改安装包命名时请同步 `AboutScreen.kt` 的 `pickApkUrl`。
 
 ### GitHub Actions 自动发布
 
-推 tag 即自动构建并创建 Release；`gecko` 分支每次构建发布预发布版：
+推 tag 即自动构建并创建 Release；`gecko` 分支每次构建发布预发布版。每次构建同时产出 Gecko 版与无内核版两个安装包（`Mafari-<标签>-gecko.apk`、`Mafari-<标签>-lite.apk`）并附 `SHA256SUMS.txt`：
 
 ```bash
 git tag v3.3.0 && git push origin v3.3.0
@@ -160,7 +179,8 @@ An Android browser built with **miuix** (Compose Multiplatform), available in tw
 | Device requirement | Any supported Android device | Gecko engine is arm64-v8a only; other ABIs fall back to WebView automatically |
 | Extensions | Userscripts | Userscripts + Firefox extensions (AMO / `.xpi`) |
 | Ad blocking | Built-in rule engine | Works in WebView tabs; Gecko tabs use built-in tracking protection or uBlock Origin |
-| Releases | Stable release on every tag | Pre-release on every build of the `gecko` branch |
+| APK | `Mafari-<version>-lite.apk` in each Release | `Mafari-<version>-gecko.apk` in each Release |
+| Releases | Every Release carries both APKs: stable release on every tag, pre-release on every build of the `gecko` branch | Same |
 
 ## Community
 
@@ -252,14 +272,20 @@ On top of the No-Engine Edition, it bundles **GeckoView Nightly** (arm64-v8a onl
 ```bash
 # Requires JDK 17+ (21 recommended) and the Android SDK (platforms;android-37.0, build-tools;36.0.0)
 # Root project uses Gradle 9.9.0; miuix sources live in ./miuix and are pulled in via includeBuild
-./gradlew :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleLiteDebug     # No-Engine Edition → app/build/outputs/apk/lite/debug/app-lite-debug.apk
+./gradlew :app:assembleGeckoDebug    # Gecko Edition     → app/build/outputs/apk/gecko/debug/app-gecko-debug.apk
+./gradlew :app:assembleLiteRelease :app:assembleGeckoRelease   # release builds (needs the signing env vars below)
 ```
 
-The Gecko Edition pulls GeckoView Nightly from Mozilla Maven. Nightly Java APIs change from time to time, so pinning `geckoViewVersion=<version>` in `gradle.properties` is recommended.
+The two editions are two product flavors of the same sources (`app/build.gradle.kts`): in `lite`, GeckoView is `compileOnly` (not packaged), `BuildConfig.GECKO_ENABLED` is `false`, and Gecko-only assets (`src/gecko/assets`) are excluded. Shared code that can reach a Gecko class must first check `EngineSupport.GECKO_BUNDLED` / `EngineSupport.geckoAvailable()`.
+
+The Gecko Edition pulls GeckoView Nightly from Mozilla Maven. Nightly Java APIs change from time to time, so pinning `geckoViewVersion=<version>` in `gradle.properties` is recommended. Both editions share one application ID by default (they upgrade over each other); pass `-PgeckoAppIdSuffix=.gecko` to install them side by side.
+
+In-app update checks pick the asset whose file name ends in the current flavor (`-gecko.apk` / `-lite.apk`), so one edition never upgrades into the other. Keep `AboutScreen.kt` `pickApkUrl` in sync if you rename the APKs.
 
 ### Automated releases with GitHub Actions
 
-Pushing a tag builds and publishes a Release; every build of the `gecko` branch publishes a pre-release:
+Pushing a tag builds and publishes a Release; every build of the `gecko` branch publishes a pre-release. Each run builds both editions (`Mafari-<label>-gecko.apk`, `Mafari-<label>-lite.apk`) plus `SHA256SUMS.txt`:
 
 ```bash
 git tag v3.3.0 && git push origin v3.3.0

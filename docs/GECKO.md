@@ -7,6 +7,10 @@
   两种内核只负责把各自的回调翻译成同一组 Compose 状态（url / title / progress / canGoBack …）。
 - 非 arm64-v8a 设备、或 Gecko 启动失败时，自动退回 WebView。
 
+## 构建变体
+
+本文档所述功能只在 **gecko 变体**里存在；**lite（无内核版）** 不打包 GeckoView（仅 `compileOnly`），共用代码用 `EngineSupport.GECKO_BUNDLED` 把 Gecko 分支挡在外面。新增共用代码若要引用 `Gecko*` 类，务必先判断它，详见 README「本地构建」。
+
 ## 代码结构
 
 | 文件 | 作用 |

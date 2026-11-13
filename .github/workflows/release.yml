@@ -2,7 +2,7 @@ name: Build & Release APK
 
 on:
   push:
-    branches: [ main, gecko ]
+    branches: [ main, gecko, dual ]
     tags: [ "v*" ]
   workflow_dispatch:
 
@@ -21,6 +21,11 @@ jobs:
       # tag → 正式 release；gecko 分支 → 预发布；其余只出 debug
       IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
       IS_GECKO_BRANCH: ${{ github.ref == 'refs/heads/gecko' }}
+      # dual 分支：同时构建 gecko + lite 两个变体，同样发预发布（tag 为 dual-<n>，不进应用内更新渠道、不抢 latest）
+      IS_DUAL_BRANCH: ${{ github.ref == 'refs/heads/dual' }}
+      # 预发布分支（gecko 或 dual）：tag 前缀 = 分支名
+      IS_PRE_BRANCH: ${{ github.ref == 'refs/heads/gecko' || github.ref == 'refs/heads/dual' }}
+      PRE_PREFIX: ${{ github.ref == 'refs/heads/dual' && 'dual' || 'gecko' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -59,61 +64,44 @@ jobs:
           ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
       - name: Prepare keystore
-        if: (env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
+        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > mafari-release.jks
 
+      # 两个变体一次编完（共用 miuix 与 Gradle 缓存）：
+      #   gecko = 内嵌 GeckoView 的双内核版；lite = 无内核版（只用系统 WebView）
       # main 或 无 keystore 的 gecko/tag：编 debug
-      - name: Build debug
-        if: env.IS_RELEASE_TAG != 'true' && env.IS_GECKO_BRANCH != 'true' || env.KEYSTORE_BASE64 == ''
-        run: bash ./gradlew :app:assembleDebug --stacktrace
+      - name: Build debug (gecko + lite)
+        if: env.IS_RELEASE_TAG != 'true' && env.IS_PRE_BRANCH != 'true' || env.KEYSTORE_BASE64 == ''
+        run: bash ./gradlew :app:assembleGeckoDebug :app:assembleLiteDebug --stacktrace
 
-      # tag 或 gecko 且有签名：编 release
-      - name: Build release
-        if: (env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
+      # tag 或 gecko 且有签名：编 release（Gradle 用 MAFARI_* 直接签名并 zipalign，无需再手工签）
+      - name: Build release (gecko + lite)
+        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
         env:
           MAFARI_KEYSTORE: mafari-release.jks
           MAFARI_STORE_PASS: ${{ secrets.STORE_PASSWORD }}
           MAFARI_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           MAFARI_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: bash ./gradlew :app:assembleRelease --stacktrace
+        run: bash ./gradlew :app:assembleGeckoRelease :app:assembleLiteRelease --stacktrace
 
-      - name: Sign APK
-        if: (env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
-        continue-on-error: true
-        env:
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          set +e
-          mkdir -p dist
-          SDK=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -1)
-          SRC=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null | head -1)
-          echo "release apk: [$SRC]"
-          if [ -z "$SRC" ]; then
-            echo "release 包缺失，改用 debug 包"
-            SRC=$(ls app/build/outputs/apk/debug/*.apk 2>/dev/null | head -1)
-          fi
-          echo "source apk: [$SRC]"
-          if [ -z "$SRC" ]; then echo "没有可签名的 APK"; exit 0; fi
-          cp "$SRC" dist/mafari-release-raw.apk
-          cp "$SRC" dist/app-release.apk
-          if [ -n "$STORE_PASSWORD" ] && [ -f mafari-release.jks ]; then
-            "$SDK/zipalign" -f 4 dist/mafari-release-raw.apk dist/mafari-aligned.apk
-            "$SDK/apksigner" sign --ks mafari-release.jks \
-              --ks-pass "pass:$STORE_PASSWORD" \
-              --key-pass "pass:$KEY_PASSWORD" \
-              --ks-key-alias "$KEY_ALIAS" \
-              --out dist/mafari-release-signed.apk dist/mafari-aligned.apk
-          fi
-          rm -f dist/mafari-release-raw.apk dist/mafari-aligned.apk
-          ls -lh dist
-
+      # 统一命名：Mafari-<标签>-<gecko|lite>.apk
+      # 应用内「检查更新」靠文件名里的 -gecko / -lite 选择与当前安装包同变体的那一个，改名请同步 AboutScreen.pickApkUrl
       - name: Collect APKs
         run: |
+          set -e
           mkdir -p dist
-          cp app/build/outputs/apk/debug/*.apk dist/ 2>/dev/null || true
+          if [ "$IS_RELEASE_TAG" = "true" ]; then LABEL="$GITHUB_REF_NAME"
+          elif [ "$IS_PRE_BRANCH" = "true" ]; then LABEL="$PRE_PREFIX-$GITHUB_RUN_NUMBER"
+          else LABEL="$(echo "$GITHUB_SHA" | cut -c1-7)-debug"; fi
+          if [ -f mafari-release.jks ] && { [ "$IS_RELEASE_TAG" = "true" ] || [ "$IS_PRE_BRANCH" = "true" ]; }; then TYPE=release; else TYPE=debug; fi
+          echo "label=$LABEL type=$TYPE"
+          for FLAVOR in gecko lite; do
+            SRC=$(ls app/build/outputs/apk/$FLAVOR/$TYPE/*.apk 2>/dev/null | head -1)
+            if [ -z "$SRC" ]; then echo "::error::缺少 $FLAVOR/$TYPE 的 APK"; exit 1; fi
+            cp "$SRC" "dist/Mafari-$LABEL-$FLAVOR.apk"
+          done
+          (cd dist && sha256sum Mafari-*.apk > SHA256SUMS.txt)
           ls -lh dist
 
       - name: Upload artifacts
@@ -125,13 +113,13 @@ jobs:
 
       # tag 用 CHANGELOG 对应小节；gecko 分支写预发布说明
       - name: Prepare release notes
-        if: env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true'
+        if: env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true'
         run: |
           python3 - <<'PY'
           import os, re, pathlib
 
           ref_name = os.environ.get("GITHUB_REF_NAME", "")
-          is_gecko = os.environ.get("IS_GECKO_BRANCH") == "true"
+          is_gecko = os.environ.get("IS_PRE_BRANCH") == "true"
           run_no = os.environ.get("GITHUB_RUN_NUMBER", "")
           sha = os.environ.get("GITHUB_SHA", "")[:7]
 
@@ -141,11 +129,12 @@ jobs:
               text = p.read_text(encoding="utf-8")
 
           if is_gecko:
-              header = f"## 预发布 gecko-{run_no}\n\n"
+              prefix = os.environ.get("PRE_PREFIX", "gecko")
+              header = f"## 预发布 {prefix}-{run_no}\n\n"
               body = (
-                  "来自 `gecko` 分支的自动预发布构建。\n\n"
+                  f"来自 `{prefix}` 分支的自动预发布构建。\n\n"
                   f"- 提交：`{sha}`\n"
-                  f"- 分支：`gecko`\n"
+                  f"- 分支：`{prefix}`\n"
               )
           else:
               ver = ref_name[1:] if ref_name.startswith("v") else ref_name
@@ -159,35 +148,42 @@ jobs:
               if not body:
                   body = "见 CHANGELOG.md 与提交历史。"
 
-          out = header + body
+          variants = (
+              "\n\n**安装包说明**\n\n"
+              "- `-gecko.apk`：Gecko 版，内嵌 GeckoView（Nightly），WebView / Gecko 双内核，仅 arm64-v8a 设备\n"
+              "- `-lite.apk`：无内核版，不内嵌浏览器内核，只用系统 WebView，体积小、适用所有设备\n"
+          )
+          out = header + body + variants
           pathlib.Path("dist/RELEASE_NOTES.md").write_text(out + "\n", encoding="utf-8")
           print(out)
           PY
 
       - name: Create GitHub Release
-        if: env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true'
+        if: env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true'
         id: release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/*.apk
+          files: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
           body_path: dist/RELEASE_NOTES.md
           generate_release_notes: true
           # tag 用 tag 名；gecko 自动生成 gecko-<run_number> 作为 tag
-          tag_name: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('gecko-{0}', github.run_number) }}
+          tag_name: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('{0}-{1}', env.PRE_PREFIX, github.run_number) }}
           # gecko 分支标预发布；不抢 latest
-          prerelease: ${{ env.IS_GECKO_BRANCH == 'true' }}
-          make_latest: ${{ env.IS_GECKO_BRANCH == 'true' && 'false' || 'true' }}
+          prerelease: ${{ env.IS_PRE_BRANCH == 'true' }}
+          make_latest: ${{ env.IS_PRE_BRANCH == 'true' && 'false' || 'true' }}
 
       # 同步推送到 Telegram 频道（正式版 + 预发布）。
       # 需要 Secrets：TELEGRAM_BOT_TOKEN（机器人需是频道管理员）；TELEGRAM_CHAT_ID 可选，默认 @mafari_a。
       # 没配 token 就跳过；推送失败不影响发布（continue-on-error）。
       - name: Notify Telegram
-        if: (env.IS_RELEASE_TAG == 'true' || env.IS_GECKO_BRANCH == 'true') && env.TG_TOKEN != ''
+        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.TG_TOKEN != ''
         continue-on-error: true
         env:
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID || '@mafari_a' }}
           RELEASE_URL: ${{ steps.release.outputs.url }}
-          TAG_NAME: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('gecko-{0}', github.run_number) }}
+          TAG_NAME: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('{0}-{1}', env.PRE_PREFIX, github.run_number) }}
         run: |
           python3 - <<'PY'
           import glob, html, json, os, pathlib, re, subprocess
@@ -195,7 +191,7 @@ jobs:
           token = os.environ["TG_TOKEN"]
           chat = os.environ["TG_CHAT"]
           tag = os.environ["TAG_NAME"]
-          is_gecko = os.environ.get("IS_GECKO_BRANCH") == "true"
+          is_gecko = os.environ.get("IS_PRE_BRANCH") == "true"
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           url = os.environ.get("RELEASE_URL") or f"https://github.com/{repo}/releases/tag/{tag}"
           api = f"https://api.telegram.org/bot{token}"
@@ -234,20 +230,19 @@ jobs:
               return cut + "\n…"
 
           title = f"🧪 Mafari 预发布 {tag}" if is_gecko else f"🚀 Mafari {tag}"
+          # 两个变体（gecko / lite）都发；超过 Bot API 上限的只在消息里给下载链接
           apks = sorted(glob.glob("dist/*.apk"))
-          pick = next((a for a in apks if a.endswith("mafari-release-signed.apk")), None) \
-              or next((a for a in apks if a.endswith("app-release.apk")), None) \
-              or (apks[0] if apks else None)
-          too_big = bool(pick) and os.path.getsize(pick) > LIMIT
+          sendable = [a for a in apks if os.path.getsize(a) <= LIMIT]
+          too_big = len(sendable) < len(apks)
 
           raw_tail = f"\n\n下载 / Download: {url}"
           if too_big:
-              raw_tail += "\n（安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
+              raw_tail += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
           body = clip(notes, 3200)
           html_text = f"<b>{html.escape(title)}</b>\n\n{to_html(body)}" if body else f"<b>{html.escape(title)}</b>"
           html_text += f'\n\n<a href="{html.escape(url)}">下载 / Download</a>'
           if too_big:
-              html_text += "\n（安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
+              html_text += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
 
           res = call("sendMessage", {
               "chat_id": chat, "text": html_text, "parse_mode": "HTML",
@@ -261,9 +256,11 @@ jobs:
               })
           print("sendMessage:", res.get("ok"), res.get("description", ""))
 
-          if pick and not too_big:
-              res = call("sendDocument", {"chat_id": chat, "caption": title}, {"document": pick})
-              print("sendDocument:", os.path.basename(pick), res.get("ok"), res.get("description", ""))
-          if not res.get("ok"):
+          ok_all = True
+          for apk in sendable:
+              res = call("sendDocument", {"chat_id": chat, "caption": f"{title}\n{os.path.basename(apk)}"}, {"document": apk})
+              print("sendDocument:", os.path.basename(apk), res.get("ok"), res.get("description", ""))
+              ok_all = ok_all and bool(res.get("ok"))
+          if not (res.get("ok") and ok_all):
               raise SystemExit(1)
           PY

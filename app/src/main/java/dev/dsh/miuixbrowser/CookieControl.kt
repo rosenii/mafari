@@ -66,6 +66,7 @@ object CookieControl {
 
     /** 记录 Gecko 偏好（Gecko 未启动时只记录，运行时创建后由 [GeckoPrefs.flush] 写入） */
     fun pushGecko(context: Context) {
+        if (!EngineSupport.GECKO_BUNDLED) return // 无内核版：没有 Gecko，不碰 GeckoPrefs
         load(context)
         GeckoPrefs.set("cookiebanners.service.mode", banner)
         GeckoPrefs.set("cookiebanners.service.mode.privateBrowsing", banner)

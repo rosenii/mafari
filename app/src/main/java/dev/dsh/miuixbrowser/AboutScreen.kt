@@ -77,6 +77,7 @@ fun AboutScreen(
     blurEnabled: Boolean = true,
     updateChannel: Int = 0,
     onUpdateChannelChange: (Int) -> Unit = {},
+    onOpenPrivacyPolicy: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // 优先交给已安装的 Telegram 客户端（不能用无包名的 ACTION_VIEW：本应用自己可能就是默认浏览器），都没有再用应用内标签打开
@@ -200,7 +201,8 @@ fun AboutScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "版本 " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")",
+                        text = "版本 " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ") · " +
+                            (if (EngineSupport.GECKO_BUNDLED) "Gecko 版" else "无内核版"),
                         fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
@@ -257,7 +259,7 @@ fun AboutScreen(
                         onSelectedIndexChange = onUpdateChannelChange,
                     )
                     AboutRow("WebView 内核版本", kernel)
-                    AboutRow("GeckoView 内核版本", geckoKernel ?: "未知")
+                    if (EngineSupport.GECKO_BUNDLED) AboutRow("GeckoView 内核版本", geckoKernel ?: "未知")
                 }
 
                 SmallTitle(text = "加密算法")
@@ -361,6 +363,29 @@ fun AboutScreen(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = DONATE_SUMMARY,
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+
+                SmallTitle(text = "法律")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenPrivacyPolicy() }
+                            .padding(16.dp),
+                    ) {
+                        Text("隐私政策", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "本地存储的数据、网络请求与权限说明",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -540,6 +565,27 @@ private fun fetchReleasePage(url: String): org.json.JSONArray? = runCatching {
     }
 }.getOrNull()
 
+/** APK 文件名里的变体标记：`Mafari-<版本>-gecko.apk` / `Mafari-<版本>-lite.apk`（见 release.yml） */
+private fun apkFlavorOf(name: String): String? =
+    Regex("[-_.](gecko|lite)(?=[-_.])", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.lowercase()
+
+/**
+ * 同一个 release 里同时带 gecko / lite 两个安装包：只下载与当前安装包同变体的那个，
+ * 否则会把有内核版「升级」成无内核版（或反过来）。
+ * 优先同变体；其次是文件名不带变体标记的旧版附件；只剩另一变体时返回 null（界面回落为「查看更新」打开发布页）。
+ */
+internal fun pickApkUrl(assets: org.json.JSONArray?, flavor: String): String? {
+    if (assets == null) return null
+    val apks = ArrayList<Pair<String, String>>()
+    for (j in 0 until assets.length()) {
+        val a = assets.optJSONObject(j) ?: continue
+        val link = a.optString("browser_download_url", "")
+        if (link.endsWith(".apk", ignoreCase = true)) apks.add(a.optString("name", link.substringAfterLast('/')) to link)
+    }
+    return apks.firstOrNull { apkFlavorOf(it.first) == flavor }?.second
+        ?: apks.firstOrNull { apkFlavorOf(it.first) == null }?.second
+}
+
 /** 一条 release → AppRelease；草稿 / 不属于该分支的返回 null */
 private fun parseRelease(o: org.json.JSONObject, channel: Int): AppRelease? {
     if (o.optBoolean("draft", false)) return null
@@ -548,17 +594,7 @@ private fun parseRelease(o: org.json.JSONObject, channel: Int): AppRelease? {
     // gecko 渠道：只看 GitHub 标为「预发布」的
     if (channel == 2 && !o.optBoolean("prerelease", false)) return null
     val pageUrl = o.optString("html_url", "").ifBlank { PROJECT_URL + "/releases" }
-    var apkUrl: String? = null
-    val assets = o.optJSONArray("assets")
-    if (assets != null) {
-        for (j in 0 until assets.length()) {
-            val link = assets.optJSONObject(j)?.optString("browser_download_url", "").orEmpty()
-            if (link.endsWith(".apk", ignoreCase = true)) {
-                apkUrl = link
-                break
-            }
-        }
-    }
+    val apkUrl = pickApkUrl(o.optJSONArray("assets"), BuildConfig.FLAVOR)
     return AppRelease(
         version = tag,
         pageUrl = pageUrl,
@@ -592,6 +628,8 @@ private fun AboutRow(title: String, value: String) {
 private val DEP_GROUP_TITLES = mapOf(
     "ui" to "界面",
     "androidx" to "AndroidX",
+    "storage" to "本地存储",
+    "engine" to "内核与加密",
     "sync" to "云同步",
     "build" to "构建工具链",
     "kem" to "密钥封装（后量子混合）",

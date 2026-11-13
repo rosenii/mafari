@@ -14,6 +14,9 @@ sealed interface AppRoute : NavKey {
     data object Settings : AppRoute
     data object About : AppRoute
     data object Downloads : AppRoute
+
+    /** 关于 → 隐私政策 */
+    data object PrivacyPolicyPage : AppRoute
     data object Extensions : AppRoute
 
     /** Gecko 专属「拓展」页（WebExtension：商店搜索 / 导入 / 管理） */

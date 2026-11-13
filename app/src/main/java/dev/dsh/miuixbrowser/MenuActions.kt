@@ -31,6 +31,7 @@ enum class MenuAction(
     Find("find", "页内查找", MiuixIcons.Glass.Search),
     Translate("translate", "翻译", MiuixIcons.Glass.Translate),
     Favorite("favorite", "收藏", MiuixIcons.Glass.Favorites),
+    Bookmarks("bookmarks", "书签", AppIcons.Bookmark),
     Share("share", "分享", MiuixIcons.Glass.Share),
     Refresh("refresh", "刷新", MiuixIcons.Glass.Refresh),
     CopyLink("copy", "复制链接", MiuixIcons.Glass.Copy),
@@ -72,6 +73,11 @@ class MenuOrderStore(context: Context) {
             val after = order.indexOf(MenuAction.ScriptMenu)
             order.add(if (after >= 0) after + 1 else order.size, MenuAction.GeckoExtensions)
         }
+        // 无内核版没有拓展功能：菜单里不出现「拓展」（含旧备份 / 偏好里残留的）
+        if (!EngineSupport.GECKO_BUNDLED) {
+            order.remove(MenuAction.GeckoExtensions)
+            hidden.remove(MenuAction.GeckoExtensions)
+        }
     }
 
     /** 把 [action] 放到显示区 / 隐藏区的第 [toIndex] 位；「设置」不允许隐藏，避免找不到入口 */
@@ -97,6 +103,7 @@ class MenuOrderStore(context: Context) {
             MenuAction.Favorite, MenuAction.History, MenuAction.Desktop, MenuAction.Settings,
             MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
             MenuAction.Home, MenuAction.ScriptMenu, MenuAction.GeckoExtensions, MenuAction.Refresh,
+            MenuAction.Bookmarks,
         )
 
         private const val KEY = "order"

@@ -31,6 +31,12 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.state.ToggleableState
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Checkbox
+import top.yukonga.miuix.kmp.icon.glass.Delete
+import java.util.Calendar
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -194,6 +200,11 @@ fun DownloadsScreen(
     val liquid = if (glass) liquidBackdrop else null
     var pendingDelete by remember { mutableStateOf<DownloadTask?>(null) }
     val deleteTask = pendingDelete
+    var showClearAll by remember { mutableStateOf(false) }
+    // 「同时删除本地文件」勾选项，每次打开删除弹窗都重置为不勾选
+    var deleteLocal by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val groups = groupByDay(tasks.toList())
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
@@ -278,11 +289,33 @@ fun DownloadsScreen(
                         }
                     } else {
                         item {
-                            SmallTitle(text = "文件下载")
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(end = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                SmallTitle(text = "下载文件", modifier = Modifier.weight(1f))
+                                IconButton(onClick = {
+                                    deleteLocal = false
+                                    showClearAll = true
+                                }) {
+                                    Icon(
+                                        imageVector = MiuixIcons.Glass.Delete,
+                                        contentDescription = "清空下载记录",
+                                        tint = Color(0xFFE53935),
+                                    )
+                                }
+                            }
                         }
                     }
-                    items(tasks.size) { index ->
-                        val task = tasks[index]
+                    groups.forEach { group ->
+                    item(key = "day-${group.key}") {
+                        SmallTitle(
+                            text = group.label,
+                            insideMargin = PaddingValues(28.dp, 6.dp, 28.dp, 4.dp),
+                        )
+                    }
+                    items(group.tasks.size, key = { group.tasks[it].id }) { index ->
+                        val task = group.tasks[index]
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -338,20 +371,43 @@ fun DownloadsScreen(
                                         )
                                     }
                                     }
+                                    // 操作按钮与左侧文字（15sp + 12sp 两行）协调：32dp 触控区 + 18dp 图标，
+                                    // 不再用默认的 40dp / 24dp（比文字行明显大一圈）
+                                    val actionBtn = 32.dp
+                                    val actionIcon = Modifier.size(18.dp)
                                     when (task.state) {
-                                        DownloadState.RUNNING -> IconButton(onClick = { Downloader.pause(task.id) }) {
-                                            Icon(imageVector = MiuixIcons.Glass.Pause, contentDescription = "暂停")
+                                        DownloadState.RUNNING -> IconButton(
+                                            onClick = { Downloader.pause(task.id) },
+                                            minWidth = actionBtn,
+                                            minHeight = actionBtn,
+                                        ) {
+                                            Icon(imageVector = MiuixIcons.Glass.Pause, contentDescription = "暂停", modifier = actionIcon)
                                         }
-                                        DownloadState.PAUSED -> IconButton(onClick = { Downloader.resume(context, task.id) }) {
-                                            Icon(imageVector = MiuixIcons.Glass.Play, contentDescription = "继续")
+                                        DownloadState.PAUSED -> IconButton(
+                                            onClick = { Downloader.resume(context, task.id) },
+                                            minWidth = actionBtn,
+                                            minHeight = actionBtn,
+                                        ) {
+                                            Icon(imageVector = MiuixIcons.Glass.Play, contentDescription = "继续", modifier = actionIcon)
                                         }
-                                        DownloadState.FAILED -> IconButton(onClick = { Downloader.retry(context, task.id) }) {
-                                            Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = "重试")
+                                        DownloadState.FAILED -> IconButton(
+                                            onClick = { Downloader.retry(context, task.id) },
+                                            minWidth = actionBtn,
+                                            minHeight = actionBtn,
+                                        ) {
+                                            Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = "重试", modifier = actionIcon)
                                         }
                                         DownloadState.DONE -> Unit
                                     }
-                                    IconButton(onClick = { pendingDelete = task }) {
-                                        Icon(imageVector = MiuixIcons.Glass.Close, contentDescription = "删除")
+                                    IconButton(
+                                        onClick = {
+                                            deleteLocal = false
+                                            pendingDelete = task
+                                        },
+                                        minWidth = actionBtn,
+                                        minHeight = actionBtn,
+                                    ) {
+                                        Icon(imageVector = MiuixIcons.Glass.Close, contentDescription = "删除", modifier = actionIcon)
                                     }
                                 }
                                 if (task.state == DownloadState.RUNNING || task.state == DownloadState.PAUSED) {
@@ -364,6 +420,7 @@ fun DownloadsScreen(
                             }
                         }
                     }
+                    }
                 }
             }
         }
@@ -371,32 +428,142 @@ fun DownloadsScreen(
         AppGlassDialog(
             show = deleteTask != null,
             title = "删除文件",
-            summary = deleteTask?.let { it.name + "\n\n会同时删除本地文件" },
+            summary = deleteTask?.let {
+                if (it.state == DownloadState.DONE) it.name else it.name + "\n\n将取消下载并清除未完成的临时数据"
+            },
             backdrop = if (glass) backdrop else null,
             onDismissRequest = { pendingDelete = null },
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                AppDialogButton(
-                    onClick = { pendingDelete = null },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 只有已完成的任务才有「本地文件」可选；未完成的残缺文件一律清掉
+                if (deleteTask?.state == DownloadState.DONE) {
+                    DeleteLocalFileRow(checked = deleteLocal, onToggle = { deleteLocal = !deleteLocal })
+                    Spacer(Modifier.height(8.dp))
                 }
-                AppDialogButton(
-                    onClick = {
-                        deleteTask?.let { Downloader.delete(context, it.id) }
-                        pendingDelete = null
-                    },
-                    modifier = Modifier.weight(1f),
-                    role = GlassDialogButtonRole.Destructive,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(text = "删除", style = MiuixTheme.textStyles.button)
+                    AppDialogButton(
+                        onClick = { pendingDelete = null },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    }
+                    AppDialogButton(
+                        onClick = {
+                            val target = deleteTask
+                            val withFile = deleteLocal
+                            pendingDelete = null
+                            if (target != null) Downloader.delete(context, target.id, withFile)
+                        },
+                        modifier = Modifier.weight(1f),
+                        role = GlassDialogButtonRole.Destructive,
+                    ) {
+                        Text(text = "删除", style = MiuixTheme.textStyles.button)
+                    }
+                }
+            }
+        }
+
+        AppGlassDialog(
+            show = showClearAll,
+            title = "清空下载记录",
+            summary = "将清空全部 ${tasks.size} 条下载记录，进行中的任务会被取消",
+            backdrop = if (glass) backdrop else null,
+            onDismissRequest = { showClearAll = false },
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                DeleteLocalFileRow(checked = deleteLocal, onToggle = { deleteLocal = !deleteLocal })
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AppDialogButton(
+                        onClick = { showClearAll = false },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    }
+                    AppDialogButton(
+                        onClick = {
+                            val ids = tasks.map { it.id }
+                            val withFile = deleteLocal
+                            showClearAll = false
+                            // 文件多时逐个删系统文件可能较慢，放到 IO 线程
+                            scope.launch(Dispatchers.IO) {
+                                ids.forEach { Downloader.delete(context, it, withFile) }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        role = GlassDialogButtonRole.Destructive,
+                    ) {
+                        Text(text = "清空", style = MiuixTheme.textStyles.button)
+                    }
                 }
             }
         }
     }
     }
+}
+
+/** 删除弹窗里的「同时删除本地文件」勾选行（默认不勾选） */
+@Composable
+private fun DeleteLocalFileRow(checked: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onToggle)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            state = if (checked) ToggleableState.On else ToggleableState.Off,
+            onClick = onToggle,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "同时删除本地文件",
+            fontSize = 15.sp,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+private class DayGroup(val key: Int, val label: String, val tasks: List<DownloadTask>)
+
+/**
+ * 按下载日期（本地时区）分组，新的在前。任务 id = 创建时刻毫秒 × 1000 + 序号，
+ * 所以 id / 1000 就是下载开始时间，不用改持久化格式，旧任务也能分组。
+ */
+private fun groupByDay(tasks: List<DownloadTask>): List<DayGroup> {
+    fun dayKey(c: Calendar) = c.get(Calendar.YEAR) * 1000 + c.get(Calendar.DAY_OF_YEAR)
+    val now = Calendar.getInstance()
+    val todayKey = dayKey(now)
+    val yesterdayKey = dayKey(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) })
+    val cal = Calendar.getInstance()
+    val buckets = LinkedHashMap<Int, Pair<String, MutableList<DownloadTask>>>()
+    tasks.sortedByDescending { it.id }.forEach { task ->
+        val ms = task.id / 1000
+        val key: Int
+        val label: String
+        if (ms < 946684800000L) { // 2000 年以前：旧版本留下的无效 id，没有可靠时间
+            key = 0
+            label = "更早"
+        } else {
+            cal.timeInMillis = ms
+            key = dayKey(cal)
+            label = when {
+                key == todayKey -> "今天"
+                key == yesterdayKey -> "昨天"
+                cal.get(Calendar.YEAR) == now.get(Calendar.YEAR) ->
+                    "${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日"
+                else -> "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日"
+            }
+        }
+        buckets.getOrPut(key) { label to mutableListOf() }.second.add(task)
+    }
+    return buckets.map { (k, v) -> DayGroup(k, v.first, v.second) }
 }

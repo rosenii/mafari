@@ -24,3 +24,6 @@
 -keep class org.eclipse.jgit.** { *; }
 -keep class com.jcraft.jsch.** { *; }
 -dontwarn com.jcraft.jsch.**
+# SQLCipher（历史记录库）：JNI 按名字回调 Java 类，混淆会直接崩
+-keep class net.zetetic.database.** { *; }
+-dontwarn net.zetetic.**

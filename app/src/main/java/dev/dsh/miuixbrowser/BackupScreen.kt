@@ -132,6 +132,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     val liquid = if (glass) liquidBackdrop else null
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
+    var showLockInfo by remember { mutableStateOf(false) }
     val sheetBackdrop = if (glass) backdrop else null
 
     var showDefaultPw by remember { mutableStateOf(false) }
@@ -380,9 +381,19 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     backButton = {
                         LiquidGlassBackButton(backdrop = liquid, surfaceVisible = topScrolled, onClick = onBack)
                     },
+                    actions = {
+                        EncryptionLockButton(onClick = { showLockInfo = true }, liquid = liquid, topScrolled = topScrolled)
+                    },
                 )
             },
         ) { innerPadding ->
+            EncryptionInfoDialog(
+                show = showLockInfo,
+                onDismiss = { showLockInfo = false },
+                backdrop = backdrop,
+                liquid = liquid,
+                scope = "备份文件：Argon2id 口令 + 套件加密；同步凭据：套件加密",
+            )
             Column(
                 modifier = Modifier
                     .fillMaxSize()

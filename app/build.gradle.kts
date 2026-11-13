@@ -12,9 +12,12 @@ val coreKtxVersion = "1.19.1"
 val webkitVersion = "1.18.0"
 val credentialsVersion = "1.6.0"
 val browserVersion = "1.10.0"
+// 历史 / 书签 / 脚本的加密库：SQLCipher（AES-256 整库加密）及其接口依赖 androidx.sqlite
+val sqlcipherVersion = "4.14.1"
+val sqliteVersion = "2.4.0"
 // 加密引擎：ML-KEM-768（FIPS 203）与 X25519 用 BouncyCastle 轻量 API（需 ≥ 1.79 才有 ML-KEM）
 val bouncyCastleVersion = "1.82"
-val okhttpVersion = "4.12.0"
+val okhttpVersion = "5.5.1"
 // Git 同步：JGit 5.13 是最后一个面向 Java 8 的版本，Android 上可用（6.x 起要求 Java 11）
 val jgitVersion = "5.13.3.202401111512-r"
 // Deploy key（SSH）：JGit 的 JSch 传输 + mwiede 维护的 JSch 分支（同包名直接替换，支持 ed25519 / rsa-sha2；原版 0.1.55 连 GitHub 已不可用）
@@ -27,10 +30,11 @@ val geckoViewVersion = (project.findProperty("geckoViewVersion") as String?) ?: 
 // Gradle 版本在 gradle/wrapper/gradle-wrapper.properties；升级时请同步这里，仅用于「关于」页展示
 val kotlinVersion = "2.4.21"
 val composeMultiplatformVersion = "1.12.2"
-val agpVersion = "9.5.0"
+val agpVersion = "9.5.1"
 
 // 格式：分组|名称|版本;分组|名称|版本…（分组用 ASCII 标识，界面文案由 AboutScreen 映射）
-val dependencyVersions = listOf(
+// withGecko：无内核版（lite）不带 GeckoView，不在「依赖版本」里展示它
+fun dependencyVersionsOf(withGecko: Boolean): String = listOfNotNull(
     Triple("ui", "miuix-glass", miuixVersion),
     Triple("ui", "Backdrop", backdropVersion),
     Triple("ui", "Compose Multiplatform", composeMultiplatformVersion),
@@ -40,7 +44,12 @@ val dependencyVersions = listOf(
     Triple("androidx", "Credentials", credentialsVersion),
     Triple("androidx", "Browser", browserVersion),
     Triple("androidx", "NavigationEvent", navigationEventVersion),
+    Triple("androidx", "SQLite", sqliteVersion),
+    Triple("storage", "SQLCipher", sqlcipherVersion),
+    if (withGecko) Triple("engine", "GeckoView", if (geckoViewVersion == "+") "nightly（最新）" else geckoViewVersion) else null,
+    Triple("engine", "BouncyCastle", bouncyCastleVersion),
     Triple("sync", "OkHttp（WebDAV）", okhttpVersion),
+    Triple("sync", "OkHttp Logging", okhttpVersion),
     // JGit 完整版本号带构建时间戳（5.13.3.202401111512-r），界面只展示 5.13.3
     Triple("sync", "JGit（Git）", jgitVersion.substringBefore("-r").substringBeforeLast('.')),
     Triple("sync", "JSch（SSH）", jschVersion),
@@ -73,17 +82,40 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 10087
-        versionName = "v99.1.87"
+        versionCode = 2100
+        versionName = "v2.1-dual"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
         } else 0
         buildConfigField("int", "GECKO_BUILD", geckoBuild.toString())
-        buildConfigField("String", "DEP_VERSIONS", "\"$dependencyVersions\"")
         buildConfigField("String", "CRYPTO_ALGORITHMS", "\"$cryptoAlgorithms\"")
-        // GeckoView nightly 只发布 arm64-v8a 单架构包；其余 ABI 的设备仍可用 WebView 内核
-        ndk { abiFilters += "arm64-v8a" }
+    }
+
+    // ---- 两个发布变体（product flavor）----
+    //  gecko：内嵌 GeckoView（Nightly，仅 arm64-v8a），WebView / Gecko 双内核
+    //  lite ：无内核版，不打包任何浏览器内核，只用系统 WebView；体积小，支持所有 ABI
+    // 共用同一份源码：lite 里 GeckoView 只以 compileOnly 参与编译（见 dependencies），运行时不存在，
+    // 共用代码通过 BuildConfig.GECKO_ENABLED（EngineSupport.GECKO_BUNDLED）保证不会走到 Gecko 类。
+    // Gecko 专属资源放在 src/gecko/assets，lite 不会打进包。
+    flavorDimensions += "engine"
+    productFlavors {
+        create("gecko") {
+            dimension = "engine"
+            // 可选：-PgeckoAppIdSuffix=.gecko 让两个版本能同时安装（默认不加后缀，保持与历史安装包同一个应用 ID，可直接覆盖升级）
+            (project.findProperty("geckoAppIdSuffix") as String?)?.takeIf { it.isNotBlank() }?.let { applicationIdSuffix = it }
+            buildConfigField("boolean", "GECKO_ENABLED", "true")
+            buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(true)}\"")
+            // GeckoView nightly 只发布 arm64-v8a 单架构包；其余 ABI 的设备无法安装 Gecko 版，请用 lite
+            ndk { abiFilters += "arm64-v8a" }
+        }
+        create("lite") {
+            dimension = "engine"
+            buildConfigField("boolean", "GECKO_ENABLED", "false")
+            buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(false)}\"")
+            // 只有 SQLCipher 带 so；覆盖常见架构（含模拟器 x86_64）
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        }
     }
 
     buildFeatures {
@@ -165,6 +197,8 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:$bouncyCastleVersion")
     // WebDAV 同步（PROPFIND / MKCOL 等扩展方法 HttpURLConnection 不支持）
     implementation("com.squareup.okhttp3:okhttp:$okhttpVersion")
+    // 日志拦截器：仅 debug 构建在 WebDavClient 里启用（脱敏 Authorization，不记录请求体）
+    implementation("com.squareup.okhttp3:logging-interceptor:$okhttpVersion")
     // Git 同步（纯 Java 实现，无需系统 git）
     implementation("org.eclipse.jgit:org.eclipse.jgit:$jgitVersion")
     implementation("org.eclipse.jgit:org.eclipse.jgit.ssh.jsch:$jgitVersion") {
@@ -172,8 +206,13 @@ dependencies {
     }
     implementation("com.github.mwiede:jsch:$jschVersion")
     testImplementation("junit:junit:4.13.2")
+    // 历史记录：SQLCipher 加密数据库（HistoryDb，整库 AES-256）；androidx.sqlite 是它的接口依赖
+    implementation("net.zetetic:sqlcipher-android:$sqlcipherVersion@aar")
+    implementation("androidx.sqlite:sqlite:$sqliteVersion")
     // 第二内核：GeckoView nightly（arm64-v8a）
-    implementation("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
+    // gecko 变体：正常打包；lite 变体：仅 compileOnly（让共用源码里的 Gecko 引用能通过编译），不进 APK
+    "geckoImplementation"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
+    "liteCompileOnly"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
 }
 
 // 动态版本（"+"）每 6 小时才重新解析一次，避免每次构建都访问网络

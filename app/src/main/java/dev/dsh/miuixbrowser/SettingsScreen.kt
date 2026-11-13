@@ -328,35 +328,38 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
-                    AppDropdownPreference(
-                        backdrop = if (glass) backdrop else null,
-                        title = "浏览器内核",
-                        summary = if (settings.browserEngine == ENGINE_GECKO) {
-                            "Gecko · 新建标签页生效"
-                        } else {
-                            "系统 WebView · 新建标签页生效"
-                        },
-                        items = listOf("WebView（系统）", "GeckoView（Nightly）"),
-                        selectedIndex = settings.browserEngine.coerceIn(0, 1),
-                        onSelectedIndexChange = { index ->
-                            if (index == ENGINE_GECKO && !GeckoRuntimeHolder.supported()) {
-                                Toast.makeText(context, "当前设备不是 arm64-v8a，无法使用 Gecko 内核", Toast.LENGTH_SHORT).show()
-                            } else if (index != settings.browserEngine) {
-                                settings.updateBrowserEngine(index)
-                                // 切 Gecko：记住当前状态并关闭去广告 / 隐私增强保护（脚本两种内核通用，保持不变）；切回 WebView：恢复切换前状态
-                                if (index == ENGINE_GECKO) {
-                                    settings.suspendForGecko()
-                                } else {
-                                    settings.resumeFromGecko()
+                    // 内核切换只在带 Gecko 的版本里出现；无内核版只有系统 WebView
+                    if (EngineSupport.GECKO_BUNDLED) {
+                        AppDropdownPreference(
+                            backdrop = if (glass) backdrop else null,
+                            title = "浏览器内核",
+                            summary = if (settings.browserEngine == ENGINE_GECKO) {
+                                "Gecko · 新建标签页生效"
+                            } else {
+                                "系统 WebView · 新建标签页生效"
+                            },
+                            items = listOf("WebView（系统）", "GeckoView（Nightly）"),
+                            selectedIndex = settings.browserEngine.coerceIn(0, 1),
+                            onSelectedIndexChange = { index ->
+                                if (index == ENGINE_GECKO && !EngineSupport.geckoAvailable()) {
+                                    Toast.makeText(context, "当前设备不是 arm64-v8a，无法使用 Gecko 内核", Toast.LENGTH_SHORT).show()
+                                } else if (index != settings.browserEngine) {
+                                    settings.updateBrowserEngine(index)
+                                    // 切 Gecko：记住当前状态并关闭去广告 / 隐私增强保护（脚本两种内核通用，保持不变）；切回 WebView：恢复切换前状态
+                                    if (index == ENGINE_GECKO) {
+                                        settings.suspendForGecko()
+                                    } else {
+                                        settings.resumeFromGecko()
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        "新建的标签页将使用 " + (if (index == ENGINE_GECKO) "Gecko" else "WebView") + " 内核",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
                                 }
-                                Toast.makeText(
-                                    context,
-                                    "新建的标签页将使用 " + (if (index == ENGINE_GECKO) "Gecko" else "WebView") + " 内核",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
                     // 按内核显示：拓展属于 Gecko；网页增强 / 去广告依赖 WebView 专有 API；脚本管理两种内核通用
                     EngineRow(visible = settings.geckoMode) {
                         SettingsRow(
@@ -435,7 +438,7 @@ fun SettingsScreen(
                                 // WebView 网页缓存要在主线程清；其余文件在 IO 线程删
                                 val clearWeb: () -> Unit = {
                                     runCatching { WebView(context.applicationContext).apply { clearCache(true); destroy() } }
-                                    GeckoRuntimeHolder.clearCaches()
+                                    if (EngineSupport.GECKO_BUNDLED) GeckoRuntimeHolder.clearCaches()
                                 }
                                 val freed = withContext(Dispatchers.IO) {
                                     CacheCleaner.cleanNow(context) { runBlocking(Dispatchers.Main) { clearWeb() } }

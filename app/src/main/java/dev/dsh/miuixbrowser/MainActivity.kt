@@ -87,19 +87,23 @@ class MainActivity : ComponentActivity() {
     /** 图标切换推迟到离开应用时再生效，避免正在前台的入口被停用导致界面被系统关掉 */
     // Gecko 前后台切换：退到后台前抓帧、停止后盖图、切回后撤图，避免切回应用时网页黑几秒
     override fun onPause() {
-        GeckoViewLifecycle.onPause()
+        if (EngineSupport.GECKO_BUNDLED) GeckoViewLifecycle.onPause()
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
-        GeckoViewLifecycle.onResume()
-        GeckoDebug.refreshSystemFont()
+        if (EngineSupport.GECKO_BUNDLED) {
+            GeckoViewLifecycle.onResume()
+            GeckoDebug.refreshSystemFont()
+        }
     }
 
     override fun onStop() {
-        GeckoViewLifecycle.onStop()
+        if (EngineSupport.GECKO_BUNDLED) GeckoViewLifecycle.onStop()
         super.onStop()
+        FavoritesStore.flushCurrent()
+        ExtensionStore.flushCurrent()
         val wanted = AppSettings(this).appIcon
         if (AppIconManager.current(this) != wanted) AppIconManager.apply(this, wanted)
     }
@@ -112,11 +116,13 @@ class MainActivity : ComponentActivity() {
             consumeOpenDownloads(intent)
             consumeViewIntent(intent)
         }
-        GeckoDebug.load(this)
+        if (EngineSupport.GECKO_BUNDLED) GeckoDebug.load(this)
         dev.dsh.miuixbrowser.Diag.init(this)
         // 拓展安装确认框需要 Activity；弱引用，避免静态持有 Activity
-        val self = java.lang.ref.WeakReference(this)
-        GeckoExtensionStore.activityProvider = { self.get() }
+        if (EngineSupport.GECKO_BUNDLED) {
+            val self = java.lang.ref.WeakReference(this)
+            GeckoExtensionStore.activityProvider = { self.get() }
+        }
         dev.dsh.miuixbrowser.Diag.log("MainActivity.onCreate")
         AdBlock.init(this)
         CacheCleaner.runOnColdStart(this)

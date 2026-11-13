@@ -178,7 +178,6 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.glass.Settings
 import top.yukonga.miuix.kmp.icon.glass.Search
-import top.yukonga.miuix.kmp.icon.glass.Refresh
 import top.yukonga.miuix.kmp.icon.glass.Phone
 import top.yukonga.miuix.kmp.icon.glass.More
 import top.yukonga.miuix.kmp.icon.glass.Info
@@ -288,7 +287,9 @@ internal fun BottomBar(
     onForward: () -> Unit,
     onShare: () -> Unit,
     onTabs: () -> Unit,
+    onNewTab: () -> Unit,
     onMore: () -> Unit,
+    onRefresh: () -> Unit,
     onCopyAddress: () -> Unit,
     onAddressTap: () -> Unit = {},
     onFocusLost: () -> Unit = {},
@@ -296,6 +297,7 @@ internal fun BottomBar(
 ) {
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(29.dp)
+    val showRefresh = shouldShowAddressRefresh(address = address, loading = loading, editing = editing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -372,9 +374,14 @@ internal fun BottomBar(
                     onFocusLost = onFocusLost,
                     modifier = Modifier.weight(1f),
                 )
+                // 网页加载完毕（非加载中、非输入中）时，地址栏最右端显示刷新图标
+                if (showRefresh) {
+                    Spacer(Modifier.width(2.dp))
+                    AddressRefreshButton(onClick = onRefresh)
+                }
             }
 
-            TabIcon(count = tabCount, onClick = onTabs, onLongClick = onMore)
+            TabIcon(count = tabCount, onClick = onTabs, onLongClick = onNewTab)
             PressIcon(icon = MiuixIcons.Glass.More, description = "更多", onClick = onMore)
         }
     }
@@ -566,6 +573,43 @@ internal fun PressIcon(
             tint = color,
             scale = scale,
             flip = flip,
+        )
+    }
+}
+
+/** 刷新图标显示条件：已打开网页（地址非空）、加载完毕、且不在输入状态。 */
+internal fun shouldShowAddressRefresh(address: String, loading: Boolean, editing: Boolean): Boolean =
+    address.isNotEmpty() && !loading && !editing
+
+/** 地址栏内刷新图标占用的宽度（按钮 24dp + 左侧间距 2dp），用于底栏宽度计算。 */
+internal val AddressRefreshWidth = 26.dp
+
+/** 地址栏最右端的刷新按钮 */
+@Composable
+internal fun AddressRefreshButton(onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        // 图标尺寸与地址栏文字（15.sp）一致
+        val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
+        Icon(
+            imageVector = AppIcons.Refresh,
+            contentDescription = "刷新",
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            // 视觉上略微下移（只移图标，点击区域不变）
+            modifier = Modifier.offset(y = 1.dp).size(iconSize),
         )
     }
 }

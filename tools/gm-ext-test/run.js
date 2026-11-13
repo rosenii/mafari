@@ -4,8 +4,13 @@
 //   node run.js                      中继先加载
 //   RELAY_ORDER=late node run.js     脚本先执行、中继后加载（握手靠 ready 补发）
 const vm = require('vm'), fs = require('fs'), path = require('path'), assert = require('assert');
-const A_DIR = path.join(__dirname, '../../app/src/main/assets');
-const rd = (p) => fs.readFileSync(path.join(A_DIR, p), 'utf8');
+// 共用资源在 main，Gecko 专属资源（内置拓展 / shim）在 gecko 变体目录
+const A_DIRS = ['../../app/src/main/assets', '../../app/src/gecko/assets'].map((d) => path.join(__dirname, d));
+const rd = (p) => {
+  const dir = A_DIRS.find((d) => fs.existsSync(path.join(d, p)));
+  if (!dir) throw new Error('asset not found: ' + p);
+  return fs.readFileSync(path.join(dir, p), 'utf8');
+};
 const LATE = process.env.RELAY_ORDER === 'late';
 const clone = (m) => JSON.parse(JSON.stringify(m));
 const tick = (n = 1) => new Promise((r) => setTimeout(r, 20 * n));

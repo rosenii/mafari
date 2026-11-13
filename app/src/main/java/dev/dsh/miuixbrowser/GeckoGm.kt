@@ -105,16 +105,12 @@ internal object GeckoGm {
 
     // ---------------------------------------------------------------- 值存储（与 WebView 的 GmBridge 共用同一个 prefs）
 
-    private lateinit var prefs: SharedPreferences
-    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { sp, key ->
-        val k = key ?: return@OnSharedPreferenceChangeListener
-        val i = k.indexOf("::")
-        if (i <= 0) return@OnSharedPreferenceChangeListener
-        val id = k.substring(0, i)
-        val name = k.substring(i + 2)
-        val src = writers.remove(k).orEmpty()
+    private var storeReady = false
+    /** GmStore 在值真的变化后回调（主线程，WebView / Gecko 任一方写入都会触发） */
+    private val valueListener: (String, String, String?) -> Unit = { id, name, value ->
+        val src = writers.remove("$id::$name").orEmpty()
         valVer.merge(id, 1) { a, b -> a + b }
-        broadcast(id, name, sp.getString(k, null), src)
+        broadcast(id, name, value, src)
         scheduleResync(id)
     }
     /** 记下是哪个框架写的，广播时带上 src，该框架据此忽略自己的回声（避免乱序回声把新值盖回旧值） */
@@ -129,9 +125,9 @@ internal object GeckoGm {
     @Synchronized
     private fun initPrefs(app: Context) {
         appContext = app
-        if (::prefs.isInitialized) return
-        prefs = app.getSharedPreferences("userscript_gm", Context.MODE_PRIVATE)
-        prefs.registerOnSharedPreferenceChangeListener(prefsListener) // SharedPreferences 只弱引用监听器：由单例持有
+        if (storeReady) return
+        storeReady = true
+        GmStore.listener = valueListener
     }
 
     // ---------------------------------------------------------------- 入口
@@ -227,13 +223,12 @@ internal object GeckoGm {
         val big = JSONArray()
         val prefix = "$id::"
         var size = 0
-        val entries = prefs.all.entries
-            .filter { it.key.startsWith(prefix) && it.value is String }
-            .sortedBy { (it.value as String).length }
-        for (e in entries) {
-            val v = e.value as String
-            val name = e.key.removePrefix(prefix)
-            if (v.length > INLINE_VALUE_MAX || size + v.length > SNAPSHOT_TOTAL_CAP) { big.put(name); continue }
+        val app = appContext
+        // 只读 (名字, 长度)：小值才取出内联，大值只记名字，按需拉取
+        val entries = if (app == null) emptyList() else GmStore.entries(app, id).sortedBy { it.second }
+        for ((name, len) in entries) {
+            if (len > INLINE_VALUE_MAX || size + len > SNAPSHOT_TOTAL_CAP) { big.put(name); continue }
+            val v = GmStore.get(app!!, id, name) ?: continue
             size += v.length
             out.put(name, v)
         }
@@ -491,12 +486,12 @@ internal object GeckoGm {
                 if (!allow(sid, "setBytes", 16_000_000, 10_000, (k.length + v.length).toLong())) { Diag.log("gm: set bytes over budget $sid"); return }
                 val key = "$sid::$k"
                 writers[key] = o.optString("src")
-                prefs.edit().putString(key, v).apply()
+                GmStore.set(app, sid, k, v)
             }
             "getValue" -> { // 大值按需拉取：只回给发起的这个框架
                 val k = o.optString("k")
                 if (k.isEmpty() || k.length > MAX_KEY_CHARS || !allow(sid, "get", 300, 10_000)) return
-                val raw = prefs.getString("$sid::$k", null)
+                val raw = GmStore.get(app, sid, k)
                 main.post {
                     runCatching {
                         port.postMessage(JSONObject().put("t", "valRes").put("id", sid).put("k", k).put("raw", raw ?: JSONObject.NULL))
@@ -508,7 +503,7 @@ internal object GeckoGm {
                 if (k.length > MAX_KEY_CHARS || !allow(sid, "set", 600, 10_000)) return
                 val key = "$sid::$k"
                 writers[key] = o.optString("src")
-                prefs.edit().remove(key).apply()
+                GmStore.delete(app, sid, k)
             }
             "toast" -> {
                 if (!allow(sid, "toast", 10, 10_000)) return

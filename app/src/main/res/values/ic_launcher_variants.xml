@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_bg_colorful">#FFB8BABE</color>
-    <color name="ic_launcher_bg_solid3d">#FFA7AFC0</color>
-    <color name="ic_launcher_bg_dark">#FF394990</color>
+    <color name="ic_launcher_bg_colorful">#FFE4EBFE</color>
+    <color name="ic_launcher_bg_solid3d">#FF0B6DF5</color>
+    <color name="ic_launcher_bg_dark">#FF050823</color>
 </resources>

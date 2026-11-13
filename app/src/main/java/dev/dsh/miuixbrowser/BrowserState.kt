@@ -2444,7 +2444,7 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
 
     init {
         // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
-        GeckoExtensionStore.tabHost = this
+        if (EngineSupport.GECKO_BUNDLED) GeckoExtensionStore.tabHost = this
         newTab()
     }
 
@@ -2458,8 +2458,10 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         // Gecko 会话只有「当前标签」保持活动，后台标签停止渲染
         tabs.forEachIndexed { i, t -> t.setEngineActive(i == index) }
         // 告诉拓展哪个是当前标签：tabs.query({active:true}) / 安装页等都依赖它，不能只在打开拓展菜单时才登记
-        GeckoExtensionStore.activeSession = tabs[index].geckoSession
-        GeckoExtensionStore.markActiveTab()
+        if (EngineSupport.GECKO_BUNDLED) {
+            GeckoExtensionStore.activeSession = tabs[index].geckoSession
+            GeckoExtensionStore.markActiveTab()
+        }
     }
 
     // ------------------------------------------------ GeckoExtTabHost：拓展对浏览器标签的操作
@@ -2470,7 +2472,7 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
     /** tabs.create：用 Gecko 给拓展的 session 开一个真正的浏览器标签（而不是返回 null 让拓展以为失败） */
     override fun openExtensionTab(url: String, active: Boolean, session: org.mozilla.geckoview.GeckoSession): Boolean {
         if (tabs.size >= MAX_TABS) return false
-        if (readBrowserEngine(context) != ENGINE_GECKO || !GeckoRuntimeHolder.supported()) return false
+        if (readBrowserEngine(context) != ENGINE_GECKO || !EngineSupport.geckoAvailable()) return false
         val opener = tabs.getOrNull(activeIndex)
         val tab = runCatching { createTab(false, opener, session) }
             .onFailure { Diag.log("ext: create extension tab failed: $it") }
@@ -2519,7 +2521,7 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         opener: BrowserTab?,
         adoptedGeckoSession: org.mozilla.geckoview.GeckoSession? = null,
     ): BrowserTab {
-        val wantGecko = readBrowserEngine(context) == ENGINE_GECKO && GeckoRuntimeHolder.supported()
+        val wantGecko = readBrowserEngine(context) == ENGINE_GECKO && EngineSupport.geckoAvailable()
         val tab = (if (wantGecko) {
             runCatching { BrowserTab(context, EngineKind.GECKO, incognito, adoptedGeckoSession) }
                 .onFailure {

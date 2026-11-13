@@ -4,6 +4,18 @@
 
 ## [未发布]
 
+- 构建：拆分为 `gecko`（Gecko 版）与 `lite`（无内核版）两个 product flavor，同一份源码、一次 CI 同时产出两个安装包。lite 里 GeckoView 仅 `compileOnly`、不进 APK（`BuildConfig.GECKO_ENABLED = false`），Gecko 专属资源（内置拓展、shim）移到 `src/gecko/assets`，ABI 为 arm64-v8a / armeabi-v7a / x86_64；共用代码经 `EngineSupport` 判断，lite 下不会触碰 Gecko 类
+- 发布：Release 同时附带 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite.apk`（及 `SHA256SUMS.txt`），Release 由 Gradle 直接签名；Telegram 推送两个包（超过 50MB 的只给链接）
+- 优化：「检查更新」按当前安装包的变体选择同名后缀的 APK，不会把 Gecko 版升级成无内核版（反之亦然）
+- 优化（无内核版）：隐藏「浏览器内核」切换、「拓展」入口与菜单项、GeckoView 版本行；「关于」页版本旁标明 Gecko 版 / 无内核版
+
+- 修复（WebDAV）：部分服务器上传备份报「服务器不支持 WebDAV：上传备份」（HTTP 405）或只留下 0 字节文件 —— 这些服务 / 前置代理在 HTTP/2 下处理 PUT 有问题；现强制 HTTP/1.1。上传后会读回服务器上的文件大小与本地比对，不一致则删除坏文件并报错（服务器不返回大小时跳过校验）；PUT 被重定向成 GET 时明确提示，不再静默当成功；PUT 返回 405 的提示改为「服务器拒绝了上传请求」
+- 新增：关于页底部新增「隐私政策」页面，说明本地存储的数据、网络请求（GitHub 更新与加速镜像、Google 图标 / 翻译、Mozilla 扩展商店、用户同步服务器等）与权限用途
+- 调整：应用图标「多彩 / 立体 / 深色」三款替换为新设计（桌面前景图与设置页预览图同步更新，底色按新图调整）；图标 alias 改名为 `Icon*V2`，让启动器丢弃按旧组件名缓存的图标，修复选「多彩」仍显示旧图、选「立体」变回默认图的问题（升级后首次启动按已选图标自动重新启用）
+- 依赖：OkHttp 4.12.0 → 5.5.1，新增 logging-interceptor 5.5.1（仅 debug 构建的 WebDAV 请求记录请求头，Authorization 脱敏、不记录请求体）
+- 依赖：Android Gradle Plugin 9.5.0 → 9.5.1（app 与 miuix 子工程同步）；SQLCipher 4.6.1 → 4.14.1
+- 新增：关于页「依赖版本」增加「本地存储」（SQLCipher）与「内核与加密」（GeckoView、BouncyCastle）两组，并在 AndroidX 组补上 SQLite；SQLCipher / SQLite 版本改由 `app/build.gradle.kts` 统一声明
+
 - 修复（Gecko / 拓展商店）：搜索结果里拓展名 / 简介显示「null」—— AMO 某些语言的译文是 JSON null，Android 的 `optString` 把它读成字符串 "null"；现统一按缺失处理，并依次回退 zh-CN / zh-TW / en-US / 任意语言 / slug
 - 修复（Gecko / 拓展商店）：已添加的拓展再次搜索仍显示「添加」—— 之前拿 slug 对已装拓展的 GUID，永远对不上；现在用 AMO 返回的 `guid` 比对（大小写不敏感）
 - 新增：「捐赠」入口（设置 → 关于栏，位于「关于 Mafari」上方；关于页里也有），点开底部弹窗显示赞赏码，可一键保存到相册（Pictures/Mafari）并提示用微信「扫一扫 → 相册」识别；弹窗抽成共用的 `DonateSheet`

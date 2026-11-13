@@ -373,7 +373,7 @@ internal fun MenuGrid(
             }
         }
 
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 6.dp)) {
             Cells(order, inHidden = false)
             if (editing) {
                 Box(modifier = Modifier.fillMaxWidth().height(dividerHeight)) {

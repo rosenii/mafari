@@ -37,7 +37,7 @@ object GeckoRuntimeHolder {
     private var runtime: GeckoRuntime? = null
 
     /** GeckoView nightly 只打了 arm64-v8a，其它 ABI 的设备只能用 WebView */
-    fun supported(): Boolean = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+    fun supported(): Boolean = EngineSupport.geckoAvailable()
 
     /** 已创建则返回，不会为了「看一眼」而启动 Gecko */
     fun peek(): GeckoRuntime? = runtime

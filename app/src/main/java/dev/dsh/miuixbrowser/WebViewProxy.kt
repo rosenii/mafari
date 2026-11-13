@@ -96,7 +96,7 @@ object WebViewProxy {
         }
 
         if (!enabled || h.isEmpty() || port !in 1..65535) {
-            GeckoProxy.applyRule(null)
+            if (EngineSupport.GECKO_BUNDLED) GeckoProxy.applyRule(null)
             closeRelay()
             if (applied != null) {
                 runCatching { controller.clearProxyOverride(directExecutor, Runnable { }) }
@@ -143,7 +143,7 @@ object WebViewProxy {
 
     private fun install(controller: ProxyController, rule: String) {
         // Gecko 标签用同一条规则（含 SOCKS5 认证用的本机中转），写进 network.proxy.*
-        GeckoProxy.applyRule(rule)
+        if (EngineSupport.GECKO_BUNDLED) GeckoProxy.applyRule(rule)
         if (rule == applied) {
             lastError = null
             return
