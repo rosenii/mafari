@@ -517,13 +517,12 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             )
                         }
                     }
-                    item { Note("启动应用时按间隔执行，备份上面选中的内容，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
+                    item { Note("启动应用时按间隔执行，备份「备份内容」里选中的类别，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
 
-                    // ———— 备份内容：所有备份方式共用 ————
-                    item { SmallTitle(text = "备份内容") }
+                    // ———— 备份内容：一行入口，点开弹窗启停各类内容（所有备份方式共用） ————
                     item {
                         Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
                             ArrowPreference(
@@ -531,23 +530,12 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 summary = if (hasContent) {
                                     "已选 ${effectiveCategories.size} / ${BackupCategory.entries.size} 类"
                                 } else {
-                                    "未选择"
+                                    "未选择，选择后才能备份"
                                 },
                                 enabled = !working,
                                 onClick = { showCategoryDialog = true },
                             )
                         }
-                    }
-                    item {
-                        Note(
-                            if (!hasContent) {
-                                "还没有选择要备份的内容，选择后才能备份。"
-                            } else {
-                                "已选 ${effectiveCategories.size} 类：" + effectiveCategories.joinToString("、") { it.title } +
-                                    "。没有数据的类别不会写进备份；恢复时只覆盖备份里有的内容，其余保持原样。" +
-                                    if (BackupCategory.COOKIES in effectiveCategories) "\nCookie 含登录凭据，请妥善保管备份文件与口令；恢复后重启生效。" else ""
-                            },
-                        )
                     }
 
                     // ———— 云同步：WebDAV / Git 左右切换 ————
@@ -1236,7 +1224,8 @@ private fun CategoryDialog(
     AppGlassDialog(
         show = show,
         title = "备份内容",
-        summary = "所有备份方式共用，开关改动立即生效",
+        summary = "所有备份方式共用，改动立即生效。没有数据的类别不会写进备份；恢复只覆盖备份里有的内容" +
+            if (BackupCategory.COOKIES in selected) "\nCookie 含登录凭据，请妥善保管备份文件与口令；恢复后重启生效。" else "",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {

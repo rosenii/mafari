@@ -343,24 +343,25 @@ object LiquidGlassMaterial : AppMaterial {
 
     @Composable
     override fun ActionButton(
-        onClick: () -> Unit, modifier: Modifier, enabled: Boolean, role: GlassDialogButtonRole,
+        onClick: () -> Unit, modifier: Modifier, enabled: Boolean, inPage: Boolean, role: GlassDialogButtonRole,
         cornerRadius: Dp, minHeight: Dp, content: @Composable RowScope.() -> Unit,
     ) {
-        val backdrop = LocalLiquidBackdrop.current
-        if (backdrop == null) {
-            MiuixGlassMaterial.ActionButton(onClick, modifier, enabled, role, cornerRadius, minHeight, content)
+        val pageBackdrop = LocalLiquidBackdrop.current
+        if (pageBackdrop == null) {
+            MiuixGlassMaterial.ActionButton(onClick, modifier, enabled, inPage, role, cornerRadius, minHeight, content)
             return
         }
         val colors = MiuixTheme.colorScheme
         val tint = when (role) {
             GlassDialogButtonRole.Primary -> colors.primary
             GlassDialogButtonRole.Destructive -> colors.error
-            GlassDialogButtonRole.Normal -> colors.surfaceContainer
+            GlassDialogButtonRole.Normal -> if (inPage) colors.surfaceVariant else colors.surfaceContainer
         }
         val textColor = if (role == GlassDialogButtonRole.Normal) colors.onSurface else Color.White
         LiquidGlassSurface(
             onClick = onClick,
-            backdrop = backdrop,
+            // 页面内的按钮位于采样层内部，不能采样页面层（递归采样会闪退），改用实色底
+            backdrop = if (inPage) null else pageBackdrop,
             modifier = modifier.height(minHeight.coerceAtLeast(44.dp)),
             tint = tint,
             tintAlpha = 0.35f,

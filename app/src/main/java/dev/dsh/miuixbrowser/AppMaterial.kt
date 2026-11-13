@@ -120,12 +120,16 @@ interface AppMaterial {
         enabled: Boolean,
     )
 
-    /** 弹窗 / sheet 底部的按钮 */
+    /**
+     * 弹窗 / sheet 底部的按钮，也用于页面卡片里的操作按钮。
+     * [inPage] 为 true 表示按钮在页面内容里（位于液态玻璃采样层内部），液态材质下改用实色底，避免递归采样闪退。
+     */
     @Composable
     fun ActionButton(
         onClick: () -> Unit,
         modifier: Modifier,
         enabled: Boolean,
+        inPage: Boolean,
         role: GlassDialogButtonRole,
         cornerRadius: Dp,
         minHeight: Dp,
@@ -341,7 +345,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
 
     @Composable
     override fun ActionButton(
-        onClick: () -> Unit, modifier: Modifier, enabled: Boolean, role: GlassDialogButtonRole,
+        onClick: () -> Unit, modifier: Modifier, enabled: Boolean, inPage: Boolean, role: GlassDialogButtonRole,
         cornerRadius: Dp, minHeight: Dp, content: @Composable RowScope.() -> Unit,
     ) {
         GlassDialogButton(
@@ -558,17 +562,18 @@ fun AppSwitch(
     enabled: Boolean = true,
 ) = currentMaterial().ToggleSwitch(checked, onCheckedChange, modifier, enabled)
 
-/** 弹窗 / sheet 底部按钮（取代 GlassDialogButton） */
+/** 弹窗 / sheet 底部按钮（取代 GlassDialogButton）；放在页面卡片里时传 inPage = true。 */
 @Composable
 fun AppDialogButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    inPage: Boolean = false,
     role: GlassDialogButtonRole = GlassDialogButtonRole.Normal,
     cornerRadius: Dp = GlassDialogButtonDefaults.CornerRadius,
     minHeight: Dp = GlassDialogButtonDefaults.MinHeight,
     content: @Composable RowScope.() -> Unit,
-) = currentMaterial().ActionButton(onClick, modifier, enabled, role, cornerRadius, minHeight, content)
+) = currentMaterial().ActionButton(onClick, modifier, enabled, inPage, role, cornerRadius, minHeight, content)
 
 /**
  * 文字按钮（取代 miuix TextButton）。[inPage] 为 true 表示按钮在页面内容里（位于液态玻璃采样层内部），
