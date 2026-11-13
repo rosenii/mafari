@@ -63,6 +63,16 @@ jobs:
           yes | "$SDKMANAGER" "platform-tools" "platforms;android-37.2" "build-tools;36.0.0" 2>&1 | tail -5 || true
           ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
+      # 应用版本名 / 版本号（取自 app/build.gradle.kts），用于 dual 预发布标题与更新日志匹配
+      - name: Read app version
+        run: |
+          set -e
+          NAME=$(grep -E '^\s*versionName\s*=' app/build.gradle.kts | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          CODE=$(grep -E '^\s*versionCode\s*=' app/build.gradle.kts | head -1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          echo "APP_VERSION_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "APP_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+          echo "version: $NAME ($CODE)"
+
       - name: Prepare keystore
         if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
         run: |
@@ -130,14 +140,32 @@ jobs:
           if p.exists():
               text = p.read_text(encoding="utf-8")
 
+          def changelog_section(ver):
+              """CHANGELOG 里版本 ver 的小节正文；找不到退回「未发布」小节"""
+              for v in (ver, "未发布"):
+                  pat = re.compile(
+                      rf"^##\s*\[?v?{re.escape(v)}\]?[^\n]*\n(.*?)(?=^##\s|\Z)",
+                      re.M | re.S,
+                  )
+                  m = pat.search(text)
+                  if m and m.group(1).strip():
+                      return m.group(1).strip()
+              return ""
+
           if is_gecko:
               prefix = os.environ.get("PRE_PREFIX", "gecko")
+              app_name = os.environ.get("APP_VERSION_NAME", "")
+              app_code = os.environ.get("APP_VERSION_CODE", "")
               header = f"## 预发布 {prefix}-{run_no}\n\n"
               body = (
                   f"来自 `{prefix}` 分支的自动预发布构建。\n\n"
+                  f"- 版本：{app_name} ({app_code})\n"
                   f"- 提交：`{sha}`\n"
                   f"- 分支：`{prefix}`\n"
               )
+              log = changelog_section(app_name[1:] if app_name.startswith("v") else app_name)
+              if log:
+                  body += f"\n### 更新日志\n\n{log}\n"
           else:
               ver = ref_name[1:] if ref_name.startswith("v") else ref_name
               pat = re.compile(
@@ -172,6 +200,8 @@ jobs:
           generate_release_notes: true
           # tag 用 tag 名；gecko 自动生成 gecko-<run_number> 作为 tag
           tag_name: ${{ env.IS_RELEASE_TAG == 'true' && github.ref_name || format('{0}-{1}', env.PRE_PREFIX, github.run_number) }}
+          # dual 预发布标题：应用版本名 (版本号)；其余沿用 tag 名
+          name: ${{ env.IS_DUAL_BRANCH == 'true' && format('{0} ({1})', env.APP_VERSION_NAME, env.APP_VERSION_CODE) || '' }}
           # gecko 分支标预发布；不抢 latest
           prerelease: ${{ env.IS_PRE_BRANCH == 'true' }}
           make_latest: ${{ env.IS_PRE_BRANCH == 'true' && 'false' || 'true' }}
