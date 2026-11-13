@@ -7,6 +7,9 @@ import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.OpenableColumns
 import android.text.InputType
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -16,6 +19,7 @@ import org.mozilla.geckoview.AllowOrDeny
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSession.PromptDelegate
+import java.io.File
 import java.util.Calendar
 import java.util.Locale
 
@@ -299,17 +303,82 @@ class GeckoPromptHandler(
         }
         val callback = ValueCallback<Array<Uri>> { uris ->
             val ctx = tab.geckoContext()
-            runCatching {
-                result.complete(
-                    when {
-                        uris == null || uris.isEmpty() -> prompt.dismiss()
-                        multiple && uris.size > 1 -> prompt.confirm(ctx, uris)
-                        else -> prompt.confirm(ctx, uris[0])
-                    },
-                )
-            }.onFailure { result.complete(prompt.dismiss()) }
+            if (uris == null || uris.isEmpty()) {
+                runCatching { result.complete(prompt.dismiss()) }
+                return@ValueCallback
+            }
+            fun confirmWith(list: List<Uri>): PromptDelegate.PromptResponse =
+                if (multiple && list.size > 1) prompt.confirm(ctx, list.toTypedArray())
+                else prompt.confirm(ctx, list[0])
+
+            // 第一步：和原来完全一致，直接把选择器给的 Uri 交给 Gecko（正常机型走这里，不做任何额外处理）
+            val direct = runCatching { confirmWith(uris.toList()) }
+                .onFailure { Diag.log("gecko file confirm failed (direct): ${it}") }
+                .getOrNull()
+            if (direct != null) {
+                runCatching { result.complete(direct) }
+                return@ValueCallback
+            }
+            // 第二步（仅第一步抛异常的机型）：部分原生选择器返回的 Uri，Gecko 自己取路径 / 拷贝时会抛异常，
+            // 以前这里被吞掉并按取消处理，网页就“选了文件没反应”。改为先拷进应用缓存，再把 file Uri 交给 Gecko。
+            Thread {
+                val staged = stageUploads(ctx, uris)
+                Handler(Looper.getMainLooper()).post {
+                    val response = if (staged.isEmpty()) null else runCatching { confirmWith(staged) }
+                        .onFailure { Diag.log("gecko file confirm failed (staged): ${it}") }
+                        .getOrNull()
+                    runCatching { result.complete(response ?: prompt.dismiss()) }
+                }
+            }.start()
         }
         tab.onShowFileChooser.invoke(params, callback)
         return result
+    }
+
+    /**
+     * 把系统选择器返回的 Uri 逐个拷到 cacheDir/gecko_upload/<批次>/<原文件名>，返回 file Uri。
+     * 保留原文件名（网页上传时显示 / 提交的就是它）；单个失败就跳过，全部失败返回空列表。
+     */
+    private fun stageUploads(ctx: Context, uris: Array<Uri>): List<Uri> {
+        val root = File(ctx.cacheDir, "gecko_upload")
+        // 清掉 1 小时前的旧批次，避免缓存无限增长（Gecko 读取发生在选择之后很短时间内）
+        runCatching {
+            val limit = System.currentTimeMillis() - 60 * 60 * 1000L
+            root.listFiles()?.forEach { if (it.lastModified() < limit) it.deleteRecursively() }
+        }
+        val batch = File(root, System.currentTimeMillis().toString()).apply { mkdirs() }
+        val out = ArrayList<Uri>(uris.size)
+        uris.forEachIndexed { i, uri ->
+            runCatching {
+                if ("file".equals(uri.scheme, ignoreCase = true)) {
+                    // file:// 本来就是路径，直接用（拷一份反而多占空间）
+                    out.add(uri)
+                    return@runCatching
+                }
+                val dir = File(batch, i.toString()).apply { mkdirs() }
+                val file = File(dir, safeName(ctx, uri))
+                val input = ctx.contentResolver.openInputStream(uri) ?: error("openInputStream null")
+                input.use { ins -> file.outputStream().use { ins.copyTo(it) } }
+                out.add(Uri.fromFile(file))
+            }.onFailure { Diag.log("stage upload failed: $uri $it") }
+        }
+        return out
+    }
+
+    /** 取显示名；拿不到 / 含非法字符 / 过长时退回安全名，保证能建出文件 */
+    private fun safeName(ctx: Context, uri: Uri): String {
+        var name: String? = runCatching {
+            ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                if (it.moveToFirst() && !it.isNull(0)) it.getString(0) else null
+            }
+        }.getOrNull()
+        if (name.isNullOrBlank()) name = uri.lastPathSegment?.substringAfterLast('/')
+        var clean = (name ?: "").map { ch -> if (ch in "\\/:*?\"<>|" || ch.code < 32) '_' else ch }.joinToString("").trim().trim('.')
+        if (clean.isEmpty()) clean = "upload_${System.currentTimeMillis()}"
+        if (clean.length > 120) {
+            val ext = clean.substringAfterLast('.', "").takeIf { it.length in 1..10 }
+            clean = clean.take(100) + (ext?.let { ".$it" } ?: "")
+        }
+        return clean
     }
 }

@@ -371,23 +371,43 @@ fun DownloadsScreen(
                                         )
                                     }
                                     }
+                                    // 操作按钮与左侧文字（15sp + 12sp 两行）协调：32dp 触控区 + 18dp 图标，
+                                    // 不再用默认的 40dp / 24dp（比文字行明显大一圈）
+                                    val actionBtn = 32.dp
+                                    val actionIcon = Modifier.size(18.dp)
                                     when (task.state) {
-                                        DownloadState.RUNNING -> IconButton(onClick = { Downloader.pause(task.id) }) {
-                                            Icon(imageVector = MiuixIcons.Glass.Pause, contentDescription = "暂停")
+                                        DownloadState.RUNNING -> IconButton(
+                                            onClick = { Downloader.pause(task.id) },
+                                            minWidth = actionBtn,
+                                            minHeight = actionBtn,
+                                        ) {
+                                            Icon(imageVector = MiuixIcons.Glass.Pause, contentDescription = "暂停", modifier = actionIcon)
                                         }
-                                        DownloadState.PAUSED -> IconButton(onClick = { Downloader.resume(context, task.id) }) {
-                                            Icon(imageVector = MiuixIcons.Glass.Play, contentDescription = "继续")
+                                        DownloadState.PAUSED -> IconButton(
+                                            onClick = { Downloader.resume(context, task.id) },
+                                            minWidth = actionBtn,
+                                            minHeight = actionBtn,
+                                        ) {
+                                            Icon(imageVector = MiuixIcons.Glass.Play, contentDescription = "继续", modifier = actionIcon)
                                         }
-                                        DownloadState.FAILED -> IconButton(onClick = { Downloader.retry(context, task.id) }) {
-                                            Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = "重试")
+                                        DownloadState.FAILED -> IconButton(
+                                            onClick = { Downloader.retry(context, task.id) },
+                                            minWidth = actionBtn,
+                                            minHeight = actionBtn,
+                                        ) {
+                                            Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = "重试", modifier = actionIcon)
                                         }
                                         DownloadState.DONE -> Unit
                                     }
-                                    IconButton(onClick = {
-                                        deleteLocal = false
-                                        pendingDelete = task
-                                    }) {
-                                        Icon(imageVector = MiuixIcons.Glass.Close, contentDescription = "删除")
+                                    IconButton(
+                                        onClick = {
+                                            deleteLocal = false
+                                            pendingDelete = task
+                                        },
+                                        minWidth = actionBtn,
+                                        minHeight = actionBtn,
+                                    ) {
+                                        Icon(imageVector = MiuixIcons.Glass.Close, contentDescription = "删除", modifier = actionIcon)
                                     }
                                 }
                                 if (task.state == DownloadState.RUNNING || task.state == DownloadState.PAUSED) {
