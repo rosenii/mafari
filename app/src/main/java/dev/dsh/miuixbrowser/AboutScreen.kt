@@ -77,6 +77,7 @@ fun AboutScreen(
     blurEnabled: Boolean = true,
     updateChannel: Int = 0,
     onUpdateChannelChange: (Int) -> Unit = {},
+    onOpenPrivacyPolicy: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // 优先交给已安装的 Telegram 客户端（不能用无包名的 ACTION_VIEW：本应用自己可能就是默认浏览器），都没有再用应用内标签打开
@@ -361,6 +362,29 @@ fun AboutScreen(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = DONATE_SUMMARY,
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+
+                SmallTitle(text = "法律")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenPrivacyPolicy() }
+                            .padding(16.dp),
+                    ) {
+                        Text("隐私政策", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "本地存储的数据、网络请求与权限说明",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )

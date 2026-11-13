@@ -2471,6 +2471,14 @@ fun BrowserScreen(
             blurEnabled = settings.blurEnabled,
             updateChannel = settings.updateChannel,
             onUpdateChannelChange = { settings.updateUpdateChannel(it) },
+            onOpenPrivacyPolicy = { pushPage(AppRoute.PrivacyPolicyPage) },
+        )
+    }
+    entry<AppRoute.PrivacyPolicyPage> {
+        PrivacyPolicyScreen(
+            onBack = { popPage() },
+            onOpenUrl = { openInBrowser(it) },
+            blurEnabled = settings.blurEnabled,
         )
     }
     entry<AppRoute.Downloads> {
