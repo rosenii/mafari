@@ -948,52 +948,53 @@ private fun HistoryPage(
     // 默认全部展开：只记录被用户手动收起的分组；换分组方式时重置
     val collapsed = remember(mode) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val groups = remember(entries.toList(), mode) { groupHistory(entries, mode) }
+    // 分组方式固定在顶部：放在列表外面，滑动时不随列表滚走，顶栏折叠后仍吸附在最上方
+    Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "分组",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(end = 4.dp),
+                    )
+                    HistoryGroupMode.entries.forEach { m ->
+                        val selected = m == mode
+                        Text(
+                            text = m.label,
+                            fontSize = 13.sp,
+                            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    if (!selected) {
+                                        mode = m
+                                        sp.edit().putString("history_group_mode", m.id).apply()
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
+                    }
+                }
     LazyColumn(
         state = listState,
         modifier = Modifier
-            .fillMaxSize()
+            .weight(1f)
+            .fillMaxWidth()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp),
     ) {
-        item(key = "mode-picker") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "分组",
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(end = 4.dp),
-                )
-                HistoryGroupMode.entries.forEach { m ->
-                    val selected = m == mode
-                    Text(
-                        text = m.label,
-                        fontSize = 13.sp,
-                        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                if (selected) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                            )
-                            .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                if (!selected) {
-                                    mode = m
-                                    sp.edit().putString("history_group_mode", m.id).apply()
-                                }
-                            }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                    )
-                }
-            }
-        }
         groups.forEach { group ->
             val open = q.isNotEmpty() || collapsed[group.key] != true
             item(key = "h-${group.key}") {
@@ -1066,12 +1067,14 @@ private fun HistoryPage(
         }
         }
     }
+    }
 }
 
 enum class HistoryGroupMode(val id: String, val label: String) {
     Day("day", "按日"),
     Week("week", "按周"),
-    Month("month", "按月");
+    Month("month", "按月"),
+    Year("year", "按年");
 
     companion object {
         fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: Day
@@ -1093,6 +1096,7 @@ private fun groupHistory(entries: List<HistoryEntry>, mode: HistoryGroupMode): L
             HistoryGroupMode.Day -> Unit
             HistoryGroupMode.Week -> set(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.MONDAY)
             HistoryGroupMode.Month -> set(java.util.Calendar.DAY_OF_MONTH, 1)
+            HistoryGroupMode.Year -> set(java.util.Calendar.DAY_OF_YEAR, 1)
         }
     }
     val nowStart = startOf(System.currentTimeMillis())
@@ -1101,6 +1105,7 @@ private fun groupHistory(entries: List<HistoryEntry>, mode: HistoryGroupMode): L
             HistoryGroupMode.Day -> add(java.util.Calendar.DAY_OF_YEAR, n)
             HistoryGroupMode.Week -> add(java.util.Calendar.WEEK_OF_YEAR, n)
             HistoryGroupMode.Month -> add(java.util.Calendar.MONTH, n)
+            HistoryGroupMode.Year -> add(java.util.Calendar.YEAR, n)
         }
     }
     val cur = nowStart.timeInMillis
@@ -1131,6 +1136,11 @@ private fun groupHistory(entries: List<HistoryEntry>, mode: HistoryGroupMode): L
                 else -> if (sameYear) "${start.get(java.util.Calendar.MONTH) + 1}月"
                 else "${start.get(java.util.Calendar.YEAR)}年${start.get(java.util.Calendar.MONTH) + 1}月"
             }
+            HistoryGroupMode.Year -> when (t) {
+                cur -> "今年"
+                prev -> "去年"
+                else -> "${start.get(java.util.Calendar.YEAR)}年"
+            }
         }
     }
     val out = LinkedHashMap<Long, Pair<java.util.Calendar, MutableList<HistoryEntry>>>()
@@ -1141,7 +1151,7 @@ private fun groupHistory(entries: List<HistoryEntry>, mode: HistoryGroupMode): L
     return out.map { (k, v) -> HistoryGroup(k.toString(), title(v.first), v.second) }
 }
 
-/** 分组标题：标题 + 条数 + 展开 / 收起箭头，点一下切换。 */
+/** 分组标题：与书签页主分组标题同款（17sp 加粗 + 条数 + 36dp 圆形箭头按钮），文字用蓝色。 */
 @Composable
 private fun HistoryGroupHeader(title: String, count: Int, open: Boolean, onClick: () -> Unit) {
     val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "historyGroupArrow")
@@ -1149,28 +1159,37 @@ private fun HistoryGroupHeader(title: String, count: Int, open: Boolean, onClick
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(start = 24.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = title,
-            fontSize = 14.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-            color = MiuixTheme.colorScheme.primary,
+        Row(
             modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "$count 条",
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.width(6.dp))
-        Icon(
-            imageVector = MiuixIcons.Glass.ChevronBackward,
-            contentDescription = if (open) "收起" else "展开",
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = angle },
-        )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                fontSize = 17.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "$count",
+                fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
+            Icon(
+                imageVector = MiuixIcons.Glass.ChevronBackward,
+                contentDescription = if (open) "收起" else "展开",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+            )
+        }
     }
 }
 

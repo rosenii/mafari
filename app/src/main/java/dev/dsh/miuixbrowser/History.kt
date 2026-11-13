@@ -44,7 +44,6 @@ class HistoryStore(context: Context) {
         if (url.isBlank() || url.startsWith("about:") || url.startsWith("data:")) return
         items.removeAll { it.url == url }
         items.add(0, HistoryEntry(url, title.ifBlank { hostOf(url) }, System.currentTimeMillis()))
-        while (items.size > 300) items.removeAt(items.lastIndex)
         persist()
     }
 
