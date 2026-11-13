@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -332,7 +333,7 @@ fun LibraryScreen(
             }
 
             // 历史栏右下角清空 FAB：位置 / 大小 / 形状与书签 FAB 一致，图标为红色垃圾桶
-            if (pagerState.currentPage == TAB_HISTORY && store.items.isNotEmpty()) {
+            if (pagerState.currentPage == TAB_HISTORY && store.totalCount > 0) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -380,7 +381,7 @@ fun LibraryScreen(
 
         // 清除历史确认：居中对话框
         val confirmCount = if (showClearConfirm) {
-            clearRange.millis?.let { store.countWithin(it) } ?: store.items.size
+            clearRange.millis?.let { store.countWithin(it) } ?: store.totalCount
         } else {
             0
         }
@@ -921,8 +922,25 @@ private fun HistoryPage(
     query: String = "",
 ) {
     val q = query.trim()
-    val entries = store.items.filter {
-        q.isEmpty() || it.title.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
+    // 分页从数据库读：先取一页，滑到接近底部再多取一页；搜索由数据库完成
+    var limit by remember(q) { mutableIntStateOf(HISTORY_PAGE) }
+    var entries by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
+    var hasMore by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(q, limit, store.version) {
+        val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { store.query(q, limit + 1) }
+        hasMore = rows.size > limit
+        entries = if (hasMore) rows.take(limit) else rows
+        loaded = true
+    }
+    androidx.compose.runtime.LaunchedEffect(hasMore, entries.size) {
+        if (hasMore) {
+            androidx.compose.runtime.snapshotFlow {
+                val info = listState.layoutInfo
+                (info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - 6
+            }.first { it }
+            limit += HISTORY_PAGE
+        }
     }
     if (entries.isEmpty()) {
         Box(
@@ -931,13 +949,15 @@ private fun HistoryPage(
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = if (store.items.isEmpty()) "还没有浏览记录" else "没有匹配的历史记录",
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(24.dp),
-            )
+            if (loaded) {
+                Text(
+                    text = if (q.isEmpty()) "还没有浏览记录" else "没有匹配的历史记录",
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(24.dp),
+                )
+            }
         }
         return
     }
@@ -947,7 +967,7 @@ private fun HistoryPage(
     var mode by remember { mutableStateOf(HistoryGroupMode.fromId(sp.getString("history_group_mode", null))) }
     // 默认全部展开：只记录被用户手动收起的分组；换分组方式时重置
     val collapsed = remember(mode) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-    val groups = remember(entries.toList(), mode) { groupHistory(entries, mode) }
+    val groups = remember(entries, mode) { groupHistory(entries, mode) }
     // 分组方式固定在顶部：放在列表外面，滑动时不随列表滚走，顶栏折叠后仍吸附在最上方
     Column(modifier = Modifier.fillMaxSize()) {
                 Row(
@@ -1069,6 +1089,9 @@ private fun HistoryPage(
     }
     }
 }
+
+/** 历史页每次从数据库多读的条数 */
+private const val HISTORY_PAGE = 200
 
 enum class HistoryGroupMode(val id: String, val label: String) {
     Day("day", "按日"),

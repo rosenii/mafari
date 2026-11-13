@@ -312,6 +312,12 @@ object BackupManager {
             units["prefs/$name"] = root.toString().toByteArray(Charsets.UTF_8)
         }
 
+        // 历史在 SQLCipher 库里：导出成旧格式的明文 JSON 放进 mafari_history 单元，恢复后下次启动自动导入
+        HistoryDb.exportJson(app)?.let { json ->
+            val root = JSONObject().put("entries", JSONObject().put("t", "s").put("v", json))
+            units["prefs/mafari_history"] = root.toString().toByteArray(Charsets.UTF_8)
+        }
+
         for (rel in FILES) {
             val f = File(app.filesDir, rel)
             if (f.isFile && f.length() in 1..(8L shl 20)) units["files/$rel"] = f.readBytes()
@@ -456,6 +462,8 @@ object BackupManager {
     fun applyRestore(context: Context, plan: RestorePlan) {
         val app = context.applicationContext
         for ((name, values) in plan.prefs) {
+            // 历史库整体替换：先清空，备份里的 entries 在重启后导入
+            if (name == "mafari_history") runCatching { HistoryDb.clearAll(app) }
             val editor = app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
             for ((key, value) in values) {
                 when (value) {

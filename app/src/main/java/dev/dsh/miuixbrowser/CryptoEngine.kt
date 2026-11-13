@@ -362,6 +362,7 @@ object SecureStore {
     /** 各加密存储单元的上下文（进 AAD）。备份导出时也要靠它解开设备密文。 */
     const val PURPOSE_FAVORITES = "mafari.favorites.items"
     const val PURPOSE_HISTORY = "mafari.history.entries"
+    const val PURPOSE_HISTORY_DB = "mafari.history.dbkey"
     const val PURPOSE_WEBDAV = "mafari.webdav.password"
     const val PURPOSE_GIT = "mafari.git.token"
     const val PURPOSE_GIT_KEY = "mafari.git.deploykey"

@@ -73,8 +73,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 10100
-        versionName = "v99.1.100"
+        versionCode = 10101
+        versionName = "v99.1.101"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -172,6 +172,9 @@ dependencies {
     }
     implementation("com.github.mwiede:jsch:$jschVersion")
     testImplementation("junit:junit:4.13.2")
+    // 历史记录：SQLCipher 加密数据库（HistoryDb，整库 AES-256）；androidx.sqlite 是它的接口依赖
+    implementation("net.zetetic:sqlcipher-android:4.6.1@aar")
+    implementation("androidx.sqlite:sqlite:2.4.0")
     // 第二内核：GeckoView nightly（arm64-v8a）
     implementation("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
 }

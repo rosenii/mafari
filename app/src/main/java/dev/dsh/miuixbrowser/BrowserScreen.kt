@@ -1234,7 +1234,7 @@ fun BrowserScreen(
                         liquidBackdrop = if (settings.liquidGlass && wallpaperBitmap != null) wallpaperLiquidBackdrop else null,
                         order = settings.homeOrder,
                         onReorder = { settings.updateHomeOrder(it) },
-                        recent = history.items,
+                        recent = history.recent,
                         onOpenDownloads = { pushPage(AppRoute.Downloads) },
                         onHide = { kind ->
                             settings.updateHomeShow(kind, false)
