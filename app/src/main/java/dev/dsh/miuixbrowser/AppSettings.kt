@@ -278,12 +278,12 @@ class AppSettings(context: Context) {
         Downloader.segmentMinBytes = downloadMultiThreadMinMb * 1024L * 1024L
     }
 
-    /** 应用图标：0=默认 1=多彩 2=立体 3=深色（对应 AppIconManager.ICONS） */
-    var appIcon by mutableStateOf(prefs.getInt(KEY_APP_ICON, 0).coerceIn(0, 3))
+    /** 应用图标：0=默认 1=多彩 2=立体 3=深色 4=极简（对应 AppIconManager.ICONS） */
+    var appIcon by mutableStateOf(prefs.getInt(KEY_APP_ICON, 0).coerceIn(0, 4))
         private set
 
     fun updateAppIcon(index: Int) {
-        appIcon = index.coerceIn(0, 3)
+        appIcon = index.coerceIn(0, 4)
         prefs.edit().putInt(KEY_APP_ICON, appIcon).apply()
     }
 

@@ -142,12 +142,9 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     var busy by remember { mutableStateOf(false) }
     var pendingPassword by remember { mutableStateOf<CharArray?>(null) }
     var syncTab by rememberSaveable { mutableIntStateOf(TAB_WEBDAV) }
-    // 备份内容（手动导出 / WebDAV / Git / 自动推送共用）；Gecko Cookie 只在当前内核为 Gecko 时可选
+    // 备份内容（手动导出 / WebDAV / Git / 自动推送共用）；Cookie 按当前默认内核（Gecko / WebView）读取
     var selectedCategories by remember { mutableStateOf(BackupAuto.categories(context)) }
-    val cookieAvailable = remember { BackupAuto.geckoCookiesAvailable(context) }
-    val effectiveCategories = BackupCategory.entries.filter {
-        it in selectedCategories && (it != BackupCategory.GECKO_COOKIES || cookieAvailable)
-    }
+    val effectiveCategories = BackupCategory.entries.filter { it in selectedCategories }
     val hasContent = effectiveCategories.isNotEmpty()
 
     val saveLauncher = rememberLauncherForActivityResult(
@@ -424,17 +421,16 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             insideMargin = PaddingValues(0.dp),
                         ) {
                             BackupCategory.entries.forEach { cat ->
-                                val available = cat != BackupCategory.GECKO_COOKIES || cookieAvailable
                                 AppSwitchPreference(
-                                    checked = available && cat in selectedCategories,
+                                    checked = cat in selectedCategories,
                                     onCheckedChange = { on ->
                                         val next = if (on) selectedCategories + cat else selectedCategories - cat
                                         selectedCategories = next
                                         BackupAuto.setCategories(context, next)
                                     },
                                     title = cat.title,
-                                    summary = if (available) cat.summary else "仅当前内核为 Gecko 时可选",
-                                    enabled = available && !working,
+                                    summary = cat.summary,
+                                    enabled = !working,
                                 )
                             }
                         }
@@ -446,7 +442,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             } else {
                                 "已选 ${effectiveCategories.size} 类：" + effectiveCategories.joinToString("、") { it.title } +
                                     "。没有数据的类别不会写进备份；恢复时只覆盖备份里有的内容，其余保持原样。" +
-                                    if (BackupCategory.GECKO_COOKIES in effectiveCategories) "\nCookie 含登录凭据，请妥善保管备份文件与口令；恢复后重启生效。" else ""
+                                    if (BackupCategory.COOKIES in effectiveCategories) "\nCookie 含登录凭据，请妥善保管备份文件与口令；恢复后重启生效。" else ""
                             },
                         )
                     }
@@ -1341,6 +1337,15 @@ private fun RestoreConfirmDialog(
     }
     val unavailableSet = plan?.unavailable.orEmpty()
     val chosen = plan?.categories.orEmpty().filter { it in selected && it !in unavailableSet }
+    // Cookie 跨内核恢复（Gecko 备份 → WebView，或反过来）：字段一致可以恢复，但 SameSite 等细节两个内核处理略有差别
+    val appContext = LocalContext.current
+    val cookieEngineLabel = { engine: String -> if (engine == BackupManager.COOKIE_ENGINE_WEBVIEW) "WebView" else "Gecko" }
+    val cookieCrossNote = plan?.cookieEngine
+        ?.takeIf { BackupCategory.COOKIES in selected && it != BackupManager.currentCookieEngine(appContext) }
+        ?.let {
+            "Cookie 来自 ${cookieEngineLabel(it)} 内核，将恢复到当前的 ${cookieEngineLabel(BackupManager.currentCookieEngine(appContext))} 内核；" +
+                "SameSite 等细节两个内核处理略有差别，个别站点可能需要重新登录。"
+        }
     AppGlassDialog(
         show = show,
         title = "恢复这份备份？",
@@ -1371,6 +1376,14 @@ private fun RestoreConfirmDialog(
                         enabled = !unavailable,
                     )
                 }
+            }
+            if (cookieCrossNote != null) {
+                Text(
+                    text = cookieCrossNote,
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
             }
             Text(
                 text = "覆盖后无法撤销，完成后自动重启。",

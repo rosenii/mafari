@@ -5,8 +5,9 @@
 
 ## [2.1.5]
 
-- 新增：备份与同步可自选备份内容（书签 / 历史记录 / 应用设置 / 用户脚本 / 脚本数据 / 去广告规则 / Gecko Cookie），手动导出、WebDAV、Git 与自动推送共用这份选择；没有数据的类别（如书签为空）不写进备份
-- 新增：Gecko Cookie 备份（仅当前内核为 Gecko 时可选，经内置拓展 0.4.2 读写，只含持久 Cookie，默认不勾选）；恢复时暂存在本机，重启后 Gecko 就绪时导入
+- 新增：备份与同步可自选备份内容（书签 / 历史记录 / 应用设置 / 用户脚本 / 脚本数据 / 去广告规则 / Cookie），手动导出、WebDAV、Git 与自动推送共用这份选择；没有数据的类别（如书签为空）不写进备份
+- 新增：Cookie 备份（Gecko / WebView 两种内核都支持，只含持久 Cookie，默认不勾选）。Gecko 经内置拓展 0.4.2 读写，恢复时暂存在本机，重启后 Gecko 就绪时导入；WebView 先 `CookieManager.flush()`，再读应用私有目录里 Chromium 的 Cookie 库（`app_webview/Default/Cookies` 或 `Default/Network/Cookies`，只读副本），恢复时清空现有 Cookie 后逐条 `setCookie` 并 flush。找不到库 / 缺列 / 值被加密时明确报错并中止，不生成缺 Cookie 的备份
+- 新增：Cookie 可跨内核恢复（Gecko 备份 → WebView，反之亦然；JSON 字段一致），备份记录 Cookie 来自哪个内核，恢复时若与当前内核不同会在确认框里提示；Gecko 的第一方隔离 Cookie 恢复到 WebView 时会跳过；Chromium 与 Firefox 对 SameSite 等细节处理略有差别
 - 调整：恢复只覆盖备份里有数据的类别，没选 / 备份里没有 / 备份时为空的数据保持原样，不再以空数据覆盖；恢复前可再勾选要恢复的类别
 - 优化：备份与同步页重新排版（备份内容开关、云同步状态行 + 上传 / 恢复按钮、口令与自动备份、本地文件）
 ## [2.1.3]

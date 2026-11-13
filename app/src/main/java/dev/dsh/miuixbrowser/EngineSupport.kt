@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser
 
+import android.content.Context
 import android.os.Build
 
 /**
@@ -20,4 +21,8 @@ object EngineSupport {
     /** 本机能否使用 Gecko：安装包带了 GeckoView，且设备是 arm64-v8a（GeckoView nightly 只发布该架构） */
     fun geckoAvailable(): Boolean =
         GECKO_BUNDLED && Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+
+    /** 当前默认内核是否实际为 Gecko（设置选了 Gecko 且本机能用）。否则按 WebView 处理；备份 / 恢复 Cookie 据此选实现。 */
+    fun defaultIsGecko(context: Context): Boolean =
+        geckoAvailable() && readBrowserEngine(context.applicationContext) == ENGINE_GECKO
 }

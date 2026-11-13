@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -874,7 +876,7 @@ private fun WallpaperDialogRow(
     }
 }
 
-/** 应用图标选择：四个预览并排，选中项带主题色描边和对勾。 */
+/** 应用图标选择：五个预览并排一行（图标随宽度自适应缩小），选中项带主题色描边和对勾。 */
 @Composable
 private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
@@ -904,14 +906,16 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(62.dp)
+                            .fillMaxWidth(0.88f)
+                            .widthIn(max = 52.dp)
+                            .aspectRatio(1f)
                             .border(
                                 width = if (active) 2.dp else 0.dp,
                                 color = if (active) MiuixTheme.colorScheme.primary else Color.Transparent,
-                                shape = RoundedCornerShape(18.dp),
+                                shape = RoundedCornerShape(15.dp),
                             )
-                            .padding(3.dp)
-                            .clip(RoundedCornerShape(15.dp)),
+                            .padding(2.5.dp)
+                            .clip(RoundedCornerShape(12.dp)),
                     ) {
                         Image(
                             painter = painterResource(option.preview),
@@ -919,19 +923,20 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(5.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (active) {
                             Icon(
                                 imageVector = MiuixIcons.Basic.Check,
                                 contentDescription = "已选中",
                                 tint = MiuixTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(12.dp),
                             )
                         }
                         Text(
                             text = option.label,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
+                            maxLines = 1,
                             color = if (active) {
                                 MiuixTheme.colorScheme.primary
                             } else {

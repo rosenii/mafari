@@ -38,16 +38,8 @@ object BackupAuto {
         prefs(context).edit().putStringSet(K_CATEGORIES, set.map { it.id }.toSet()).apply()
     }
 
-    /** Gecko Cookie 能不能备份：安装包带 Gecko、设备支持，且当前默认内核是 Gecko（读 Cookie 要靠 Gecko 的内置拓展在运行）。 */
-    fun geckoCookiesAvailable(context: Context): Boolean =
-        EngineSupport.geckoAvailable() && readBrowserEngine(context.applicationContext) == ENGINE_GECKO
-
-    fun isAvailable(context: Context, category: BackupCategory): Boolean =
-        category != BackupCategory.GECKO_COOKIES || geckoCookiesAvailable(context)
-
-    /** 实际生效的备份内容：已选 ∩ 当前可用（切到 WebView 后，已选的 Gecko Cookie 暂不生效，但选择会保留）。 */
-    fun effectiveCategories(context: Context): Set<BackupCategory> =
-        categories(context).filter { isAvailable(context, it) }.toSet()
+    /** 实际生效的备份内容：现在所有类别都可用（Cookie 按当前默认内核读取：Gecko 走内置拓展，WebView 读自己的 Cookie 库）。 */
+    fun effectiveCategories(context: Context): Set<BackupCategory> = categories(context)
 
     fun hasPassword(context: Context): Boolean = password(context) != null
 

@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -294,14 +295,23 @@ fun DownloadsScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 SmallTitle(text = "下载文件", modifier = Modifier.weight(1f))
-                                IconButton(onClick = {
-                                    deleteLocal = false
-                                    showClearAll = true
-                                }) {
+                                // 垃圾桶图标 = 所在行标题的字高（subtitle 的字号），触控区保持 32dp
+                                val titleSize = with(LocalDensity.current) {
+                                    MiuixTheme.textStyles.subtitle.fontSize.toDp()
+                                }
+                                IconButton(
+                                    onClick = {
+                                        deleteLocal = false
+                                        showClearAll = true
+                                    },
+                                    minWidth = 32.dp,
+                                    minHeight = 32.dp,
+                                ) {
                                     Icon(
                                         imageVector = MiuixIcons.Glass.Delete,
                                         contentDescription = "清空下载记录",
                                         tint = Color(0xFFE53935),
+                                        modifier = Modifier.size(titleSize),
                                     )
                                 }
                             }
@@ -355,11 +365,11 @@ fun DownloadsScreen(
                                         Text(
                                             text = when (task.state) {
                                                 DownloadState.DONE -> Downloader.sizeText(task.bytes) + " · 已保存"
-                                                DownloadState.PAUSED -> "已暂停 · ${Downloader.sizeText(task.bytes)}"
+                                                DownloadState.PAUSED -> "已暂停 · ${Downloader.progressSizeText(task.bytes, task.total)}"
                                                 DownloadState.FAILED -> "失败 · ${task.error ?: "未知错误"}"
                                                 DownloadState.RUNNING -> {
                                                     val percent = (Downloader.progressOf(task) * 100).toInt()
-                                                    "$percent% · ${Downloader.sizeText(task.bytes)}"
+                                                    "$percent% · ${Downloader.progressSizeText(task.bytes, task.total)}"
                                                 }
                                             },
                                             fontSize = 12.sp,

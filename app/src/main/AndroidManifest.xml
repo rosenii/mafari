@@ -115,6 +115,20 @@
             </intent-filter>
         </activity-alias>
 
+        <activity-alias
+            android:name=".IconMinimalV2"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_minimal"
+            android:roundIcon="@mipmap/ic_launcher_minimal"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- 网页 <input type=file capture> 备用输出路径 -->
         <provider
             android:name="androidx.core.content.FileProvider"

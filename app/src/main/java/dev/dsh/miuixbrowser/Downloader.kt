@@ -926,6 +926,16 @@ object Downloader {
         else -> "${numberFormat.format(bytes / 1024f / 1024f)} MB"
     }
 
+    /** 下载中显示"已下载 MB / 总 MB"；总大小未知时只显示已下载量。统一用 MB，便于对照。 */
+    fun progressSizeText(bytes: Long, total: Long): String {
+        fun mb(b: Long) = "${numberFormat.format(b / 1024f / 1024f)} MB"
+        return when {
+            total > 0 -> "${mb(bytes)} / ${mb(total)}"
+            bytes > 0 -> mb(bytes)
+            else -> ""
+        }
+    }
+
     fun progressOf(task: DownloadTask): Float {
         if (task.state == DownloadState.DONE) return 1f
         if (task.total <= 0) return 0f

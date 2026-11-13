@@ -19,6 +19,7 @@ object AppIconManager {
         AppIconOption("多彩", "IconColorfulV2", R.drawable.icon_preview_colorful),
         AppIconOption("立体", "IconSolidV2", R.drawable.icon_preview_solid3d),
         AppIconOption("深色", "IconDarkV2", R.drawable.icon_preview_dark),
+        AppIconOption("极简", "IconMinimalV2", R.drawable.icon_preview_minimal),
     )
 
     /** 启用选中的 alias、停用其余的。DONT_KILL_APP 避免系统直接杀进程。 */

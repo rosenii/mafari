@@ -256,13 +256,15 @@ enum class BackupCategory(val id: String, val title: String, val summary: String
     SCRIPTS("scripts", "用户脚本", "油猴脚本及其开关"),
     SCRIPT_DATA("script_data", "脚本数据", "脚本用 GM_setValue 保存的值"),
     ADBLOCK("adblock", "去广告规则", "订阅、开关与自定义规则"),
-    GECKO_COOKIES("gecko_cookies", "Gecko Cookie", "Gecko 内核里的登录状态（仅持久 Cookie，不含会话 Cookie）");
+    // id 仍是 "gecko_cookies"：沿用旧备份与已保存的勾选；现在 Gecko / WebView 两种内核都用它
+    COOKIES("gecko_cookies", "Cookie", "当前内核里的登录状态（仅持久 Cookie，不含会话 Cookie）；Gecko 与 WebView 的备份可互相恢复");
 
     companion object {
         fun byId(id: String): BackupCategory? = entries.firstOrNull { it.id == id }
+            ?: if (id == "cookies") COOKIES else null
 
         /** 默认勾选：除 Cookie（含登录凭据）外的全部 */
-        val DEFAULT_SELECTION: Set<BackupCategory> = entries.filter { it != GECKO_COOKIES }.toSet()
+        val DEFAULT_SELECTION: Set<BackupCategory> = entries.filter { it != COOKIES }.toSet()
     }
 }
 
@@ -294,8 +296,20 @@ object BackupManager {
 
     private val FILES = listOf("adblock/custom.txt")
 
-    /** Gecko Cookie 在备份里的单元名（明文 JSON 数组，由备份信封加密） */
+    /**
+     * Cookie 在备份里的单元名（明文 JSON 数组，由备份信封加密）。
+     * 名字沿用 "gecko/cookies" 以兼容旧备份；两种内核的字段一致（Gecko WebExtensions 的 cookies.Cookie 子集）。
+     */
     private const val COOKIES_UNIT = "gecko/cookies"
+
+    /** meta.json 里记录 Cookie 来自哪个内核的键，值为 [COOKIE_ENGINE_GECKO] / [COOKIE_ENGINE_WEBVIEW]（旧备份没有这个键，一律按 Gecko） */
+    private const val META_COOKIE_ENGINE = "cookieEngine"
+    const val COOKIE_ENGINE_GECKO = "gecko"
+    const val COOKIE_ENGINE_WEBVIEW = "webview"
+
+    /** 本机当前用于 Cookie 备份 / 恢复的内核。 */
+    fun currentCookieEngine(context: Context): String =
+        if (EngineSupport.GECKO_BUNDLED && EngineSupport.defaultIsGecko(context)) COOKIE_ENGINE_GECKO else COOKIE_ENGINE_WEBVIEW
 
     /** 「mafari」里属于书签的键；其余键算应用设置 */
     private val BOOKMARK_KEYS = setOf("favorites", "favorites_folders")
@@ -347,7 +361,8 @@ object BackupManager {
 
     /**
      * 收集 [categories] 里各类别的数据；没有数据的类别不写进备份（也就不会在恢复时覆盖）。
-     * 选了 Gecko Cookie 时会等 Gecko 内核就绪后读取，读不到抛 [IOException]（不会悄悄生成缺 Cookie 的备份）。
+     * 选了 Cookie 时按当前默认内核读取（Gecko：等内置拓展就绪；WebView：读 Chromium 的 Cookie 库），
+     * 读不到抛 [IOException]（不会悄悄生成缺 Cookie 的备份）。
      * 调用方在 IO 线程调用。
      */
     fun collect(context: Context, categories: Set<BackupCategory>): Collected {
@@ -432,12 +447,19 @@ object BackupManager {
             }
         }
 
-        // 4) Gecko Cookie：经内置拓展读取；失败直接中止，不生成缺 Cookie 的备份
-        if (BackupCategory.GECKO_COOKIES in categories && EngineSupport.GECKO_BUNDLED) {
-            val json = GeckoGm.exportCookies()
+        // 4) Cookie：按当前默认内核读取；失败直接中止，不生成缺 Cookie 的备份
+        var cookieEngine: String? = null
+        if (BackupCategory.COOKIES in categories) {
+            val engine = currentCookieEngine(app)
+            val json = if (engine == COOKIE_ENGINE_GECKO && EngineSupport.GECKO_BUNDLED) {
+                GeckoGm.exportCookies() // 经内置拓展读取
+            } else {
+                WebViewCookies.export(app) // 读 WebView 自己的 Cookie 库
+            }
             if (jsonArrayLength(json) > 0) {
                 units[COOKIES_UNIT] = json.toByteArray(Charsets.UTF_8)
-                included.add(BackupCategory.GECKO_COOKIES)
+                included.add(BackupCategory.COOKIES)
+                cookieEngine = engine
             }
         }
 
@@ -450,6 +472,7 @@ object BackupManager {
             .put("versionCode", BuildConfig.VERSION_CODE)
             .put("categories", JSONArray(done.map { it.id }))
             .put("units", JSONArray(units.keys.toList()))
+        if (cookieEngine != null) meta.put(META_COOKIE_ENGINE, cookieEngine)
         units["meta.json"] = meta.toString().toByteArray(Charsets.UTF_8)
         return Collected(units, done, BackupCategory.entries.filter { it in categories && it !in included }, skipped)
     }
@@ -468,8 +491,10 @@ object BackupManager {
         val formatVersion: Int,
         /** 备份里有数据的类别（固定顺序）；不在其中的类别恢复时保持原样 */
         val categories: List<BackupCategory>,
-        /** 备份里有、但本机恢复不了的类别（如 Gecko Cookie 在不支持 Gecko 的安装包 / 设备上） */
+        /** 备份里有、但本机恢复不了的类别（目前没有：Cookie 在两种内核下都能恢复） */
         val unavailable: Set<BackupCategory>,
+        /** 备份里的 Cookie 来自哪个内核（[COOKIE_ENGINE_GECKO] / [COOKIE_ENGINE_WEBVIEW]）；没有 Cookie 为 null，旧备份按 Gecko */
+        val cookieEngine: String?,
         internal val prefs: Map<BackupCategory, Map<String, Map<String, Any>>>,
         internal val files: Map<String, ByteArray>,
         internal val cookies: ByteArray?,
@@ -541,13 +566,13 @@ object BackupManager {
 
         val present = LinkedHashSet<BackupCategory>(prefs.keys)
         if (files.isNotEmpty()) present.add(BackupCategory.ADBLOCK)
-        if (cookies != null) present.add(BackupCategory.GECKO_COOKIES)
+        if (cookies != null) present.add(BackupCategory.COOKIES)
         if (present.isEmpty()) throw CryptoException("备份里没有可恢复的数据")
 
-        val unavailable = if (BackupCategory.GECKO_COOKIES in present && !EngineSupport.geckoAvailable()) {
-            setOf(BackupCategory.GECKO_COOKIES)
-        } else {
-            emptySet()
+        val unavailable = emptySet<BackupCategory>()
+        val cookieEngine = if (cookies == null) null else when (meta.optString(META_COOKIE_ENGINE)) {
+            COOKIE_ENGINE_WEBVIEW -> COOKIE_ENGINE_WEBVIEW
+            else -> COOKIE_ENGINE_GECKO
         }
 
         return RestorePlan(
@@ -558,6 +583,7 @@ object BackupManager {
             formatVersion = contents.version,
             categories = BackupCategory.entries.filter { it in present },
             unavailable = unavailable,
+            cookieEngine = cookieEngine,
             prefs = prefs,
             files = files,
             cookies = cookies,
@@ -650,10 +676,17 @@ object BackupManager {
                     }
                 }
             }
-            if (cat == BackupCategory.GECKO_COOKIES && EngineSupport.GECKO_BUNDLED) {
+            if (cat == BackupCategory.COOKIES) {
                 val bytes = plan.cookies ?: continue
-                // Cookie 不在这里直接写：重启后 Gecko 内置拓展就绪时再导入（此时 Gecko 会把它们落盘，不怕进程被杀）
-                GeckoGm.stagePendingCookies(app, String(bytes, Charsets.UTF_8))
+                val json = String(bytes, Charsets.UTF_8)
+                if (currentCookieEngine(app) == COOKIE_ENGINE_GECKO && EngineSupport.GECKO_BUNDLED) {
+                    // Gecko：不在这里直接写，重启后内置拓展就绪时再导入（此时 Gecko 会把它们落盘，不怕进程被杀）
+                    GeckoGm.stagePendingCookies(app, json)
+                } else {
+                    // WebView：直接 setCookie 并 flush，写完即落盘；不跨内核的备份与跨内核的备份走同一条路
+                    val r = WebViewCookies.importCookies(app, json)
+                    Diag.log("restore: webview cookies set=${r.set} failed=${r.failed} skipped=${r.skipped}")
+                }
             }
         }
     }
