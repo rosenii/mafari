@@ -318,6 +318,9 @@ object BackupManager {
             units["prefs/mafari_history"] = root.toString().toByteArray(Charsets.UTF_8)
         }
 
+        // GM 值在 SQLCipher 库里：导出成旧格式放进 userscript_gm 单元，恢复后下次启动自动导入
+        GmStore.exportJson(app)?.let { units["prefs/userscript_gm"] = it.toByteArray(Charsets.UTF_8) }
+
         for (rel in FILES) {
             val f = File(app.filesDir, rel)
             if (f.isFile && f.length() in 1..(8L shl 20)) units["files/$rel"] = f.readBytes()
@@ -464,6 +467,7 @@ object BackupManager {
         for ((name, values) in plan.prefs) {
             // 历史库整体替换：先清空，备份里的 entries 在重启后导入
             if (name == "mafari_history") runCatching { HistoryDb.clearAll(app) }
+            if (name == "userscript_gm") runCatching { GmStore.clearAll(app) }
             val editor = app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
             for ((key, value) in values) {
                 when (value) {

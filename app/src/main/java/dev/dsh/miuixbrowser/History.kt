@@ -39,6 +39,12 @@ internal object HistoryDb {
     private var instance: SQLiteDatabase? = null
     private var failed = false
 
+    /** 所有写入共用的单线程执行器（历史、隐私统计）：按提交顺序执行 */
+    val io: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "mafari-db-writer").apply { isDaemon = true }
+        }
+
     /** 取（必要时打开并迁移）数据库；打不开返回 null（历史功能降级为不记录，不影响浏览）。 */
     fun get(context: Context): SQLiteDatabase? {
         instance?.let { return it }
@@ -56,6 +62,8 @@ internal object HistoryDb {
             instance = db
             runCatching { migrateLegacy(app, db) }
                 .onFailure { Diag.log("history db: migrate failed: ${it.message}") }
+            runCatching { migrateGm(app, db) }
+                .onFailure { Diag.log("history db: gm migrate failed: ${it.message}") }
             return db
         }
     }
@@ -85,8 +93,15 @@ internal object HistoryDb {
             SQLiteDatabase.openOrCreateDatabase(file, pass, null, null)
         }
         db.enableWriteAheadLogging()
+        // WAL + NORMAL：提交不再逐次 fsync（断电最多丢最后几笔，不会损坏库），脚本频繁 GM_setValue 也不卡
+        db.execSQL("PRAGMA synchronous=NORMAL")
         db.execSQL("CREATE TABLE IF NOT EXISTS history(url TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, time INTEGER NOT NULL)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_time ON history(time DESC)")
+        // 油猴脚本的 GM_setValue 数据（见 GmStore）
+        db.execSQL("CREATE TABLE IF NOT EXISTS gm_values(sid TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY(sid,k)) WITHOUT ROWID")
+        // 隐私报告：网页请求摄像头 / 麦克风 / 定位的记录（见 PrivacyStats）
+        db.execSQL("CREATE TABLE IF NOT EXISTS perm_events(id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT NOT NULL, time INTEGER NOT NULL, kinds TEXT NOT NULL)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_perm_time ON perm_events(time)")
         return db
     }
 
@@ -112,6 +127,29 @@ internal object HistoryDb {
             db.endTransaction()
         }
         prefs.edit().remove(LEGACY_KEY).commit()
+    }
+
+    /** 旧版 GM 值存在 SharedPreferences「userscript_gm」（键 = 脚本id::名字）：导入后逐个删除；备份恢复写回的同样在下次启动导入。 */
+    private fun migrateGm(context: Context, db: SQLiteDatabase) {
+        val prefs = context.getSharedPreferences("userscript_gm", Context.MODE_PRIVATE)
+        val legacy = prefs.all.filter { it.key.contains("::") && it.value is String }
+        if (legacy.isEmpty()) return
+        db.beginTransaction()
+        try {
+            for ((key, value) in legacy) {
+                val i = key.indexOf("::")
+                db.execSQL(
+                    "INSERT OR REPLACE INTO gm_values(sid,k,v) VALUES(?,?,?)",
+                    arrayOf<Any?>(key.substring(0, i), key.substring(i + 2), value as String),
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        val editor = prefs.edit()
+        legacy.keys.forEach { editor.remove(it) }
+        editor.commit()
     }
 
     fun upsert(db: SQLiteDatabase, url: String, title: String, time: Long) {
@@ -251,9 +289,6 @@ class HistoryStore(context: Context) {
     private companion object {
         const val RECENT_SIZE = 20
 
-        private val writer: java.util.concurrent.ExecutorService =
-            java.util.concurrent.Executors.newSingleThreadExecutor { r ->
-                Thread(r, "mafari-history-writer").apply { isDaemon = true }
-            }
+        private val writer: java.util.concurrent.ExecutorService get() = HistoryDb.io
     }
 }
