@@ -141,6 +141,7 @@ fun LibraryScreen(
     )
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
+    var showLockInfo by remember { mutableStateOf(false) }
     // 分页内容各自的滚动状态，避免两栏互相干扰
     val bookmarkListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val historyListState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -192,6 +193,7 @@ fun LibraryScreen(
                     LiquidGlassBackButton(backdrop = liquid, surfaceVisible = topScrolled, onClick = onBack)
                 },
                 actions = {
+                    EncryptionLockButton(onClick = { showLockInfo = true }, liquid = liquid, topScrolled = topScrolled)
                     LiquidGlassButton(
                         onClick = {
                             searching = !searching
@@ -236,6 +238,13 @@ fun LibraryScreen(
             )
         },
     ) { innerPadding ->
+        EncryptionInfoDialog(
+            show = showLockInfo,
+            onDismiss = { showLockInfo = false },
+            backdrop = backdrop,
+            liquid = liquid,
+            scope = "书签：加密套件加密；历史：SQLCipher 整库 AES-256",
+        )
         val topInset = innerPadding.calculateTopPadding()
         Box(modifier = Modifier.fillMaxSize()) {
             Box(

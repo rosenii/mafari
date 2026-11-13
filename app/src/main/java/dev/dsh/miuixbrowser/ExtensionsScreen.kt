@@ -106,6 +106,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
+    var showLockInfo by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
     var moreAnchor by remember { mutableStateOf(Rect.Zero) }
 
@@ -174,6 +175,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     LiquidGlassBackButton(backdrop = liquid, surfaceVisible = topScrolled, onClick = onBack)
                 },
                 actions = {
+                    EncryptionLockButton(onClick = { showLockInfo = true }, liquid = liquid, topScrolled = topScrolled)
                     LiquidGlassButton(
                         onClick = { showMore = true },
                         backdrop = liquid,
@@ -193,6 +195,13 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
             )
         },
     ) { innerPadding ->
+        EncryptionInfoDialog(
+            show = showLockInfo,
+            onDismiss = { showLockInfo = false },
+            backdrop = backdrop,
+            liquid = liquid,
+            scope = "脚本 GM 数据：SQLCipher 整库 AES-256",
+        )
         val topInset = innerPadding.calculateTopPadding()
         Box(modifier = Modifier.fillMaxSize()) {
             Column(

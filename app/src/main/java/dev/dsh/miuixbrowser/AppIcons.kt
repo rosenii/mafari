@@ -49,6 +49,16 @@ object AppIcons {
         )
     }
 
+    /** 加密安全锁：圆角锁身 + 锁梁 + 锁孔。 */
+    val Lock: ImageVector by lazy {
+        stroked(
+            "Lock",
+            "M7.5,10.5V8A4.5,4.5 0 0 1 16.5,8V10.5",
+            "M6.5,10.5H17.5A2,2 0 0 1 19.5,12.5V18.5A2,2 0 0 1 17.5,20.5H6.5A2,2 0 0 1 4.5,18.5V12.5A2,2 0 0 1 6.5,10.5Z",
+            "M12,14.4V16.6",
+        )
+    }
+
     /** 书签：上端平、下端 V 形缺口的书签轮廓。 */
     val Bookmark: ImageVector by lazy {
         stroked(
