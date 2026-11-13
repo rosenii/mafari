@@ -282,9 +282,17 @@ fun BrowserScreen(
 ) {
     val context = LocalContext.current
     val state = remember {
-        BrowserState(context).also {
+        BrowserState(context, settings.userAgent).also {
             // 启动时把设置里保存的 UA 应用到所有标签（之前只有在设置里点确定才会应用，重启后一律回到系统默认 UA）
             it.applyUserAgent(settings.userAgent)
+        }
+    }
+    // 标签列表落盘（tabs 表，见 TabDb）：标签增减 / 换页 / 标题 / 顺序 / 切换变化时才触发，
+    // 每次保存后至少隔 0.8 秒再处理下一次（snapshotFlow 自带合并，只取最新）；退到后台时 MainActivity 会立刻再存一次
+    LaunchedEffect(state) {
+        androidx.compose.runtime.snapshotFlow { state.tabRows() }.collect { rows ->
+            state.saveTabs(rows)
+            kotlinx.coroutines.delay(800)
         }
     }
     val favorites = remember { FavoritesStore(context) }

@@ -38,9 +38,11 @@ class GmBridge(
     private val onCloseTab: (id: String) -> Unit = {},
 ) {
 
-    // 有界线程池：核心 4 / 最大 8 线程，队列 64；空闲线程 30 秒回收。队列满时拒绝并回调错误，不再无限开线程。
+    // 有界线程池：8 个工作线程 + 容量 64 的队列；空闲线程 30 秒回收。队列满时拒绝并回调错误，不再无限开线程。
+    // 注意 ThreadPoolExecutor 只有在队列满了之后才会把线程从核心数扩到最大数；核心 4 / 最大 8 + 队列 64 时，
+    // 实际并发只有 4，几个长连接就能把其它请求全堵在队列里。所以核心数 = 最大数 = 8，靠队列缓冲、靠 allowCoreThreadTimeOut 回收。
     private val pool = ThreadPoolExecutor(
-        4, 8, 30L, TimeUnit.SECONDS, LinkedBlockingQueue(64),
+        8, 8, 30L, TimeUnit.SECONDS, LinkedBlockingQueue(64),
         object : java.util.concurrent.ThreadFactory {
             private val n = AtomicInteger(0)
             override fun newThread(r: Runnable) = Thread(r, "gm-xhr-${n.incrementAndGet()}").apply { isDaemon = true }

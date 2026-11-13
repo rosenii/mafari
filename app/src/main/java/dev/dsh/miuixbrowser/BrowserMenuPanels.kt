@@ -511,6 +511,10 @@ internal fun TabCard(
     highlight: Boolean = false,
 ) {
     val thumb = item.thumbnail
+    // 缩略图被 LRU 挤出内存（或重启后还没读回）时，卡片显示出来才从 tabs 表读（解码在后台线程）
+    LaunchedEffect(item.id, thumb == null) {
+        if (thumb == null) TabThumbs.ensureLoaded(item)
+    }
     val cardColor = if (item.incognito) Color(0xFF3D2B4F) else MiuixTheme.colorScheme.surfaceContainerHigh
     val highlightColor = MiuixTheme.colorScheme.primary
     Box(
@@ -585,7 +589,12 @@ internal fun TabCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (item.url.isBlank()) "主页" else hostOf(item.url),
+                    text = when {
+                        // 重启后恢复出来、还没加载的标签：显示它保存的页面，而不是「主页」
+                        item.showsSavedPage -> hostOf(item.effectiveUrl)
+                        item.url.isBlank() -> "主页"
+                        else -> hostOf(item.url)
+                    },
                     fontSize = 11.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,

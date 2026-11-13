@@ -195,6 +195,14 @@ object AdBlock {
     /** 累计拦截数的变化流：拦截发生时才更新，UI 订阅它即可，不必定时轮询（StateFlow 自带合并 / 去重）。 */
     val blockedFlow: StateFlow<Long> get() = _blockedFlow
 
+    /** 多个请求线程并发拦截时，后算出的小值可能后写入：只允许单调增大，UI 不会看到计数回退。 */
+    private fun publishBlocked(value: Long) {
+        while (true) {
+            val cur = _blockedFlow.value
+            if (value <= cur || _blockedFlow.compareAndSet(cur, value)) return
+        }
+    }
+
     @Synchronized
     fun init(context: Context) {
         if (inited) return
@@ -517,7 +525,7 @@ object AdBlock {
         if (!hit) return null
 
         val n = blockedSession.incrementAndGet()
-        _blockedFlow.value = baseTotal + n
+        publishBlocked(baseTotal + n)
         if (n % 40L == 0L) prefs.edit().putLong("blocked_total", baseTotal + n).apply()
         return blockedResponse(AdMatch.inferType(url, accept))
     }

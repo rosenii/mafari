@@ -159,7 +159,7 @@ enum class EngineKind { WEBVIEW, GECKO }
  */
 @SuppressLint("SetJavaScriptEnabled")
 class BrowserTab(
-    private val appContext: Context,
+    internal val appContext: Context,
     /** 本标签使用的内核：创建时确定，之后不变 */
     val engineKind: EngineKind = EngineKind.WEBVIEW,
     /** 无痕标签：Gecko 的私有模式必须在会话创建时指定 */
@@ -180,6 +180,18 @@ class BrowserTab(
     var errorText by mutableStateOf<String?>(null)
     /** 标签卡片用的页面缩略图（页面加载完成后截取） */
     var thumbnail by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+        private set
+
+    /** tabs 表主键（见 [TabDb]）：新标签随机生成，从库里恢复出来的标签沿用库里的值 */
+    var dbKey: Long = TabDb.newKey()
+        internal set
+
+    /** 最近一次被切到前台的时间（毫秒，墙钟）：恢复「最近使用」顺序 / 重启后回到最后用的标签 */
+    var lastUsedAt = 0L
+        internal set
+
+    /** 正在从库里读缩略图（防止卡片重组时重复触发） */
+    internal var thumbLoading = false
     /** 是否是从主页打开的第一个页面（用于「返回到主页」） */
     var fromHome by mutableStateOf(false)
         private set
@@ -1499,22 +1511,14 @@ class BrowserTab(
     private fun captureGeckoThumbnail() {
         val g = gecko ?: return
         if (closed || destroyed || url.isBlank() || isBlankPage(url) || parked) return
+        capturingSince = android.os.SystemClock.uptimeMillis()
+        // Gecko 的截图本身是异步的；拿到整屏原图后，缩小 / 压缩 / 落盘都交给 TabThumbs 的后台线程，主线程不做图像处理
         g.capture { bmp ->
-            runCatching {
-                // 与 WebView 版一致：缩到 480x854 以内
-                val scale = minOf(480f / bmp.width, 854f / bmp.height, 1f)
-                val scaled = if (scale < 1f) {
-                    Bitmap.createScaledBitmap(
-                        bmp,
-                        (bmp.width * scale).toInt().coerceAtLeast(1),
-                        (bmp.height * scale).toInt().coerceAtLeast(1),
-                        true,
-                    )
-                } else {
-                    bmp
-                }
-                thumbnail = scaled.asImageBitmap()
+            if (closed || destroyed) {
+                capturingSince = 0L
+                return@capture
             }
+            TabThumbs.submit(this, bmp, ownsSource = true)
         }
     }
 
@@ -2261,36 +2265,76 @@ class BrowserTab(
 
     private var lastThumbAt = 0L
 
+    /** 当前这次截图开始的时间（uptime），0 = 没有进行中的截图；Gecko 异步截图超过 3 秒没回调就当丢失 */
+    private var capturingSince = 0L
+
+    /** 缩略图对应的页面状态：地址、滚动位置都没变且已有缩略图时，不重复截图 */
+    private var thumbUrl = ""
+    private var thumbScrollY = -1
+    private var pendingThumbUrl = ""
+    private var pendingThumbScrollY = -1
+
     /**
-     * 按需截取标签缩略图（主线程）：只在「切走这个标签」和「打开标签页面板」时调用，
-     * 页面加载完成不再自动截图。1 秒内重复调用直接跳过（打开面板后再选标签会连续触发）。
+     * 按需截取标签缩略图（主线程发起）：只在「切走这个标签」和「打开标签页面板」时调用，
+     * 页面加载完成不再自动截图。1 秒内重复调用、上一张还没处理完、页面和滚动位置都没变，都直接跳过。
      */
     fun captureThumbnailNow() {
         if (closed || destroyed || parked) return
         val now = android.os.SystemClock.uptimeMillis()
         if (now - lastThumbAt < 1000L) return
+        if (capturingSince != 0L && now - capturingSince < 3000L) return
+        val scrollY = scrollOffsetY
+        if (thumbnail != null && thumbUrl == url && thumbScrollY == scrollY && !loading) return
         lastThumbAt = now
+        pendingThumbUrl = url
+        pendingThumbScrollY = scrollY
         if (gecko != null) captureGeckoThumbnail() else captureThumbnail(webView)
     }
 
-    /** 截取当前页面作为标签缩略图（须在主线程调用） */
+    /**
+     * 截取当前页面作为标签缩略图。WebView 的 View.draw 只能在主线程，所以这里直接画到最终大小的小图
+     * （最长 [TabThumbs.MAX_W]×[TabThumbs.MAX_H]、RGB_565），压缩 / 落盘仍在后台。
+     */
     private fun captureThumbnail(view: WebView) {
         if (closed || destroyed || url.isBlank() || url == "about:blank") return
         runCatching {
             if (view.width <= 0 || view.height <= 0) return
-            // 卡片只有 ~180dp 宽且叠了 0.45 透明度，缩到 480x854 以内足够；
-            // 原来 720x1280 ARGB 每张 3.5MB，多标签时绘制/上传纹理都很重。
-            val scale = minOf(480f / view.width, 854f / view.height, 1f)
+            val scale = minOf(TabThumbs.MAX_W.toFloat() / view.width, TabThumbs.MAX_H.toFloat() / view.height, 1f)
             val bitmap = android.graphics.Bitmap.createBitmap(
                 (view.width * scale).toInt().coerceAtLeast(1),
                 (view.height * scale).toInt().coerceAtLeast(1),
-                android.graphics.Bitmap.Config.ARGB_8888,
+                android.graphics.Bitmap.Config.RGB_565,
             )
             val canvas = android.graphics.Canvas(bitmap)
             canvas.scale(scale, scale)
             view.draw(canvas)
-            thumbnail = bitmap.asImageBitmap()
+            capturingSince = android.os.SystemClock.uptimeMillis()
+            TabThumbs.submit(this, bitmap, ownsSource = false)
         }
+    }
+
+    /** [TabThumbs] 回到主线程：一次截图处理结束（成功或失败） */
+    internal fun thumbCaptureDone() {
+        capturingSince = 0L
+    }
+
+    /** 新截的缩略图 */
+    internal fun applyThumbnail(bitmap: Bitmap) {
+        thumbnail = bitmap.asImageBitmap()
+        thumbUrl = pendingThumbUrl
+        thumbScrollY = pendingThumbScrollY
+    }
+
+    /** 从库里读回的缩略图（不代表当前页面状态，所以不更新 thumbUrl，下次切走时仍会重新截图） */
+    internal fun applyThumbnailFromDb(bitmap: Bitmap) {
+        thumbnail = bitmap.asImageBitmap()
+    }
+
+    /** 释放内存里的缩略图（LRU 淘汰 / 标签关闭）；普通标签的图还在库里，卡片再显示时会读回 */
+    internal fun dropThumbnail() {
+        thumbnail = null
+        thumbUrl = ""
+        thumbScrollY = -1
     }
 
     fun findNext(forward: Boolean) {
@@ -2306,6 +2350,63 @@ class BrowserTab(
     /** 回主页 */
     private var savedUrl: String = ""
 
+    // ---------------------------------------------------------------- 从 tabs 表恢复（见 TabDb / BrowserState.restoreSavedTabs）
+    //
+    // 恢复出来的标签先是「被主页盖住、页面还没加载」的状态：地址记在 savedUrl，不碰网络。
+    // 它成为当前标签时（[wakeIfPending]）、或用户从主页点回它的页面时（[restoreFromHome]）才真正加载，
+    // 所以重启后不会同时把所有标签的页面都拉起来。
+
+    private var pendingRestore = false
+    private var pendingOnHome = false
+    private var pendingDesktop = false
+
+    /** 标签的页面还没加载、只是用保存的地址 / 标题占位（卡片上要显示这个页面的域名，而不是「主页」） */
+    internal val showsSavedPage: Boolean get() = pendingRestore && !pendingOnHome
+
+    /** 要保存的桌面模式状态：还没加载的恢复标签也保留这个标志 */
+    internal val wantsDesktop: Boolean get() = desktopMode || pendingDesktop
+
+    internal fun prepareRestore(target: String, savedTitle: String, onHome: Boolean, desktop: Boolean, fromLink: Boolean) {
+        openedFromLink = fromLink
+        if (target.isBlank()) return // 空白标签：就是一个主页标签，没有页面可恢复
+        savedUrl = target
+        if (savedTitle.isNotBlank()) title = savedTitle
+        parked = true
+        url = ""
+        pendingRestore = true
+        pendingOnHome = onHome
+        pendingDesktop = desktop
+    }
+
+    /** 成为当前标签时调用：该显示页面的恢复标签此刻才加载 */
+    internal fun wakeIfPending() {
+        if (pendingRestore && !pendingOnHome) loadPending()
+    }
+
+    private fun loadPending() {
+        val target = savedUrl
+        pendingRestore = false
+        if (pendingDesktop) {
+            pendingDesktop = false
+            desktopMode = true
+            if (gecko == null) {
+                runCatching {
+                    webView.settings.apply {
+                        useWideViewPort = true
+                        loadWithOverviewMode = true
+                        setSupportZoom(true)
+                        builtInZoomControls = true
+                        displayZoomControls = false
+                        layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
+                    }
+                }
+                installDesktopScript(true)
+            }
+            applyUserAgent()
+        }
+        if (target.isNotBlank()) load(target)
+    }
+
     /** 标签实际承载的页面地址：回过主页的标签 url 为空，页面还在 WebView 里，用 savedUrl */
     val effectiveUrl: String
         get() = url.ifEmpty { savedUrl }
@@ -2316,6 +2417,11 @@ class BrowserTab(
 
     /** 若这个标签正显示主页（页面被盖住），还原成原来的页面，不重新加载 */
     fun restoreFromHome() {
+        // 恢复出来、页面还没加载的标签：这时才真正加载
+        if (pendingRestore) {
+            loadPending()
+            return
+        }
         if (url.isEmpty() && savedUrl.isNotBlank()) {
             // 页面在主页下面可能又自己跳转过，以 WebView 当前地址为准
             url = engineUrl().takeIf { it.isNotBlank() } ?: savedUrl
@@ -2412,6 +2518,7 @@ class BrowserTab(
     /** 关闭标签：等界面把 WebView 从视图树摘下来后再销毁。 */
     fun close() {
         closed = true
+        TabThumbs.forget(this)
         contentView.post { if (contentView.parent == null) destroyNow() }
     }
 
@@ -2426,12 +2533,12 @@ class BrowserTab(
 }
 
 /** 多标签状态。 */
-class BrowserState(private val context: Context) : GeckoExtTabHost {
+class BrowserState(private val context: Context, initialUserAgent: String = "") : GeckoExtTabHost {
 
     val tabs = mutableStateListOf<BrowserTab>()
 
     /** 全局 UA，新标签也用它 */
-    var userAgent: String = ""
+    var userAgent: String = initialUserAgent
 
     var activeIndex by mutableIntStateOf(0)
         private set
@@ -2445,7 +2552,77 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
     init {
         // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
         if (EngineSupport.GECKO_BUNDLED) GeckoExtensionStore.tabHost = this
-        newTab()
+        current = this
+        // 上次的普通标签（tabs 表）；没有就开一个空白标签
+        if (!restoreSavedTabs()) newTab()
+    }
+
+    /**
+     * 从 tabs 表恢复上次的普通标签：只建标签对象，页面不加载；回到最近用过的那个标签并只加载它，
+     * 其余标签在被切到前台时才加载（见 [BrowserTab.wakeIfPending]）。没有可恢复的返回 false。
+     */
+    private fun restoreSavedTabs(): Boolean {
+        val db = HistoryDb.get(context) ?: return false
+        val rows = runCatching { TabDb.load(db) }
+            .onFailure { Diag.log("tabs: load failed: ${it.message}") }
+            .getOrDefault(emptyList())
+        if (rows.isEmpty()) return false
+        val byKey = HashMap<Long, BrowserTab>()
+        for (row in rows) {
+            if (tabs.size >= MAX_TABS) break
+            val tab = runCatching { createTab(incognito = false, opener = null) }
+                .onFailure { Diag.log("tabs: restore tab failed: ${it.message}") }
+                .getOrNull() ?: continue
+            tab.dbKey = row.key
+            tab.lastUsedAt = row.lastUsed
+            tab.prepareRestore(row.url, row.title, row.onHome, row.desktop, row.fromLink)
+            tabs.add(tab)
+            byKey[row.key] = tab
+        }
+        if (tabs.isEmpty()) return false
+        for (row in rows) {
+            val tab = byKey[row.key] ?: continue
+            tab.openerId = byKey[row.openerKey]?.id ?: -1
+        }
+        tabs.sortedBy { it.lastUsedAt }.forEach { recentIds.add(it.id) }
+        val last = tabs.maxByOrNull { it.lastUsedAt } ?: tabs.last()
+        activate(tabs.indexOf(last).coerceAtLeast(0))
+        Diag.log("tabs: restored ${tabs.size} tabs")
+        return true
+    }
+
+    /** 要落盘的标签列表（只含普通标签）。读取的都是 Compose 状态，可放进 snapshotFlow 里，变化时才触发保存。 */
+    internal fun tabRows(): List<TabRow> {
+        val byId = HashMap<Int, BrowserTab>(tabs.size * 2)
+        tabs.forEach { byId[it.id] = it }
+        val out = ArrayList<TabRow>(tabs.size)
+        for (t in tabs) {
+            if (t.incognito || t.closed) continue
+            val page = t.effectiveUrl.let { if (it.startsWith("about:")) "" else it }
+            val opener = byId[t.openerId]?.takeIf { !it.incognito }
+            out.add(
+                TabRow(
+                    key = t.dbKey,
+                    pos = out.size,
+                    url = page,
+                    title = t.title,
+                    onHome = t.url.isEmpty() && page.isNotBlank() && !t.showsSavedPage,
+                    desktop = t.wantsDesktop,
+                    openerKey = opener?.dbKey ?: 0L,
+                    fromLink = t.openedFromLink,
+                    lastUsed = t.lastUsedAt,
+                ),
+            )
+        }
+        return out
+    }
+
+    /** 把标签列表写进 tabs 表（快照在主线程取，写入在 [HistoryDb.io] 上单事务执行）。 */
+    internal fun saveTabs(rows: List<TabRow> = tabRows()) {
+        val db = HistoryDb.get(context) ?: return
+        HistoryDb.io.execute {
+            runCatching { TabDb.sync(db, rows) }.onFailure { Diag.log("tabs: save failed: ${it.message}") }
+        }
     }
 
     /** 唯一的切换入口：同时维护最近使用顺序 */
@@ -2453,10 +2630,13 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
         if (index !in tabs.indices) return
         activeIndex = index
         val id = tabs[index].id
+        tabs[index].lastUsedAt = System.currentTimeMillis()
         recentIds.remove(id)
         recentIds.add(id)
         // Gecko 会话只有「当前标签」保持活动，后台标签停止渲染
         tabs.forEachIndexed { i, t -> t.setEngineActive(i == index) }
+        // 从 tabs 表恢复出来的标签，成为当前标签时才真正加载页面
+        tabs[index].wakeIfPending()
         // 告诉拓展哪个是当前标签：tabs.query({active:true}) / 安装页等都依赖它，不能只在打开拓展菜单时才登记
         if (EngineSupport.GECKO_BUNDLED) {
             GeckoExtensionStore.activeSession = tabs[index].geckoSession
@@ -2818,6 +2998,16 @@ class BrowserState(private val context: Context) : GeckoExtTabHost {
 
     companion object {
         const val MAX_TABS = 99
+
+        /** 最近创建的实例：退到后台时由 MainActivity 通过它把标签列表立刻落盘。 */
+        @Volatile
+        var current: BrowserState? = null
+            private set
+
+        /** 退到后台时调用：不等延迟，立刻保存标签列表。主线程。 */
+        fun flushCurrent() {
+            current?.saveTabs()
+        }
     }
 }
 

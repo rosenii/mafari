@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         FavoritesStore.flushCurrent()
         ExtensionStore.flushCurrent()
+        BrowserState.flushCurrent()
         val wanted = AppSettings(this).appIcon
         if (AppIconManager.current(this) != wanted) AppIconManager.apply(this, wanted)
     }

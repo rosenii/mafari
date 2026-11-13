@@ -18,7 +18,7 @@ data class HistoryEntry(val url: String, val title: String, val time: Long)
 /**
  * 历史记录的 SQLCipher 加密数据库（整库 AES-256 加密）。同一个库里还放着：
  * GM_setValue 数据（gm_values）、隐私报告的权限请求记录（perm_events）、下载记录（downloads，见 [DownloadDb]）、
- * 书签（bookmarks / bookmark_folders，见 [BookmarkDb]）。
+ * 书签（bookmarks / bookmark_folders，见 [BookmarkDb]）、标签列表（tabs，见 [TabDb]）。
  *  - 库密钥：随机 32 字节（hex），经 [SecureStore]（Android Keystore 保护的加密引擎）封装后存在
  *    SharedPreferences「mafari_history_db」里；密钥取不回来时旧库无法解开，删库重建（与保险库重置一致）。
  *  - 旧版把整份历史加密成一个字符串存在 SharedPreferences「mafari_history」的 entries 里：
@@ -113,6 +113,9 @@ internal object HistoryDb {
         // 油猴脚本（见 ScriptDb / ExtensionStore）
         db.execSQL(ScriptDb.CREATE_SCRIPTS)
         db.execSQL(ScriptDb.CREATE_INDEX)
+        // 标签列表（见 TabDb / BrowserState）：只存普通标签，无痕标签不落盘
+        db.execSQL(TabDb.CREATE_TABS)
+        db.execSQL(TabDb.CREATE_INDEX)
         return db
     }
 
