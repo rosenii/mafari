@@ -1112,33 +1112,19 @@ fun BrowserScreen(
         if (tab.url.isEmpty() && wallpaperBitmap != null) {
             val wallpaperImage = wallpaperBitmap
             if (wallpaperImage != null) {
-                // 取样层永远是「未模糊」的原图（+压暗）：首页所有玻璃（卡片 / 底栏 / 弹层）都从它取色并各自模糊，
-                // 不受「壁纸模糊」开关影响，也不会对已经模糊过的壁纸再采样一次。
-                // 液态玻璃 + 壁纸模糊：取样层本身就画模糊后的壁纸（即卡片真正的「下层背景」），卡片取色与所见一致，
-                // 此时不再另盖显示层。其它材质维持原行为：取样层始终是未模糊原图。
-                val sampleBlurred = settings.wallpaperBlur && settings.liquidGlass
+                // 取样层就是用户看到的那张壁纸（+压暗）：开启「壁纸模糊」时直接画磁盘缓存里已模糊好的图，
+                // 所有材质（柔光 / 液态玻璃）的首页卡片、底栏、弹层都从这一层取色，取色与所见一致，
+                // 不再另盖一层显示用的模糊图。缓存还没读出来时先显示未模糊原图，不做实时模糊，避免卡片闪动。
+                val shownWallpaper = if (settings.wallpaperBlur && blurredWallpaper != null) blurredWallpaper else wallpaperImage
                 Box(modifier = Modifier.fillMaxSize().layerBackdrop(wallpaperBackdrop).kyantLayerBackdrop(wallpaperLiquidBackdrop)) {
                     Image(
-                        bitmap = if (sampleBlurred && blurredWallpaper != null) blurredWallpaper else wallpaperImage,
+                        bitmap = shownWallpaper,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
-                        modifier = Modifier.fillMaxSize().then(if (sampleBlurred && blurredWallpaper == null) Modifier.blur(28.dp) else Modifier),
+                        modifier = Modifier.fillMaxSize(),
                     )
                     Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)))
-                }
-                // 「壁纸模糊」只是显示层：不透明地盖在取样层上，不参与采样
-                if (settings.wallpaperBlur && !sampleBlurred) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Image(
-                            bitmap = blurredWallpaper ?: wallpaperImage,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
-                            modifier = Modifier.fillMaxSize().then(if (blurredWallpaper == null) Modifier.blur(28.dp) else Modifier),
-                        )
-                        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)))
-                    }
                 }
             }
         }
