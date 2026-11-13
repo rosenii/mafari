@@ -110,6 +110,9 @@ internal object HistoryDb {
         db.execSQL(BookmarkDb.CREATE_BOOKMARKS)
         db.execSQL(BookmarkDb.CREATE_FOLDERS)
         db.execSQL(BookmarkDb.CREATE_META)
+        // 油猴脚本（见 ScriptDb / ExtensionStore）
+        db.execSQL(ScriptDb.CREATE_SCRIPTS)
+        db.execSQL(ScriptDb.CREATE_INDEX)
         return db
     }
 

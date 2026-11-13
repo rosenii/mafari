@@ -330,6 +330,13 @@ object BackupManager {
             units["prefs/mafari"] = root.toString().toByteArray(Charsets.UTF_8)
         }
 
+        // 脚本在 SQLCipher 库里：导出成旧格式（scripts 明文 JSON）并进 mafari_ext 单元，恢复后下次启动自动导入
+        ExtensionStore.exportBackup(app)?.let { scripts ->
+            val root = units["prefs/mafari_ext"]?.let { JSONObject(String(it, Charsets.UTF_8)) } ?: JSONObject()
+            root.put("scripts", JSONObject().put("t", "s").put("v", scripts))
+            units["prefs/mafari_ext"] = root.toString().toByteArray(Charsets.UTF_8)
+        }
+
         // GM 值在 SQLCipher 库里：导出成旧格式放进 userscript_gm 单元，恢复后下次启动自动导入
         GmStore.exportJson(app)?.let { units["prefs/userscript_gm"] = it.toByteArray(Charsets.UTF_8) }
 
@@ -482,6 +489,8 @@ object BackupManager {
             if (name == "userscript_gm") runCatching { GmStore.clearAll(app) }
             // 书签库整体替换：先清空，备份里的 favorites / favorites_folders 在重启后导入
             if (name == "mafari") BookmarkDb.clearAll(app)
+            // 脚本库整体替换：先清空，备份里的 scripts 在重启后导入
+            if (name == "mafari_ext") ScriptDb.clearAll(app)
             val editor = app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
             for ((key, value) in values) {
                 when (value) {
