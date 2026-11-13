@@ -116,6 +116,14 @@ private fun doneText(context: Context, prefix: String, summary: BackupManager.Su
 
 private fun failText(prefix: String, e: Throwable?): String = prefix + "：" + (e?.message ?: "未知错误")
 
+/** 远端的一份历史备份：WebDAV 为文件，Git 为提交。[id] 交回 download(id) 取回内容；[tag] 是下拉里附带的短标识（Git 的提交号）。 */
+private data class RemoteBackup(val id: String, val time: Long, val tag: String? = null)
+
+private fun historyLabel(b: RemoteBackup, newest: Boolean): String =
+    (if (b.time > 0) formatTime(b.time) else b.id) +
+        (b.tag?.let { " · $it" } ?: "") +
+        (if (newest) " · 最新" else "")
+
 /** 弹窗 / sheet 里「已保存配置」的一行。 */
 private data class ProfileRow(val id: String, val title: String, val subtitle: String, val syncAlso: Boolean)
 
@@ -132,6 +140,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
     var showLockInfo by remember { mutableStateOf(false) }
+    var showCategoryDialog by remember { mutableStateOf(false) }
     val sheetBackdrop = if (glass) backdrop else null
 
     var showDefaultPw by remember { mutableStateOf(false) }
@@ -299,6 +308,69 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
         if (saved == null) showRestorePassword = true else runRestore(saved.toCharArray(), fromDefault = true)
     }
 
+    // —— 从服务器 / 仓库恢复：验证身份 → 拉取历史记录 → 下拉选一份 → 下载并走恢复流程 ——
+    var showHistory by remember { mutableStateOf(false) }
+    var historySource by remember { mutableStateOf(ExportTarget.WEBDAV) }
+    var historyItems by remember { mutableStateOf<List<RemoteBackup>>(emptyList()) }
+    var historyIndex by remember { mutableIntStateOf(0) }
+
+    fun setRemoteTask(target: ExportTarget, text: String?) {
+        if (target == ExportTarget.GIT) gitTask = text else webdavTask = text
+    }
+
+    fun openHistory(target: ExportTarget) {
+        val dav = webdavConfig
+        val git = gitConfig
+        requireAuth(if (target == ExportTarget.GIT) "从仓库恢复备份" else "从服务器恢复备份") {
+            exportTarget = ExportTarget.FILE
+            historySource = target
+            setRemoteTask(target, "正在获取历史备份…")
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        if (target == ExportTarget.GIT) {
+                            GitSyncClient(context, git!!).history().map { RemoteBackup(it.id, it.time, it.id.take(7)) }
+                        } else {
+                            WebDavClient(dav!!).listBackups().map { RemoteBackup(it, WebDavNames.backupTime(it)) }
+                        }
+                    }
+                }
+                setRemoteTask(target, null)
+                val list = result.getOrNull()
+                when {
+                    list == null -> Toast.makeText(context, failText("获取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                    list.isEmpty() -> Toast.makeText(context, "还没有可恢复的备份", Toast.LENGTH_SHORT).show()
+                    else -> {
+                        historyItems = list.sortedByDescending { it.time }
+                        historyIndex = 0
+                        showHistory = true
+                    }
+                }
+            }
+        }
+    }
+
+    fun restoreSelectedHistory() {
+        val item = historyItems.getOrNull(historyIndex) ?: return
+        val target = historySource
+        val dav = webdavConfig
+        val git = gitConfig
+        showHistory = false
+        setRemoteTask(target, "正在下载所选备份…")
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (target == ExportTarget.GIT) GitSyncClient(context, git!!).download(item.id)
+                    else WebDavClient(dav!!).download(item.id)
+                }
+            }
+            setRemoteTask(target, null)
+            val bytes = result.getOrNull()
+            if (bytes != null) beginRestore(null, bytes)
+            else Toast.makeText(context, failText("下载失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+        }
+    }
+
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) beginRestore(uri, null)
     }
@@ -413,6 +485,40 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
+                    // ———— 默认加密口令 + 自动推送 ————
+                    item { SmallTitle(text = "口令与自动备份") }
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            ArrowPreference(
+                                title = "默认加密口令",
+                                summary = if (defaultPwSet) "已设置，备份时不再询问" else "未设置，每次备份都要输入",
+                                enabled = !working,
+                                onClick = {
+                                    requireAuth("查看 / 修改默认口令") {
+                                        defaultPwInitial = BackupAuto.password(context).orEmpty()
+                                        showDefaultPw = true
+                                    }
+                                },
+                            )
+                            AppDropdownPreference(
+                                backdrop = sheetBackdrop,
+                                title = "自动推送同步",
+                                summary = if (autoPushReady) null else "需先设默认口令并配置云同步",
+                                items = BackupAuto.INTERVAL_LABELS,
+                                selectedIndex = autoMode.coerceIn(0, 3),
+                                onSelectedIndexChange = {
+                                    autoMode = it
+                                    BackupAuto.setMode(context, it)
+                                },
+                                enabled = autoPushReady,
+                            )
+                        }
+                    }
+                    item { Note("启动应用时按间隔执行，备份上面选中的内容，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
+
                     // ———— 备份内容：所有备份方式共用 ————
                     item { SmallTitle(text = "备份内容") }
                     item {
@@ -420,19 +526,16 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
-                            BackupCategory.entries.forEach { cat ->
-                                AppSwitchPreference(
-                                    checked = cat in selectedCategories,
-                                    onCheckedChange = { on ->
-                                        val next = if (on) selectedCategories + cat else selectedCategories - cat
-                                        selectedCategories = next
-                                        BackupAuto.setCategories(context, next)
-                                    },
-                                    title = cat.title,
-                                    summary = cat.summary,
-                                    enabled = !working,
-                                )
-                            }
+                            ArrowPreference(
+                                title = "备份内容",
+                                summary = if (hasContent) {
+                                    "已选 ${effectiveCategories.size} / ${BackupCategory.entries.size} 类"
+                                } else {
+                                    "未选择"
+                                },
+                                enabled = !working,
+                                onClick = { showCategoryDialog = true },
+                            )
                         }
                     }
                     item {
@@ -449,11 +552,8 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
 
                     // ———— 云同步：WebDAV / Git 左右切换 ————
                     item { SmallTitle(text = "云同步") }
+                    // WebDAV / Git 分栏：在卡片外、标题正下方
                     item {
-                      Card(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                        insideMargin = PaddingValues(0.dp),
-                      ) {
                         GlassTabRow(
                             tabs = listOf("WebDAV", "Git"),
                             selectedIndex = syncTab,
@@ -461,6 +561,12 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             backdrop = null,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         )
+                    }
+                    item {
+                      Card(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        insideMargin = PaddingValues(0.dp),
+                      ) {
                         AnimatedContent(
                             targetState = syncTab,
                             transitionSpec = {
@@ -503,22 +609,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                             onPrimary = { startExport(ExportTarget.WEBDAV) },
                                             secondary = "从服务器恢复",
                                             secondaryEnabled = cfg != null && !working,
-                                            onSecondary = {
-                                                requireAuth("从服务器恢复备份") {
-                                                    exportTarget = ExportTarget.FILE
-                                                    webdavTask = "正在获取最新备份…"
-                                                    scope.launch {
-                                                        val result = withContext(Dispatchers.IO) { runCatching { WebDavClient(cfg!!).downloadLatest() } }
-                                                        webdavTask = null
-                                                        val got = result.getOrNull()
-                                                        if (got != null) {
-                                                            beginRestore(null, got.second)
-                                                        } else {
-                                                            Toast.makeText(context, failText("获取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
-                                                        }
-                                                    }
-                                                }
-                                            },
+                                            onSecondary = { openHistory(ExportTarget.WEBDAV) },
                                         )
                                     }
                                 } else {
@@ -553,22 +644,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                             onPrimary = { startExport(ExportTarget.GIT) },
                                             secondary = "从仓库恢复",
                                             secondaryEnabled = cfg != null && !working,
-                                            onSecondary = {
-                                                requireAuth("从仓库恢复备份") {
-                                                    exportTarget = ExportTarget.FILE
-                                                    gitTask = "正在拉取仓库…"
-                                                    scope.launch {
-                                                        val result = withContext(Dispatchers.IO) { runCatching { GitSyncClient(context, cfg!!).download() } }
-                                                        gitTask = null
-                                                        val got = result.getOrNull()
-                                                        if (got != null) {
-                                                            beginRestore(null, got)
-                                                        } else {
-                                                            Toast.makeText(context, failText("拉取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
-                                                        }
-                                                    }
-                                                }
-                                            },
+                                            onSecondary = { openHistory(ExportTarget.GIT) },
                                         )
                                     }
                                 }
@@ -583,40 +659,6 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             Note("仅保留最近 ${GitNames.HISTORY_KEEP} 个提交，旧的会强制推送裁掉；建议私有仓库。")
                         }
                     }
-
-                    // ———— 默认加密口令 + 自动推送 ————
-                    item { SmallTitle(text = "口令与自动备份") }
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                            insideMargin = PaddingValues(0.dp),
-                        ) {
-                            ArrowPreference(
-                                title = "默认加密口令",
-                                summary = if (defaultPwSet) "已设置，备份时不再询问" else "未设置，每次备份都要输入",
-                                enabled = !working,
-                                onClick = {
-                                    requireAuth("查看 / 修改默认口令") {
-                                        defaultPwInitial = BackupAuto.password(context).orEmpty()
-                                        showDefaultPw = true
-                                    }
-                                },
-                            )
-                            AppDropdownPreference(
-                                backdrop = sheetBackdrop,
-                                title = "自动推送同步",
-                                summary = if (autoPushReady) null else "需先设默认口令并配置云同步",
-                                items = BackupAuto.INTERVAL_LABELS,
-                                selectedIndex = autoMode.coerceIn(0, 3),
-                                onSelectedIndexChange = {
-                                    autoMode = it
-                                    BackupAuto.setMode(context, it)
-                                },
-                                enabled = autoPushReady,
-                            )
-                        }
-                    }
-                    item { Note("启动应用时按间隔执行，备份上面选中的内容，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
 
                     // ———— 本地备份与恢复 ————
                     item { SmallTitle(text = "本地文件") }
@@ -674,6 +716,18 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
             }
 
             // ———— WebDAV：已连接服务器 + 添加新配置 ————
+            CategoryDialog(
+                show = showCategoryDialog,
+                backdrop = sheetBackdrop,
+                selected = selectedCategories,
+                onToggle = { cat, on ->
+                    val next = if (on) selectedCategories + cat else selectedCategories - cat
+                    selectedCategories = next
+                    BackupAuto.setCategories(context, next)
+                },
+                onDismiss = { showCategoryDialog = false },
+            )
+
             ServerSheet(
                 show = showWebDavSheet,
                 title = "WebDAV 服务器",
@@ -884,6 +938,17 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     showWebDavConfig = false
                     if (webdavFromSheet && webdavProfiles.isNotEmpty()) showWebDavSheet = true
                 },
+            )
+
+            HistoryPickerDialog(
+                show = showHistory,
+                summary = if (historySource == ExportTarget.GIT) "仓库里的历史提交" else "服务器上的历史备份",
+                items = historyItems.map { historyLabel(it, it === historyItems.firstOrNull()) },
+                selectedIndex = historyIndex,
+                onSelect = { historyIndex = it },
+                backdrop = sheetBackdrop,
+                onDismiss = { showHistory = false },
+                onConfirm = { restoreSelectedHistory() },
             )
 
             RestorePasswordDialog(
@@ -1158,6 +1223,90 @@ private fun DialogActions(
 }
 
 /* ------------------------------ 弹窗 ------------------------------ */
+
+/** 备份内容：每类一行开关，点开关即启停，改动立即保存。 */
+@Composable
+private fun CategoryDialog(
+    show: Boolean,
+    backdrop: Backdrop?,
+    selected: Set<BackupCategory>,
+    onToggle: (BackupCategory, Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AppGlassDialog(
+        show = show,
+        title = "备份内容",
+        summary = "所有备份方式共用，开关改动立即生效",
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                BackupCategory.entries.forEach { cat ->
+                    AppSwitchPreference(
+                        checked = cat in selected,
+                        onCheckedChange = { on -> onToggle(cat, on) },
+                        title = cat.title,
+                        summary = cat.summary,
+                    )
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                AppDialogButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                    role = GlassDialogButtonRole.Primary,
+                ) {
+                    Text(text = "完成", style = MiuixTheme.textStyles.button)
+                }
+            }
+        }
+    }
+}
+
+/** 历史备份选择：抽象层下拉菜单选一份，点「恢复此份」后下载并进入口令 / 确认流程。 */
+@Composable
+private fun HistoryPickerDialog(
+    show: Boolean,
+    summary: String,
+    items: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    backdrop: Backdrop?,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AppGlassDialog(
+        show = show,
+        title = "选择要恢复的备份",
+        summary = summary,
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            AppDropdownPreference(
+                backdrop = backdrop,
+                title = "历史备份",
+                items = items,
+                selectedIndex = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
+                onSelectedIndexChange = onSelect,
+                enabled = items.isNotEmpty(),
+                insideMargin = PaddingValues(vertical = 12.dp),
+            )
+            DialogActions(
+                confirmText = "恢复此份",
+                confirmEnabled = items.isNotEmpty(),
+                onConfirm = onConfirm,
+                onCancel = onDismiss,
+            )
+        }
+    }
+}
 
 @Composable
 private fun PasswordDialog(
@@ -1434,10 +1583,11 @@ private fun ActionPair(
                 enabled = primaryEnabled,
                 modifier = Modifier.weight(1f),
                 role = GlassDialogButtonRole.Primary,
+                inPage = true,
             ) {
                 Text(text = primary, style = MiuixTheme.textStyles.button, maxLines = 1)
             }
-            AppDialogButton(onClick = onSecondary, enabled = secondaryEnabled, modifier = Modifier.weight(1f)) {
+            AppDialogButton(onClick = onSecondary, enabled = secondaryEnabled, modifier = Modifier.weight(1f), inPage = true) {
                 Text(text = secondary, style = MiuixTheme.textStyles.button, maxLines = 1)
             }
         }

@@ -16,7 +16,9 @@ import org.eclipse.jgit.transport.OpenSshConfig
 import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.RemoteRefUpdate
 import org.eclipse.jgit.transport.SshTransport
+import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
+import org.eclipse.jgit.treewalk.TreeWalk
 import org.eclipse.jgit.util.FS
 import org.json.JSONArray
 import org.json.JSONObject
@@ -43,6 +45,9 @@ import java.util.UUID
  */
 
 class GitSyncException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/** 仓库历史里的一份备份：[id] 是提交号，[time] 是提交时间（毫秒）。 */
+data class GitBackup(val id: String, val time: Long)
 
 /** [deployKey] 非空表示用 SSH Deploy key（此时 [username] / [token] 不用）。 */
 data class GitConfig(
@@ -312,8 +317,41 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
         }
     }
 
+    /** 仓库里的历史备份（每个提交一份），新的在前。 */
+    fun history(): List<GitBackup> {
+        if (checkRemote()) return emptyList()
+        return withWorkDir { dir ->
+            guard("读取历史") {
+                cloneInto(dir).use { git ->
+                    git.log().setMaxCount(GitNames.HISTORY_KEEP).call()
+                        .map { GitBackup(it.name, it.commitTime * 1000L) }
+                }
+            }
+        }
+    }
+
+    /** 取出某个提交里的备份文件内容；[commit] 来自 [history]。 */
+    fun download(commit: String): ByteArray {
+        if (!COMMIT_REGEX.matches(commit)) throw GitSyncException("提交号不合法")
+        return withWorkDir { dir ->
+            guard("拉取备份") {
+                cloneInto(dir).use { git ->
+                    val repo = git.repository
+                    val id = repo.resolve(commit) ?: throw GitSyncException("仓库里已没有所选提交，请重新选择")
+                    RevWalk(repo).use { walk ->
+                        val tree = walk.parseCommit(id).tree
+                        val entry = TreeWalk.forPath(repo, GitNames.FILE_NAME, tree)
+                            ?: throw GitSyncException("所选提交里没有 ${GitNames.FILE_NAME}")
+                        entry.use { repo.open(it.getObjectId(0)).openStream().use { s -> BackupManager.readAll(s) } }
+                    }
+                }
+            }
+        }
+    }
+
     companion object {
         private const val TIMEOUT_SEC = 45
+        private val COMMIT_REGEX = Regex("[0-9a-f]{40}")
 
         @Volatile
         private var ready = false

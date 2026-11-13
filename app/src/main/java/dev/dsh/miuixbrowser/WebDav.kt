@@ -60,6 +60,11 @@ object WebDavNames {
 
     fun isBackupName(name: String) = NAME_REGEX.matches(name)
 
+    /** 备份文件名里的时间（毫秒）；解析不出返回 0。 */
+    fun backupTime(name: String): Long = runCatching {
+        SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).parse(name.removePrefix("mafari-backup-").substringBefore('.'))!!.time
+    }.getOrDefault(0L)
+
     /**
      * 解析 PROPFIND（Depth: 1）的 207 响应，取出备份文件名，新的在前。
      * 不同服务器的命名空间前缀不一（D: / d: / 无前缀），所以只按 href 元素的本地名匹配。
