@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         GeckoViewLifecycle.onStop()
         super.onStop()
+        FavoritesStore.flushCurrent()
         val wanted = AppSettings(this).appIcon
         if (AppIconManager.current(this) != wanted) AppIconManager.apply(this, wanted)
     }

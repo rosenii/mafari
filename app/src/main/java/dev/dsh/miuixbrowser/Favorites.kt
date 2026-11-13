@@ -1,10 +1,14 @@
 package dev.dsh.miuixbrowser
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import org.json.JSONArray
+import net.zetetic.database.sqlcipher.SQLiteDatabase
 import org.json.JSONObject
 
 /** 首页收藏最多显示的个数；其余只出现在书签页里。 */
@@ -22,14 +26,33 @@ data class Favorite(
     }
 }
 
-/** 主页收藏（书签）的增删改、分组 + 本地持久化。 */
+/**
+ * 主页收藏（书签）的增删改、分组 + 本地持久化。
+ *
+ * 存储在 SQLCipher 整库加密的 history.db 里（见 [BookmarkDb]）；内存模型（[items]、文件夹注册表）和对外接口不变，
+ * Floccus 书签桥（[BookmarksBridge]）照旧直接改 [items] 再 [commitSyncChanges]。
+ * 加密库打不开时退回旧的 SharedPreferences 密文存储，书签不丢。
+ */
 class FavoritesStore(context: Context) {
 
     private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mafari", Context.MODE_PRIVATE)
 
-    /** load() 里发现旧数据缺 id 时置位；必须声明在 items 之前（属性按声明顺序初始化）。 */
+    /** 加密库；打不开为 null。下面这些属性必须声明在 items 之前（属性按声明顺序初始化，load() 会用到）。 */
+    private val db: SQLiteDatabase? = HistoryDb.get(appContext)
+
+    /** 本次运行是否用加密库存书签；读库出错会置 false，退回旧存储。 */
+    private var useDb = db != null
+
+    /** load() 里发现旧数据缺 id / id 重复时置位。 */
     private var needsPersist = false
+
+    // 写库是「整表快照」，Floccus 同步时一连串操作会反复 persist：延后一小会儿合并成一次
+    private val main = Handler(Looper.getMainLooper())
+    private var dirtyBookmarks = false
+    private var dirtyFolders = false
+    private var firstDirtyAt = 0L
+    private val flushTask = Runnable { flush() }
 
     val items = mutableStateListOf<Favorite>().apply {
         addAll(load())
@@ -43,12 +66,55 @@ class FavoritesStore(context: Context) {
         current = this
         loadFolders()
         if (needsPersist) persist()
-        // 旧版本的明文书签 / 旧算法套件的密文：读得出来就立即以当前套件重新加密一次（读不出来绝不覆盖）
-        val raw = prefs.getString(KEY, null)
-        if (raw != null && SecureStore.needsUpgrade(raw) && SecureStore.read(appContext, raw, PURPOSE) != null) persist()
+        if (!useDb) {
+            // 旧版本的明文书签 / 旧算法套件的密文：读得出来就立即以当前套件重新加密一次（读不出来绝不覆盖）
+            val raw = prefs.getString(KEY, null)
+            if (raw != null && SecureStore.needsUpgrade(raw) && SecureStore.read(appContext, raw, PURPOSE) != null) persist()
+        }
     }
 
     private fun load(): List<Favorite> {
+        val database = db
+        if (database != null) {
+            try {
+                // 旧存储里还有书签（首次升级 / 备份恢复 / 加密库不可用期间写过）：它优先，整体导入后清掉
+                importLegacyBookmarks(database)?.let { return it }
+                if (BookmarkDb.isInitialized(database)) {
+                    val loaded = BookmarkDb.loadBookmarks(database)
+                    if (loaded.changed) needsPersist = true
+                    return loaded.items
+                }
+                return defaults()
+            } catch (t: Throwable) {
+                Diag.log("bookmarks: encrypted db unavailable, using prefs: ${t.message}")
+                useDb = false
+            }
+        }
+        return loadLegacy()
+    }
+
+    /**
+     * 旧版把书签整份加密存在 SharedPreferences「mafari」的 favorites 里。读得出来就在一个事务里导入加密库，
+     * 成功后删掉旧值；读不出来（密钥丢了）不动它，也不覆盖库里已有的。没有旧值返回 null。
+     */
+    private fun importLegacyBookmarks(database: SQLiteDatabase): List<Favorite>? {
+        val stored = prefs.getString(KEY, null) ?: return null
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return null
+        val items = BookmarkDb.dedupeIds(BookmarkDb.parseItems(raw)).items
+        BookmarkDb.saveBookmarks(database, items)
+        prefs.edit().remove(KEY).commit()
+        return items
+    }
+
+    /** 同上，文件夹注册表（favorites_folders）。 */
+    private fun importLegacyFolders(database: SQLiteDatabase) {
+        val stored = prefs.getString(KEY_FOLDERS, null) ?: return
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return
+        BookmarkDb.saveFolders(database, BookmarkDb.parseFolders(raw))
+        prefs.edit().remove(KEY_FOLDERS).commit()
+    }
+
+    private fun loadLegacy(): List<Favorite> {
         val stored = prefs.getString(KEY, null) ?: return defaults()
         val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return defaults()
         return runCatching {
@@ -72,23 +138,38 @@ class FavoritesStore(context: Context) {
     }
 
     private fun loadFolders() {
-        val stored = prefs.getString(KEY_FOLDERS, null) ?: return
-        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return
-        runCatching {
-            val arr = JSONArray(raw)
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val path = o.optString("path")
-                val id = o.optString("id")
-                if (path.isNotBlank() && id.isNotBlank() && path !in folderIdByPath) {
-                    folderOrder.add(path)
-                    folderIdByPath[path] = id
-                }
+        val list: List<Pair<String, String>> = if (useDb) {
+            try {
+                val database = db!!
+                importLegacyFolders(database)
+                BookmarkDb.loadFolders(database)
+            } catch (t: Throwable) {
+                Diag.log("bookmarks: folders from encrypted db failed, using prefs: ${t.message}")
+                useDb = false
+                loadFoldersLegacy()
+            }
+        } else {
+            loadFoldersLegacy()
+        }
+        for ((path, id) in list) {
+            if (path.isNotBlank() && id.isNotBlank() && path !in folderIdByPath) {
+                folderOrder.add(path)
+                folderIdByPath[path] = id
             }
         }
     }
 
+    private fun loadFoldersLegacy(): List<Pair<String, String>> {
+        val stored = prefs.getString(KEY_FOLDERS, null) ?: return emptyList()
+        val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return emptyList()
+        return runCatching { BookmarkDb.parseFolders(raw) }.getOrDefault(emptyList())
+    }
+
     private fun persistFolders() {
+        if (useDb) {
+            scheduleSave(bookmarks = false)
+            return
+        }
         val arr = JSONArray()
         folderOrder.forEach { arr.put(JSONObject().put("path", it).put("id", folderIdByPath[it])) }
         val sealed = SecureStore.write(appContext, arr.toString(), PURPOSE) ?: return
@@ -496,6 +577,10 @@ class FavoritesStore(context: Context) {
     }
 
     private fun persist() {
+        if (useDb) {
+            scheduleSave(bookmarks = true)
+            return
+        }
         val array = JSONArray()
         items.forEach {
             array.put(
@@ -509,6 +594,44 @@ class FavoritesStore(context: Context) {
         val sealed = SecureStore.write(appContext, array.toString(), PURPOSE) ?: return
         prefs.edit().putString(KEY, sealed).apply()
     }
+
+    /** 标记有改动待写库：安静 [SAVE_DEBOUNCE_MS] 后写；一直有改动则最迟 [SAVE_MAX_WAIT_MS] 写一次。主线程。 */
+    private fun scheduleSave(bookmarks: Boolean) {
+        if (bookmarks) dirtyBookmarks = true else dirtyFolders = true
+        val now = SystemClock.uptimeMillis()
+        if (firstDirtyAt == 0L) firstDirtyAt = now
+        main.removeCallbacks(flushTask)
+        if (now - firstDirtyAt >= SAVE_MAX_WAIT_MS) flush() else main.postDelayed(flushTask, SAVE_DEBOUNCE_MS)
+    }
+
+    /**
+     * 立即把待写的改动交给写库线程（在主线程取快照，写入在 [HistoryDb.io] 上按顺序执行、单事务）。
+     * 应用退到后台时调用，免得最后一小段改动还在等延迟。主线程。
+     */
+    fun flush() {
+        main.removeCallbacks(flushTask)
+        firstDirtyAt = 0L
+        val database = db
+        if (!useDb || database == null) return
+        val bookmarkSnapshot = if (dirtyBookmarks) items.toList() else null
+        val folderSnapshot = if (dirtyFolders) folderSnapshot() else null
+        dirtyBookmarks = false
+        dirtyFolders = false
+        if (bookmarkSnapshot == null && folderSnapshot == null) return
+        HistoryDb.io.execute {
+            runCatching {
+                bookmarkSnapshot?.let { BookmarkDb.saveBookmarks(database, it) }
+                folderSnapshot?.let { BookmarkDb.saveFolders(database, it) }
+            }.onFailure { Diag.log("bookmarks: save failed: ${it.message}") }
+        }
+    }
+
+    private fun folderSnapshot(): List<Pair<String, String>> =
+        folderOrder.mapNotNull { path -> folderIdByPath[path]?.let { path to it } }
+
+    /** 备份用：当前内存里的 (书签 JSON, 文件夹 JSON)，旧版明文格式。 */
+    fun snapshotJson(): Pair<String, String> =
+        BookmarkDb.itemsToJson(items.toList()) to BookmarkDb.foldersToJson(folderSnapshot())
 
     private fun unescapeHtml(s: String): String =
         if ('&' !in s) s else s
@@ -535,6 +658,14 @@ class FavoritesStore(context: Context) {
         /** 最近创建的实例：Floccus 书签桥靠它读写界面正在用的那份书签。 */
         @Volatile var current: FavoritesStore? = null
             private set
+
+        /** 退到后台时调用：把还在等延迟的书签改动立刻交给写库线程。主线程。 */
+        fun flushCurrent() {
+            current?.flush()
+        }
+
+        private const val SAVE_DEBOUNCE_MS = 300L
+        private const val SAVE_MAX_WAIT_MS = 2_000L
 
         private const val KEY_FOLDERS = "favorites_folders"
         private const val KEY = "favorites"

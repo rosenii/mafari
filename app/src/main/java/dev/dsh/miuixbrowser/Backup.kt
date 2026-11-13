@@ -263,7 +263,11 @@ object BackupManager {
 
     /** 设备上是密文的键 → 解密用的上下文；备份里必须存明文（再由备份自己的信封加密），否则换机无法恢复。 */
     private val DEVICE_ENCRYPTED = mapOf(
-        "mafari" to mapOf("favorites" to SecureStore.PURPOSE_FAVORITES),
+        "mafari" to mapOf(
+            "favorites" to SecureStore.PURPOSE_FAVORITES,
+            // 文件夹注册表（文件夹 id / 顺序 / 空文件夹）：Floccus 靠它认文件夹，必须一起进备份
+            "favorites_folders" to SecureStore.PURPOSE_FAVORITES,
+        ),
         "mafari_history" to mapOf("entries" to SecureStore.PURPOSE_HISTORY),
     )
 
@@ -316,6 +320,14 @@ object BackupManager {
         HistoryDb.exportJson(app)?.let { json ->
             val root = JSONObject().put("entries", JSONObject().put("t", "s").put("v", json))
             units["prefs/mafari_history"] = root.toString().toByteArray(Charsets.UTF_8)
+        }
+
+        // 书签在 SQLCipher 库里：导出成旧格式（favorites / favorites_folders 明文 JSON）并进 mafari 单元，恢复后下次启动自动导入
+        BookmarkDb.exportBackup(app)?.let { (favorites, folders) ->
+            val root = units["prefs/mafari"]?.let { JSONObject(String(it, Charsets.UTF_8)) } ?: JSONObject()
+            root.put("favorites", JSONObject().put("t", "s").put("v", favorites))
+            root.put("favorites_folders", JSONObject().put("t", "s").put("v", folders))
+            units["prefs/mafari"] = root.toString().toByteArray(Charsets.UTF_8)
         }
 
         // GM 值在 SQLCipher 库里：导出成旧格式放进 userscript_gm 单元，恢复后下次启动自动导入
@@ -468,6 +480,8 @@ object BackupManager {
             // 历史库整体替换：先清空，备份里的 entries 在重启后导入
             if (name == "mafari_history") runCatching { HistoryDb.clearAll(app) }
             if (name == "userscript_gm") runCatching { GmStore.clearAll(app) }
+            // 书签库整体替换：先清空，备份里的 favorites / favorites_folders 在重启后导入
+            if (name == "mafari") BookmarkDb.clearAll(app)
             val editor = app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
             for ((key, value) in values) {
                 when (value) {

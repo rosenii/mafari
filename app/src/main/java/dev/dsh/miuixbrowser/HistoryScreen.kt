@@ -617,6 +617,8 @@ private fun BookmarksPage(
 ) {
     val q = query.trim()
     val roots = buildBookmarkTree(favorites, q)
+    val groupHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val groupTick = { groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
     // 顶层分组默认折叠（只有一个时默认展开），次级文件夹默认折叠；搜索时全部自动展开
     val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     val onlyOneGroup = roots.count { it.total > 0 } <= 1
@@ -657,7 +659,10 @@ private fun BookmarksPage(
                     name = root.name,
                     count = root.total,
                     open = open,
-                    onClick = { expanded[root.path] = !open },
+                    onClick = {
+                        groupTick()
+                        expanded[root.path] = !open
+                    },
                     // 长按分组行可重命名 / 删除（展开 / 收起都行）；「个人收藏」是保留分组，不可操作
                     onLongClick = if (!favorites.isProtectedGroup(root.path)) ({ onGroupLongClick(root.path) }) else null,
                 )
@@ -671,6 +676,7 @@ private fun BookmarksPage(
                     onOpen = onOpen,
                     onEdit = onEdit,
                     onGroupLongClick = onGroupLongClick,
+                    onTick = groupTick,
                 )
             }
         }
@@ -689,6 +695,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent
     onOpen: (String) -> Unit,
     onEdit: (Favorite) -> Unit,
     onGroupLongClick: (String) -> Unit,
+    onTick: () -> Unit,
 ) {
     node.children.forEach { child ->
         if (child.total == 0) return@forEach
@@ -700,12 +707,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent
                 bookmarkCount = child.total,
                 open = open,
                 level = level,
-                onClick = { expanded[child.path] = !open },
+                onClick = {
+                    onTick()
+                    expanded[child.path] = !open
+                },
                 onLongClick = { onGroupLongClick(child.path) },
             )
         }
         if (open) {
-            bookmarkFolderContent(child, level + 1, searching, expanded, onOpen, onEdit, onGroupLongClick)
+            bookmarkFolderContent(child, level + 1, searching, expanded, onOpen, onEdit, onGroupLongClick, onTick)
         }
     }
     items(node.items.size, key = { i -> "b-${node.path}-${node.items[i].url}-$i" }) { i ->

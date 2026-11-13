@@ -20,7 +20,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -53,7 +52,7 @@ data class DownloadTask(
     /** 远端文件指纹：强 ETag / Last-Modified / 总长度。续传时用来判断文件是否已变化 */
     val etag: String? = null,
     val lastModified: String? = null,
-    /** >0 表示这是多线程分段任务，值为分段数（进度见任务目录里的 task.json） */
+    /** >0 表示这是多线程分段任务，值为分段数（进度见 downloads 表的 seg_done） */
     val segCount: Int = 0,
     /** 数据已全部下载完，只差写入系统下载目录 */
     val fetched: Boolean = false,
@@ -62,9 +61,10 @@ data class DownloadTask(
 /**
  * 内置下载器：断点续传、暂停/继续、失败重试，默认写入 Download/mafari。
  *
- * 持久化：每个任务一个目录 filesDir/downloads/<id>/，里面是 task.json（任务元数据 + 分段进度，原子写入）
- * 和数据文件（data.part 单连接 / data.seg 分段）。目录不在 cacheDir，冷启动清缓存碰不到；
- * 暂停 / 失败只保留进度，只有手动删除任务才清目录。远端指纹变化时整单重下。
+ * 持久化：任务元数据 + 分段进度存在 SQLCipher 加密库 history.db 的 downloads 表（见 [DownloadDb]），
+ * 数据文件（data.part 单连接 / data.seg 分段）放在 filesDir/downloads/<id>/。目录不在 cacheDir，
+ * 冷启动清缓存碰不到；暂停 / 失败只保留进度，只有手动删除任务才清记录和目录。远端指纹变化时整单重下。
+ * 旧版每个任务目录里的明文 task.json 会在首次启动时导入数据库，导入后删除。
  */
 object Downloader {
 
@@ -146,24 +146,44 @@ object Downloader {
         if (inited) return
         app = context.applicationContext
         inited = true
+        val db = HistoryDb.get(app)
         val loaded = ArrayList<DownloadTask>()
-        rootDir(app).listFiles()?.forEach { dir ->
-            val json = File(dir, "task.json")
-            if (!json.exists()) {
-                // 没有元数据的目录无从续传（建目录后、写 json 前就被杀）
-                runCatching { dir.deleteRecursively() }
-                return@forEach
-            }
-            val parsed = runCatching { fromJson(JSONObject(json.readText())) }.getOrNull() ?: return@forEach
+        val known = HashSet<Long>()
+        fun adopt(parsed: Pair<DownloadTask, LongArray?>) {
             var task = parsed.first
             // 上次进程被杀时还在跑的任务：恢复成暂停，由用户点继续（避免一启动就拉起一堆连接）
             if (task.state == DownloadState.RUNNING) task = task.copy(state = DownloadState.PAUSED)
             parsed.second?.let { segSaved[task.id] = it }
-            if (task.state == DownloadState.DONE) {
-                runCatching { File(dir, DATA_PART).delete() }
-                runCatching { File(dir, DATA_SEG).delete() }
-            }
+            known += task.id
             loaded += task
+        }
+        if (db != null) {
+            runCatching { DownloadDb.loadAll(db) }
+                .onFailure { Diag.log("downloads: load failed: ${it.message}") }
+                .getOrNull()
+                ?.forEach { adopt(it) }
+        }
+        rootDir(app).listFiles()?.forEach { dir ->
+            val id = dir.name.toLongOrNull() ?: return@forEach
+            val json = File(dir, "task.json")
+            if (id in known) {
+                runCatching { json.delete() }
+                return@forEach
+            }
+            if (json.exists()) {
+                // 旧版明文 task.json：导入加密库，成功后删掉 json；库打不开就先只放在内存里，json 留着下次再导
+                val parsed = runCatching { fromJson(JSONObject(json.readText())) }.getOrNull() ?: return@forEach
+                val saved = db != null && runCatching { DownloadDb.upsert(db, parsed.first, parsed.second) }.isSuccess
+                if (saved) runCatching { json.delete() }
+                adopt(parsed)
+            } else if (db != null) {
+                // 库里没有记录、也没有旧元数据的目录无从续传（建目录后、写记录前就被杀）
+                runCatching { dir.deleteRecursively() }
+            }
+        }
+        // 已完成的任务不再需要数据文件目录
+        loaded.filter { it.state == DownloadState.DONE }.forEach { t ->
+            runCatching { taskDir(app, t.id).deleteRecursively() }
         }
         loaded.sortByDescending { it.id }
         tasks.addAll(loaded)
@@ -178,37 +198,17 @@ object Downloader {
                     }.getOrDefault(true)
                     if (!exists) {
                         tasks.removeAll { it.id == t.id }
-                        synchronized(persistLock) { runCatching { taskDir(app, t.id).deleteRecursively() } }
+                        forget(t.id)
                     }
                 }
             }
         }
     }
 
-    private fun toJson(t: DownloadTask, seg: LongArray?): JSONObject = JSONObject().apply {
-        put("id", t.id)
-        put("name", t.name)
-        put("url", t.url)
-        putOpt("ua", t.userAgent)
-        putOpt("mime", t.mime)
-        putOpt("uri", t.uri?.toString())
-        put("bytes", t.bytes)
-        put("total", t.total)
-        put("state", t.state.name)
-        putOpt("error", t.error)
-        putOpt("referer", t.referer)
-        put("withCookies", t.withCookies)
-        put("geckoCookies", t.geckoCookies)
-        putOpt("etag", t.etag)
-        putOpt("lastModified", t.lastModified)
-        put("segCount", t.segCount)
-        put("fetched", t.fetched)
-        if (seg != null) put("segDone", JSONArray().apply { seg.forEach { put(it) } })
-    }
-
     private fun JSONObject.str(key: String): String? =
         if (has(key) && !isNull(key)) getString(key).takeIf { it.isNotEmpty() } else null
 
+    /** 只用于导入旧版 task.json */
     private fun fromJson(o: JSONObject): Pair<DownloadTask, LongArray?> {
         val task = DownloadTask(
             id = o.getLong("id"),
@@ -234,24 +234,31 @@ object Downloader {
         return task to seg
     }
 
-    /** 原子落盘：先写 .tmp 再改名。任务已被删除则什么都不写（避免把删掉的目录又建回来） */
+    /**
+     * 写入加密库的 downloads 表（单语句事务，原子）。任务已被删除则什么都不写（避免把删掉的记录又写回去）。
+     * 库用 WAL + synchronous=NORMAL：断电最多丢最后几笔，丢的只会让进度退回到更早的值，
+     * 而数据在写进度前已 fsync，所以续传仍然正确。
+     */
     private fun persist(id: Long) {
         if (!inited) return
         val task = tasks.firstOrNull { it.id == id } ?: return
         val seg = segSaved[id]
         synchronized(persistLock) {
             if (tasks.none { it.id == id }) return
-            val dir = taskDir(app, id)
-            if (!dir.exists() && !dir.mkdirs()) return
-            val tmp = File(dir, "task.json.tmp")
-            val dst = File(dir, "task.json")
-            runCatching {
-                tmp.writeText(toJson(task, seg).toString())
-                if (!tmp.renameTo(dst)) {
-                    dst.delete()
-                    tmp.renameTo(dst)
-                }
+            val db = HistoryDb.get(app) ?: return
+            runCatching { DownloadDb.upsert(db, task, seg) }
+                .onFailure { Diag.log("downloads: persist failed: ${it.message}") }
+        }
+    }
+
+    /** 清掉某任务的数据库记录和数据文件目录（不碰系统下载目录里已保存的文件）。 */
+    private fun forget(id: Long) {
+        synchronized(persistLock) {
+            HistoryDb.get(app)?.let { db ->
+                runCatching { DownloadDb.delete(db, id) }
+                    .onFailure { Diag.log("downloads: delete failed: ${it.message}") }
             }
+            runCatching { taskDir(app, id).deleteRecursively() }
         }
     }
 
@@ -318,15 +325,18 @@ object Downloader {
 
     fun retry(context: Context, id: Long) = resume(context, id)
 
-    /** 唯一会清掉分段 / 临时数据的入口（连同系统里已保存的文件） */
-    fun delete(context: Context, id: Long) {
+    /** 唯一会清掉分段 / 临时数据的入口；[deleteFile] 为 true 时连同系统里已保存的文件一起删 */
+    fun delete(context: Context, id: Long, deleteFile: Boolean = false) {
         init(context)
         jobs.remove(id)?.cancel()
         val task = tasks.firstOrNull { it.id == id }
-        task?.uri?.let { uri -> runCatching { context.contentResolver.delete(uri, null, null) } }
+        // 已完成的文件默认保留，只有勾选「同时删除本地文件」才删；未完成的任务留下的是残缺文件，一律清掉
+        if (deleteFile || task?.state != DownloadState.DONE) {
+            task?.uri?.let { uri -> runCatching { context.contentResolver.delete(uri, null, null) } }
+        }
         synchronized(tasks) { tasks.removeAll { it.id == id } }
         segSaved.remove(id)
-        synchronized(persistLock) { runCatching { taskDir(app, id).deleteRecursively() } }
+        forget(id)
         settle(id, false, "cancelled")
     }
 
@@ -665,7 +675,7 @@ object Downloader {
     }
 
     /**
-     * 多线程分段下载。每段的已完成字节数定期（先 fsync 数据再写 task.json）落盘；
+     * 多线程分段下载。每段的已完成字节数定期（先 fsync 数据再写 downloads 表）落盘；
      * 暂停 / 失败 / 被杀后按各段进度继续，不动数据文件。
      */
     private suspend fun downloadSegmented(id: Long, file: File) {

@@ -16,7 +16,9 @@ import java.security.SecureRandom
 data class HistoryEntry(val url: String, val title: String, val time: Long)
 
 /**
- * 历史记录的 SQLCipher 加密数据库（整库 AES-256 加密）。
+ * 历史记录的 SQLCipher 加密数据库（整库 AES-256 加密）。同一个库里还放着：
+ * GM_setValue 数据（gm_values）、隐私报告的权限请求记录（perm_events）、下载记录（downloads，见 [DownloadDb]）、
+ * 书签（bookmarks / bookmark_folders，见 [BookmarkDb]）。
  *  - 库密钥：随机 32 字节（hex），经 [SecureStore]（Android Keystore 保护的加密引擎）封装后存在
  *    SharedPreferences「mafari_history_db」里；密钥取不回来时旧库无法解开，删库重建（与保险库重置一致）。
  *  - 旧版把整份历史加密成一个字符串存在 SharedPreferences「mafari_history」的 entries 里：
@@ -102,6 +104,12 @@ internal object HistoryDb {
         // 隐私报告：网页请求摄像头 / 麦克风 / 定位的记录（见 PrivacyStats）
         db.execSQL("CREATE TABLE IF NOT EXISTS perm_events(id INTEGER PRIMARY KEY AUTOINCREMENT, host TEXT NOT NULL, time INTEGER NOT NULL, kinds TEXT NOT NULL)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_perm_time ON perm_events(time)")
+        // 下载记录（见 DownloadDb / Downloader）
+        db.execSQL(DownloadDb.CREATE_TABLE)
+        // 书签（见 BookmarkDb / FavoritesStore；Floccus 同步读写的就是这份）
+        db.execSQL(BookmarkDb.CREATE_BOOKMARKS)
+        db.execSQL(BookmarkDb.CREATE_FOLDERS)
+        db.execSQL(BookmarkDb.CREATE_META)
         return db
     }
 
