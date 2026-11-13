@@ -39,6 +39,10 @@ function onNative(m) {
     applyChain = applyChain.then(() => applyAll(m)).catch((e) => post({ t: 'error', where: 'sync', msg: String(e) }));
   } else if (m.t === 'dlCookie') {
     dlCookie(m);
+  } else if (m.t === 'cookieExport') {
+    cookieExport(m);
+  } else if (m.t === 'cookieImport') {
+    cookieImport(m);
   } else if (m.t === 'val') {
     broadcastVal(m);
   }
@@ -86,6 +90,65 @@ async function dlCookie(m) {
     }
   } catch (e) {}
   post({ t: 'dlCookieRes', rid: String(m.rid || ''), cookie, ua: navigator.userAgent });
+}
+
+/**
+ * 备份：导出 / 导入 Cookie（只处理默认存储，不碰无痕）。只响应原生端口上的请求，页面 / 内容脚本够不到。
+ * 导出只含持久 Cookie（会话 Cookie 随重启消失，备份没有意义）；导入 = 以备份为准：先清掉现有持久 Cookie，再写入。
+ */
+async function allCookies() {
+  // 开了 first-party isolation 时 getAll 必须带 firstPartyDomain；null = 不按它过滤
+  try { return await browser.cookies.getAll({ firstPartyDomain: null }); } catch (e) { return await browser.cookies.getAll({}); }
+}
+
+function cookieUrl(c) {
+  return (c.secure ? 'https' : 'http') + '://' + String(c.domain || '').replace(/^\./, '') + (c.path || '/');
+}
+
+async function cookieExport(m) {
+  try {
+    const out = (await allCookies()).filter((c) => !c.session && c.expirationDate).map((c) => ({
+      name: c.name, value: c.value, domain: c.domain, hostOnly: !!c.hostOnly, path: c.path,
+      secure: !!c.secure, httpOnly: !!c.httpOnly, sameSite: c.sameSite, expirationDate: c.expirationDate,
+      firstPartyDomain: c.firstPartyDomain || ''
+    }));
+    post({ t: 'cookieExportRes', rid: String(m.rid || ''), ok: true, cookies: out });
+  } catch (e) {
+    post({ t: 'cookieExportRes', rid: String(m.rid || ''), ok: false, error: String(e) });
+  }
+}
+
+async function cookieImport(m) {
+  const list = Array.isArray(m.cookies) ? m.cookies : [];
+  let set = 0, failed = 0;
+  try {
+    for (const c of await allCookies()) {
+      if (c.session) continue;
+      const d = { url: cookieUrl(c), name: c.name };
+      if (c.firstPartyDomain) d.firstPartyDomain = c.firstPartyDomain;
+      try { await browser.cookies.remove(d); } catch (e) {}
+    }
+    const now = Date.now() / 1000;
+    for (const c of list) {
+      try {
+        if (!c || typeof c.name !== 'string' || typeof c.domain !== 'string') { failed++; continue; }
+        if (c.expirationDate && c.expirationDate < now) continue;   // 备份后已过期
+        const d = {
+          url: cookieUrl(c), name: c.name, value: String(c.value || ''), path: c.path || '/',
+          secure: !!c.secure, httpOnly: !!c.httpOnly
+        };
+        if (!c.hostOnly) d.domain = c.domain;
+        if (c.expirationDate) d.expirationDate = c.expirationDate;
+        if (c.sameSite) d.sameSite = c.sameSite;
+        if (c.firstPartyDomain) d.firstPartyDomain = c.firstPartyDomain;
+        await browser.cookies.set(d);
+        set++;
+      } catch (e) { failed++; }
+    }
+    post({ t: 'cookieImportRes', ok: true, set, failed });
+  } catch (e) {
+    post({ t: 'cookieImportRes', ok: false, set, failed, error: String(e) });
+  }
 }
 
 /**

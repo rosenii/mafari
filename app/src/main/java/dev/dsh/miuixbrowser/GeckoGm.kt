@@ -10,6 +10,7 @@ import org.json.JSONObject
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.WebExtension
+import java.io.File
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
@@ -313,7 +314,7 @@ internal object GeckoGm {
                 override fun onPortMessage(message: Any, port: WebExtension.Port) {
                     val o = message as? JSONObject ?: return
                     when (o.optString("t")) {
-                        "hello" -> { resetSent(); push() }
+                        "hello" -> { resetSent(); push(); importPendingCookies() }
                         "synced" -> {
                             val r = o.optInt("rev", -1)
                             // 后台确认注册成功的 sig 集合：之后源码没变的脚本不再重复发送 code
@@ -329,6 +330,12 @@ internal object GeckoGm {
                             o.optString("ua").takeIf { it.isNotBlank() }?.let { userAgent = it }
                             dlCookieWaiters[rid]?.countDown()
                         }
+                        "cookieExportRes" -> {
+                            val rid = o.optString("rid")
+                            cookieResults[rid] = o
+                            cookieWaiters[rid]?.countDown()
+                        }
+                        "cookieImportRes" -> onCookieImported(o)
                         "error" -> Diag.log("gm: background error ${o.optString("where")} ${o.optString("id")} ${o.optString("msg")}")
                     }
                 }
@@ -373,6 +380,86 @@ internal object GeckoGm {
         }
         dlCookieWaiters.remove(rid)
         return dlCookieResults.remove(rid)?.takeIf { it.isNotBlank() }
+    }
+
+    // ---------------------------------------------------------------- 备份：导出 / 导入 Gecko Cookie
+
+    private val cookieWaiters = ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
+    private val cookieResults = ConcurrentHashMap<String, JSONObject>()
+    private const val PENDING_COOKIES_FILE = "pending_gecko_cookies.mfe"
+
+    /**
+     * IO 线程：向内置拓展后台页要全部持久 Cookie（JSON 数组字符串；会话 Cookie 不含）。
+     * 后台页还没就绪时最多等 [timeoutMs]（刚启动时拓展要等第一个 Gecko 标签才会装上）；
+     * 就绪不了 / 读取失败抛 [java.io.IOException]。
+     */
+    fun exportCookies(timeoutMs: Long = 20_000): String {
+        if (Looper.myLooper() == Looper.getMainLooper()) throw java.io.IOException("不能在主线程读取 Cookie")
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        var p = bgPort
+        while (p == null && SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(250)
+            p = bgPort
+        }
+        val port = p ?: throw java.io.IOException("Gecko 内核尚未就绪，请先打开一个 Gecko 标签页再试")
+        val rid = java.util.UUID.randomUUID().toString()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        cookieWaiters[rid] = latch
+        main.post {
+            runCatching { port.postMessage(JSONObject().put("t", "cookieExport").put("rid", rid)) }
+                .onFailure { latch.countDown() }
+        }
+        try {
+            latch.await((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(5_000), java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+        }
+        cookieWaiters.remove(rid)
+        val res = cookieResults.remove(rid) ?: throw java.io.IOException("读取 Gecko Cookie 超时")
+        if (!res.optBoolean("ok")) throw java.io.IOException("读取 Gecko Cookie 失败：" + res.optString("error"))
+        return (res.optJSONArray("cookies") ?: JSONArray()).toString()
+    }
+
+    /** 恢复备份时调用：把 Cookie 加密暂存到本机，重启后后台页就绪时由 [importPendingCookies] 导入并删除。 */
+    fun stagePendingCookies(context: Context, json: String) {
+        val app = context.applicationContext
+        val sealed = SecureStore.write(app, json, SecureStore.PURPOSE_GECKO_COOKIES)
+            ?: throw java.io.IOException("无法用本机密钥加密 Cookie，已取消恢复 Cookie")
+        val target = File(app.filesDir, PENDING_COOKIES_FILE)
+        val tmp = File(app.filesDir, "$PENDING_COOKIES_FILE.tmp")
+        tmp.writeText(sealed)
+        if (!tmp.renameTo(target)) {
+            target.delete()
+            if (!tmp.renameTo(target)) throw java.io.IOException("暂存 Cookie 失败")
+        }
+    }
+
+    /** 后台页连上时：有暂存的 Cookie 就交给它导入（先清掉现有持久 Cookie，再写入备份里的）。 */
+    private fun importPendingCookies() {
+        val app = appContext ?: return
+        val file = File(app.filesDir, PENDING_COOKIES_FILE)
+        if (!file.isFile) return
+        worker.execute {
+            val arr = runCatching {
+                val plain = SecureStore.read(app, file.readText(), SecureStore.PURPOSE_GECKO_COOKIES) ?: error("decrypt")
+                JSONArray(plain)
+            }.getOrNull()
+            if (arr == null) {
+                file.delete() // 解不开（换过本机密钥等）：留着也没用
+                return@execute
+            }
+            main.post {
+                val p = bgPort ?: return@post
+                runCatching { p.postMessage(JSONObject().put("t", "cookieImport").put("cookies", arr)) }
+                    .onFailure { Diag.log("gm: cookie import post failed $it") }
+            }
+        }
+    }
+
+    private fun onCookieImported(o: JSONObject) {
+        val app = appContext ?: return
+        Diag.log("gm: cookie import ok=${o.optBoolean("ok")} set=${o.optInt("set")} failed=${o.optInt("failed")}")
+        // 成功才删暂存文件；失败留着，下次后台页就绪时重试
+        if (o.optBoolean("ok")) File(app.filesDir, PENDING_COOKIES_FILE).delete()
     }
 
     // ---- 增量同步：后台页已确认注册的 (id → sig)。源码没变的脚本只发元数据，不再发 code（主线程）

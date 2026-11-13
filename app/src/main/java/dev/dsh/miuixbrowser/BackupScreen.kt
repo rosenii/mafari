@@ -104,16 +104,15 @@ private fun schemeRows(): List<Pair<String, String>> {
     )
 }
 
-private const val SCOPE_NOTE = "含书签、历史、设置、脚本；不含下载文件、缓存、Cookie 与拓展包"
-
 private fun formatTime(ms: Long): String =
     DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
 
 /** 导出 / 上传 / 推送成功后的一行提示。 */
 private fun doneText(context: Context, prefix: String, summary: BackupManager.Summary): String =
-    prefix + "：${summary.units} 项 · " +
+    prefix + "：" + summary.included.joinToString("、") { it.title } + " · " +
         android.text.format.Formatter.formatFileSize(context, summary.bytes.toLong()) +
-        if (summary.skipped > 0) " · 跳过 ${summary.skipped} 项" else ""
+        (if (summary.empty.isNotEmpty()) "\n没有数据，已跳过：" + summary.empty.joinToString("、") { it.title } else "") +
+        (if (summary.skipped > 0) "\n无法解密而跳过 ${summary.skipped} 项" else "")
 
 private fun failText(prefix: String, e: Throwable?): String = prefix + "：" + (e?.message ?: "未知错误")
 
@@ -143,6 +142,13 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     var busy by remember { mutableStateOf(false) }
     var pendingPassword by remember { mutableStateOf<CharArray?>(null) }
     var syncTab by rememberSaveable { mutableIntStateOf(TAB_WEBDAV) }
+    // 备份内容（手动导出 / WebDAV / Git / 自动推送共用）；Gecko Cookie 只在当前内核为 Gecko 时可选
+    var selectedCategories by remember { mutableStateOf(BackupAuto.categories(context)) }
+    val cookieAvailable = remember { BackupAuto.geckoCookiesAvailable(context) }
+    val effectiveCategories = BackupCategory.entries.filter {
+        it in selectedCategories && (it != BackupCategory.GECKO_COOKIES || cookieAvailable)
+    }
+    val hasContent = effectiveCategories.isNotEmpty()
 
     val saveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -158,7 +164,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     runCatching {
                         val out = context.contentResolver.openOutputStream(uri, "w")
                             ?: error("无法写入所选位置")
-                        out.use { BackupManager.export(context, it, password) }
+                        out.use { BackupManager.export(context, it, password, BackupAuto.effectiveCategories(context)) }
                     }.onFailure {
                         password.fill('\u0000')
                         // 写到一半失败：不要留下半个文件
@@ -180,6 +186,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     var restoreUri by remember { mutableStateOf<Uri?>(null) }
     var showRestorePassword by remember { mutableStateOf(false) }
     var restorePlan by remember { mutableStateOf<BackupManager.RestorePlan?>(null) }
+    var restoreSelected by remember { mutableStateOf<Set<BackupCategory>>(emptySet()) }
     var restoring by remember { mutableStateOf(false) }
     var restoreBytes by remember { mutableStateOf<ByteArray?>(null) }
     var exportTarget by remember { mutableStateOf(ExportTarget.FILE) }
@@ -274,6 +281,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
             if (plan != null) {
                 restoreUri = null
                 restoreBytes = null
+                restoreSelected = plan.defaultSelection
                 restorePlan = plan
             } else if (fromDefault) {
                 Toast.makeText(context, failText("默认口令未能解密", result.exceptionOrNull()) + "，请手动输入口令", Toast.LENGTH_LONG).show()
@@ -314,7 +322,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     val result = withContext(Dispatchers.IO) {
                         runCatching {
                             val buffer = ByteArrayOutputStream()
-                            val summary = BackupManager.export(context, buffer, password)
+                            val summary = BackupManager.export(context, buffer, password, BackupAuto.effectiveCategories(context))
                             GitSyncClient(context, git).upload(buffer.toByteArray())
                             summary
                         }.onFailure { password.fill('\u0000') }
@@ -340,7 +348,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
                         val buffer = ByteArrayOutputStream()
-                        val summary = BackupManager.export(context, buffer, password)
+                        val summary = BackupManager.export(context, buffer, password, BackupAuto.effectiveCategories(context))
                         WebDavClient(cfg).upload(buffer.toByteArray())
                         summary
                     }.onFailure { password.fill('\u0000') }
@@ -408,6 +416,41 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
+                    // ———— 备份内容：所有备份方式共用 ————
+                    item { SmallTitle(text = "备份内容") }
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            BackupCategory.entries.forEach { cat ->
+                                val available = cat != BackupCategory.GECKO_COOKIES || cookieAvailable
+                                AppSwitchPreference(
+                                    checked = available && cat in selectedCategories,
+                                    onCheckedChange = { on ->
+                                        val next = if (on) selectedCategories + cat else selectedCategories - cat
+                                        selectedCategories = next
+                                        BackupAuto.setCategories(context, next)
+                                    },
+                                    title = cat.title,
+                                    summary = if (available) cat.summary else "仅当前内核为 Gecko 时可选",
+                                    enabled = available && !working,
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        Note(
+                            if (!hasContent) {
+                                "还没有选择要备份的内容，选择后才能备份。"
+                            } else {
+                                "已选 ${effectiveCategories.size} 类：" + effectiveCategories.joinToString("、") { it.title } +
+                                    "。没有数据的类别不会写进备份；恢复时只覆盖备份里有的内容，其余保持原样。" +
+                                    if (BackupCategory.GECKO_COOKIES in effectiveCategories) "\nCookie 含登录凭据，请妥善保管备份文件与口令；恢复后重启生效。" else ""
+                            },
+                        )
+                    }
+
                     // ———— 云同步：WebDAV / Git 左右切换 ————
                     item { SmallTitle(text = "云同步") }
                     item {
@@ -434,10 +477,11 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             Column {
                                 if (tab == TAB_WEBDAV) {
                                     val cfg = webdavConfig
+                                    val task = webdavTask
                                     Column {
                                         ArrowPreference(
                                             title = "服务器",
-                                            summary = cfg?.let { WebDavNames.hostLabel(it.url) } ?: "未配置",
+                                            summary = cfg?.let { WebDavNames.hostLabel(it.url) } ?: "未配置，点击添加",
                                             enabled = !working,
                                             onClick = {
                                                 webdavConfigError = null
@@ -451,21 +495,19 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                                 }
                                             },
                                         )
-                                        ArrowPreference(
-                                            title = "上传备份",
-                                            summary = when {
-                                                webdavTask != null && exportTarget == ExportTarget.WEBDAV -> webdavTask
-                                                lastUpload > 0 -> "上次 " + formatTime(lastUpload)
-                                                else -> "加密后上传"
+                                        ActionPair(
+                                            status = when {
+                                                task != null && exportTarget != ExportTarget.WEBDAV -> task
+                                                cfg == null -> null
+                                                lastUpload > 0 -> "上次上传 " + formatTime(lastUpload)
+                                                else -> "尚未上传"
                                             },
-                                            enabled = cfg != null && !working,
-                                            onClick = { startExport(ExportTarget.WEBDAV) },
-                                        )
-                                        ArrowPreference(
-                                            title = "从服务器恢复",
-                                            summary = if (webdavTask != null && exportTarget != ExportTarget.WEBDAV) webdavTask else "最新一份备份",
-                                            enabled = cfg != null && !working,
-                                            onClick = {
+                                            primary = if (task != null && exportTarget == ExportTarget.WEBDAV) task else "上传备份",
+                                            primaryEnabled = cfg != null && !working && hasContent,
+                                            onPrimary = { startExport(ExportTarget.WEBDAV) },
+                                            secondary = "从服务器恢复",
+                                            secondaryEnabled = cfg != null && !working,
+                                            onSecondary = {
                                                 requireAuth("从服务器恢复备份") {
                                                     exportTarget = ExportTarget.FILE
                                                     webdavTask = "正在获取最新备份…"
@@ -485,10 +527,11 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                     }
                                 } else {
                                     val cfg = gitConfig
+                                    val task = gitTask
                                     Column {
                                         ArrowPreference(
                                             title = "仓库",
-                                            summary = cfg?.let { GitNames.repoLabel(it.url) + if (it.useSsh) " · Deploy key" else "" } ?: "未配置",
+                                            summary = cfg?.let { GitNames.repoLabel(it.url) + if (it.useSsh) " · Deploy key" else "" } ?: "未配置，点击添加",
                                             enabled = !working,
                                             onClick = {
                                                 gitConfigError = null
@@ -502,21 +545,19 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                                 }
                                             },
                                         )
-                                        ArrowPreference(
-                                            title = "推送备份",
-                                            summary = when {
-                                                gitTask != null && exportTarget == ExportTarget.GIT -> gitTask
-                                                lastPush > 0 -> "上次 " + formatTime(lastPush)
-                                                else -> "加密后提交并推送"
+                                        ActionPair(
+                                            status = when {
+                                                task != null && exportTarget != ExportTarget.GIT -> task
+                                                cfg == null -> null
+                                                lastPush > 0 -> "上次推送 " + formatTime(lastPush)
+                                                else -> "尚未推送"
                                             },
-                                            enabled = cfg != null && !working,
-                                            onClick = { startExport(ExportTarget.GIT) },
-                                        )
-                                        ArrowPreference(
-                                            title = "从仓库恢复",
-                                            summary = if (gitTask != null && exportTarget != ExportTarget.GIT) gitTask else "最新一份备份",
-                                            enabled = cfg != null && !working,
-                                            onClick = {
+                                            primary = if (task != null && exportTarget == ExportTarget.GIT) task else "推送备份",
+                                            primaryEnabled = cfg != null && !working && hasContent,
+                                            onPrimary = { startExport(ExportTarget.GIT) },
+                                            secondary = "从仓库恢复",
+                                            secondaryEnabled = cfg != null && !working,
+                                            onSecondary = {
                                                 requireAuth("从仓库恢复备份") {
                                                     exportTarget = ExportTarget.FILE
                                                     gitTask = "正在拉取仓库…"
@@ -548,7 +589,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     }
 
                     // ———— 默认加密口令 + 自动推送 ————
-                    item { SmallTitle(text = "口令与自动推送") }
+                    item { SmallTitle(text = "口令与自动备份") }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -556,7 +597,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         ) {
                             ArrowPreference(
                                 title = "默认加密口令",
-                                summary = if (defaultPwSet) "已设置，导出 / 上传 / 推送不再询问" else "未设置",
+                                summary = if (defaultPwSet) "已设置，备份时不再询问" else "未设置，每次备份都要输入",
                                 enabled = !working,
                                 onClick = {
                                     requireAuth("查看 / 修改默认口令") {
@@ -579,30 +620,32 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             )
                         }
                     }
-                    item { Note("启动应用时按间隔执行，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
+                    item { Note("启动应用时按间隔执行，备份上面选中的内容，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
 
                     // ———— 本地备份与恢复 ————
-                    item { SmallTitle(text = "本地备份与恢复") }
+                    item { SmallTitle(text = "本地文件") }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
-                            ArrowPreference(
-                                title = "导出加密备份到本地",
-                                summary = if (busy) "正在加密并导出…" else "保存为 .${BackupFormat.EXTENSION} 文件",
-                                enabled = !working,
-                                onClick = { startExport(ExportTarget.FILE) },
-                            )
-                            ArrowPreference(
-                                title = "从本地备份文件恢复",
-                                summary = if (restoring) "正在解密并校验…" else "选择 .${BackupFormat.EXTENSION} 文件",
-                                enabled = !working,
-                                onClick = { requireAuth("从本地备份文件恢复") { openLauncher.launch(arrayOf("*/*")) } },
+                            ActionPair(
+                                status = when {
+                                    busy -> "正在加密并导出…"
+                                    restoring -> "正在解密并校验…"
+                                    else -> "加密后保存为 .${BackupFormat.EXTENSION} 文件"
+                                },
+                                primary = "导出备份",
+                                primaryEnabled = !working && hasContent,
+                                onPrimary = { startExport(ExportTarget.FILE) },
+                                secondary = "从文件恢复",
+                                secondaryEnabled = !working,
+                                onSecondary = { requireAuth("从本地备份文件恢复") { openLauncher.launch(arrayOf("*/*")) } },
+                                topPadding = 16.dp,
                             )
                         }
                     }
-                    item { Note(SCOPE_NOTE) }
+                    item { Note("恢复只覆盖备份里有的内容，恢复前可再勾选；完成后自动重启。") }
 
                     item { SmallTitle(text = "加密方案") }
                     item {
@@ -865,13 +908,15 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
             RestoreConfirmDialog(
                 show = plan != null,
                 plan = plan,
+                selected = restoreSelected,
+                onToggle = { cat, on -> restoreSelected = if (on) restoreSelected + cat else restoreSelected - cat },
                 backdrop = sheetBackdrop,
                 onDismiss = { if (!restoring) restorePlan = null },
                 onConfirm = {
                     val p = restorePlan ?: return@RestoreConfirmDialog
                     restoring = true
                     scope.launch {
-                        val result = withContext(Dispatchers.IO) { runCatching { BackupManager.applyRestore(context, p) } }
+                        val result = withContext(Dispatchers.IO) { runCatching { BackupManager.applyRestore(context, p, restoreSelected) } }
                         if (result.isSuccess) {
                             Toast.makeText(context, "恢复完成，正在重启…", Toast.LENGTH_SHORT).show()
                             delay(600)
@@ -1279,6 +1324,8 @@ private fun RestorePasswordDialog(
 private fun RestoreConfirmDialog(
     show: Boolean,
     plan: BackupManager.RestorePlan?,
+    selected: Set<BackupCategory>,
+    onToggle: (BackupCategory, Boolean) -> Unit,
     backdrop: Backdrop?,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -1289,11 +1336,11 @@ private fun RestoreConfirmDialog(
         buildString {
             append(formatTime(plan.createdAt))
             if (plan.versionName.isNotBlank()) append(" · v").append(plan.versionName.removePrefix("v"))
-            append('\n')
-            append(plan.itemCount).append(" 项数据 · ").append(plan.suiteName).append("\n\n")
-            append("将覆盖当前数据且无法撤销，完成后自动重启")
+            append(" · ").append(plan.suiteName)
         }
     }
+    val unavailableSet = plan?.unavailable.orEmpty()
+    val chosen = plan?.categories.orEmpty().filter { it in selected && it !in unavailableSet }
     AppGlassDialog(
         show = show,
         title = "恢复这份备份？",
@@ -1301,13 +1348,86 @@ private fun RestoreConfirmDialog(
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
-        DialogActions(
-            confirmText = "恢复并重启",
-            confirmEnabled = true,
-            onConfirm = onConfirm,
-            onCancel = onDismiss,
-            confirmRole = GlassDialogButtonRole.Destructive,
-        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "备份里有以下内容，勾选的会覆盖当前对应的数据；没有勾选 / 备份里没有的保持原样。",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                plan?.categories.orEmpty().forEach { cat ->
+                    val unavailable = cat in unavailableSet
+                    AppSwitchPreference(
+                        checked = !unavailable && cat in selected,
+                        onCheckedChange = { onToggle(cat, it) },
+                        title = cat.title,
+                        summary = if (unavailable) "本机不支持，无法恢复" else cat.summary,
+                        enabled = !unavailable,
+                    )
+                }
+            }
+            Text(
+                text = "覆盖后无法撤销，完成后自动重启。",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            DialogActions(
+                confirmText = if (chosen.isEmpty()) "恢复并重启" else "恢复 ${chosen.size} 项并重启",
+                confirmEnabled = chosen.isNotEmpty(),
+                onConfirm = onConfirm,
+                onCancel = onDismiss,
+                confirmRole = GlassDialogButtonRole.Destructive,
+            )
+        }
+    }
+}
+
+/** 卡片里的「状态行 + 左右两个操作按钮」：主操作（上传 / 推送 / 导出）在左，恢复在右。 */
+@Composable
+private fun ActionPair(
+    status: String?,
+    primary: String,
+    primaryEnabled: Boolean,
+    onPrimary: () -> Unit,
+    secondary: String,
+    secondaryEnabled: Boolean,
+    onSecondary: () -> Unit,
+    topPadding: androidx.compose.ui.unit.Dp = 4.dp,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = topPadding, bottom = 16.dp),
+    ) {
+        if (status != null) {
+            Text(
+                text = status,
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(bottom = 10.dp),
+            )
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            AppDialogButton(
+                onClick = onPrimary,
+                enabled = primaryEnabled,
+                modifier = Modifier.weight(1f),
+                role = GlassDialogButtonRole.Primary,
+            ) {
+                Text(text = primary, style = MiuixTheme.textStyles.button, maxLines = 1)
+            }
+            AppDialogButton(onClick = onSecondary, enabled = secondaryEnabled, modifier = Modifier.weight(1f)) {
+                Text(text = secondary, style = MiuixTheme.textStyles.button, maxLines = 1)
+            }
+        }
     }
 }
 

@@ -13,18 +13,41 @@ import java.io.ByteArrayOutputStream
  *  - 自动推送：按间隔（每天 / 每 3 天 / 每周）在启动时把加密备份推送到「当前」的 WebDAV 服务器 / Git 仓库，
  *    以及列表里开启了「一并同步」的其他服务器 / 仓库。
  *    需要先设好默认口令与至少一个目标；有任何一个失败就不记时间，下次启动整体重试。
+ *    备份哪些内容由 [categories] 决定（与手动备份共用同一份选择）。
  */
 object BackupAuto {
     private const val PREFS = "mafari_backup_auto"
     private const val K_PASSWORD = "password"
     private const val K_MODE = "auto_mode"
     private const val K_LAST = "last_auto"
+    private const val K_CATEGORIES = "categories"
 
     val INTERVAL_LABELS = listOf("手动", "每天", "每 3 天", "每周")
     private val INTERVAL_DAYS = intArrayOf(0, 1, 3, 7)
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** 备份内容的选择（手动导出 / WebDAV / Git / 自动推送共用）；没选过时用默认：除 Cookie 外全选。 */
+    fun categories(context: Context): Set<BackupCategory> {
+        val raw = prefs(context).getStringSet(K_CATEGORIES, null) ?: return BackupCategory.DEFAULT_SELECTION
+        return raw.mapNotNull { BackupCategory.byId(it) }.toSet()
+    }
+
+    fun setCategories(context: Context, set: Set<BackupCategory>) {
+        prefs(context).edit().putStringSet(K_CATEGORIES, set.map { it.id }.toSet()).apply()
+    }
+
+    /** Gecko Cookie 能不能备份：安装包带 Gecko、设备支持，且当前默认内核是 Gecko（读 Cookie 要靠 Gecko 的内置拓展在运行）。 */
+    fun geckoCookiesAvailable(context: Context): Boolean =
+        EngineSupport.geckoAvailable() && readBrowserEngine(context.applicationContext) == ENGINE_GECKO
+
+    fun isAvailable(context: Context, category: BackupCategory): Boolean =
+        category != BackupCategory.GECKO_COOKIES || geckoCookiesAvailable(context)
+
+    /** 实际生效的备份内容：已选 ∩ 当前可用（切到 WebView 后，已选的 Gecko Cookie 暂不生效，但选择会保留）。 */
+    fun effectiveCategories(context: Context): Set<BackupCategory> =
+        categories(context).filter { isAvailable(context, it) }.toSet()
 
     fun hasPassword(context: Context): Boolean = password(context) != null
 
@@ -66,11 +89,13 @@ object BackupAuto {
         val gitActive = GitStore.activeId(app)
         val git = GitStore.list(app).filter { it.id == gitActive || it.syncAlso }.map { it.config }
         if (dav.isEmpty() && git.isEmpty()) return@withContext
+        val categories = effectiveCategories(app)
+        if (categories.isEmpty()) return@withContext
 
         val chars = password.toCharArray()
         val buffer = ByteArrayOutputStream()
         try {
-            BackupManager.export(app, buffer, chars)
+            BackupManager.export(app, buffer, chars, categories)
         } finally {
             chars.fill('\u0000')
         }

@@ -368,6 +368,7 @@ object SecureStore {
     const val PURPOSE_GIT_KEY = "mafari.git.deploykey"
     const val PURPOSE_GIT_KEY_PASS = "mafari.git.keypass"
     const val PURPOSE_BACKUP_PASSWORD = "mafari.backup.defaultpassword"
+    const val PURPOSE_GECKO_COOKIES = "mafari.backup.geckocookies"
 
     fun isLegacyPlaintext(raw: String) = !EncryptionEngine.isEncryptedString(raw)
 

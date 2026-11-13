@@ -245,12 +245,33 @@ object BackupFormat {
     }
 }
 
+/**
+ * 备份内容类别：备份时可自选；恢复时只覆盖备份里「有数据」的类别，
+ * 没选 / 当时为空（书签、历史等没有内容）的类别一律保持原样，不会用空数据覆盖。
+ */
+enum class BackupCategory(val id: String, val title: String, val summary: String) {
+    BOOKMARKS("bookmarks", "书签", "收藏与文件夹"),
+    HISTORY("history", "历史记录", "浏览历史"),
+    SETTINGS("settings", "应用设置", "各项设置、搜索引擎、代理、Cookie 策略、菜单等"),
+    SCRIPTS("scripts", "用户脚本", "油猴脚本及其开关"),
+    SCRIPT_DATA("script_data", "脚本数据", "脚本用 GM_setValue 保存的值"),
+    ADBLOCK("adblock", "去广告规则", "订阅、开关与自定义规则"),
+    GECKO_COOKIES("gecko_cookies", "Gecko Cookie", "Gecko 内核里的登录状态（仅持久 Cookie，不含会话 Cookie）");
+
+    companion object {
+        fun byId(id: String): BackupCategory? = entries.firstOrNull { it.id == id }
+
+        /** 默认勾选：除 Cookie（含登录凭据）外的全部 */
+        val DEFAULT_SELECTION: Set<BackupCategory> = entries.filter { it != GECKO_COOKIES }.toSet()
+    }
+}
+
 /** 备份内容的收集与导出（Android 侧）。 */
 object BackupManager {
 
     /** 进备份的 SharedPreferences（都是用户数据 / 设置）。诊断日志开关、Gecko 调试等不进。 */
     private val PREFS = listOf(
-        "mafari", // 书签
+        "mafari", // 书签（favorites*）+ 其它杂项设置
         "mafari_history", // 历史
         "mafari_settings", // 应用设置（含代理账号等）
         "mafari_cookies", // Cookie 策略
@@ -273,36 +294,97 @@ object BackupManager {
 
     private val FILES = listOf("adblock/custom.txt")
 
-    class Summary(val units: Int, val bytes: Int, val skipped: Int)
+    /** Gecko Cookie 在备份里的单元名（明文 JSON 数组，由备份信封加密） */
+    private const val COOKIES_UNIT = "gecko/cookies"
+
+    /** 「mafari」里属于书签的键；其余键算应用设置 */
+    private val BOOKMARK_KEYS = setOf("favorites", "favorites_folders")
+
+    /** 数据实际存在数据库里的键：备份时从数据库导出，不读 SharedPreferences（迁移后那里是空的） */
+    private val DB_BACKED = setOf(
+        "mafari" to "favorites",
+        "mafari" to "favorites_folders",
+        "mafari_history" to "entries",
+        "mafari_ext" to "scripts",
+    )
+
+    /** 这些键的值是 JSON 数组；备份里是空数组时视为「没有数据」，恢复时不据此覆盖 */
+    private val ARRAY_KEYS = setOf("mafari" to "favorites", "mafari_history" to "entries", "mafari_ext" to "scripts")
+
+    /** (SharedPreferences 名, 键) → 所属类别 */
+    private fun categoryOf(pref: String, key: String): BackupCategory? = when (pref) {
+        "mafari" -> if (key in BOOKMARK_KEYS) BackupCategory.BOOKMARKS else BackupCategory.SETTINGS
+        "mafari_history" -> BackupCategory.HISTORY
+        "mafari_ext" -> BackupCategory.SCRIPTS
+        "userscript_gm" -> BackupCategory.SCRIPT_DATA
+        "mafari_ad_rules" -> BackupCategory.ADBLOCK
+        "mafari_settings", "mafari_cookies", "mafari_menu", "mafari_gecko_protect" -> BackupCategory.SETTINGS
+        else -> null
+    }
+
+    class Summary(
+        val units: Int,
+        val bytes: Int,
+        val skipped: Int,
+        /** 实际写进备份的类别 */
+        val included: List<BackupCategory> = emptyList(),
+        /** 选了但当前没有数据、因此没写进备份的类别 */
+        val empty: List<BackupCategory> = emptyList(),
+    )
+
+    /** [collect] 的结果 */
+    class Collected(
+        val units: Map<String, ByteArray>,
+        val included: List<BackupCategory>,
+        val empty: List<BackupCategory>,
+        val skipped: Int,
+    )
 
     fun suggestedFileName(): String =
         "mafari-backup-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + "." + BackupFormat.EXTENSION
 
-    /** 收集所有单元；返回 (单元, 因无法解密而跳过的项数)。 */
-    fun collect(context: Context): Pair<Map<String, ByteArray>, Int> {
+    private fun jsonArrayLength(text: String): Int = runCatching { JSONArray(text).length() }.getOrDefault(-1)
+
+    /**
+     * 收集 [categories] 里各类别的数据；没有数据的类别不写进备份（也就不会在恢复时覆盖）。
+     * 选了 Gecko Cookie 时会等 Gecko 内核就绪后读取，读不到抛 [IOException]（不会悄悄生成缺 Cookie 的备份）。
+     * 调用方在 IO 线程调用。
+     */
+    fun collect(context: Context, categories: Set<BackupCategory>): Collected {
         val app = context.applicationContext
         val units = LinkedHashMap<String, ByteArray>()
+        val included = LinkedHashSet<BackupCategory>()
+        val roots = LinkedHashMap<String, JSONObject>()
         var skipped = 0
 
+        fun add(pref: String, key: String, entry: JSONObject, cat: BackupCategory) {
+            roots.getOrPut(pref) { JSONObject() }.put(key, entry)
+            included.add(cat)
+        }
+        fun text(value: String) = JSONObject().put("t", "s").put("v", value)
+
+        // 1) 普通 SharedPreferences 键
         for (name in PREFS) {
+            if (name == "userscript_gm") continue // GM 值在数据库里，见下
             val all = app.getSharedPreferences(name, Context.MODE_PRIVATE).all
-            if (all.isEmpty()) continue
-            val root = JSONObject()
             for ((key, value) in all) {
+                if ((name to key) in DB_BACKED) continue
+                val cat = categoryOf(name, key) ?: continue
+                if (cat !in categories) continue
                 val entry = JSONObject()
                 when (value) {
                     is String -> {
-                        var text: String = value
+                        var plain: String = value
                         if (EncryptionEngine.isEncryptedString(value)) {
                             val purpose = DEVICE_ENCRYPTED[name]?.get(key)
-                            val plain = purpose?.let { SecureStore.read(app, value, it) }
-                            if (plain == null) {
+                            val opened = purpose?.let { SecureStore.read(app, value, it) }
+                            if (opened == null) {
                                 skipped++
                                 continue
                             }
-                            text = plain
+                            plain = opened
                         }
-                        entry.put("t", "s").put("v", text)
+                        entry.put("t", "s").put("v", plain)
                     }
                     is Int -> entry.put("t", "i").put("v", value)
                     is Long -> entry.put("t", "l").put("v", value)
@@ -311,47 +393,65 @@ object BackupManager {
                     is Set<*> -> entry.put("t", "ss").put("v", JSONArray(value.map { it.toString() }))
                     else -> continue
                 }
-                root.put(key, entry)
+                add(name, key, entry, cat)
             }
-            units["prefs/$name"] = root.toString().toByteArray(Charsets.UTF_8)
         }
 
-        // 历史在 SQLCipher 库里：导出成旧格式的明文 JSON 放进 mafari_history 单元，恢复后下次启动自动导入
-        HistoryDb.exportJson(app)?.let { json ->
-            val root = JSONObject().put("entries", JSONObject().put("t", "s").put("v", json))
-            units["prefs/mafari_history"] = root.toString().toByteArray(Charsets.UTF_8)
+        // 2) 数据库里的类别：导出成旧格式的明文 JSON（恢复后下次启动自动导入）。导出为空 = 没有数据 = 不进备份
+        if (BackupCategory.HISTORY in categories) {
+            HistoryDb.exportJson(app)?.let { add("mafari_history", "entries", text(it), BackupCategory.HISTORY) }
+        }
+        if (BackupCategory.BOOKMARKS in categories) {
+            BookmarkDb.exportBackup(app)?.let { (favorites, folders) ->
+                if (jsonArrayLength(favorites) > 0) {
+                    add("mafari", "favorites", text(favorites), BackupCategory.BOOKMARKS)
+                    add("mafari", "favorites_folders", text(folders), BackupCategory.BOOKMARKS)
+                }
+            }
+        }
+        if (BackupCategory.SCRIPTS in categories) {
+            ExtensionStore.exportBackup(app)?.let { scripts ->
+                if (jsonArrayLength(scripts) > 0) add("mafari_ext", "scripts", text(scripts), BackupCategory.SCRIPTS)
+            }
+        }
+        if (BackupCategory.SCRIPT_DATA in categories) {
+            GmStore.exportJson(app)?.let {
+                roots["userscript_gm"] = JSONObject(it) // 已是 {"sid::k": {t, v}} 条目格式
+                included.add(BackupCategory.SCRIPT_DATA)
+            }
         }
 
-        // 书签在 SQLCipher 库里：导出成旧格式（favorites / favorites_folders 明文 JSON）并进 mafari 单元，恢复后下次启动自动导入
-        BookmarkDb.exportBackup(app)?.let { (favorites, folders) ->
-            val root = units["prefs/mafari"]?.let { JSONObject(String(it, Charsets.UTF_8)) } ?: JSONObject()
-            root.put("favorites", JSONObject().put("t", "s").put("v", favorites))
-            root.put("favorites_folders", JSONObject().put("t", "s").put("v", folders))
-            units["prefs/mafari"] = root.toString().toByteArray(Charsets.UTF_8)
+        // 3) 文件
+        if (BackupCategory.ADBLOCK in categories) {
+            for (rel in FILES) {
+                val f = File(app.filesDir, rel)
+                if (f.isFile && f.length() in 1..(8L shl 20)) {
+                    units["files/$rel"] = f.readBytes()
+                    included.add(BackupCategory.ADBLOCK)
+                }
+            }
         }
 
-        // 脚本在 SQLCipher 库里：导出成旧格式（scripts 明文 JSON）并进 mafari_ext 单元，恢复后下次启动自动导入
-        ExtensionStore.exportBackup(app)?.let { scripts ->
-            val root = units["prefs/mafari_ext"]?.let { JSONObject(String(it, Charsets.UTF_8)) } ?: JSONObject()
-            root.put("scripts", JSONObject().put("t", "s").put("v", scripts))
-            units["prefs/mafari_ext"] = root.toString().toByteArray(Charsets.UTF_8)
+        // 4) Gecko Cookie：经内置拓展读取；失败直接中止，不生成缺 Cookie 的备份
+        if (BackupCategory.GECKO_COOKIES in categories && EngineSupport.GECKO_BUNDLED) {
+            val json = GeckoGm.exportCookies()
+            if (jsonArrayLength(json) > 0) {
+                units[COOKIES_UNIT] = json.toByteArray(Charsets.UTF_8)
+                included.add(BackupCategory.GECKO_COOKIES)
+            }
         }
 
-        // GM 值在 SQLCipher 库里：导出成旧格式放进 userscript_gm 单元，恢复后下次启动自动导入
-        GmStore.exportJson(app)?.let { units["prefs/userscript_gm"] = it.toByteArray(Charsets.UTF_8) }
+        for ((name, root) in roots) units["prefs/$name"] = root.toString().toByteArray(Charsets.UTF_8)
 
-        for (rel in FILES) {
-            val f = File(app.filesDir, rel)
-            if (f.isFile && f.length() in 1..(8L shl 20)) units["files/$rel"] = f.readBytes()
-        }
-
+        val done = BackupCategory.entries.filter { it in included }
         val meta = JSONObject()
             .put("app", app.packageName)
             .put("versionName", BuildConfig.VERSION_NAME)
             .put("versionCode", BuildConfig.VERSION_CODE)
+            .put("categories", JSONArray(done.map { it.id }))
             .put("units", JSONArray(units.keys.toList()))
         units["meta.json"] = meta.toString().toByteArray(Charsets.UTF_8)
-        return units to skipped
+        return Collected(units, done, BackupCategory.entries.filter { it in categories && it !in included }, skipped)
     }
 
     /**
@@ -366,12 +466,16 @@ object BackupManager {
         val suiteName: String,
         /** 备份文件格式版本 */
         val formatVersion: Int,
-        /** 备份里实际可恢复的 SharedPreferences 名 */
-        val prefNames: List<String>,
-        internal val prefs: Map<String, Map<String, Any>>,
+        /** 备份里有数据的类别（固定顺序）；不在其中的类别恢复时保持原样 */
+        val categories: List<BackupCategory>,
+        /** 备份里有、但本机恢复不了的类别（如 Gecko Cookie 在不支持 Gecko 的安装包 / 设备上） */
+        val unavailable: Set<BackupCategory>,
+        internal val prefs: Map<BackupCategory, Map<String, Map<String, Any>>>,
         internal val files: Map<String, ByteArray>,
+        internal val cookies: ByteArray?,
     ) {
-        val itemCount: Int get() = prefs.values.sumOf { it.size } + files.size
+        /** 默认要恢复的类别：备份里有且本机能恢复的全部 */
+        val defaultSelection: Set<BackupCategory> get() = categories.filter { it !in unavailable }.toSet()
     }
 
     /** 读取备份文件的字节数上限（防止选错文件拖垮内存） */
@@ -392,7 +496,8 @@ object BackupManager {
 
     /**
      * 解密备份并生成恢复计划（耗时：Argon2id，调用方放 IO 线程）。口令用完会被清零。
-     * 只接受白名单内的单元名（[PREFS] / [FILES]），其余一律忽略。
+     * 只接受白名单内的单元名（[PREFS] / [FILES] / Cookie），其余一律忽略；
+     * 备份里是空数组的书签 / 历史 / 脚本不算「有数据」，不会进入计划。
      */
     fun prepareRestore(context: Context, file: ByteArray, password: CharArray): RestorePlan {
         val app = context.applicationContext
@@ -406,21 +511,44 @@ object BackupManager {
             ?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() }
             ?: throw CryptoException("备份缺少元数据，可能不是 Mafari 备份")
 
-        val prefs = LinkedHashMap<String, Map<String, Any>>()
+        val prefs = LinkedHashMap<BackupCategory, LinkedHashMap<String, LinkedHashMap<String, Any>>>()
         val files = LinkedHashMap<String, ByteArray>()
+        var cookies: ByteArray? = null
         for ((name, bytes) in contents.units) {
             when {
                 name.startsWith("prefs/") -> {
                     val pref = name.removePrefix("prefs/")
-                    if (pref in PREFS) prefs[pref] = parsePrefs(app, pref, bytes)
+                    if (pref in PREFS) {
+                        for ((key, value) in parsePrefs(app, pref, bytes)) {
+                            val cat = categoryOf(pref, key) ?: continue
+                            prefs.getOrPut(cat) { LinkedHashMap() }.getOrPut(pref) { LinkedHashMap() }[key] = value
+                        }
+                    }
                 }
                 name.startsWith("files/") -> {
                     val rel = name.removePrefix("files/")
                     if (rel in FILES) files[rel] = bytes
                 }
+                name == COOKIES_UNIT -> {
+                    val ok = runCatching { JSONArray(String(bytes, Charsets.UTF_8)).length() > 0 }.getOrDefault(false)
+                    if (ok) cookies = bytes
+                }
             }
         }
-        if (prefs.isEmpty() && files.isEmpty()) throw CryptoException("备份里没有可恢复的数据")
+        // 书签 / 历史必须带着真正的数据键才算有数据（只剩文件夹注册表之类的不算），避免用空数据覆盖
+        if (prefs[BackupCategory.BOOKMARKS]?.get("mafari")?.containsKey("favorites") != true) prefs.remove(BackupCategory.BOOKMARKS)
+        if (prefs[BackupCategory.HISTORY]?.get("mafari_history")?.containsKey("entries") != true) prefs.remove(BackupCategory.HISTORY)
+
+        val present = LinkedHashSet<BackupCategory>(prefs.keys)
+        if (files.isNotEmpty()) present.add(BackupCategory.ADBLOCK)
+        if (cookies != null) present.add(BackupCategory.GECKO_COOKIES)
+        if (present.isEmpty()) throw CryptoException("备份里没有可恢复的数据")
+
+        val unavailable = if (BackupCategory.GECKO_COOKIES in present && !EngineSupport.geckoAvailable()) {
+            setOf(BackupCategory.GECKO_COOKIES)
+        } else {
+            emptySet()
+        }
 
         return RestorePlan(
             createdAt = contents.createdAt,
@@ -428,9 +556,11 @@ object BackupManager {
             versionName = meta.optString("versionName"),
             suiteName = CipherSuites.find(contents.suiteId)?.shortName ?: "套件 ${contents.suiteId}",
             formatVersion = contents.version,
-            prefNames = prefs.keys.toList(),
+            categories = BackupCategory.entries.filter { it in present },
+            unavailable = unavailable,
             prefs = prefs,
             files = files,
+            cookies = cookies,
         )
     }
 
@@ -447,6 +577,8 @@ object BackupManager {
                 val value: Any = when (entry.getString("t")) {
                     "s" -> {
                         val text = entry.getString("v")
+                        // 空数组 = 备份时这一类就是空的：不放进恢复计划，恢复时也就不会用空数据覆盖
+                        if ((pref to key) in ARRAY_KEYS && jsonArrayLength(text) <= 0) continue
                         val purpose = DEVICE_ENCRYPTED[pref]?.get(key)
                         if (purpose != null) {
                             // 备份里存的是明文：写回前用本机密钥重新封装，和正常运行时的存储形态一致
@@ -476,44 +608,75 @@ object BackupManager {
         return out
     }
 
+    private enum class WriteMode { WHOLE, ONLY_KEYS, EXCEPT_KEYS }
+
     /**
-     * 写入恢复计划：每个出现在备份里的 SharedPreferences 整体替换（clear + put，commit 同步落盘），
-     * 备份里没有的保持不动。收藏 / 历史等有内存缓存的数据，必须在这之后重启进程才会生效。
+     * 写入 [selected] 里（且备份里有数据、本机能恢复）的类别：每个类别只替换它自己的数据，
+     * 备份里没有 / 没选的类别保持不动。收藏 / 历史等有内存缓存的数据，必须在这之后重启进程才会生效。
      * 在 IO 线程调用。
      */
-    fun applyRestore(context: Context, plan: RestorePlan) {
+    fun applyRestore(context: Context, plan: RestorePlan, selected: Set<BackupCategory> = plan.defaultSelection) {
         val app = context.applicationContext
-        for ((name, values) in plan.prefs) {
-            // 历史库整体替换：先清空，备份里的 entries 在重启后导入
-            if (name == "mafari_history") runCatching { HistoryDb.clearAll(app) }
-            if (name == "userscript_gm") runCatching { GmStore.clearAll(app) }
-            // 书签库整体替换：先清空，备份里的 favorites / favorites_folders 在重启后导入
-            if (name == "mafari") BookmarkDb.clearAll(app)
-            // 脚本库整体替换：先清空，备份里的 scripts 在重启后导入
-            if (name == "mafari_ext") ScriptDb.clearAll(app)
-            val editor = app.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
-            for ((key, value) in values) {
-                when (value) {
-                    is String -> editor.putString(key, value)
-                    is Int -> editor.putInt(key, value)
-                    is Long -> editor.putLong(key, value)
-                    is Float -> editor.putFloat(key, value)
-                    is Boolean -> editor.putBoolean(key, value)
-                    is Set<*> -> editor.putStringSet(key, value.map { it.toString() }.toSet())
+        val chosen = plan.categories.filter { it in selected && it !in plan.unavailable }
+        if (chosen.isEmpty()) throw IOException("没有选择要恢复的内容")
+
+        for (cat in chosen) {
+            val byPref = plan.prefs[cat].orEmpty()
+            // 数据库里的类别：先清空再由备份里的明文 JSON 在重启后导入（备份里没有该数据键时不清，见 prepareRestore）
+            when (cat) {
+                BackupCategory.HISTORY -> runCatching { HistoryDb.clearAll(app) }
+                BackupCategory.BOOKMARKS -> BookmarkDb.clearAll(app)
+                BackupCategory.SCRIPT_DATA -> runCatching { GmStore.clearAll(app) }
+                BackupCategory.SCRIPTS -> if (byPref["mafari_ext"]?.containsKey("scripts") == true) ScriptDb.clearAll(app)
+                else -> {}
+            }
+            for ((name, values) in byPref) {
+                val mode = if (name == "mafari") {
+                    if (cat == BackupCategory.BOOKMARKS) WriteMode.ONLY_KEYS else WriteMode.EXCEPT_KEYS
+                } else {
+                    WriteMode.WHOLE
+                }
+                writePrefs(app, name, values, mode)
+            }
+            if (cat == BackupCategory.ADBLOCK) {
+                for ((rel, bytes) in plan.files) {
+                    val target = File(app.filesDir, rel)
+                    target.parentFile?.mkdirs()
+                    val tmp = File(target.parentFile, target.name + ".restore")
+                    tmp.writeBytes(bytes)
+                    if (!tmp.renameTo(target)) {
+                        target.delete()
+                        if (!tmp.renameTo(target)) throw IOException("写入 $rel 失败")
+                    }
                 }
             }
-            if (!editor.commit()) throw IOException("写入 $name 失败")
-        }
-        for ((rel, bytes) in plan.files) {
-            val target = File(app.filesDir, rel)
-            target.parentFile?.mkdirs()
-            val tmp = File(target.parentFile, target.name + ".restore")
-            tmp.writeBytes(bytes)
-            if (!tmp.renameTo(target)) {
-                target.delete()
-                if (!tmp.renameTo(target)) throw IOException("写入 $rel 失败")
+            if (cat == BackupCategory.GECKO_COOKIES && EngineSupport.GECKO_BUNDLED) {
+                val bytes = plan.cookies ?: continue
+                // Cookie 不在这里直接写：重启后 Gecko 内置拓展就绪时再导入（此时 Gecko 会把它们落盘，不怕进程被杀）
+                GeckoGm.stagePendingCookies(app, String(bytes, Charsets.UTF_8))
             }
         }
+    }
+
+    private fun writePrefs(app: Context, name: String, values: Map<String, Any>, mode: WriteMode) {
+        val sp = app.getSharedPreferences(name, Context.MODE_PRIVATE)
+        val editor = sp.edit()
+        when (mode) {
+            WriteMode.WHOLE -> editor.clear()
+            WriteMode.ONLY_KEYS -> BOOKMARK_KEYS.forEach { editor.remove(it) }
+            WriteMode.EXCEPT_KEYS -> sp.all.keys.filter { it !in BOOKMARK_KEYS }.forEach { editor.remove(it) }
+        }
+        for ((key, value) in values) {
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Set<*> -> editor.putStringSet(key, value.map { it.toString() }.toSet())
+            }
+        }
+        if (!editor.commit()) throw IOException("写入 $name 失败")
     }
 
     /** 重启应用：拉起启动 Activity（清空任务栈），随后结束当前进程，让所有内存缓存重新从磁盘加载。 */
@@ -526,15 +689,22 @@ object BackupManager {
         android.os.Process.killProcess(android.os.Process.myPid())
     }
 
-    /** 导出：收集 → 加密 → 写入 [out]（调用方负责在 IO 线程调用并关闭流）。口令用完会被清零。 */
-    fun export(context: Context, out: OutputStream, password: CharArray): Summary {
+    /** 导出 [categories]：收集 → 加密 → 写入 [out]（调用方负责在 IO 线程调用并关闭流）。口令用完会被清零。 */
+    fun export(
+        context: Context,
+        out: OutputStream,
+        password: CharArray,
+        categories: Set<BackupCategory> = BackupCategory.DEFAULT_SELECTION,
+    ): Summary {
         try {
-            val (units, skipped) = collect(context)
+            if (categories.isEmpty()) throw IOException("没有选择要备份的内容")
+            val c = collect(context, categories)
+            if (c.included.isEmpty()) throw IOException("所选内容里目前没有数据，未生成备份")
             val label = "Mafari ${BuildConfig.VERSION_NAME} | ${CipherSuites.default.name} | Argon2id"
-            val bytes = BackupFormat.write(units, password, label)
+            val bytes = BackupFormat.write(c.units, password, label)
             out.write(bytes)
             out.flush()
-            return Summary(units.size, bytes.size, skipped)
+            return Summary(c.units.size, bytes.size, c.skipped, c.included, c.empty)
         } finally {
             password.fill('\u0000')
         }
