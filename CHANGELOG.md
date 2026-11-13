@@ -4,6 +4,11 @@
 
 ## [未发布]
 
+- 修复（WebDAV）：部分服务器上传备份报「服务器不支持 WebDAV：上传备份」（HTTP 405）或只留下 0 字节文件 —— 这些服务 / 前置代理在 HTTP/2 下处理 PUT 有问题；现强制 HTTP/1.1。上传后会读回服务器上的文件大小与本地比对，不一致则删除坏文件并报错（服务器不返回大小时跳过校验）；PUT 被重定向成 GET 时明确提示，不再静默当成功；PUT 返回 405 的提示改为「服务器拒绝了上传请求」
+- 依赖：OkHttp 4.12.0 → 5.5.1，新增 logging-interceptor 5.5.1（仅 debug 构建的 WebDAV 请求记录请求头，Authorization 脱敏、不记录请求体）
+- 依赖：Android Gradle Plugin 9.5.0 → 9.5.1（app 与 miuix 子工程同步）；SQLCipher 4.6.1 → 4.14.1
+- 新增：关于页「依赖版本」增加「本地存储」（SQLCipher）与「内核与加密」（GeckoView、BouncyCastle）两组，并在 AndroidX 组补上 SQLite；SQLCipher / SQLite 版本改由 `app/build.gradle.kts` 统一声明
+
 - 修复（Gecko / 拓展商店）：搜索结果里拓展名 / 简介显示「null」—— AMO 某些语言的译文是 JSON null，Android 的 `optString` 把它读成字符串 "null"；现统一按缺失处理，并依次回退 zh-CN / zh-TW / en-US / 任意语言 / slug
 - 修复（Gecko / 拓展商店）：已添加的拓展再次搜索仍显示「添加」—— 之前拿 slug 对已装拓展的 GUID，永远对不上；现在用 AMO 返回的 `guid` 比对（大小写不敏感）
 - 新增：「捐赠」入口（设置 → 关于栏，位于「关于 Mafari」上方；关于页里也有），点开底部弹窗显示赞赏码，可一键保存到相册（Pictures/Mafari）并提示用微信「扫一扫 → 相册」识别；弹窗抽成共用的 `DonateSheet`
