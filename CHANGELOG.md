@@ -4,9 +4,9 @@
 
 ## [未发布]
 
-- 构建：拆分为 `gecko`（Gecko 版）与 `lite`（无内核版）两个 product flavor，同一份源码、一次 CI 同时产出两个安装包。lite 里 GeckoView 仅 `compileOnly`、不进 APK（`BuildConfig.GECKO_ENABLED = false`），Gecko 专属资源（内置拓展、shim）移到 `src/gecko/assets`，ABI 为 arm64-v8a / armeabi-v7a / x86_64；共用代码经 `EngineSupport` 判断，lite 下不会触碰 Gecko 类
-- 发布：Release 同时附带 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite.apk`（及 `SHA256SUMS.txt`），Release 由 Gradle 直接签名；Telegram 推送两个包（超过 50MB 的只给链接）
-- 优化：「检查更新」按当前安装包的变体选择同名后缀的 APK，不会把 Gecko 版升级成无内核版（反之亦然）
+- 构建：拆分为 `gecko`（Gecko 版）与 `lite`（无内核版）两个 product flavor，同一份源码、一次 CI 同时产出两个安装包。lite 里 GeckoView 仅 `compileOnly`、不进 APK（`BuildConfig.GECKO_ENABLED = false`），Gecko 专属资源（内置拓展、shim）移到 `src/gecko/assets`，按架构拆成 `liteArm64` / `liteArm32` / `liteX64` 三个包（新增 abi 维度，各包只含对应架构的 so）；共用代码经 `EngineSupport` 判断，lite 下不会触碰 Gecko 类
+- 发布：Release 同时附带 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite-<架构>.apk`（arm64-v8a / armeabi-v7a / x86_64 各一个，及 `SHA256SUMS.txt`），Release 由 Gradle 直接签名；Telegram 推送两个包（超过 50MB 的只给链接）
+- 优化：「检查更新」按当前安装包的变体选择同名后缀的 APK（lite 再按本机 ABI 选对应架构），不会把 Gecko 版升级成无内核版（反之亦然）
 - 优化（无内核版）：隐藏「浏览器内核」切换、「拓展」入口与菜单项、GeckoView 版本行；「关于」页版本旁标明 Gecko 版 / 无内核版
 
 - 修复（WebDAV）：部分服务器上传备份报「服务器不支持 WebDAV：上传备份」（HTTP 405）或只留下 0 字节文件 —— 这些服务 / 前置代理在 HTTP/2 下处理 PUT 有问题；现强制 HTTP/1.1。上传后会读回服务器上的文件大小与本地比对，不一致则删除坏文件并报错（服务器不返回大小时跳过校验）；PUT 被重定向成 GET 时明确提示，不再静默当成功；PUT 返回 405 的提示改为「服务器拒绝了上传请求」

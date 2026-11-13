@@ -73,7 +73,7 @@ jobs:
       # main 或 无 keystore 的 gecko/tag：编 debug
       - name: Build debug (gecko + lite)
         if: env.IS_RELEASE_TAG != 'true' && env.IS_PRE_BRANCH != 'true' || env.KEYSTORE_BASE64 == ''
-        run: bash ./gradlew :app:assembleGeckoDebug :app:assembleLiteDebug --stacktrace
+        run: bash ./gradlew :app:assembleGeckoArm64Debug :app:assembleLiteArm64Debug :app:assembleLiteArm32Debug :app:assembleLiteX64Debug --stacktrace
 
       # tag 或 gecko 且有签名：编 release（Gradle 用 MAFARI_* 直接签名并 zipalign，无需再手工签）
       - name: Build release (gecko + lite)
@@ -83,9 +83,9 @@ jobs:
           MAFARI_STORE_PASS: ${{ secrets.STORE_PASSWORD }}
           MAFARI_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           MAFARI_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: bash ./gradlew :app:assembleGeckoRelease :app:assembleLiteRelease --stacktrace
+        run: bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release --stacktrace
 
-      # 统一命名：Mafari-<标签>-<gecko|lite>.apk
+      # 统一命名：Mafari-<标签>-gecko.apk、Mafari-<标签>-lite-<架构>.apk
       # 应用内「检查更新」靠文件名里的 -gecko / -lite 选择与当前安装包同变体的那一个，改名请同步 AboutScreen.pickApkUrl
       - name: Collect APKs
         run: |
@@ -96,10 +96,12 @@ jobs:
           else LABEL="$(echo "$GITHUB_SHA" | cut -c1-7)-debug"; fi
           if [ -f mafari-release.jks ] && { [ "$IS_RELEASE_TAG" = "true" ] || [ "$IS_PRE_BRANCH" = "true" ]; }; then TYPE=release; else TYPE=debug; fi
           echo "label=$LABEL type=$TYPE"
-          for FLAVOR in gecko lite; do
-            SRC=$(ls app/build/outputs/apk/$FLAVOR/$TYPE/*.apk 2>/dev/null | head -1)
-            if [ -z "$SRC" ]; then echo "::error::缺少 $FLAVOR/$TYPE 的 APK"; exit 1; fi
-            cp "$SRC" "dist/Mafari-$LABEL-$FLAVOR.apk"
+          # 变体目录 : 输出名后缀（lite 按架构各一个包，gecko 只有 arm64）
+          for ENTRY in geckoArm64:gecko liteArm64:lite-arm64-v8a liteArm32:lite-armeabi-v7a liteX64:lite-x86_64; do
+            DIR=${ENTRY%%:*}; SUFFIX=${ENTRY##*:}
+            SRC=$(ls app/build/outputs/apk/$DIR/$TYPE/*.apk 2>/dev/null | head -1)
+            if [ -z "$SRC" ]; then echo "::error::缺少 $DIR/$TYPE 的 APK"; exit 1; fi
+            cp "$SRC" "dist/Mafari-$LABEL-$SUFFIX.apk"
           done
           (cd dist && sha256sum Mafari-*.apk > SHA256SUMS.txt)
           ls -lh dist
@@ -151,7 +153,7 @@ jobs:
           variants = (
               "\n\n**安装包说明**\n\n"
               "- `-gecko.apk`：Gecko 版，内嵌 GeckoView（Nightly），WebView / Gecko 双内核，仅 arm64-v8a 设备\n"
-              "- `-lite.apk`：无内核版，不内嵌浏览器内核，只用系统 WebView，体积小、适用所有设备\n"
+              "- `-lite-<架构>.apk`：无内核版，不内嵌浏览器内核，只用系统 WebView，体积小；按架构分包：`arm64-v8a`（绝大多数手机）、`armeabi-v7a`（旧 32 位设备）、`x86_64`（模拟器 / x86 设备）\n"
           )
           out = header + body + variants
           pathlib.Path("dist/RELEASE_NOTES.md").write_text(out + "\n", encoding="utf-8")

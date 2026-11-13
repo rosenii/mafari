@@ -565,7 +565,7 @@ private fun fetchReleasePage(url: String): org.json.JSONArray? = runCatching {
     }
 }.getOrNull()
 
-/** APK 文件名里的变体标记：`Mafari-<版本>-gecko.apk` / `Mafari-<版本>-lite.apk`（见 release.yml） */
+/** APK 文件名里的变体标记：`Mafari-<版本>-gecko.apk` / `Mafari-<版本>-lite-<架构>.apk`（见 release.yml） */
 private fun apkFlavorOf(name: String): String? =
     Regex("[-_.](gecko|lite)(?=[-_.])", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.lowercase()
 
@@ -582,7 +582,12 @@ internal fun pickApkUrl(assets: org.json.JSONArray?, flavor: String): String? {
         val link = a.optString("browser_download_url", "")
         if (link.endsWith(".apk", ignoreCase = true)) apks.add(a.optString("name", link.substringAfterLast('/')) to link)
     }
-    return apks.firstOrNull { apkFlavorOf(it.first) == flavor }?.second
+    val same = apks.filter { apkFlavorOf(it.first) == flavor }
+    // lite 按架构分包（Mafari-<标签>-lite-arm64-v8a.apk）：按本机首选 ABI 顺序挑；挑不到再退回第一个
+    val byAbi = android.os.Build.SUPPORTED_ABIS.firstNotNullOfOrNull { abi ->
+        same.firstOrNull { it.first.contains(abi, ignoreCase = true) }
+    }
+    return (byAbi ?: same.firstOrNull())?.second
         ?: apks.firstOrNull { apkFlavorOf(it.first) == null }?.second
 }
 

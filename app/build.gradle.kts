@@ -82,8 +82,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 2100
-        versionName = "v2.1-dual"
+        versionCode = 20001
+        versionName = "v2.1.0"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -98,23 +98,26 @@ android {
     // 共用同一份源码：lite 里 GeckoView 只以 compileOnly 参与编译（见 dependencies），运行时不存在，
     // 共用代码通过 BuildConfig.GECKO_ENABLED（EngineSupport.GECKO_BUNDLED）保证不会走到 Gecko 类。
     // Gecko 专属资源放在 src/gecko/assets，lite 不会打进包。
-    flavorDimensions += "engine"
+    // 第二维度 abi：按架构拆包（各架构一个 APK，而不是一个包塞全部 so）。
+    // 构建时请指定具体任务（见 README / release.yml）：gecko 只有 arm64 有意义（GeckoView 只发布 arm64-v8a）
+    flavorDimensions += listOf("engine", "abi")
     productFlavors {
+        create("arm64") { dimension = "abi"; ndk { abiFilters += "arm64-v8a" } }
+        create("arm32") { dimension = "abi"; ndk { abiFilters += "armeabi-v7a" } }
+        create("x64") { dimension = "abi"; ndk { abiFilters += "x86_64" } }
         create("gecko") {
             dimension = "engine"
             // 可选：-PgeckoAppIdSuffix=.gecko 让两个版本能同时安装（默认不加后缀，保持与历史安装包同一个应用 ID，可直接覆盖升级）
             (project.findProperty("geckoAppIdSuffix") as String?)?.takeIf { it.isNotBlank() }?.let { applicationIdSuffix = it }
             buildConfigField("boolean", "GECKO_ENABLED", "true")
             buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(true)}\"")
-            // GeckoView nightly 只发布 arm64-v8a 单架构包；其余 ABI 的设备无法安装 Gecko 版，请用 lite
-            ndk { abiFilters += "arm64-v8a" }
+            // GeckoView nightly 只发布 arm64-v8a：Gecko 版只构建 geckoArm64；其余 ABI 的设备请用 lite
         }
         create("lite") {
             dimension = "engine"
             buildConfigField("boolean", "GECKO_ENABLED", "false")
             buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(false)}\"")
-            // 只有 SQLCipher 带 so；覆盖常见架构（含模拟器 x86_64）
-            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+            // 只有 SQLCipher 带 so；架构由 abi 维度决定：liteArm64 / liteArm32 / liteX64 各出一个包
         }
     }
 
