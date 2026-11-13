@@ -163,9 +163,15 @@ class BrowserTab(
     /** 本标签使用的内核：创建时确定，之后不变 */
     val engineKind: EngineKind = EngineKind.WEBVIEW,
     /** 无痕标签：Gecko 的私有模式必须在会话创建时指定 */
-    startIncognito: Boolean = false,
+    private val startIncognito: Boolean = false,
     /** 拓展 tabs.create 时已交给 Gecko 的 session（仅 Gecko 内核）；普通标签为 null，由引擎自己创建 */
-    adoptedGeckoSession: org.mozilla.geckoview.GeckoSession? = null,
+    private val adoptedGeckoSession: org.mozilla.geckoview.GeckoSession? = null,
+    /**
+     * 延迟创建 Gecko 引擎（仅 Gecko 内核）：true 时构造时不建 GeckoSession / GeckoView，
+     * 第一次真正需要时（成为当前标签、加载页面）才由 [ensureGecko] 创建；用于重启后恢复出来的后台标签。
+     * 拓展 session 必须由 Gecko 先建好，所以不能延迟。
+     */
+    lazyEngine: Boolean = false,
 ) {
 
     /** 每个标签的唯一 id，Compose 用它做 key。 */
@@ -352,8 +358,41 @@ class BrowserTab(
     val webView: WebView
         get() = webViewOrNull ?: error("Gecko 标签没有 WebView，请使用与内核无关的接口")
 
-    private val gecko: GeckoTabEngine? =
-        if (engineKind == EngineKind.GECKO) GeckoTabEngine(appContext, startIncognito, this, adoptedGeckoSession) else null
+    /** 当前存活的 Gecko 引擎：延迟创建，也会被 [discardEngine] 回收，所以可能为 null。读它不会触发创建，创建走 [ensureGecko] */
+    private var geckoEngine: GeckoTabEngine? = null
+
+    private val gecko: GeckoTabEngine? get() = geckoEngine
+
+    init {
+        // 非延迟标签保持原行为：构造时就建引擎，建不出来让 BrowserState.createTab 退回 WebView
+        if (engineKind == EngineKind.GECKO && !lazyEngine) {
+            geckoEngine = GeckoTabEngine(appContext, startIncognito, this, adoptedGeckoSession)
+        }
+    }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * 取 Gecko 引擎，没有就现在创建（主线程）。引擎建出来后补上会话级设置（UA / 桌面模式）。
+     * 创建失败（Gecko 启动异常）返回 null 并在标签上报错，不会抛出。
+     */
+    internal fun ensureGecko(): GeckoTabEngine? {
+        geckoEngine?.let { return it }
+        if (engineKind != EngineKind.GECKO || closed || destroyed) return null
+        val g = runCatching { GeckoTabEngine(appContext, startIncognito, this, adoptedGeckoSession) }
+            .onFailure { Diag.log("gecko: lazy engine create failed: ${it.message}") }
+            .getOrNull()
+        if (g == null) {
+            errorText = "Gecko 内核启动失败"
+            return null
+        }
+        geckoEngine = g
+        applyUserAgent()
+        return g
+    }
+
+    /** Gecko 标签没能建出引擎时给界面一个占位 View，避免 [contentView] 抛异常 */
+    private val placeholderView: View by lazy { View(appContext) }
 
     /** 拓展 tabs.create 建出的标签：地址栏先显示目标地址，Gecko 没有自己加载时由引擎兜底加载一次 */
     internal fun adoptExtensionUrl(target: String) {
@@ -365,11 +404,15 @@ class BrowserTab(
     /** Gecko 标签的 session（非 Gecko 内核为 null）：拓展弹出页按它路由 */
     val geckoSession: org.mozilla.geckoview.GeckoSession? get() = gecko?.session
 
-    /** 挂到界面里的内容视图：WebView 或 GeckoView */
+    /**
+     * 挂到界面里的内容视图：WebView 或 GeckoView。Gecko 标签在这里按需创建引擎，
+     * 所以只应该对「要显示的」标签读它；后台标签要做的事（关闭 / 延迟投递）不要碰它，见 [mainHandler]。
+     */
     val contentView: View
-        get() = gecko?.view ?: webView
+        get() = if (isGecko) (ensureGecko()?.view ?: placeholderView) else webView
 
-    val isGecko: Boolean get() = gecko != null
+    /** 本标签用的是 Gecko 内核（和引擎此刻是否已创建无关） */
+    val isGecko: Boolean get() = engineKind == EngineKind.GECKO
 
     /** 指纹保护：按 origin 注册 document-start 脚本（见 FingerprintInjector / docs/FINGERPRINT.md）。 */
     private val fpInjector: FingerprintInjector? = webViewOrNull?.let { FingerprintInjector(it) }
@@ -1359,26 +1402,26 @@ class BrowserTab(
     // ======================================================================
 
     private fun engineCanGoBack(): Boolean =
-        gecko?.canGoBack ?: runCatching { webView.canGoBack() }.getOrDefault(false)
+        if (isGecko) gecko?.canGoBack ?: false else runCatching { webView.canGoBack() }.getOrDefault(false)
 
     private fun engineCanGoForward(): Boolean =
-        gecko?.canGoForward ?: runCatching { webView.canGoForward() }.getOrDefault(false)
+        if (isGecko) gecko?.canGoForward ?: false else runCatching { webView.canGoForward() }.getOrDefault(false)
 
     private fun engineUrl(): String =
-        gecko?.currentUrl() ?: runCatching { webView.url }.getOrNull().orEmpty()
+        if (isGecko) gecko?.currentUrl().orEmpty() else runCatching { webView.url }.getOrNull().orEmpty()
 
     private fun engineStop() {
-        gecko?.let { it.stop(); return }
+        if (isGecko) { gecko?.stop(); return }
         runCatching { webView.stopLoading() }
     }
 
     private fun engineReload() {
-        gecko?.let { it.reload(); return }
+        if (isGecko) { gecko?.reload(); return }
         webView.reload()
     }
 
     private fun engineLoad(target: String) {
-        gecko?.let { it.loadUri(target); return }
+        if (isGecko) { ensureGecko()?.loadUri(target); return }
         val headers = extraRequestHeaders()
         if (headers.isEmpty()) webView.loadUrl(target) else webView.loadUrl(target, headers)
     }
@@ -1394,10 +1437,10 @@ class BrowserTab(
 
     /** 页面滚动位置（像素）：底栏自动收起 / 下拉刷新判断用 */
     val scrollOffsetY: Int
-        get() = gecko?.scrollY ?: webViewOrNull?.scrollY ?: 0
+        get() = if (isGecko) gecko?.scrollY ?: 0 else webViewOrNull?.scrollY ?: 0
 
     /** 引擎当前的页面标题（切换地址时用来清掉旧标题） */
-    fun currentPageTitle(): String = gecko?.pageTitle ?: webViewOrNull?.title.orEmpty()
+    fun currentPageTitle(): String = if (isGecko) gecko?.pageTitle.orEmpty() else webViewOrNull?.title.orEmpty()
 
     /**
      * 在页面里执行 JS。Gecko 没有公开的 evaluateJavascript，
@@ -1421,7 +1464,7 @@ class BrowserTab(
         // GeckoView 由 AndroidView/自身的 View 测量流程接收 Surface 尺寸变化；
         // GeckoSession 没有 WebView 式 evaluateJavascript，这里再 requestLayout/invalidate
         // 只会制造重复布局，不会给 Gecko 页面带来有效的 resize 通知。
-        if (gecko != null) return
+        if (isGecko) return
         val v = contentView
         v.post {
             if (!v.isAttachedToWindow) return@post
@@ -1444,8 +1487,16 @@ class BrowserTab(
 
     /** 当前标签是否是正被显示的那个：后台的 Gecko 会话停止渲染以省电 */
     fun setEngineActive(active: Boolean) {
+        // 记下「最近一次是当前标签」的时间：后台回收按它算闲置多久
+        if (active || engineActiveFlag) lastActiveUptime = android.os.SystemClock.uptimeMillis()
+        engineActiveFlag = active
         gecko?.setActive(active)
     }
+
+    /** 最近一次作为当前标签（或被创建）的时间，uptime 毫秒；闲置时长 = now - 它 */
+    internal var lastActiveUptime = android.os.SystemClock.uptimeMillis()
+        private set
+    private var engineActiveFlag = false
 
     /** Gecko 原生沉浸：最大可收起高度 + 当前底部被推出屏幕的高度（像素）；WebView 标签无操作 */
     fun geckoApplyImmersive(maxPx: Int, clipPx: Int) {
@@ -1471,6 +1522,7 @@ class BrowserTab(
 
     internal fun geckoLocation(u: String) {
         if (closed || destroyed) return
+        if (stateRestorePending && !isBlankPage(u)) stateRestorePending = false
         if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
         updatePageHost(u)
         syncNav()
@@ -1511,11 +1563,14 @@ class BrowserTab(
     private fun captureGeckoThumbnail() {
         val g = gecko ?: return
         if (closed || destroyed || url.isBlank() || isBlankPage(url) || parked) return
+        // 全局最多同时 N 张在途（Gecko 的整屏原图每张约 10MB），超了这次就不拍
+        if (!TabThumbs.tryBegin(this)) return
         capturingSince = android.os.SystemClock.uptimeMillis()
         // Gecko 的截图本身是异步的；拿到整屏原图后，缩小 / 压缩 / 落盘都交给 TabThumbs 的后台线程，主线程不做图像处理
         g.capture { bmp ->
             if (closed || destroyed) {
                 capturingSince = 0L
+                TabThumbs.end(this)
                 return@capture
             }
             TabThumbs.submit(this, bmp, ownsSource = true)
@@ -1664,14 +1719,15 @@ class BrowserTab(
     }
 
     fun load(input: String) {
+        dropPendingRestore()
         val target = toUrl(input, searchTemplate)
         if (url.isEmpty() && !openedFromLink) {
             // 从主页进入新页面：记下 WebView 历史的当前位置，返回到这一层就回主页
             fromHome = true
             // Gecko：清空旧历史，第一页就是历史起点，之后只看 canGoBack，不再依赖会过期 / 漏回调的历史下标
             // WebView：没有可靠的清空办法，沿用下标锚点
-            if (gecko != null) {
-                gecko.purgeHistory()
+            if (isGecko) {
+                ensureGecko()?.purgeHistory()
                 homeAnchor = -1
             } else {
                 homeAnchor = historyIndex()
@@ -1686,6 +1742,7 @@ class BrowserTab(
     }
 
     fun loadUrl(raw: String) {
+        dropPendingRestore()
         parked = false
         url = raw
         fpInjector?.prepare(raw)
@@ -1705,9 +1762,12 @@ class BrowserTab(
 
     /** 应用 UA：桌面模式优先，其次设置里的自定义 UA，最后系统默认 */
     fun applyUserAgent() {
-        gecko?.let { g ->
-            val desktop = desktopMode || customUserAgent == DESKTOP_UA
-            g.applyUserAgent(if (desktop) "" else customUserAgent, desktop)
+        if (isGecko) {
+            // 引擎还没建（延迟创建 / 已回收）时什么都不做：ensureGecko 建好后会再调用一次
+            gecko?.let { g ->
+                val desktop = desktopMode || customUserAgent == DESKTOP_UA
+                g.applyUserAgent(if (desktop) "" else customUserAgent, desktop)
+            }
             return
         }
         val ua = when {
@@ -1727,8 +1787,8 @@ class BrowserTab(
      * 3. 对齐 Activity `Configuration.uiMode` — 让算法深色跟随应用内「深色/浅色/跟随系统」
      */
     fun applyDisplayTheme(dark: Boolean) {
-        if (gecko != null) {
-            gecko.applyTheme(dark)
+        if (isGecko) {
+            gecko?.applyTheme(dark)
         } else {
             runCatching { webView.settings.setAlgorithmicDarkeningAllowed(true) }
             webView.setBackgroundColor(
@@ -2004,7 +2064,7 @@ class BrowserTab(
         if (started) return
         val fallback = if (isIntentScheme) intent.getStringExtra("browser_fallback_url") else null
         if (!fallback.isNullOrBlank() && (fallback.startsWith("http://") || fallback.startsWith("https://"))) {
-            contentView.post { loadUrl(fallback) }
+            mainHandler.post { loadUrl(fallback) }
         } else {
             android.widget.Toast.makeText(appContext, "未找到可打开的应用", android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -2013,7 +2073,7 @@ class BrowserTab(
     /** 允许重定向：目标在新标签页打开；原页面在导航被截下时就没有离开，无需回退 */
     private fun openRedirectInNewTab(target: String) {
         val open = onOpenInNewTab
-        if (open != null) open(target) else contentView.post { loadUrl(target) }
+        if (open != null) open(target) else mainHandler.post { loadUrl(target) }
     }
 
     /**
@@ -2066,7 +2126,7 @@ class BrowserTab(
         val sameSite = pageHost.isNotEmpty() && targetHost.isNotEmpty() && isSameSite(targetHost, pageHost)
         if (sameSite || pageHost.isEmpty()) {
             // 同站新窗口链接：默认在当前标签打开，「同站链接新标签页打开」开关打开才新开标签
-            if (sameSiteNewTab) open(target) else contentView.post { loadUrl(target) }
+            if (sameSiteNewTab) open(target) else mainHandler.post { loadUrl(target) }
             return
         }
         // 用户亲手点的跨站 target=_blank 链接：就是要新窗口，直接新标签打开，不走重定向权限
@@ -2226,9 +2286,9 @@ class BrowserTab(
 
     fun toggleDesktopMode(enabled: Boolean) {
         desktopMode = enabled
-        if (gecko != null) {
+        if (isGecko) {
             applyUserAgent()
-            gecko.reload()
+            gecko?.reload()
             return
         }
         runCatching {
@@ -2259,7 +2319,7 @@ class BrowserTab(
 
     /** 页内查找 */
     fun findAll(text: String) {
-        gecko?.let { if (text.isBlank()) it.clearFind() else it.find(text); return }
+        if (isGecko) { gecko?.let { if (text.isBlank()) it.clearFind() else it.find(text) }; return }
         if (text.isBlank()) webView.clearMatches() else webView.findAllAsync(text)
     }
 
@@ -2288,7 +2348,7 @@ class BrowserTab(
         lastThumbAt = now
         pendingThumbUrl = url
         pendingThumbScrollY = scrollY
-        if (gecko != null) captureGeckoThumbnail() else captureThumbnail(webView)
+        if (isGecko) captureGeckoThumbnail() else captureThumbnail(webView)
     }
 
     /**
@@ -2299,6 +2359,7 @@ class BrowserTab(
         if (closed || destroyed || url.isBlank() || url == "about:blank") return
         runCatching {
             if (view.width <= 0 || view.height <= 0) return
+            if (!TabThumbs.tryBegin(this)) return
             val scale = minOf(TabThumbs.MAX_W.toFloat() / view.width, TabThumbs.MAX_H.toFloat() / view.height, 1f)
             val bitmap = android.graphics.Bitmap.createBitmap(
                 (view.width * scale).toInt().coerceAtLeast(1),
@@ -2310,12 +2371,13 @@ class BrowserTab(
             view.draw(canvas)
             capturingSince = android.os.SystemClock.uptimeMillis()
             TabThumbs.submit(this, bitmap, ownsSource = false)
-        }
+        }.onFailure { TabThumbs.end(this) }
     }
 
     /** [TabThumbs] 回到主线程：一次截图处理结束（成功或失败） */
     internal fun thumbCaptureDone() {
         capturingSince = 0L
+        TabThumbs.end(this)
     }
 
     /** 新截的缩略图 */
@@ -2338,12 +2400,12 @@ class BrowserTab(
     }
 
     fun findNext(forward: Boolean) {
-        gecko?.let { it.findNext(forward); return }
+        if (isGecko) { gecko?.findNext(forward); return }
         runCatching { webView.findNext(forward) }
     }
 
     fun clearFind() {
-        gecko?.let { it.clearFind(); return }
+        if (isGecko) { gecko?.clearFind(); return }
         runCatching { webView.clearMatches() }
     }
 
@@ -2360,13 +2422,32 @@ class BrowserTab(
     private var pendingOnHome = false
     private var pendingDesktop = false
 
+    /** 库里有这个页面的 Gecko 会话状态（前进后退栈 + 滚动位置）：唤醒时用 restoreState 而不是只加载地址 */
+    private var pendingHasState = false
+
+    /**
+     * 正在用库里的状态恢复页面：从 [restoreWithState] 开始，到引擎报出第一个非空白地址为止。
+     * 这段时间引擎里的会话状态还是空白的，不能把它存回库里（见 [persistSessionState]）。
+     */
+    private var stateRestorePending = false
+
+    /** 每次用户 / 系统发起新导航（[load] / [loadUrl]）加一：异步恢复回来时据此判断自己是否已过期 */
+    private var navEpoch = 0
+
     /** 标签的页面还没加载、只是用保存的地址 / 标题占位（卡片上要显示这个页面的域名，而不是「主页」） */
     internal val showsSavedPage: Boolean get() = pendingRestore && !pendingOnHome
 
     /** 要保存的桌面模式状态：还没加载的恢复标签也保留这个标志 */
     internal val wantsDesktop: Boolean get() = desktopMode || pendingDesktop
 
-    internal fun prepareRestore(target: String, savedTitle: String, onHome: Boolean, desktop: Boolean, fromLink: Boolean) {
+    internal fun prepareRestore(
+        target: String,
+        savedTitle: String,
+        onHome: Boolean,
+        desktop: Boolean,
+        fromLink: Boolean,
+        hasState: Boolean = false,
+    ) {
         openedFromLink = fromLink
         if (target.isBlank()) return // 空白标签：就是一个主页标签，没有页面可恢复
         savedUrl = target
@@ -2376,6 +2457,14 @@ class BrowserTab(
         pendingRestore = true
         pendingOnHome = onHome
         pendingDesktop = desktop
+        pendingHasState = hasState && isGecko
+    }
+
+    /** 页面被新的导航替掉：旧的「待恢复」作废（否则之后从主页点回来会把旧地址又加载一遍） */
+    private fun dropPendingRestore() {
+        navEpoch++
+        pendingRestore = false
+        pendingHasState = false
     }
 
     /** 成为当前标签时调用：该显示页面的恢复标签此刻才加载 */
@@ -2385,11 +2474,13 @@ class BrowserTab(
 
     private fun loadPending() {
         val target = savedUrl
+        val withState = pendingHasState
         pendingRestore = false
+        pendingHasState = false
         if (pendingDesktop) {
             pendingDesktop = false
             desktopMode = true
-            if (gecko == null) {
+            if (!isGecko) {
                 runCatching {
                     webView.settings.apply {
                         useWideViewPort = true
@@ -2404,7 +2495,130 @@ class BrowserTab(
             }
             applyUserAgent()
         }
-        if (target.isNotBlank()) load(target)
+        if (target.isBlank()) return
+        if (withState && isGecko) restoreWithState(target) else load(target)
+    }
+
+    /**
+     * 用库里保存的 Gecko 会话状态恢复页面：前进后退栈、滚动位置都回来。
+     * 引擎此刻同步建好（拓展 / 界面马上要用它的 session），状态从库里异步读，读不到或不匹配就按地址正常加载。
+     * 等待期间用户又自己导航了（[navEpoch] 变了）就放弃恢复，不拿旧状态覆盖新页面。
+     */
+    private fun restoreWithState(target: String) {
+        // 与 load() 从主页进入页面的约定一致：这一页是从主页进来的，回退栈到头再返回就回主页
+        fromHome = !openedFromLink
+        homeAnchor = -1
+        stateRestorePending = true
+        savedUrl = ""
+        parked = false
+        url = target
+        errorText = null
+        loading = true
+        syncNav()
+        val g = ensureGecko()
+        val db = HistoryDb.get(appContext)
+        if (g == null || db == null) {
+            engineLoad(target)
+            return
+        }
+        val epoch = navEpoch
+        val key = dbKey
+        HistoryDb.io.execute {
+            val saved = runCatching { TabDb.loadState(db, key) }
+                .onFailure { Diag.log("tabs: load state failed: ${it.message}") }
+                .getOrNull()
+            mainHandler.post {
+                if (closed || destroyed || epoch != navEpoch) return@post
+                val engine = geckoEngine ?: return@post
+                val restored = saved != null && engine.restoreState(saved)
+                if (!restored) {
+                    Diag.log("tabs: state restore unavailable, loading url")
+                    engineLoad(target)
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- 后台回收 / Gecko 会话状态持久化
+    //
+    // 后台标签闲置太久（或活着的引擎太多）时，[discardEngine] 把它的 GeckoSession 连同 GeckoView 一起销毁，
+    // 标签变回和「重启后恢复」一样的「待恢复」状态（[pendingRestore]）：卡片、标题、缩略图都还在，
+    // 再次切回去时由 [loadPending] 用保存的 [GeckoSession.SessionState] 恢复（前进后退栈、滚动位置）。
+    // 会话状态存在 tabs 表的 state 列（见 [TabDb]），重启后恢复走的是同一条路径。
+
+    /** 页面地址里落盘的那一份：about: 开头的不存（空白页） */
+    internal val persistedPageUrl: String
+        get() = effectiveUrl.let { if (it.startsWith("about:")) "" else it }
+
+    /** Gecko 引擎当前是否存活 */
+    internal val hasEngine: Boolean get() = geckoEngine != null
+
+    /**
+     * 能不能回收引擎：只回收「普通、Gecko 自建 session、已有页面、没在加载、没在全屏」的后台标签。
+     * 无痕标签的状态不能落盘，回收就丢页面，所以永不回收；拓展 tabs.create 的 session 由拓展持有，也不回收。
+     * （是不是当前标签由调用方判断。）
+     */
+    internal fun canDiscardEngine(): Boolean {
+        val g = geckoEngine ?: return false
+        if (closed || destroyed || incognito || startIncognito || adoptedGeckoSession != null) return false
+        if (loading || g.inFullScreen) return false
+        return persistedPageUrl.isNotBlank()
+    }
+
+    /**
+     * 回收引擎（主线程）：先把会话状态写进库，再销毁 session / view，标签变回「待恢复」。
+     * 写库失败（库不可用）就不回收，宁可多占内存也不丢页面。
+     */
+    internal fun discardEngine(): Boolean {
+        if (!canDiscardEngine()) return false
+        val g = geckoEngine ?: return false
+        val db = HistoryDb.get(appContext) ?: return false
+        val page = persistedPageUrl
+        // 页面还没加载进引擎（待恢复 / 正在恢复）时，引擎里的状态是空白的，库里那份才是真的：不能用它覆盖
+        val dbStateAuthoritative = pendingRestore || stateRestorePending
+        val state = if (dbStateAuthoritative) null else g.serializedState()
+        if (state != null) {
+            val key = dbKey
+            HistoryDb.io.execute {
+                runCatching { TabDb.saveState(db, key, state, page) }
+                    .onFailure { Diag.log("tabs: save state failed: ${it.message}") }
+            }
+        }
+        runCatching { (g.view.parent as? ViewGroup)?.removeView(g.view) }
+        runCatching { g.destroy() }
+        geckoEngine = null
+        // 变回「待恢复」：回过主页的（页面被盖住）仍是被盖住；正显示页面的退到「卡片显示域名」的状态
+        val covered = url.isEmpty()
+        if (!covered) {
+            savedUrl = url
+            url = ""
+            parked = true
+        }
+        pendingHasState = if (pendingRestore) pendingHasState else (stateRestorePending || state != null)
+        pendingRestore = true
+        pendingOnHome = covered
+        loading = false
+        errorText = null
+        syncNav()
+        Diag.log("tabs: engine discarded (${if (state != null) "with" else "without"} state) $page")
+        return true
+    }
+
+    /** 把有变化的会话状态写进库（退到后台时由 [BrowserState.persistSessionStates] 统一调用）；无痕标签不落盘 */
+    internal fun persistSessionState() {
+        if (incognito || startIncognito || closed || destroyed) return
+        val g = geckoEngine ?: return
+        val page = persistedPageUrl
+        if (page.isBlank()) return
+        // 待恢复 / 正在恢复：引擎里还是空白状态，库里那份才是真的，不能覆盖（见 discardEngine）
+        if (pendingRestore || stateRestorePending) return
+        val state = g.takeDirtyState() ?: return
+        val db = HistoryDb.get(appContext) ?: return
+        val key = dbKey
+        HistoryDb.io.execute {
+            runCatching { TabDb.saveState(db, key, state, page) }
+                .onFailure { Diag.log("tabs: save state failed: ${it.message}") }
+        }
     }
 
     /** 标签实际承载的页面地址：回过主页的标签 url 为空，页面还在 WebView 里，用 savedUrl */
@@ -2432,7 +2646,7 @@ class BrowserTab(
     }
 
     private fun historyIndex(): Int =
-        gecko?.historyIndex ?: runCatching { webView.copyBackForwardList().currentIndex }.getOrDefault(-1)
+        if (isGecko) gecko?.historyIndex ?: -1 else runCatching { webView.copyBackForwardList().currentIndex }.getOrDefault(-1)
 
     fun goHome() {
         // 已经在主页：不能再覆盖 savedUrl，否则被盖住的页面就丢了
@@ -2448,8 +2662,9 @@ class BrowserTab(
 
     fun goBack() {
         // Gecko 视频全屏：返回键先退出全屏
-        if (gecko?.inFullScreen == true) {
-            gecko.exitFullScreen()
+        val engine = gecko
+        if (engine != null && engine.inFullScreen) {
+            engine.exitFullScreen()
             return
         }
         // 从主页返回：恢复刚才那页（WebView 没销毁，直接还原状态即可）
@@ -2462,7 +2677,7 @@ class BrowserTab(
         // 下标可能还停在上一页（见 GeckoTabEngine.historyStale）：这时只信 canGoBack，不用下标去判断「已在第一页」
         val idxStale = gecko?.historyStale == true
         val atFirstPage = fromHome && when {
-            gecko != null -> !engineCanGoBack() && !idxStale
+            isGecko -> !engineCanGoBack() && !idxStale
             else -> !engineCanGoBack() || historyIndex() <= homeAnchor + 1
         }
         if (atFirstPage) {
@@ -2478,7 +2693,7 @@ class BrowserTab(
         // 刚提交新页面、canGoBack 还没跟上时也先尝试后退：真在第一页时是空操作，不会误把标签收回主页
         if (engineCanGoBack() || (fromHome && idxStale)) {
             fpInjector?.prepareHistory(-1)
-            gecko?.goBack() ?: webView.goBack()
+            if (isGecko) gecko?.goBack() else webView.goBack()
         } else if (openedFromLink) {
             // 链接打开的标签已经在第一页：关掉它，回到来源标签（而不是先落到本标签的主页）
             onRequestClose?.invoke()
@@ -2489,7 +2704,7 @@ class BrowserTab(
         if (url.isEmpty()) return
         if (engineCanGoForward()) {
             fpInjector?.prepareHistory(1)
-            gecko?.goForward() ?: webView.goForward()
+            if (isGecko) gecko?.goForward() else webView.goForward()
         }
     }
 
@@ -2500,10 +2715,13 @@ class BrowserTab(
         exitCustomView()
         discardAllBlobSessions()
         runCatching { fpInjector?.clear() }
-        val g = gecko
-        if (g != null) {
-            runCatching { (g.view.parent as? ViewGroup)?.removeView(g.view) }
-            runCatching { g.destroy() }
+        if (isGecko) {
+            // 引擎从没建过（延迟创建的后台标签）就没有东西要销毁
+            geckoEngine?.let { g ->
+                runCatching { (g.view.parent as? ViewGroup)?.removeView(g.view) }
+                runCatching { g.destroy() }
+            }
+            geckoEngine = null
             return
         }
         runCatching {
@@ -2519,6 +2737,11 @@ class BrowserTab(
     fun close() {
         closed = true
         TabThumbs.forget(this)
+        // 没有引擎的 Gecko 标签（延迟创建 / 已回收）直接收尾；不能读 contentView，否则为了关它还得先建一个引擎
+        if (isGecko && geckoEngine == null) {
+            destroyNow()
+            return
+        }
         contentView.post { if (contentView.parent == null) destroyNow() }
     }
 
@@ -2549,12 +2772,58 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
     val activeTab: BrowserTab
         get() = tabs[activeIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))]
 
+    // 下面两个必须声明在 init 之前：init 里就要用
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** 周期性回收闲置的后台 Gecko 引擎；旧实例（界面重建后被新 BrowserState 取代）自己停掉 */
+    private val reclaimTick = object : Runnable {
+        override fun run() {
+            if (current !== this@BrowserState) return
+            reclaimEngines()
+            mainHandler.postDelayed(this, RECLAIM_INTERVAL_MS)
+        }
+    }
+
     init {
         // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
         if (EngineSupport.GECKO_BUNDLED) GeckoExtensionStore.tabHost = this
         current = this
         // 上次的普通标签（tabs 表）；没有就开一个空白标签
         if (!restoreSavedTabs()) newTab()
+        if (EngineSupport.GECKO_BUNDLED) mainHandler.postDelayed(reclaimTick, RECLAIM_INTERVAL_MS)
+    }
+
+    /**
+     * 回收后台 Gecko 引擎（主线程）。当前标签永不回收；回收条件（见 [BrowserTab.canDiscardEngine]）之外还要满足之一：
+     *  - 闲置超过 [IDLE_RECLAIM_MS]；
+     *  - 活着的引擎超过上限（[MAX_LIVE_ENGINES]，[aggressive] 时收紧到 [TRIM_LIVE_ENGINES]），
+     *    按「最久没看」的先收，且至少闲置过一小段时间，刚切走的不会被立刻收掉。
+     * 系统正在放音乐时整轮跳过：后台标签可能就是声源，目前没有按标签判断的办法。
+     */
+    internal fun reclaimEngines(aggressive: Boolean = false) {
+        if (!EngineSupport.GECKO_BUNDLED) return
+        val live = tabs.filter { it.hasEngine }
+        if (live.size <= 1) return
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        if (audio?.isMusicActive == true) return
+        val now = android.os.SystemClock.uptimeMillis()
+        val activeNow = tabs.getOrNull(activeIndex)
+        val maxLive = if (aggressive) TRIM_LIVE_ENGINES else MAX_LIVE_ENGINES
+        val minIdleOverCap = if (aggressive) 15_000L else 60_000L
+        var liveCount = live.size
+        val candidates = live
+            .filter { it !== activeNow && it.canDiscardEngine() }
+            .sortedBy { it.lastActiveUptime }
+        for (t in candidates) {
+            val idle = now - t.lastActiveUptime
+            val overCap = liveCount > maxLive && idle >= minIdleOverCap
+            if ((overCap || idle >= IDLE_RECLAIM_MS) && t.discardEngine()) liveCount--
+        }
+    }
+
+    /** 把有变化的 Gecko 会话状态写进库（前进后退栈 + 滚动位置，重启 / 回收后恢复用）。主线程。 */
+    internal fun persistSessionStates() {
+        tabs.forEach { it.persistSessionState() }
     }
 
     /**
@@ -2570,12 +2839,13 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         val byKey = HashMap<Long, BrowserTab>()
         for (row in rows) {
             if (tabs.size >= MAX_TABS) break
-            val tab = runCatching { createTab(incognito = false, opener = null) }
+            // 恢复出来的标签不建 Gecko 引擎：只有成为当前标签 / 真正要加载页面时才创建（见 BrowserTab.ensureGecko）
+            val tab = runCatching { createTab(incognito = false, opener = null, lazyEngine = true) }
                 .onFailure { Diag.log("tabs: restore tab failed: ${it.message}") }
                 .getOrNull() ?: continue
             tab.dbKey = row.key
             tab.lastUsedAt = row.lastUsed
-            tab.prepareRestore(row.url, row.title, row.onHome, row.desktop, row.fromLink)
+            tab.prepareRestore(row.url, row.title, row.onHome, row.desktop, row.fromLink, row.hasState)
             tabs.add(tab)
             byKey[row.key] = tab
         }
@@ -2598,7 +2868,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         val out = ArrayList<TabRow>(tabs.size)
         for (t in tabs) {
             if (t.incognito || t.closed) continue
-            val page = t.effectiveUrl.let { if (it.startsWith("about:")) "" else it }
+            val page = t.persistedPageUrl
             val opener = byId[t.openerId]?.takeIf { !it.incognito }
             out.add(
                 TabRow(
@@ -2633,6 +2903,8 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         tabs[index].lastUsedAt = System.currentTimeMillis()
         recentIds.remove(id)
         recentIds.add(id)
+        // 当前标签一定有引擎（界面马上要挂它的 view、拓展要用它的 session）；延迟创建 / 被回收的后台标签保持没有
+        tabs[index].ensureGecko()
         // Gecko 会话只有「当前标签」保持活动，后台标签停止渲染
         tabs.forEachIndexed { i, t -> t.setEngineActive(i == index) }
         // 从 tabs 表恢复出来的标签，成为当前标签时才真正加载页面
@@ -2700,10 +2972,15 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         incognito: Boolean,
         opener: BrowserTab?,
         adoptedGeckoSession: org.mozilla.geckoview.GeckoSession? = null,
+        lazyEngine: Boolean = false,
     ): BrowserTab {
         val wantGecko = readBrowserEngine(context) == ENGINE_GECKO && EngineSupport.geckoAvailable()
         val tab = (if (wantGecko) {
-            runCatching { BrowserTab(context, EngineKind.GECKO, incognito, adoptedGeckoSession) }
+            runCatching {
+                // 延迟创建的标签构造时不碰 Gecko，所以先在这里把运行时拉起来：启动失败才能照旧退回 WebView
+                if (lazyEngine) GeckoRuntimeHolder.get(context)
+                BrowserTab(context, EngineKind.GECKO, incognito, adoptedGeckoSession, lazyEngine)
+            }
                 .onFailure {
                     Diag.log("gecko tab create failed, fallback to WebView: ${it.message}")
                     if (adoptedGeckoSession == null) {
@@ -2999,6 +3276,12 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
     companion object {
         const val MAX_TABS = 99
 
+        /** 后台引擎回收：检查周期 / 闲置多久必收 / 活着的引擎上限 / 内存吃紧时的上限 */
+        private const val RECLAIM_INTERVAL_MS = 60_000L
+        private const val IDLE_RECLAIM_MS = 20 * 60_000L
+        private const val MAX_LIVE_ENGINES = 6
+        private const val TRIM_LIVE_ENGINES = 2
+
         /** 最近创建的实例：退到后台时由 MainActivity 通过它把标签列表立刻落盘。 */
         @Volatile
         var current: BrowserState? = null
@@ -3006,7 +3289,15 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
 
         /** 退到后台时调用：不等延迟，立刻保存标签列表。主线程。 */
         fun flushCurrent() {
-            current?.saveTabs()
+            val state = current ?: return
+            state.saveTabs()
+            state.persistSessionStates()
+            state.reclaimEngines()
+        }
+
+        /** 系统内存吃紧：收紧后台引擎数量。主线程。 */
+        fun trimCurrent() {
+            current?.reclaimEngines(aggressive = true)
         }
     }
 }

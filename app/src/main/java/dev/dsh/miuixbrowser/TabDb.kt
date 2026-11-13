@@ -26,6 +26,8 @@ internal data class TabRow(
     val fromLink: Boolean,
     /** 最近一次被切到前台的时间（毫秒）：重启后回到 last_used 最大的那个标签，也用它恢复「最近使用」顺序 */
     val lastUsed: Long,
+    /** 库里有和 [url] 对得上的 Gecko 会话状态（前进后退栈 + 滚动位置）；只在 [TabDb.load] 里填，写入时忽略 */
+    val hasState: Boolean = false,
 )
 
 /**
@@ -35,6 +37,9 @@ internal data class TabRow(
  *  - 一行 = 一个标签：地址 / 标题 / 顺序 / 桌面模式 / opener 等元数据 + 缩略图 `thumb`（压缩后的 WebP，通常十几 KB）。
  *  - 元数据由 [sync] 整表快照、单事务写入（要么整份新列表生效，要么保持旧的）；缩略图由 [saveThumb] 单独写，
  *    不会被元数据快照覆盖。列表查询不读 `thumb`，缩略图只在标签卡片真的显示出来时才用 [loadThumb] 读。
+ *  - Gecko 会话状态（`state`，SessionState 序列化后的字符串）和 `state_url`（保存状态时标签的页面地址）也是单独写
+ *    （[saveState]），不被元数据快照覆盖。读状态时要求 `state_url` 等于行里当前的 `url`：快照之后页面又换了，
+ *    旧状态就作废，退回只按地址加载，不会把标签恢复到更早的页面。
  *  - `saved = 1` 表示这行已被某次快照确认；只有缩略图、还没被快照确认的行（`saved = 0`）不会被恢复，下一次快照会清掉。
  */
 internal object TabDb {
@@ -53,6 +58,20 @@ internal object TabDb {
             "last_used INTEGER NOT NULL DEFAULT 0, " +
             "thumb BLOB)"
 
+    /**
+     * 给旧版本建出来的 tabs 表补上 state / state_url 两列（新库同样走这里，所以 [CREATE_TABS] 不含它们）。
+     * 须在 [CREATE_TABS] 之后调用，可重复调用。
+     */
+    fun migrate(db: SQLiteDatabase) {
+        val cols = HashSet<String>()
+        db.rawQuery("PRAGMA table_info(tabs)", emptyArray<String>()).use { c ->
+            val nameIdx = c.getColumnIndex("name")
+            while (c.moveToNext()) cols.add(c.getString(nameIdx))
+        }
+        if ("state" !in cols) db.execSQL("ALTER TABLE tabs ADD COLUMN state TEXT")
+        if ("state_url" !in cols) db.execSQL("ALTER TABLE tabs ADD COLUMN state_url TEXT NOT NULL DEFAULT ''")
+    }
+
     const val CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_tabs_pos ON tabs(saved,pos)"
 
     private const val UPSERT =
@@ -68,7 +87,8 @@ internal object TabDb {
     fun load(db: SQLiteDatabase): List<TabRow> {
         val out = ArrayList<TabRow>()
         db.rawQuery(
-            "SELECT tab_key,pos,url,title,on_home,desktop,opener_key,from_link,last_used FROM tabs WHERE saved=1 ORDER BY pos",
+            "SELECT tab_key,pos,url,title,on_home,desktop,opener_key,from_link,last_used," +
+                "(state IS NOT NULL AND state_url = url) FROM tabs WHERE saved=1 ORDER BY pos",
             emptyArray<String>(),
         ).use { c ->
             while (c.moveToNext()) {
@@ -83,6 +103,7 @@ internal object TabDb {
                         openerKey = c.getLong(6),
                         fromLink = c.getInt(7) != 0,
                         lastUsed = c.getLong(8),
+                        hasState = c.getInt(9) != 0,
                     ),
                 )
             }
@@ -123,6 +144,25 @@ internal object TabDb {
         )
     }
 
+    /** 写 Gecko 会话状态；[pageUrl] 是此刻标签的页面地址（与 tabs.url 同口径），读回时据此判断状态是否过期。须在 [HistoryDb.io] 上调用。 */
+    fun saveState(db: SQLiteDatabase, key: Long, state: String, pageUrl: String) {
+        db.execSQL(
+            "INSERT INTO tabs(tab_key,state,state_url) VALUES(?,?,?) ON CONFLICT(tab_key) DO UPDATE SET " +
+                "state=excluded.state,state_url=excluded.state_url",
+            arrayOf<Any?>(key, state, pageUrl),
+        )
+    }
+
+    /** 读会话状态；没有、或与行里当前 url 对不上（已过期）返回 null。 */
+    fun loadState(db: SQLiteDatabase, key: Long): String? {
+        db.rawQuery(
+            "SELECT state FROM tabs WHERE tab_key=? AND state IS NOT NULL AND state_url=url",
+            arrayOf(key.toString()),
+        ).use { c ->
+            return if (c.moveToFirst() && !c.isNull(0)) c.getString(0) else null
+        }
+    }
+
     fun loadThumb(db: SQLiteDatabase, key: Long): ByteArray? {
         db.rawQuery("SELECT thumb FROM tabs WHERE tab_key=?", arrayOf(key.toString())).use { c ->
             return if (c.moveToFirst() && !c.isNull(0)) c.getBlob(0) else null
@@ -144,6 +184,33 @@ internal object TabThumbs {
     const val MAX_H = 640
     private const val MAX_IN_MEMORY = 32
     private const val WEBP_QUALITY = 70
+
+    /** 全局同时在途的截图上限：Gecko 的整屏原图每张约 10MB，每个标签一张 + 单线程处理之外再加一道全局闸 */
+    private const val MAX_IN_FLIGHT = 2
+
+    /** 一次截图最长占用名额的时间：Gecko 截图没回调（页面销毁 / 失败）时名额会自己过期，不会被永久占住 */
+    private const val IN_FLIGHT_TIMEOUT_MS = 5_000L
+
+    /** 在途的截图：标签 id → 开始时间（uptime）。只在主线程读写 */
+    private val inFlight = HashMap<Int, Long>()
+
+    /**
+     * 主线程：开始截图前申请名额。该标签已有一张在途、或全局已满（[MAX_IN_FLIGHT]）返回 false，这次不拍；
+     * 拿到名额后必须在这张截图处理完（[BrowserTab.thumbCaptureDone]）或失败时调用 [end]。
+     */
+    fun tryBegin(tab: BrowserTab): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        val it = inFlight.entries.iterator()
+        while (it.hasNext()) if (now - it.next().value > IN_FLIGHT_TIMEOUT_MS) it.remove()
+        if (inFlight.containsKey(tab.id) || inFlight.size >= MAX_IN_FLIGHT) return false
+        inFlight[tab.id] = now
+        return true
+    }
+
+    /** 主线程：归还 [tryBegin] 拿到的名额（没拿过也无害） */
+    fun end(tab: BrowserTab) {
+        inFlight.remove(tab.id)
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { r ->
@@ -206,6 +273,7 @@ internal object TabThumbs {
 
     /** 标签关闭：从 LRU 里摘掉，内存里的缩略图置空（库里的行由下一次标签列表快照删除）。 */
     fun forget(tab: BrowserTab) {
+        inFlight.remove(tab.id)
         lru.remove(tab.id)
         tab.dropThumbnail()
     }

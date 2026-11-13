@@ -288,6 +288,42 @@ class GeckoTabEngine(
         }, 1_000)
     }
 
+    // ---------------------------------------------------------------- 会话状态（前进后退栈 + 滚动位置）
+    //
+    // Gecko 每次历史 / 滚动变化都会回调 onSessionStateChange，这里只记下最新的一份引用，不在回调里序列化；
+    // 真要保存（退到后台 / 回收引擎）时才 toString()。恢复用 SessionState.fromString + session.restoreState。
+
+    @Volatile
+    private var latestState: GeckoSession.SessionState? = null
+    private var stateDirty = false
+
+    /** 当前会话状态的字符串形式；还没收到过状态、或体积异常大（超过 [MAX_STATE_CHARS]）返回 null */
+    fun serializedState(): String? =
+        runCatching { latestState?.toString() }.getOrNull()?.takeIf { it.isNotEmpty() && it.length <= MAX_STATE_CHARS }
+
+    /** 自上次取走后状态有变化才返回（并清掉脏标记），没变化返回 null：退到后台时只写变了的标签 */
+    fun takeDirtyState(): String? {
+        if (!stateDirty) return null
+        stateDirty = false
+        return serializedState()
+    }
+
+    /**
+     * 用保存的状态恢复会话（回到当时的历史栈和滚动位置，当前页会重新加载）。
+     * 返回 false = 状态字符串解析不了，调用方改为按地址加载。与 [loadUri] 一样等油猴脚本注册完再动。
+     */
+    fun restoreState(serialized: String): Boolean {
+        val st = runCatching { GeckoSession.SessionState.fromString(serialized) }.getOrNull() ?: return false
+        lastDirectLoadAt = SystemClock.uptimeMillis()
+        GeckoGm.whenReady {
+            if (tab.closed) return@whenReady
+            lastDirectLoadAt = SystemClock.uptimeMillis()
+            runCatching { session.restoreState(st) }
+                .onFailure { Diag.log("gecko: restoreState failed: ${it.message}") }
+        }
+        return true
+    }
+
     fun reload() = session.reload()
 
     fun stop() = session.stop()
@@ -522,6 +558,11 @@ class GeckoTabEngine(
 
             override fun onProgressChange(session: GeckoSession, progress: Int) {
                 tab.geckoProgress(progress)
+            }
+
+            override fun onSessionStateChange(session: GeckoSession, sessionState: GeckoSession.SessionState) {
+                latestState = sessionState
+                stateDirty = true
             }
         }
 
@@ -818,6 +859,9 @@ class GeckoTabEngine(
     private companion object {
         /** 响应体直接落盘的体积上限（带 Cookie 的小文件下载） */
         const val SPOOL_LIMIT = 64L * 1024 * 1024
+
+        /** 会话状态字符串的长度上限：历史栈异常长的页面不存，回收 / 重启后退回「只按地址加载」 */
+        const val MAX_STATE_CHARS = 400_000
 
         /** 这些协议由 Gecko 自己加载；其余（intent / weixin / alipays / mailto / tel …）交给系统 */
         val INTERNAL_SCHEMES = setOf(

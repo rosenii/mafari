@@ -115,6 +115,7 @@ internal object HistoryDb {
         db.execSQL(ScriptDb.CREATE_INDEX)
         // 标签列表（见 TabDb / BrowserState）：只存普通标签，无痕标签不落盘
         db.execSQL(TabDb.CREATE_TABS)
+        TabDb.migrate(db) // 旧库补 Gecko 会话状态列
         db.execSQL(TabDb.CREATE_INDEX)
         return db
     }

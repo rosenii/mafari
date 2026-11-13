@@ -99,6 +99,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // 系统内存吃紧：收紧后台 Gecko 引擎的数量（回收的标签再切回时从库里恢复）
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // 10 = RUNNING_LOW，15 = RUNNING_CRITICAL，>= 40 = 应用进了后台 LRU 列表；20（界面不可见）每次退后台都会来，不算
+        if (EngineSupport.GECKO_BUNDLED && (level == 10 || level == 15 || level >= 40)) BrowserState.trimCurrent()
+    }
+
     override fun onStop() {
         if (EngineSupport.GECKO_BUNDLED) GeckoViewLifecycle.onStop()
         super.onStop()
