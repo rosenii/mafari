@@ -18,7 +18,8 @@ sealed interface FxaUi {
     data object Loading : FxaUi
     data object SignedOut : FxaUi
     data object Authenticating : FxaUi
-    data class SignedIn(val email: String, val displayName: String?) : FxaUi
+    /** [avatarUrl]：账号设置过自定义头像时的地址（https）；用默认头像 / 还没取到时为 null */
+    data class SignedIn(val email: String, val displayName: String?, val avatarUrl: String? = null) : FxaUi
     data class NeedsReauth(val email: String?) : FxaUi
 }
 
@@ -228,7 +229,7 @@ internal object FxaSync {
             if (!signedIn) ui = FxaUi.SignedOut else if (ui is FxaUi.Loading) ui = FxaUi.SignedIn("", null)
         }
         override fun onAuthenticated() { ui = FxaUi.SignedIn("", null); syncNow() }
-        override fun onProfile(email: String, name: String?) { ui = FxaUi.SignedIn(email, name) }
+        override fun onProfile(email: String, name: String?, avatarUrl: String?) { ui = FxaUi.SignedIn(email, name, avatarUrl) }
         override fun onLoggedOut() {
             ui = FxaUi.SignedOut
             synced = emptyMap()

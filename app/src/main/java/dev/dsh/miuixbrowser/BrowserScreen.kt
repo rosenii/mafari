@@ -2016,6 +2016,7 @@ fun BrowserScreen(
                             }
                             MenuAction.History -> pushPage(AppRoute.Library(1))
                             MenuAction.Settings -> pushPage(AppRoute.Settings)
+                            MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)
                             MenuAction.CloseTab -> state.closeTab(state.activeIndex)
                         }
                     },

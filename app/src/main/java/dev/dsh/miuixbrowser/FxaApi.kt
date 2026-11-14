@@ -73,7 +73,7 @@ internal object FxaApi {
     interface Listener {
         fun onReady(signedIn: Boolean)
         fun onAuthenticated()
-        fun onProfile(email: String, name: String?)
+        fun onProfile(email: String, name: String?, avatarUrl: String?)
         fun onLoggedOut()
         fun onProblem()
         fun onSyncStarted()
@@ -212,7 +212,12 @@ internal object FxaApi {
         )
         manager.register(object : AccountObserver {
             override fun onAuthenticated(account: OAuthAccount, authType: AuthType) = l.onAuthenticated()
-            override fun onProfileUpdated(profile: Profile) = l.onProfile(profile.email.orEmpty(), profile.displayName)
+            override fun onProfileUpdated(profile: Profile) = l.onProfile(
+                profile.email.orEmpty(),
+                profile.displayName,
+                // 默认头像不取：界面用自带的灰色头像图标；自定义头像是 Mozilla 头像服务器上的 https 地址
+                profile.avatar?.takeIf { !it.isDefault }?.url,
+            )
             override fun onLoggedOut() = l.onLoggedOut()
             override fun onAuthenticationProblems() = l.onProblem()
             override fun onReady(authenticatedAccount: OAuthAccount?) = l.onReady(authenticatedAccount != null)

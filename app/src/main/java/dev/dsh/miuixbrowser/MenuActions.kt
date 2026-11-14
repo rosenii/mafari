@@ -44,6 +44,9 @@ enum class MenuAction(
     ScriptMenu("script_menu", "脚本", AppIcons.Script),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
+
+    /** Firefox 账户（仅带 Firefox 同步的版本）：点开进入「Firefox账户同步」，登录后图标换成账号头像 */
+    Account("account", "账户", AppIcons.Account),
 }
 
 /** 更多面板的图标顺序与隐藏项，可拖动排序 / 拖到下方隐藏并持久化 */
@@ -67,11 +70,21 @@ class MenuOrderStore(context: Context) {
         order.addAll(if (prefs.contains(KEY)) saved else DEFAULT_ORDER.filter { it !in hidden })
         // 新增的项补到末尾；「拓展」默认排在「脚本」后面（WebView 下同样显示，只是置灰，见 BrowserScreen 的 lockedFor）
         MenuAction.entries.forEach {
-            if (it != MenuAction.GeckoExtensions && it !in order && it !in hidden) order.add(it)
+            if (it != MenuAction.GeckoExtensions && it != MenuAction.Account && it !in order && it !in hidden) order.add(it)
         }
         if (MenuAction.GeckoExtensions !in order && MenuAction.GeckoExtensions !in hidden) {
             val after = order.indexOf(MenuAction.ScriptMenu)
             order.add(if (after >= 0) after + 1 else order.size, MenuAction.GeckoExtensions)
+        }
+        // 「账户」默认紧跟在「设置」后面；不带 Firefox 同步的版本没有它（含旧偏好里残留的）
+        if (EngineSupport.SYNC_BUNDLED) {
+            if (MenuAction.Account !in order && MenuAction.Account !in hidden) {
+                val afterSettings = order.indexOf(MenuAction.Settings)
+                order.add(if (afterSettings >= 0) afterSettings + 1 else order.size, MenuAction.Account)
+            }
+        } else {
+            order.remove(MenuAction.Account)
+            hidden.remove(MenuAction.Account)
         }
         // 无内核版没有拓展功能：菜单里不出现「拓展」（含旧备份 / 偏好里残留的）
         if (!EngineSupport.GECKO_BUNDLED) {
@@ -101,7 +114,7 @@ class MenuOrderStore(context: Context) {
         /** 默认排序（四列宫格，自上而下）：其余功能依次排在后面。 */
         val DEFAULT_ORDER = listOf(
             MenuAction.Favorite, MenuAction.History, MenuAction.Desktop, MenuAction.Settings,
-            MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
+            MenuAction.Account, MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
             MenuAction.Home, MenuAction.ScriptMenu, MenuAction.GeckoExtensions, MenuAction.Refresh,
             MenuAction.Bookmarks,
         )

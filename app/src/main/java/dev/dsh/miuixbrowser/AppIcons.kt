@@ -123,6 +123,16 @@ object AppIcons {
         )
     }
 
+    /** 账户：圆形头像轮廓（头 + 肩），默认头像用它（更多菜单的「账户」）。 */
+    val Account: ImageVector by lazy {
+        stroked(
+            "Account",
+            "M12,2.8A9.2,9.2 0 1 0 12,21.2A9.2,9.2 0 1 0 12,2.8Z",
+            "M12,12.4A3,3 0 1 0 12,6.4A3,3 0 0 0 12,12.4Z",
+            "M6.4,18.2C7.2,15.9 9.4,14.6 12,14.6C14.6,14.6 16.8,15.9 17.6,18.2",
+        )
+    }
+
     /** 拓展（WebExtension）：拼图块。形状取自 Lucide（ISC 许可）的 puzzle。 */
     val Puzzle: ImageVector by lazy {
         // 路径解析失败时退回脚本图标：枚举初始化会读它，不能让一个图标拖垮启动

@@ -479,12 +479,16 @@ internal fun MenuCell(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // 统一 32dp 的图标槽，各格子文字基线一致；脚本图标本身线条偏细偏小，单独放大
             Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = action.icon,
-                    contentDescription = label,
-                    tint = tint,
-                    modifier = Modifier.size(if (action == MenuAction.ScriptMenu) 31.dp else 26.dp),
-                )
+                if (action == MenuAction.Account) {
+                    AccountMenuIcon(label = label)
+                } else {
+                    Icon(
+                        imageVector = action.icon,
+                        contentDescription = label,
+                        tint = tint,
+                        modifier = Modifier.size(if (action == MenuAction.ScriptMenu) 31.dp else 26.dp),
+                    )
+                }
                 if (badge > 0) {
                     CountBadge(
                         count = badge,
@@ -694,5 +698,33 @@ internal fun TabsSegmented(
                 )
             }
         }
+    }
+}
+
+/**
+ * 更多菜单里「账户」的图标：未登录 = 灰色头像图标；已登录且账号设置了头像 = 圆形头像（异步加载，加载完成前先显示图标）；
+ * 已登录但用默认头像 / 头像取不到 = 主色头像图标。头像地址只认 https。
+ */
+@Composable
+private fun AccountMenuIcon(label: String) {
+    val signedIn = if (EngineSupport.SYNC_BUNDLED) FxaSync.ui as? FxaUi.SignedIn else null
+    val url = signedIn?.avatarUrl?.takeIf { it.startsWith("https://") }.orEmpty()
+    val avatar = rememberRemoteIcon(url)
+    if (avatar != null) {
+        androidx.compose.foundation.Image(
+            bitmap = avatar,
+            contentDescription = label,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier
+                .size(28.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape),
+        )
+    } else {
+        Icon(
+            imageVector = AppIcons.Account,
+            contentDescription = label,
+            tint = if (signedIn != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(26.dp),
+        )
     }
 }
