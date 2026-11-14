@@ -88,17 +88,25 @@ class GeckoPromptHandler(
                     return@post
                 }
                 val update = decision.kind == GeckoLogins.SaveKind.UPDATE
+                val doSave: () -> Unit = {
+                    // Gecko 确认后也会回调存储委托；这里先直接写一遍，库的合并是幂等的，不会重复
+                    GeckoLogins.runIo { GeckoLogins.save(appCtx, decision.entry) }
+                    finish(prompt.confirm(option))
+                }
+                val doDismiss: () -> Unit = { finish(prompt.dismiss()) }
+                // 优先用应用自己的玻璃弹窗（BrowserScreen 的 LoginPromptDialog）；界面没挂上时回退系统对话框
+                val ui = tab.onLoginPrompt
+                if (ui != null) {
+                    ui(LoginPrompt.Save(decision.entry.origin, decision.entry.username, update, doSave, doDismiss))
+                    return@post
+                }
                 val who = decision.entry.username.ifEmpty { "（无用户名）" }
                 val shown = show { b ->
                     b.setTitle(if (update) "更新密码？" else "保存密码？")
                     b.setMessage(PasswordCsv.displayHost(decision.entry.origin) + "\n" + who + "\n\n密码会加密保存在本机")
-                    b.setPositiveButton(if (update) "更新" else "保存") { _, _ ->
-                        // Gecko 确认后也会回调存储委托；这里先直接写一遍，库的合并是幂等的，不会重复
-                        GeckoLogins.runIo { GeckoLogins.save(appCtx, decision.entry) }
-                        finish(prompt.confirm(option))
-                    }
-                    b.setNegativeButton("不保存") { _, _ -> finish(prompt.dismiss()) }
-                    b.setOnCancelListener { finish(prompt.dismiss()) }
+                    b.setPositiveButton(if (update) "更新" else "保存") { _, _ -> doSave() }
+                    b.setNegativeButton("不保存") { _, _ -> doDismiss() }
+                    b.setOnCancelListener { doDismiss() }
                 }
                 if (!shown) finish(prompt.dismiss())
             }
@@ -129,6 +137,18 @@ class GeckoPromptHandler(
             } else {
                 finish(prompt.confirm(option))
             }
+        }
+        val ui = tab.onLoginPrompt
+        if (ui != null) {
+            ui(
+                LoginPrompt.Select(
+                    pageHost = host(),
+                    items = options.map { LoginPrompt.Select.Item(it.value.origin.orEmpty(), it.value.username.orEmpty()) },
+                    onPick = { i -> pick(options[i]) },
+                    onDismiss = { finish(prompt.dismiss()) },
+                ),
+            )
+            return result
         }
         val labels = options.map { o ->
             val l = o.value

@@ -480,6 +480,7 @@ fun BrowserScreen(
     var customView by remember { mutableStateOf<android.view.View?>(null) }
     var cameraOutputUri by remember { mutableStateOf<Uri?>(null) }
     var webPermPrompt by remember { mutableStateOf<WebPermPrompt?>(null) }
+    var loginPrompt by remember { mutableStateOf<LoginPrompt?>(null) }
     var androidPermDone by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     // 启动自动检查更新：每个进程只查一次；有新版本且未被忽略时弹底部提示
@@ -620,6 +621,10 @@ fun BrowserScreen(
             // 未决的权限请求按拒绝收尾，否则 WebView 回调 / 重定向待决标记会一直悬空
             webPermPrompt?.decide?.invoke(false)
             webPermPrompt = null
+            // 登录弹窗同理：按「不保存 / 不填」收尾，Gecko 的 prompt 才不会悬空
+            tab.onLoginPrompt = null
+            loginPrompt?.onDismiss?.invoke()
+            loginPrompt = null
         }
     }
 
@@ -804,6 +809,11 @@ fun BrowserScreen(
     }
 
     LaunchedEffect(tab.id) {
+        tab.onLoginPrompt = { req ->
+            // 同一时刻只显示一个：被顶掉的按取消处理
+            loginPrompt?.onDismiss?.invoke()
+            loginPrompt = req
+        }
         tab.onPermissionPrompt = { origin, what, permKey, decide ->
             // 同一时刻只显示一个弹窗：被顶掉的请求按拒绝处理，避免 WebView 回调悬空
             webPermPrompt?.decide?.invoke(false)
@@ -2524,6 +2534,12 @@ fun BrowserScreen(
                 }
             }
         }
+
+        LoginPromptDialog(
+            prompt = loginPrompt,
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            onClear = { loginPrompt = null },
+        )
 
         val scriptImportUrl = pendingScript
         AppGlassDialog(

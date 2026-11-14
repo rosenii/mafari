@@ -62,7 +62,7 @@ nightly 的 Java API 偶尔会改，**建议在 `gradle.properties` 锁定**：`
 | 下拉刷新 / 底栏随滚动收起 | ✅ | ScrollDelegate |
 | 崩溃恢复 | ✅ | onCrash / onKill 后重开会话并回到原页面 |
 | 视频全屏 | ✅ | 系统栏隐藏 + 横屏，同时收起应用自己的顶栏 / 底栏（`BrowserTab.geckoFullscreen`） |
-| 文件选择 / 拍照上传、alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、弹窗拦截 | ✅ | `GeckoPrompts.kt`（PromptDelegate）：文件 / 拍照包装成 WebView 同款 `FileChooserParams` 复用现有选择器；其余用系统对话框 |
+| 文件选择 / 拍照上传、alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、弹窗拦截 | ✅ | `GeckoPrompts.kt`（PromptDelegate）：文件 / 拍照包装成 WebView 同款 `FileChooserParams` 复用现有选择器；其余用系统对话框（网页登录的「保存密码」走应用自己的玻璃确认框、「选择账号」走锚点下拉菜单，均在 `LoginPromptDialog`） |
 | 网站通知 | ⛔ | 现在直接拒绝（WebView 版本来也没有） |
 
 ### 依赖 WebView 专有 API 的功能

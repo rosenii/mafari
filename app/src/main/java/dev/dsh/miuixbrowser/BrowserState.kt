@@ -2201,6 +2201,12 @@ class BrowserTab(
             if (value != null) flushDeferredPrompt()
         }
 
+    /**
+     * Gecko 的登录提示（保存 / 更新密码、选择要填的账号）：界面用应用自己的玻璃弹窗展示。
+     * 为 null（界面还没挂上）时调用方回退到系统对话框；请求里的回调都只会生效一次。
+     */
+    internal var onLoginPrompt: ((LoginPrompt) -> Unit)? = null
+
     /** 申请 Android 运行时权限，完成后回调（调用方再自行检查授予结果） */
     var requestAndroidPermissions: ((Array<String>, () -> Unit) -> Unit)? = null
 
@@ -3372,5 +3378,29 @@ private fun cleanStaleBlobFiles(context: Context) {
     staleBlobFilesCleaned = true
     runCatching {
         context.cacheDir.listFiles { f -> f.name.startsWith("mafari_blob_") }?.forEach { it.delete() }
+    }
+}
+
+/** 登录弹窗请求（与内核无关的纯数据 + 回调）：由 GeckoPromptHandler 构造，BrowserScreen 里的 [LoginPromptDialog] 展示。 */
+internal sealed class LoginPrompt {
+    /** 取消 / 点空白处 / 页面离开：按「不保存」「不填」收尾 */
+    abstract val onDismiss: () -> Unit
+
+    class Save(
+        val origin: String,
+        val username: String,
+        /** true：该站点已存过账号，这次是更新密码 */
+        val update: Boolean,
+        val onSave: () -> Unit,
+        override val onDismiss: () -> Unit,
+    ) : LoginPrompt()
+
+    class Select(
+        val pageHost: String,
+        val items: List<Item>,
+        val onPick: (index: Int) -> Unit,
+        override val onDismiss: () -> Unit,
+    ) : LoginPrompt() {
+        class Item(val origin: String, val username: String)
     }
 }
