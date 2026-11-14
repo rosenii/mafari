@@ -395,7 +395,7 @@ fun BrowserScreen(
     var barHidden by remember { mutableStateOf(false) }
     /** 底栏被左右滑动缩小为圆形搜索钮 */
     var barMinimized by remember { mutableStateOf(settings.barPosition == BAR_POS_MINIMIZED) }
-    // 「定制主页 → 底部导航栏位置」：靠上 / 靠下 / 始终最小化（圆钮是常态，展开后一段时间无操作自动缩回）
+    // 「布局 → 导航栏位置」：顶部 / 底部 / 始终最小化（圆钮是常态，展开后一段时间无操作自动缩回）
     val barOnTop = settings.barPosition == BAR_POS_TOP
     val alwaysMin = settings.barPosition == BAR_POS_MINIMIZED
     var favEditing by remember { mutableStateOf(false) }

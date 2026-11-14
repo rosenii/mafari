@@ -197,7 +197,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | 想改 | 先看 |
 | --- | --- |
 | 标签切换 / 恢复 / 回收策略 | `BrowserState`（`activate` / `restoreSavedTabs` / `reclaimEngines`）、`BrowserTab`（`discardEngine` / `loadPending`）、`TabDb` |
-| 地址栏 / 底栏 / 手势（底栏位置 `AppSettings.barPosition`：靠上 / 靠下 / 始终最小化；快速朝屏幕中间一扫换边） | `BrowserBottomBar`、`BrowserScreen` |
+| 地址栏 / 底栏 / 手势（导航栏位置 `AppSettings.barPosition`：顶部 / 底部 / 始终最小化；快速朝屏幕中间一扫换边） | `BrowserBottomBar`、`BrowserScreen` |
 | 主页（收藏 / 隐私报告 / 排序） | `HomeScreen`、`Favorites.kt`、`BookmarkDb` |
 | 更多面板 / 菜单项 | `BrowserMenuPanels`、`MenuActions` |
 | 设置项 | `AppSettings`、`SettingsScreen` 及各子页（路由在 `AppRoute`） |

@@ -41,7 +41,7 @@ const val HOME_MODE_DEFAULT = 0
 const val HOME_MODE_NEW_TAB = 1
 const val HOME_MODE_CUSTOM = 2
 
-/** 「定制主页 → 底部导航栏位置」：数值写进 SharedPreferences，不要改 */
+/** 「布局 → 导航栏位置」：数值写进 SharedPreferences，不要改 */
 const val BAR_POS_TOP = 0
 const val BAR_POS_BOTTOM = 1
 const val BAR_POS_MINIMIZED = 2
@@ -70,7 +70,7 @@ fun parseHomeOrder(raw: String?): List<Int> {
 /** 标签页创建时直接读 SharedPreferences（不必构造整个 AppSettings） */
 fun readBrowserEngine(context: Context): Int =
     context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
-        .getInt("browser_engine", ENGINE_WEBVIEW)
+        .getInt("browser_engine", ENGINE_GECKO)
 
 class AppSettings(context: Context) {
 
@@ -85,10 +85,10 @@ class AppSettings(context: Context) {
     var blurMode by mutableStateOf(
         if (prefs.contains(KEY_BLUR_MODE)) {
             prefs.getInt(KEY_BLUR_MODE, BLUR_MIUIX).coerceIn(BLUR_MIUIX, BLUR_OFF)
-        } else if (prefs.getBoolean(KEY_BLUR, true)) {
-            BLUR_MIUIX
+        } else if (prefs.contains(KEY_BLUR)) {
+            if (prefs.getBoolean(KEY_BLUR, true)) BLUR_MIUIX else BLUR_OFF // 旧版布尔开关迁移
         } else {
-            BLUR_OFF
+            BLUR_OFF // 默认纯色
         },
     )
         private set
@@ -99,7 +99,7 @@ class AppSettings(context: Context) {
     /** 是否使用 liquid glass 效果 */
     val liquidGlass: Boolean get() = blurMode == BLUR_LIQUID
 
-    /** 首页内容显示：收藏 / 隐私报告默认显示，最近浏览 / 下载项默认隐藏。 */
+    /** 首页内容显示：LOGO / 收藏 / 隐私报告 / 最近浏览 / 下载项默认全部显示。 */
     /** 个人收藏在首页显示的行数：0=不显示，1..5=显示对应行数（每行 3 个）。默认 4 行（等同旧版上限 12 个）。 */
     var homeFavRows by mutableStateOf(
         if (prefs.contains(KEY_HOME_FAV_ROWS)) {
@@ -128,9 +128,9 @@ class AppSettings(context: Context) {
 
     var homeShowPrivacy by mutableStateOf(prefs.getBoolean(KEY_HOME_PRIVACY, true))
         private set
-    var homeShowRecent by mutableStateOf(prefs.getBoolean(KEY_HOME_RECENT, false))
+    var homeShowRecent by mutableStateOf(prefs.getBoolean(KEY_HOME_RECENT, true))
         private set
-    var homeShowDownloads by mutableStateOf(prefs.getBoolean(KEY_HOME_DOWNLOADS, false))
+    var homeShowDownloads by mutableStateOf(prefs.getBoolean(KEY_HOME_DOWNLOADS, true))
         private set
 
     /** 首页内容块的显示顺序（含隐藏项的位置），长按拖动后持久化。 */
@@ -155,7 +155,7 @@ class AppSettings(context: Context) {
     var homeCustomUrl by mutableStateOf(readHomeCustomUrl(context))
         private set
 
-    /** 底部导航栏位置：靠上 / 靠下（默认）/ 始终最小化。快速上扫 / 下扫底栏也会改这里 */
+    /** 导航栏位置：顶部 / 底部（默认）/ 始终最小化。快速上扫 / 下扫底栏也会改这里 */
     var barPosition by mutableStateOf(prefs.getInt(PREF_BAR_POSITION, BAR_POS_BOTTOM).coerceIn(BAR_POS_TOP, BAR_POS_MINIMIZED))
         private set
 
@@ -217,7 +217,7 @@ class AppSettings(context: Context) {
      * 浏览器内核：0 = 系统 WebView，1 = GeckoView（Nightly）。
      * 只影响「之后新建」的标签页；已打开的标签保持创建时的内核，直到关闭。
      */
-    var browserEngine by mutableStateOf(prefs.getInt(KEY_ENGINE, ENGINE_WEBVIEW).coerceIn(ENGINE_WEBVIEW, ENGINE_GECKO))
+    var browserEngine by mutableStateOf(prefs.getInt(KEY_ENGINE, ENGINE_GECKO).coerceIn(ENGINE_WEBVIEW, ENGINE_GECKO))
         private set
 
     /** 当前是否处于 Gecko 模式：选了 Gecko 且本机架构支持（不支持时新标签会自动退回 WebView） */
@@ -312,7 +312,7 @@ class AppSettings(context: Context) {
     }
 
     /** 地址栏显示：0=网站标题 1=主域名 2=完整域名 */
-    var addressDisplay by mutableStateOf(prefs.getInt(KEY_ADDR, 2))
+    var addressDisplay by mutableStateOf(prefs.getInt(KEY_ADDR, 1))
         private set
 
     /** 标签面板样式：0=文字列表 1=卡片 */
