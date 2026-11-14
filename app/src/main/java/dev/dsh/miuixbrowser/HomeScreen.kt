@@ -1378,7 +1378,12 @@ internal fun HomeBlockHeader(
 /* -------------------------- 书签分组卡片 -------------------------- */
 
 /** 书签分组磁贴的正方形占格子宽度的比例：比例越小，磁贴越小、磁贴之间的空隙越大。 */
-private const val GROUP_TILE_FRACTION = 0.62f
+private const val GROUP_TILE_FRACTION = 0.70f
+
+/** 书签分组整块大卡片的圆角（dp）与内边距：磁贴们统一落在这一张玻璃卡片上。 */
+private const val GROUP_CARD_RADIUS = 20
+private val GROUP_CARD_PADDING_H = 8.dp
+private val GROUP_CARD_PADDING_V = 10.dp
 
 /** 书签分组磁贴的圆角（dp），随方块缩小。 */
 private const val GROUP_TILE_RADIUS = 12
@@ -1424,6 +1429,13 @@ internal fun GroupsBlock(
         // 各磁贴图标的屏幕坐标（只在点击时读取，不需要触发重组）
         val anchors = remember { HashMap<String, Rect>() }
         val addTap by rememberUpdatedState(guard { onAdd() })
+        // 整块一张大卡片：只在这里做一次玻璃（复用页面已有的壁纸模糊缓存采样），里面的磁贴只画半透明实色，不再各自开模糊层
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop, radius = GROUP_CARD_RADIUS),
+        ) {
+        Box(modifier = Modifier.fillMaxWidth().padding(horizontal = GROUP_CARD_PADDING_H, vertical = GROUP_CARD_PADDING_V)) {
         ReorderTileGrid(
             items = shown,
             columns = HOME_GROUP_COLS,
@@ -1464,7 +1476,29 @@ internal fun GroupsBlock(
                 onRemove = { onRemove(index) },
             )
         }
+        }
+        // 高光描边叠在玻璃之上（有壁纸时沿用玻璃自带的高光，无壁纸时画对角渐变描边）
+        HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = GROUP_CARD_RADIUS.dp)
+        }
     }
+}
+
+/** 大卡片里的磁贴底：半透明实色 + 细描边，没有任何模糊 / 离屏层。 */
+@Composable
+private fun Modifier.groupTileSurface(hasWallpaper: Boolean): Modifier {
+    val dark = isAppDarkTheme()
+    val shape = RoundedCornerShape(GROUP_TILE_RADIUS.dp)
+    val fill = when {
+        hasWallpaper && dark -> Color.White.copy(alpha = 0.10f)
+        hasWallpaper -> Color.White.copy(alpha = 0.32f)
+        else -> MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+    }
+    val line = when {
+        hasWallpaper && dark -> Color.White.copy(alpha = 0.16f)
+        hasWallpaper -> Color.White.copy(alpha = 0.55f)
+        else -> MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    }
+    return this.background(fill, shape).border(0.8.dp, line, shape)
 }
 
 /** 书签分组磁贴：玻璃方块里放该分组前几条书签的站点图标（空分组显示文件夹图标），名称在方块下方。 */
@@ -1488,7 +1522,7 @@ internal fun GroupTile(
                 .fillMaxWidth(GROUP_TILE_FRACTION)
                 .aspectRatio(1f)
                 .onGloballyPositioned { onAnchor(it.boundsInRoot()) }
-                .homeGlass(wallpaperBackdrop, blurEnabled, hasWallpaper, liquidBackdrop, radius = GROUP_TILE_RADIUS),
+                .groupTileSurface(hasWallpaper),
             contentAlignment = Alignment.Center,
         ) {
             if (group.previewUrls.isEmpty()) {
@@ -1508,7 +1542,6 @@ internal fun GroupTile(
                 }
             }
             if (editing) TileRemoveBadge(onClick = onRemove)
-            HomeOutlineOverlay(hasWallpaper = hasWallpaper, radius = GROUP_TILE_RADIUS.dp)
         }
         Text(
             text = group.path.substringAfterLast('/').ifBlank { group.path },
@@ -1541,7 +1574,7 @@ internal fun GroupAddTile(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth(GROUP_TILE_FRACTION)
                 .aspectRatio(1f)
-                .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop, radius = GROUP_TILE_RADIUS),
+                .groupTileSurface(wallpaper != null),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -1549,45 +1582,63 @@ internal fun GroupAddTile(
                 fontSize = 20.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-            HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = GROUP_TILE_RADIUS.dp)
         }
     }
 }
 
-/** 分组弹窗的几何：边长、水平对齐方式，以及按 GlassPopup 规则加工过的锚点。 */
-internal class GroupPopupGeometry(val anchor: Rect, val alignStart: Boolean, val side: Dp)
+/** 分组弹窗的几何：边长 / 高度、水平对齐方式，以及按 GlassPopup 规则加工过的锚点。 */
+internal class GroupPopupGeometry(val anchor: Rect, val alignStart: Boolean, val side: Dp, val height: Dp)
 
 /**
  * 按 GlassPopup 的规则算分组弹窗的锚点与对齐：
  * - 边长不能超过 GlassPopup 的宽度上限（288dp），也要给页面两侧各留 SafeMargin，否则正方形会被压成长方形；
- * - 水平：GlassPopup 的展开动画固定一条竖边。[alignStartByHalf] 为 true 时，位于页面左半边的锚点用 alignStart
- *   （左边缘对齐锚点左边缘，向右展开），右半边的用默认的右边缘对齐，这样固定边始终落在被点的位置上；
- * - 垂直：顶边放在锚点下沿 + 间距，窗口出现在锚点正下方；下方放不下时 GlassPopup 会翻到上方并以锚点 bottom
- *   为底边，所以 bottom 取锚点上沿 - 间距（与 HistoryScreen 的 rememberAboveAnchor 同一思路）。
+ * - 水平（[alignStartByHalf] 为 true，磁贴弹窗）：锚点在页面正中（第 3 列）时，弹窗以锚点中心为中线居中；
+ *   位于左半边用 alignStart（左边缘对齐锚点左边缘，向右展开），右半边用右边缘对齐锚点右边缘；
+ *   [alignStartByHalf] 为 false 时固定右边缘对齐锚点右边缘（向左展开）；
+ * - 垂直：默认顶边放在锚点下沿 + 间距，窗口出现在锚点正下方；
+ *   [openUp] 为 true 时强制向上弹出：底边放在锚点上沿 - 间距（右下角贴着锚点），高度压到锚点上方放得下的范围内。
  */
 @Composable
 internal fun groupPopupGeometry(
     anchorBounds: Rect,
     pageWidthPx: Float,
     alignStartByHalf: Boolean = true,
+    openUp: Boolean = false,
+    gap: Dp = 6.dp,
 ): GroupPopupGeometry {
     val density = LocalDensity.current
     val pageWidthDp = with(density) { pageWidthPx.toDp() }
     val side = minOf(GROUP_POPUP_SIDE, (pageWidthDp - GlassPopupDefaults.SafeMargin * 2).coerceAtLeast(0.dp))
-    val gapPx = with(density) { 6.dp.toPx() }
-    val alignStart = alignStartByHalf && anchorBounds.center.x < pageWidthPx / 2f
-    val anchor = if (anchorBounds == Rect.Zero) {
-        anchorBounds
-    } else {
-        Rect(anchorBounds.left, anchorBounds.bottom + gapPx, anchorBounds.right, anchorBounds.top - gapPx)
+    val gapPx = with(density) { gap.toPx() }
+    if (anchorBounds == Rect.Zero) return GroupPopupGeometry(anchorBounds, alignStartByHalf, side, side)
+
+    val sidePx = with(density) { side.toPx() }
+    val cx = anchorBounds.center.x
+    val centered = alignStartByHalf && pageWidthPx > 0f && kotlin.math.abs(cx / pageWidthPx - 0.5f) < 0.12f
+    val alignStart = centered || (alignStartByHalf && cx < pageWidthPx / 2f)
+    // 居中：GlassPopup 的 alignStart 以锚点 left 为弹窗左边缘，所以把 left 设成「中心 - 半边长」
+    val left = if (centered) cx - sidePx / 2f else anchorBounds.left
+    val right = if (centered) left + sidePx else anchorBounds.right
+
+    if (!openUp) {
+        return GroupPopupGeometry(
+            Rect(left, anchorBounds.bottom + gapPx, right, anchorBounds.top - gapPx),
+            alignStart, side, side,
+        )
     }
-    return GroupPopupGeometry(anchor, alignStart, side)
+    // 向上：anchor.top 取一个远在页面之外的值，GlassPopup 判定「下方放不下」而翻到上方，并以 anchor.bottom 为底边
+    val marginPx = with(density) { GlassPopupDefaults.SafeMargin.toPx() }
+    val bottom = (anchorBounds.top - gapPx).coerceAtLeast(marginPx + 1f)
+    val availDp = with(density) { (bottom - marginPx).toDp() }
+    val height = availDp.coerceIn(minOf(140.dp, side), side)
+    return GroupPopupGeometry(Rect(left, 1e7f, right, bottom), alignStart, side, height)
 }
 
 /** 分组弹窗的面板：固定边长的正方形，标题行（可返回上一层）+ 列表，两种分组弹窗共用。 */
 @Composable
 private fun GroupPopupPanel(
     side: Dp,
+    height: Dp,
     title: String,
     showBack: Boolean,
     onBack: () -> Unit,
@@ -1596,7 +1647,7 @@ private fun GroupPopupPanel(
     emptyText: String,
     list: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
-    Column(modifier = Modifier.size(side)) {
+    Column(modifier = Modifier.size(width = side, height = height)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1746,6 +1797,7 @@ internal fun BoxScope.GroupBookmarkPopup(
     ) {
         GroupPopupPanel(
             side = geo.side,
+            height = geo.height,
             title = path.substringAfterLast('/').ifBlank { path },
             showBack = path != rootPath,
             onBack = { path = path.substringBeforeLast('/') },
@@ -1810,7 +1862,7 @@ internal fun BoxScope.GroupChoosePopup(
 ) {
     val all = remember(groups) { withAncestors(groups) }
     var path by remember(show) { mutableStateOf(current.substringBeforeLast('/', "")) }
-    val geo = groupPopupGeometry(anchorBounds, pageWidthPx, alignStartByHalf = false)
+    val geo = groupPopupGeometry(anchorBounds, pageWidthPx, alignStartByHalf = false, openUp = true, gap = 4.dp)
     val children = all.filter { isDirectChild(it, path) }
     AppGlassPopup(
         show = show,
@@ -1821,6 +1873,7 @@ internal fun BoxScope.GroupChoosePopup(
     ) {
         GroupPopupPanel(
             side = geo.side,
+            height = geo.height,
             title = if (path.isEmpty()) "选择分组" else path.substringAfterLast('/'),
             showBack = path.isNotEmpty(),
             onBack = { path = path.substringBeforeLast('/', "") },

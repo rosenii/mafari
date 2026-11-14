@@ -1292,8 +1292,8 @@ private fun exportBookmarks(context: android.content.Context, html: String) {
 }
 
 /**
- * 分组选择行：一行显示当前分组路径，点开后在行的正下方弹出 [GroupChoosePopup]（与首页书签分组弹窗同一套面板）。
- * 行自己的屏幕坐标通过 [onAnchor] 交给外层换算成弹窗宿主 Box 的坐标。
+ * 分组选择行：一行显示当前分组路径，点开后弹窗右下角紧贴右侧文字、向左上弹出 [GroupChoosePopup]（与首页书签分组弹窗同一套面板）。
+ * 右侧文字的窗口坐标通过 [onAnchor] 交给外层换算成弹窗宿主 Box 的坐标。
  */
 @Composable
 private fun GroupSelectRow(
@@ -1306,7 +1306,6 @@ private fun GroupSelectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .onGloballyPositioned { onAnchor(it.boundsInWindow()) }
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .padding(vertical = 12.dp),
@@ -1325,7 +1324,8 @@ private fun GroupSelectRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f),
+            // 弹窗的右下角锚在这段文字上：取它自己的窗口坐标（右端 = 文字右端，上沿 = 文字上沿）
+            modifier = Modifier.weight(1f).onGloballyPositioned { onAnchor(it.boundsInWindow()) },
         )
         Spacer(Modifier.width(6.dp))
         Icon(
