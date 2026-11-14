@@ -63,6 +63,9 @@ fun FxaScreen(
     var loginUrl by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var webCanBack by remember { mutableStateOf(false) }
+    // 登录页用哪个内核：默认内核是 Gecko（且本包带 Gecko、设备支持）就用 Gecko，否则 WebView
+    val useGecko = remember { EngineSupport.defaultIsGecko(context) }
+    var geckoLogin by remember { mutableStateOf<FxaGeckoLogin?>(null) }
     // 正在取登录地址：此时不画账号列表，避免「列表 → 登录页」闪一下
     var starting by remember { mutableStateOf(false) }
 
@@ -82,6 +85,7 @@ fun FxaScreen(
             FxaSync.onRedirectHandled = null
             FxaSync.cancelLogin()
             webView?.destroy()
+            geckoLogin?.close()
         }
     }
     // 未登录时点进来就直接是登录页
@@ -89,7 +93,7 @@ fun FxaScreen(
         if (FxaSync.ui is FxaUi.SignedOut || FxaSync.ui is FxaUi.NeedsReauth) startLogin()
     }
     LaunchedEffect(FxaSync.ui) { if (FxaSync.ui is FxaUi.SignedIn) FxaSync.refreshDevices() }
-    BackHandler(enabled = loginUrl != null && webCanBack) { webView?.goBack() }
+    BackHandler(enabled = loginUrl != null && webCanBack) { if (useGecko) geckoLogin?.goBack() else webView?.goBack() }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides liquid) {
         Scaffold(
@@ -111,6 +115,18 @@ fun FxaScreen(
             if (url == null && (starting || ui is FxaUi.Authenticating)) {
                 // 取登录地址 / 回调已截获、等待登录完成：只画底色，不闪账号列表
                 Box(Modifier.fillMaxSize().background(surface))
+                return@Scaffold
+            }
+            if (url != null && useGecko) {
+                androidx.compose.ui.viewinterop.AndroidView(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(backdrop)
+                        .padding(top = innerPadding.calculateTopPadding()),
+                    factory = { ctx ->
+                        FxaGeckoLogin(ctx, url, surface.toArgb()) { webCanBack = it }.also { geckoLogin = it }.view
+                    },
+                )
                 return@Scaffold
             }
             if (url != null) {
