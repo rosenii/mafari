@@ -1564,12 +1564,11 @@ internal fun GroupTile(
             fontSize = 11.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            // 名称直接落在壁纸上：有壁纸时用白字 + 轻阴影保证可读
-            color = if (hasWallpaper) Color.White else MiuixTheme.colorScheme.onSurface,
+            // 与收藏卡片标题一致：跟随系统深 / 浅色（深色白字，浅色黑字）
+            color = MiuixTheme.colorScheme.onSurface,
             style = TextStyle(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 lineHeight = 14.sp,
-                shadow = if (hasWallpaper) Shadow(Color.Black.copy(alpha = 0.4f), Offset(0f, 1f), 4f) else null,
             ),
             // 弹窗锚在标题文字上：标题按文字宽度收紧（超长仍会省略），上报文字自己的屏幕坐标
             modifier = Modifier
