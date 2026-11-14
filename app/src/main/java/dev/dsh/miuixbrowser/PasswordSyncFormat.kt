@@ -14,8 +14,8 @@ import org.json.JSONObject
  * 备注（[PasswordEntry.note]）不在 Firefox 的记录里，只保存在本地，所以 [toRecord] 不输出它、[fromRecord] 读到的备注为空
  * （合并时 [PasswordDb] 对「密码没变」的记录不会动本地备注）。
  *
- * 将来接同步时：下载的 payload 走 [fromRecord] → [PasswordDb.mergeRemote]；
- * 上传走 [PasswordDb.pendingUpload] → [toRecord]，成功后 [PasswordDb.markSynced]；删除走 [PasswordDb.tombstones] → [deletedRecord]。
+ * 实际同步由 Rust logins 引擎完成（[FxaApi]），本机密码与它的镜像库之间的搬运见 [FxaPasswordBridge]，
+ * 镜像库的登录与本地记录互转用 [fromLogin] / [toLogin]；[toRecord] / [fromRecord] 是同一份数据的 JSON 形态（备份 / 将来直连用）。
  */
 object PasswordSyncFormat {
 
@@ -66,6 +66,45 @@ object PasswordSyncFormat {
             timesUsed = o.optInt("timesUsed"),
         )
     }
+
+    // ---- Rust logins 库的登录（[PLogin]）↔ [PasswordEntry]：规则与上面的 payload 一致 ----
+
+    /** 镜像库的登录 → 本地记录。站点不合法 / 缺 id / 缺密码的返回 null。备注为空（备注只在本地）。 */
+    internal fun fromLogin(l: PLogin): PasswordEntry? {
+        val origin = PasswordCsv.originOf(l.origin) ?: return null
+        if (l.guid.isBlank() || l.password.isEmpty()) return null
+        val realm = l.httpRealm?.takeIf { it.isNotEmpty() }
+        return PasswordEntry(
+            guid = l.guid,
+            origin = origin,
+            formOrigin = if (realm != null) null else l.formActionOrigin?.takeIf { it.isNotEmpty() }?.let { PasswordCsv.originOf(it) },
+            httpRealm = realm,
+            username = l.username,
+            password = l.password,
+            usernameField = l.usernameField,
+            passwordField = l.passwordField,
+            timeCreated = l.timeCreated,
+            timeLastUsed = l.timeLastUsed,
+            timePasswordChanged = l.timePasswordChanged,
+            timesUsed = l.timesUsed.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt(),
+        )
+    }
+
+    /** 本地记录 → 镜像库的登录：HTTP 认证只带 realm；网页表单的 formActionOrigin 空串表示「任意表单」。 */
+    internal fun toLogin(e: PasswordEntry): PLogin = PLogin(
+        guid = e.guid,
+        origin = e.origin,
+        formActionOrigin = if (e.httpRealm != null) null else e.formOrigin ?: "",
+        httpRealm = e.httpRealm,
+        username = e.username,
+        password = e.password,
+        usernameField = e.usernameField,
+        passwordField = e.passwordField,
+        timesUsed = e.timesUsed.toLong(),
+        timeCreated = e.timeCreated,
+        timeLastUsed = e.timeLastUsed,
+        timePasswordChanged = e.timePasswordChanged,
+    )
 
     /** payload 是删除标记时返回被删记录的 id，否则 null。 */
     fun isDeleted(json: String): String? {

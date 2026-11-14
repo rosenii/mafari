@@ -91,11 +91,12 @@ internal object PasswordDb {
         db.rawQuery("SELECT COUNT(*) FROM passwords", emptyArray<String>()).use { if (it.moveToFirst()) it.getInt(0) else 0 }
 
     /** 全部记录的元数据，按站点、用户名排序。不解密任何东西。 */
-    fun list(db: SQLiteDatabase): List<Item> {
+    fun list(db: SQLiteDatabase, syncedOnly: Boolean = false): List<Item> {
         val out = ArrayList<Item>()
         db.rawQuery(
             "SELECT guid,origin,username,form_origin,http_realm,time_created,time_last_used,time_changed,times_used " +
-                "FROM passwords ORDER BY origin COLLATE NOCASE, username COLLATE NOCASE",
+                "FROM passwords " + (if (syncedOnly) "WHERE sync_status=$SYNC_DONE " else "") +
+                "ORDER BY origin COLLATE NOCASE, username COLLATE NOCASE",
             emptyArray<String>(),
         ).use { c ->
             while (c.moveToNext()) {
@@ -279,6 +280,52 @@ internal object PasswordDb {
         } finally {
             db.endTransaction()
         }
+    }
+
+    /** 已与服务器一致的记录 id（用来识别「服务器上已被删除」的记录）。 */
+    fun syncedGuids(db: SQLiteDatabase): Set<String> {
+        val out = HashSet<String>()
+        db.rawQuery("SELECT guid FROM passwords WHERE sync_status=$SYNC_DONE", emptyArray<String>()).use { while (it.moveToNext()) out.add(it.getString(0)) }
+        return out
+    }
+
+    /**
+     * 把记录 id 换成 Firefox 同步库分配的 id（Rust 库新增登录时自己生成 id，传不进去）。
+     * 密文的 AAD 绑定了记录 id，所以必须解开再按新 id 重新封装。目标 id 已被占用（同一条凭据已存在）时，旧行直接丢弃，不留墓碑。
+     * 成功（或旧行已不存在）返回 true；解不开等失败返回 false，调用方保持原状、下次再试。
+     */
+    fun reguid(context: Context, db: SQLiteDatabase, oldGuid: String, newGuid: String): Boolean {
+        if (oldGuid == newGuid) return true
+        val cur = readFull(context, db, "WHERE guid=?", arrayOf(oldGuid), upgrade = false).firstOrNull()
+            ?: return !guidExists(db, oldGuid)
+        db.beginTransaction()
+        try {
+            if (guidExists(db, newGuid)) {
+                db.execSQL("DELETE FROM passwords WHERE guid=?", arrayOf<Any?>(oldGuid))
+            } else {
+                val sealed = sealSecret(context, newGuid, cur.password, cur.note) ?: return false
+                db.execSQL("UPDATE passwords SET guid=?, secret=?, sync_status=$SYNC_DONE WHERE guid=?", arrayOf<Any?>(newGuid, sealed, oldGuid))
+            }
+            db.execSQL("DELETE FROM passwords_deleted WHERE guid=?", arrayOf<Any?>(oldGuid))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        version++
+        return true
+    }
+
+    /** 退出 Firefox 账号时：全部记录重新变成「待上传」、清空待上传的删除——下一个登录的账号会收到本机现有的密码，而不是沿用上一个账号的同步状态。 */
+    fun resetSyncState(db: SQLiteDatabase) {
+        db.beginTransaction()
+        try {
+            db.execSQL("UPDATE passwords SET sync_status=$SYNC_PENDING")
+            db.execSQL("DELETE FROM passwords_deleted")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        version++
     }
 
     /** 待上传的删除（记录 id）。 */

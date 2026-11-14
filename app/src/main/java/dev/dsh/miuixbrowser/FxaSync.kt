@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Firefox 账户同步页的 UI 状态。 */
@@ -48,6 +49,20 @@ internal object FxaSync {
     var remoteDevices by mutableStateOf<List<RemoteDevice>>(emptyList())
         private set
     fun dismissReceived(t: Incoming) { receivedTabs = receivedTabs - t }
+
+    /** 「已同步的内容」页的分类。 */
+    enum class Category(val label: String) { Bookmarks("书签"), History("历史记录"), Tabs("其他设备的标签页"), Passwords("密码") }
+
+    /** [title] 主文字；[summary] 次级文字（密码只给用户名，绝不含密码）；[url] 非 null 时可点开。 */
+    class SyncedItem(val title: String, val summary: String?, val url: String?)
+
+    /** 某一类已同步内容：[count] 是总条数，[items] 只放前 [MAX_SHOWN] 条用于展示。 */
+    class SyncedGroup(val count: Int, val items: List<SyncedItem>)
+
+    const val MAX_SHOWN = 50
+
+    var synced by mutableStateOf<Map<Category, SyncedGroup>>(emptyMap())
+        private set
 
     /** 登录完成（回调被截获）后回调，主线程。 */
     @Volatile var onRedirectHandled: (() -> Unit)? = null
@@ -146,6 +161,43 @@ internal object FxaSync {
         }
     }
 
+    /** 重新统计各类「已同步」的内容（同步结束、打开页面时调用）。 */
+    fun refreshSynced() {
+        scope.launch {
+            val out = LinkedHashMap<Category, SyncedGroup>()
+            runCatching {
+                val pulled = withContext(Dispatchers.Main) {
+                    FavoritesStore.current?.items.orEmpty().filter { it.group == FxaBookmarkBridge.PULL_ROOT || it.group.startsWith(FxaBookmarkBridge.PULL_ROOT + "/") }
+                }
+                out[Category.Bookmarks] = SyncedGroup(
+                    pulled.size,
+                    pulled.take(MAX_SHOWN).map { SyncedItem(it.name.ifBlank { it.url }, it.group.removePrefix(FxaBookmarkBridge.PULL_ROOT).trim('/').ifEmpty { null }, it.url) },
+                )
+            }
+            runCatching {
+                // 其他设备的访问，按网址去重、最近的在前
+                val visits = FxaApi.remoteVisits(0L)
+                    .filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
+                    .groupBy { it.url }.map { (_, v) -> v.maxByOrNull { it.time }!! }
+                    .sortedByDescending { it.time }
+                out[Category.History] = SyncedGroup(visits.size, visits.take(MAX_SHOWN).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
+            }
+            runCatching {
+                val tabs = FxaApi.remoteTabs().flatMap { it.tabs }
+                out[Category.Tabs] = SyncedGroup(tabs.size, tabs.take(MAX_SHOWN).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
+            }
+            runCatching {
+                // 只列站点和用户名，不解密任何密码
+                val rows = HistoryDb.get(appContext)?.let { PasswordDb.list(it, syncedOnly = true) }.orEmpty()
+                out[Category.Passwords] = SyncedGroup(
+                    rows.size,
+                    rows.take(MAX_SHOWN).map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { "（无用户名）" }, null) },
+                )
+            }
+            synced = out
+        }
+    }
+
     fun sendTab(device: PDevice, title: String, url: String) {
         scope.launch {
             val ok = runCatching { FxaApi.sendTab(device.id, title, url) }.getOrDefault(false)
@@ -159,7 +211,11 @@ internal object FxaSync {
         }
         override fun onAuthenticated() { ui = FxaUi.SignedIn("", null); syncNow() }
         override fun onProfile(email: String, name: String?) { ui = FxaUi.SignedIn(email, name) }
-        override fun onLoggedOut() { ui = FxaUi.SignedOut }
+        override fun onLoggedOut() {
+            ui = FxaUi.SignedOut
+            synced = emptyMap()
+            scope.launch { runCatching { FxaPasswordBridge.onLoggedOut(appContext) } }
+        }
         override fun onProblem() { ui = FxaUi.NeedsReauth((ui as? FxaUi.SignedIn)?.email) }
         override fun onSyncStarted() { syncing = true }
         override fun onSyncIdle() {
@@ -170,12 +226,14 @@ internal object FxaSync {
                 val failed = listOf(
                     "书签" to runCatching { FxaBookmarkBridge.reconcile(appContext) },
                     "历史记录" to runCatching { FxaHistoryBridge.reconcile(appContext) },
+                    "密码" to runCatching { FxaPasswordBridge.reconcile(appContext) },
                 ).filter { it.second.isFailure }
                 if (failed.isNotEmpty()) {
                     lastMessage = "同步完成，但" + failed.joinToString("、") { it.first } + "合并失败：" +
                         (failed.first().second.exceptionOrNull()?.message ?: "未知错误")
                 }
                 refreshDevices()
+                refreshSynced()
             }
         }
         override fun onSyncError(message: String?) { syncing = false; lastMessage = "同步失败：$message" }

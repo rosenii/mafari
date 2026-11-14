@@ -23,6 +23,10 @@ import mozilla.components.browser.storage.sync.TabEntry
 import mozilla.components.concept.base.crash.CrashReporting
 import mozilla.components.concept.storage.BookmarkNode
 import mozilla.components.concept.storage.BookmarkNodeType
+import mozilla.components.concept.storage.Login as MozLogin
+import mozilla.components.concept.storage.LoginEntry as MozLoginEntry
+import mozilla.components.lib.dataprotect.SecureAbove22Preferences
+import mozilla.components.service.sync.logins.SyncableLoginsStorage
 import mozilla.components.concept.storage.PageObservation
 import mozilla.components.concept.storage.PageVisit
 import mozilla.components.concept.storage.RedirectSource
@@ -39,6 +43,25 @@ internal class PDevice(val id: String, val name: String)
 internal class PVisit(val url: String, val title: String, val time: Long)
 internal class RemoteTab(val title: String, val url: String)
 internal class RemoteDevice(val id: String, val tabs: List<RemoteTab>)
+
+/**
+ * Rust logins 库里的一条登录（Firefox 同步的 `passwords` 集合）。与 [PasswordEntry] 的差别：
+ * [formActionOrigin] 为 ""（空串）表示「任意表单」，null 表示这是 HTTP 认证（此时 [httpRealm] 非 null）。时间均为毫秒。
+ */
+internal class PLogin(
+    val guid: String,
+    val origin: String,
+    val formActionOrigin: String?,
+    val httpRealm: String?,
+    val username: String,
+    val password: String,
+    val usernameField: String,
+    val passwordField: String,
+    val timesUsed: Long,
+    val timeCreated: Long,
+    val timeLastUsed: Long,
+    val timePasswordChanged: Long,
+)
 
 /**
  * 全工程【唯一】直接调用 Mozilla android-components 的文件。
@@ -64,6 +87,7 @@ internal object FxaApi {
     private lateinit var bookmarks: PlacesBookmarksStorage
     private lateinit var history: PlacesHistoryStorage
     private lateinit var tabs: RemoteTabsStorage
+    private lateinit var logins: SyncableLoginsStorage
     private var started = false
 
     /** Places 的方法在新版里返回 Result<T>，旧版直接返回 T：统一拆开。 */
@@ -165,10 +189,14 @@ internal object FxaApi {
         bookmarks = PlacesBookmarksStorage(ctx)
         history = PlacesHistoryStorage(ctx)
         tabs = RemoteTabsStorage(ctx, noCrashReporter)
+        // 登录库（Rust）的加密密钥放在 Keystore 保护的偏好里；这里只是 Firefox 同步的中转镜像，
+        // 本机真正的密码仍在 PasswordDb（SQLCipher + 逐条加密），见 FxaPasswordBridge
+        logins = SyncableLoginsStorage(ctx, lazy { SecureAbove22Preferences(ctx, "mafari_fxa_logins", false) })
 
         GlobalSyncableStoreProvider.configureStore(SyncEngine.Bookmarks to lazy { bookmarks })
         GlobalSyncableStoreProvider.configureStore(SyncEngine.History to lazy { history })
         GlobalSyncableStoreProvider.configureStore(SyncEngine.Tabs to lazy { tabs })
+        GlobalSyncableStoreProvider.configureStore(SyncEngine.Passwords to lazy { logins })
 
         manager = FxaAccountManager(
             context = ctx,
@@ -178,7 +206,7 @@ internal object FxaApi {
                 type = DeviceType.MOBILE,
                 capabilities = setOf(DeviceCapability.SEND_TAB),
             ),
-            syncConfig = SyncConfig(setOf(SyncEngine.Bookmarks, SyncEngine.History, SyncEngine.Tabs), periodicSyncConfig = null),
+            syncConfig = SyncConfig(setOf(SyncEngine.Bookmarks, SyncEngine.History, SyncEngine.Tabs, SyncEngine.Passwords), periodicSyncConfig = null),
             applicationScopes = emptySet(),
             crashReporter = null,
         )
@@ -251,6 +279,40 @@ internal object FxaApi {
         unwrap<Any?>(history.recordVisit(url, PageVisit(VisitType.LINK, null)))
         if (title.isNotBlank()) unwrap<Any?>(history.recordObservation(url, PageObservation(title)))
     }
+
+    // ---------------------------------------------------------------- 密码（Rust logins）
+    /** 镜像库里的全部登录（已解密，只在内存里过一下，不落盘、不进日志）。 */
+    suspend fun loginList(): List<PLogin> =
+        unwrap<List<MozLogin>>(logins.list()).map {
+            PLogin(
+                guid = it.guid, origin = it.origin, formActionOrigin = it.formActionOrigin, httpRealm = it.httpRealm,
+                username = it.username, password = it.password,
+                usernameField = it.usernameField, passwordField = it.passwordField,
+                timesUsed = it.timesUsed.toLong(), timeCreated = it.timeCreated.toLong(),
+                timeLastUsed = it.timeLastUsed.toLong(), timePasswordChanged = it.timePasswordChanged.toLong(),
+            )
+        }
+
+    private fun loginEntry(l: PLogin) = MozLoginEntry(
+        origin = l.origin,
+        formActionOrigin = l.formActionOrigin,
+        httpRealm = l.httpRealm,
+        usernameField = l.usernameField,
+        passwordField = l.passwordField,
+        username = l.username,
+        password = l.password,
+    )
+
+    /** 新增（库里已有同站点同用户名的会合并成一条）；返回库里这条的 id——可能与 [l] 的 guid 不同，调用方要换成它。 */
+    suspend fun loginAddOrUpdate(l: PLogin): String = unwrap<MozLogin>(logins.addOrUpdate(loginEntry(l))).guid
+
+    /** 按 id 更新；库里没有这个 id（已被服务器删除）返回 false。 */
+    suspend fun loginUpdate(guid: String, l: PLogin): Boolean = runCatching { unwrap<Any?>(logins.update(guid, loginEntry(l))) }.isSuccess
+
+    suspend fun loginDelete(guid: String) { runCatching { unwrap<Any?>(logins.delete(guid)) } }
+
+    /** 退出账号时清空本地镜像，免得下一个登录的账号把上一个账号的密码同步出去。 */
+    suspend fun loginWipeLocal() { unwrap<Any?>(logins.wipeLocal()) }
 
     // ---------------------------------------------------------------- 标签页 / 发送标签
     suspend fun storeLocalTabs(list: List<Pair<String, String>>) {

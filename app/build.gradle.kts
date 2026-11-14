@@ -90,8 +90,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20022
-        versionName = "v2.1.22"
+        versionCode = 20023
+        versionName = "v2.1.23"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -248,6 +248,9 @@ dependencies {
     val syncLibs = listOf(
         "org.mozilla.components:service-firefox-accounts:$fxaComponentsVersion",
         "org.mozilla.components:browser-storage-sync:$fxaComponentsVersion",
+        // 密码同步：Rust logins 引擎（SyncableLoginsStorage）及其加密密钥存放（SecureAbove22Preferences）
+        "org.mozilla.components:service-sync-logins:$fxaComponentsVersion",
+        "org.mozilla.components:lib-dataprotect:$fxaComponentsVersion",
         // 这些是上面两个库的传递依赖（implementation 不会暴露给本模块的编译 classpath），直接用到其类型，需显式声明
         "org.mozilla.components:concept-base:$fxaComponentsVersion",
         // Rust 层（viaduct）本身没有网络栈：必须注册一个 HTTP 后端，否则取 Firefox 账号服务配置 / 登录地址会直接失败
