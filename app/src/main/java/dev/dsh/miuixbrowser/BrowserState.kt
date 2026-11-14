@@ -2826,13 +2826,19 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
         if (EngineSupport.GECKO_BUNDLED) GeckoExtensionStore.tabHost = this
         current = this
-        // 上次的普通标签（tabs 表）；没有就开一个空白标签。
-        // 「重启恢复标签页」关闭时只在进程冷启动（本进程里第一个实例）跳过恢复；
-        // 界面重建（同一进程里再建实例）仍要恢复，否则使用中会凭空丢标签。
+        // 上次的普通标签（tabs 表）一律先恢复回来（页面不加载，见 restoreSavedTabs）；没有就开一个空白标签。
+        // 「重启恢复标签页」关闭时，只在进程冷启动（本进程里第一个实例）改成「落在一个空白标签上」：
+        // 之前打开的标签页仍然保留在标签列表里，只是启动后当前显示的是空白标签（已有空白标签就直接用它，不重复新建）。
+        // 界面重建（同一进程里再建实例）不受影响，仍回到最近用的标签。
         val coldStart = !instanceCreated
         instanceCreated = true
-        val restore = !coldStart || AppSettings(context).restoreTabs
-        if (!(restore && restoreSavedTabs())) newTab()
+        val landOnBlank = coldStart && !AppSettings(context).restoreTabs
+        if (!restoreSavedTabs(activateLast = !landOnBlank)) {
+            newTab()
+        } else if (landOnBlank) {
+            val blank = tabs.indexOfFirst { !it.incognito && it.persistedPageUrl.isBlank() }
+            if (blank >= 0) activate(blank) else newTab(opener = null)
+        }
         if (EngineSupport.GECKO_BUNDLED) mainHandler.postDelayed(reclaimTick, RECLAIM_INTERVAL_MS)
     }
 
@@ -2873,7 +2879,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
      * 从 tabs 表恢复上次的普通标签：只建标签对象，页面不加载；回到最近用过的那个标签并只加载它，
      * 其余标签在被切到前台时才加载（见 [BrowserTab.wakeIfPending]）。没有可恢复的返回 false。
      */
-    private fun restoreSavedTabs(): Boolean {
+    private fun restoreSavedTabs(activateLast: Boolean = true): Boolean {
         val db = HistoryDb.get(context) ?: return false
         val rows = runCatching { TabDb.load(db) }
             .onFailure { Diag.log("tabs: load failed: ${it.message}") }
@@ -2898,8 +2904,11 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
             tab.openerId = byKey[row.openerKey]?.id ?: -1
         }
         tabs.sortedBy { it.lastUsedAt }.forEach { recentIds.add(it.id) }
-        val last = tabs.maxByOrNull { it.lastUsedAt } ?: tabs.last()
-        activate(tabs.indexOf(last).coerceAtLeast(0))
+        // [activateLast] 为 false（关闭「重启恢复标签页」）时不切到最近的标签，免得白白加载一遍它的页面；由调用方落到空白标签
+        if (activateLast) {
+            val last = tabs.maxByOrNull { it.lastUsedAt } ?: tabs.last()
+            activate(tabs.indexOf(last).coerceAtLeast(0))
+        }
         Diag.log("tabs: restored ${tabs.size} tabs")
         return true
     }

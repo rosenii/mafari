@@ -291,7 +291,7 @@ fun SettingsScreen(
                 ) {
                     AppSwitchPreference(
                         title = "重启恢复标签页",
-                        summary = "重新打开应用时恢复上次未关闭的标签页；关闭后启动只打开一个空白标签页",
+                        summary = "重新打开应用时直接回到上次浏览的标签页；关闭后启动停在一个空白标签页，之前打开的标签页仍保留在标签列表里",
                         checked = settings.restoreTabs,
                         onCheckedChange = { settings.updateRestoreTabs(it) },
                     )
