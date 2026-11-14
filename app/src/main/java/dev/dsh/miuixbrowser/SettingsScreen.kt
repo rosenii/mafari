@@ -881,7 +881,7 @@ fun SettingsScreen(
                         PermDropdown(
                             "自动播放", GeckoSitePerms.autoplay,
                             listOf("允许音频和视频", "仅阻止音频", "阻止音频和视频"),
-                            { GeckoSitePerms.setAutoplay(it) }, permBackdrop, popupVisuals,
+                            { GeckoSitePerms.updateAutoplay(it) }, permBackdrop, popupVisuals,
                         )
                         PermDropdown("摄像头", settings.cameraPermission, permOptions, settings::updateCameraPermission, permBackdrop, popupVisuals)
                         PermDropdown("位置", settings.locationPermission, permOptions, settings::updateLocationPermission, permBackdrop, popupVisuals)

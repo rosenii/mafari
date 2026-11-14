@@ -90,7 +90,7 @@ object GeckoSitePerms {
         prefs?.edit()?.putInt("mode_$key", v)?.apply()
     }
 
-    fun setAutoplay(value: Int) {
+    fun updateAutoplay(value: Int) {
         autoplay = value.coerceIn(0, 2)
         prefs?.edit()?.putInt("autoplay", autoplay)?.apply()
         pushAutoplay()
