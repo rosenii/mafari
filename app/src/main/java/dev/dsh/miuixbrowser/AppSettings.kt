@@ -161,15 +161,8 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_HOME_GROUP_ROWS, homeGroupRows).apply()
     }
 
-    /** 首页「书签分组」里已添加的文件夹 id（按显示顺序）。存 id 而不是路径：文件夹改名 / 搬家后 id 不变。 */
-    var homeGroupIds by mutableStateOf(parseHomeGroupIds(prefs.getString(KEY_HOME_GROUP_IDS, null)))
-        private set
-
-    fun updateHomeGroupIds(ids: List<String>) {
-        val fixed = ids.distinct().take(HOME_GROUP_COLS * HOME_GROUP_ROWS_MAX)
-        homeGroupIds = fixed
-        prefs.edit().putString(KEY_HOME_GROUP_IDS, fixed.joinToString(",")).apply()
-    }
+    // 首页「书签分组」里已添加的文件夹 id、点开分组弹窗的排列方式：现在存在加密库 history.db 里（见 FavoritesStore / BookmarkDb），
+    // 随「书签」类别备份；旧版放在这里的 home_group_ids 由 FavoritesStore 启动时一次性导入。
 
     /** 首页内容块的显示顺序（含隐藏项的位置），长按拖动后持久化。 */
     var homeOrder by mutableStateOf(parseHomeOrder(prefs.getString(KEY_HOME_ORDER, null)))
@@ -179,6 +172,15 @@ class AppSettings(context: Context) {
         val fixed = parseHomeOrder(order.joinToString(","))
         homeOrder = fixed
         prefs.edit().putString(KEY_HOME_ORDER, fixed.joinToString(",")).apply()
+    }
+
+    /** 首页只剩一张卡片可见时，是否把它固定在底部（长按卡片标题行往下 / 往上拖动切换）。 */
+    var homePinBottom by mutableStateOf(prefs.getBoolean(KEY_HOME_PIN_BOTTOM, false))
+        private set
+
+    fun updateHomePinBottom(pin: Boolean) {
+        homePinBottom = pin
+        prefs.edit().putBoolean(KEY_HOME_PIN_BOTTOM, pin).apply()
     }
 
     fun isHomeShown(kind: Int): Boolean = when (kind) {
@@ -701,8 +703,8 @@ class AppSettings(context: Context) {
         const val KEY_HOME_DOWNLOADS = "home_show_downloads"
         const val KEY_HOME_GROUPS = "home_show_groups"
         const val KEY_HOME_GROUP_ROWS = "home_group_rows"
-        const val KEY_HOME_GROUP_IDS = "home_group_ids"
         const val KEY_HOME_ORDER = "home_order"
+        const val KEY_HOME_PIN_BOTTOM = "home_pin_bottom"
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"
         const val KEY_RESTORE_TABS = "restore_tabs_on_launch"
         const val KEY_APP_ICON = "app_icon"

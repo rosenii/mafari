@@ -227,6 +227,8 @@ internal class HomeReorderState {
     var offset by mutableFloatStateOf(0f)
     var live by mutableStateOf<List<Int>>(emptyList())
     var suppressClick = false
+    /** 刚切换了「固定到底部」：下一次布局时让卡片从原来的位置平滑滑到新位置。 */
+    var pinShiftPending = false
     /** 长按过首页卡片后进入的编辑态：卡片右上角显示 ×，点空白处 / 任意卡片退出。 */
     var homeEditing by mutableStateOf(false)
     var colWindowTop = 0f
@@ -312,14 +314,18 @@ internal fun Modifier.homeReorderHandle(
     visible: List<Int>,
     gapPx: Float,
     onCommit: (List<Int>) -> Unit,
+    /** 松手时回调这次拖动的净位移（px，向下为正）；只剩一张卡片时用来判断是否固定到底部。 */
+    onDrop: (Float) -> Unit = {},
 ): Modifier {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val visibleNow by rememberUpdatedState(visible)
     val commit by rememberUpdatedState(onCommit)
+    val dropNow by rememberUpdatedState(onDrop)
     val finish = {
         if (st.dragging == kind) {
             val anim = st.animFor(kind)
+            val net = st.offset
             commit(st.live)
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 anim.snapTo(st.offset)
@@ -331,6 +337,7 @@ internal fun Modifier.homeReorderHandle(
                 delay(250)
                 st.suppressClick = false
             }
+            dropNow(net)
         }
     }
     return this.pointerInput(kind) {
@@ -406,9 +413,13 @@ internal fun StartPage(
     onGroupRemove: (Int) -> Unit = {},
     onGroupMove: (Int, Int) -> Unit = { _, _ -> },
     onGroupAdd: () -> Unit = {},
+    /** 只剩一张卡片可见时是否固定在底部；长按拖动该卡片往下 / 往上切换。 */
+    pinBottom: Boolean = false,
+    onPinBottomChange: (Boolean) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val gapPx = with(density) { 14.dp.toPx() }
+    val pinScope = rememberCoroutineScope()
     val hasWallpaper = wallpaper != null
     val st = remember { HomeReorderState() }
     val visibleKinds = order.filter {
@@ -422,6 +433,23 @@ internal fun StartPage(
     }
     val shown = if (st.dragging >= 0) st.live else visibleKinds
     val commit: (List<Int>) -> Unit = { onReorder(mergeHomeOrder(order, it)) }
+    // 只剩一张卡片可见且设为固定：卡片贴底（LOGO 仍在顶部）
+    val pinned = pinBottom && visibleKinds.size == 1
+    // 只剩一张卡片时，松手前净位移超过阈值：往下拖 = 固定到底部，往上拖 = 取消固定
+    val pinThresholdPx = with(density) { 48.dp.toPx() }
+    val onDrop: (Float) -> Unit = { net ->
+        if (visibleKinds.size == 1) {
+            val target = when {
+                !pinned && net > pinThresholdPx -> true
+                pinned && net < -pinThresholdPx -> false
+                else -> pinBottom
+            }
+            if (target != pinBottom) {
+                st.pinShiftPending = true
+                onPinBottomChange(target)
+            }
+        }
+    }
     // 长按拖动结束后的短时间内忽略点击，避免松手触发卡片 / 条目的点击
     // 编辑态下的点击只用来退出编辑
     val guard: (() -> Unit) -> (() -> Unit) = { f ->
@@ -477,28 +505,52 @@ internal fun StartPage(
                 .padding(horizontal = 20.dp)
                 // 底栏在上方时（浮在状态栏下 ≈ 70dp）顶部让位，底部不用再留底栏的空间
                 .padding(top = if (barOnTop) 114.dp else 44.dp, bottom = if (barOnTop) 40.dp else 150.dp),
+            // 外层 Column 的最小高度 = 视口高度（fillMaxSize + verticalScroll），所以固定时用排列方式把卡片推到底部
+            verticalArrangement = when {
+                !pinned -> Arrangement.Top
+                showLogo -> Arrangement.SpaceBetween
+                else -> Arrangement.Bottom
+            },
         ) {
             if (showLogo) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    GlassLogoText("Mafari", fontSize = 58, wallpaper = wallpaper)
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        GlassLogoText("Mafari", fontSize = 58, wallpaper = wallpaper)
+                    }
+                    Spacer(Modifier.height(30.dp))
                 }
-                Spacer(Modifier.height(30.dp))
             }
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .onGloballyPositioned { st.colWindowTop = it.positionInWindow().y },
+                    .onGloballyPositioned {
+                        val newTop = it.positionInWindow().y
+                        val prevTop = st.colWindowTop
+                        st.colWindowTop = newTop
+                        if (st.pinShiftPending) {
+                            st.pinShiftPending = false
+                            // 固定 / 取消固定后卡片的布局位置变了：从原来的视觉位置平滑滑过去，而不是瞬移
+                            val only = visibleKinds.firstOrNull()
+                            if (only != null && st.dragging < 0) {
+                                val anim = st.animFor(only)
+                                pinScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                    anim.snapTo(anim.value + prevTop - newTop)
+                                    anim.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                }
+                            }
+                        }
+                    },
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 shown.forEach { kind ->
                     key(kind) {
                         val itemMod = Modifier.homeReorderItem(kind, st)
-                        val handle = Modifier.homeReorderHandle(kind, st, visibleKinds, gapPx, commit)
+                        val handle = Modifier.homeReorderHandle(kind, st, visibleKinds, gapPx, commit, onDrop)
                         when (kind) {
                             HOME_FAVORITES -> FavoritesBlock(
                                 modifier = itemMod,
@@ -1439,12 +1491,36 @@ internal fun GroupsBlock(
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             onAdd()
         })
+        val editingNow by rememberUpdatedState(editing)
+        val onToggleEditNow by rememberUpdatedState(onToggleEdit)
         // 整块一张大卡片：只在这里做一次玻璃（复用页面已有的壁纸模糊缓存采样），里面的磁贴只画半透明实色，不再各自开模糊层
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop, radius = GROUP_CARD_RADIUS),
         ) {
+        // 垫在最底层的「空白感应层」：磁贴、添加按钮在它上面各自处理手势，只有落在大卡片空白处（边距、磁贴间隙、空格子）
+        // 的长按才会到这里，进入编辑态（与长按磁贴等效）；不消费按下事件，不影响页面滚动。
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        // 超时仍没抬起 / 没被别人（滚动）接管 = 长按；提前抬起或被取消直接结束
+                        val finishedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                            waitForUpOrCancellation()
+                            true
+                        }
+                        if (finishedEarly == null) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            if (!editingNow) onToggleEditNow()
+                            // 等手指抬起，免得同一次按压重复触发
+                            waitForUpOrCancellation()
+                        }
+                    }
+                },
+        )
         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = GROUP_CARD_PADDING_H, vertical = GROUP_CARD_PADDING_V)) {
         ReorderTileGrid(
             items = shown,
@@ -1898,14 +1974,15 @@ internal fun BoxScope.GroupBookmarkPopup(
     rootPath: String,
     anchorBounds: Rect,
     favorites: FavoritesStore,
+    /** 排列方式：false 竖排（默认），true 横排（图标在上标题在下）。由上层持久化，重启后保持。 */
+    gridMode: Boolean,
+    onGridModeChange: (Boolean) -> Unit,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     onDismiss: () -> Unit,
     onOpenUrl: (String) -> Unit,
 ) {
     // 每次重新弹出都回到分组根；窗口里的层级只在窗口内部记录
     var path by remember(rootPath, show) { mutableStateOf(rootPath) }
-    // 排列方式：默认竖排，点标题行右侧的图标切到横排（图标在上标题在下）
-    var gridMode by remember { mutableStateOf(false) }
     val screenWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     // 弹窗宿主 Box 自己的位置和宽度：锚点（根坐标）换算成宿主内坐标，页宽取宿主的真实宽度，
     // 这样宿主不是整屏 / 不在根原点时也不会错位
@@ -1933,7 +2010,7 @@ internal fun BoxScope.GroupBookmarkPopup(
             trailing = "${folders.size + marks.size} 项",
             isEmpty = folders.isEmpty() && marks.isEmpty(),
             emptyText = "这个分组还没有书签",
-            headerAction = { GroupLayoutToggle(showGridIcon = !gridMode, onClick = { gridMode = !gridMode }) },
+            headerAction = { GroupLayoutToggle(showGridIcon = !gridMode, onClick = { onGridModeChange(!gridMode) }) },
             body = { bodyModifier ->
                 if (gridMode) {
                     // 横排：每行放几个按弹窗宽度自适应（约 248dp 宽 3 个，收窄后 2~3 个）

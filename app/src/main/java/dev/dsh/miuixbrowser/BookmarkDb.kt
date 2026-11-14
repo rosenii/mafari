@@ -38,6 +38,70 @@ internal object BookmarkDb {
 
     class Loaded(val items: List<Favorite>, val changed: Boolean)
 
+    /**
+     * 首页「书签分组」的配置：已添加的文件夹 id（按显示顺序）+ 点开分组弹窗时的排列方式（[grid] = true 为横排）。
+     * 存在 bookmark_meta 里（不新增表、不用迁移）；文件夹 id 来自 bookmark_folders，所以和书签一起备份 / 恢复。
+     */
+    class HomeGroupConfig(val ids: List<String>, val grid: Boolean)
+
+    private const val META_HOME_GROUP_IDS = "home_group_ids"
+    private const val META_HOME_GROUP_GRID = "home_group_grid"
+
+    /** 读首页书签分组配置；库里还没存过返回 null。 */
+    fun loadHomeGroups(db: SQLiteDatabase): HomeGroupConfig? {
+        var ids: String? = null
+        var grid: String? = null
+        db.rawQuery(
+            "SELECT k,v FROM bookmark_meta WHERE k IN ('$META_HOME_GROUP_IDS','$META_HOME_GROUP_GRID')",
+            emptyArray<String>(),
+        ).use { c ->
+            while (c.moveToNext()) {
+                when (c.getString(0)) {
+                    META_HOME_GROUP_IDS -> ids = c.getString(1)
+                    META_HOME_GROUP_GRID -> grid = c.getString(1)
+                }
+            }
+        }
+        if (ids == null && grid == null) return null
+        return HomeGroupConfig(parseHomeGroupIds(ids), grid == "1")
+    }
+
+    /** 写首页书签分组配置（单事务，两个键一起生效）。 */
+    fun saveHomeGroups(db: SQLiteDatabase, config: HomeGroupConfig) = inTransaction(db) {
+        db.execSQL(
+            "INSERT OR REPLACE INTO bookmark_meta(k,v) VALUES(?,?)",
+            arrayOf<Any?>(META_HOME_GROUP_IDS, config.ids.joinToString(",")),
+        )
+        db.execSQL(
+            "INSERT OR REPLACE INTO bookmark_meta(k,v) VALUES(?,?)",
+            arrayOf<Any?>(META_HOME_GROUP_GRID, if (config.grid) "1" else "0"),
+        )
+    }
+
+    /** 备份用：首页书签分组配置的 JSON（界面里最新的那份优先，没有再读库；都没有返回 null）。 */
+    fun exportHomeGroups(context: Context): String? {
+        runCatching { FavoritesStore.current?.homeGroupsJson() }.getOrNull()?.let { return it }
+        val db = HistoryDb.get(context) ?: return null
+        return runCatching { loadHomeGroups(db)?.let { homeGroupsToJson(it) } }.getOrNull()
+    }
+
+    fun homeGroupsToJson(config: HomeGroupConfig): String =
+        JSONObject().put("ids", JSONArray(config.ids)).put("grid", config.grid).toString()
+
+    /** 解析备份里的首页书签分组配置；格式不对抛异常。 */
+    fun parseHomeGroups(raw: String): HomeGroupConfig {
+        val o = JSONObject(raw)
+        val arr = o.optJSONArray("ids")
+        val ids = ArrayList<String>()
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val id = arr.optString(i)
+                if (id.isNotBlank() && id !in ids) ids.add(id)
+            }
+        }
+        return HomeGroupConfig(ids, o.optBoolean("grid", false))
+    }
+
     fun isInitialized(db: SQLiteDatabase): Boolean =
         db.rawQuery("SELECT 1 FROM bookmark_meta WHERE k='initialized'", emptyArray<String>()).use { it.moveToFirst() }
 

@@ -305,7 +305,7 @@ fun BrowserScreen(
     // 读 folderRev / items 让文件夹改名、删除、书签增减时自动重组
     val homeGroups = run {
         favorites.folderRev
-        settings.homeGroupIds.mapNotNull { id ->
+        favorites.homeGroupIds.mapNotNull { id ->
             favorites.folderPath(id)?.let { path ->
                 HomeGroup(id, path, favorites.itemsInTree(path).take(4).map { it.url })
             }
@@ -1324,16 +1324,18 @@ fun BrowserScreen(
                         onGroupToggleEdit = { groupEditing = !groupEditing },
                         // 写回时只保留还存在的分组（顺带清掉已失效的 id）
                         onGroupRemove = { pos ->
-                            settings.updateHomeGroupIds(homeGroups.filterIndexed { i, _ -> i != pos }.map { it.id })
+                            favorites.updateHomeGroupIds(homeGroups.filterIndexed { i, _ -> i != pos }.map { it.id })
                         },
                         onGroupMove = { from, to ->
                             val ids = homeGroups.map { it.id }.toMutableList()
                             if (from in ids.indices && to in ids.indices) {
                                 ids.add(to, ids.removeAt(from))
-                                settings.updateHomeGroupIds(ids)
+                                favorites.updateHomeGroupIds(ids)
                             }
                         },
                         onGroupAdd = { showGroupPicker = true },
+                        pinBottom = settings.homePinBottom,
+                        onPinBottomChange = { settings.updateHomePinBottom(it) },
                     )
                 }
             }
@@ -2627,6 +2629,9 @@ fun BrowserScreen(
             rootPath = groupPopupPath,
             anchorBounds = groupPopupAnchor,
             favorites = favorites,
+            // 排列方式存在加密库里：切换后立即落盘，重启后保持
+            gridMode = favorites.groupPopupGrid,
+            onGridModeChange = { favorites.updateGroupPopupGrid(it) },
             backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
             onDismiss = { showGroupPopup = false },
             onOpenUrl = { url ->
@@ -2644,7 +2649,7 @@ fun BrowserScreen(
             onPick = { path ->
                 // 登记（已登记则返回原 id）拿到稳定 id，追加到末尾
                 val id = favorites.registerFolder(path)
-                settings.updateHomeGroupIds(homeGroups.map { it.id } + id)
+                favorites.updateHomeGroupIds(homeGroups.map { it.id } + id)
                 showGroupPicker = false
             },
         )

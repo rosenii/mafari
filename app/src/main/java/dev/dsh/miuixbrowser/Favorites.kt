@@ -7,6 +7,7 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.json.JSONArray
 import net.zetetic.database.sqlcipher.SQLiteDatabase
@@ -56,6 +57,7 @@ class FavoritesStore(context: Context) {
     private val main = Handler(Looper.getMainLooper())
     private var dirtyBookmarks = false
     private var dirtyFolders = false
+    private var dirtyHomeGroups = false
     private var firstDirtyAt = 0L
     private val flushTask = Runnable { flush() }
 
@@ -67,9 +69,18 @@ class FavoritesStore(context: Context) {
     private val folderOrder = mutableListOf<String>()
     private val folderIdByPath = HashMap<String, String>()
 
+    /** 首页「书签分组」已添加的文件夹 id（按显示顺序）。存 id 而不是路径：文件夹改名 / 搬家后 id 不变。 */
+    var homeGroupIds by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    /** 书签分组弹窗的排列方式：false 竖排（默认），true 横排。 */
+    var groupPopupGrid by mutableStateOf(false)
+        private set
+
     init {
         current = this
         loadFolders()
+        loadHomeGroups()
         if (needsPersist) persist()
         if (!useDb) {
             // 旧版本的明文书签 / 旧算法套件的密文：读得出来就立即以当前套件重新加密一次（读不出来绝不覆盖）
@@ -168,6 +179,80 @@ class FavoritesStore(context: Context) {
         val stored = prefs.getString(KEY_FOLDERS, null) ?: return emptyList()
         val raw = SecureStore.read(appContext, stored, PURPOSE) ?: return emptyList()
         return runCatching { BookmarkDb.parseFolders(raw) }.getOrDefault(emptyList())
+    }
+
+    /**
+     * 首页书签分组配置（id 顺序 + 弹窗排列方式）存在加密库 bookmark_meta 里。
+     * 旧存储优先：备份恢复写回的「mafari」里的 home_groups，或旧版本放在应用设置里的 home_group_ids（升级 / 旧备份）；
+     * 导入加密库成功后才删旧值（写库失败就留着，下次启动再导）。加密库不可用时一直用 home_groups 这个旧键。
+     */
+    private fun loadHomeGroups() {
+        val database = db
+        val legacy = readLegacyHomeGroups()
+        if (legacy != null) {
+            homeGroupIds = legacy.ids
+            groupPopupGrid = legacy.grid
+            if (useDb && database != null) {
+                val ok = runCatching { BookmarkDb.saveHomeGroups(database, legacy) }
+                    .onFailure { Diag.log("bookmarks: import home groups failed: ${it.message}") }
+                    .isSuccess
+                if (ok) removeLegacyHomeGroups()
+            }
+            return
+        }
+        if (useDb && database != null) {
+            runCatching { BookmarkDb.loadHomeGroups(database) }
+                .onFailure { Diag.log("bookmarks: load home groups failed: ${it.message}") }
+                .getOrNull()
+                ?.let {
+                    homeGroupIds = it.ids
+                    groupPopupGrid = it.grid
+                }
+        }
+    }
+
+    private fun readLegacyHomeGroups(): BookmarkDb.HomeGroupConfig? {
+        prefs.getString(KEY_HOME_GROUPS, null)?.let { raw ->
+            runCatching { BookmarkDb.parseHomeGroups(raw) }.getOrNull()?.let { return it }
+        }
+        val ids = appContext.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
+            .getString(LEGACY_SETTINGS_HOME_GROUP_IDS, null) ?: return null
+        return BookmarkDb.HomeGroupConfig(parseHomeGroupIds(ids), false)
+    }
+
+    private fun removeLegacyHomeGroups() {
+        prefs.edit().remove(KEY_HOME_GROUPS).commit()
+        appContext.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
+            .edit().remove(LEGACY_SETTINGS_HOME_GROUP_IDS).commit()
+    }
+
+    private fun homeGroupConfig(): BookmarkDb.HomeGroupConfig = BookmarkDb.HomeGroupConfig(homeGroupIds, groupPopupGrid)
+
+    /** 备份用：当前首页书签分组配置的 JSON。 */
+    fun homeGroupsJson(): String = BookmarkDb.homeGroupsToJson(homeGroupConfig())
+
+    /** 更新首页书签分组的文件夹 id（按显示顺序）。 */
+    fun updateHomeGroupIds(ids: List<String>) {
+        val fixed = ids.distinct().take(HOME_GROUP_COLS * HOME_GROUP_ROWS_MAX)
+        if (fixed == homeGroupIds) return
+        homeGroupIds = fixed
+        persistHomeGroups()
+    }
+
+    /** 更新书签分组弹窗的排列方式（立即生效并落盘，重启后保持）。 */
+    fun updateGroupPopupGrid(grid: Boolean) {
+        if (groupPopupGrid == grid) return
+        groupPopupGrid = grid
+        persistHomeGroups()
+    }
+
+    private fun persistHomeGroups() {
+        if (useDb) {
+            dirtyHomeGroups = true
+            armFlush()
+            return
+        }
+        prefs.edit().putString(KEY_HOME_GROUPS, homeGroupsJson()).apply()
     }
 
     private fun persistFolders() {
@@ -604,6 +689,11 @@ class FavoritesStore(context: Context) {
     /** 标记有改动待写库：安静 [SAVE_DEBOUNCE_MS] 后写；一直有改动则最迟 [SAVE_MAX_WAIT_MS] 写一次。主线程。 */
     private fun scheduleSave(bookmarks: Boolean) {
         if (bookmarks) dirtyBookmarks = true else dirtyFolders = true
+        armFlush()
+    }
+
+    /** 已有待写改动时安排一次延迟写库（防抖 + 最长等待）。主线程。 */
+    private fun armFlush() {
         val now = SystemClock.uptimeMillis()
         if (firstDirtyAt == 0L) firstDirtyAt = now
         main.removeCallbacks(flushTask)
@@ -621,14 +711,20 @@ class FavoritesStore(context: Context) {
         if (!useDb || database == null) return
         val bookmarkSnapshot = if (dirtyBookmarks) items.toList() else null
         val folderSnapshot = if (dirtyFolders) folderSnapshot() else null
+        val homeGroupSnapshot = if (dirtyHomeGroups) homeGroupConfig() else null
         dirtyBookmarks = false
         dirtyFolders = false
-        if (bookmarkSnapshot == null && folderSnapshot == null) return
+        dirtyHomeGroups = false
+        if (bookmarkSnapshot == null && folderSnapshot == null && homeGroupSnapshot == null) return
         HistoryDb.io.execute {
             runCatching {
                 bookmarkSnapshot?.let { BookmarkDb.saveBookmarks(database, it) }
                 folderSnapshot?.let { BookmarkDb.saveFolders(database, it) }
             }.onFailure { Diag.log("bookmarks: save failed: ${it.message}") }
+            homeGroupSnapshot?.let {
+                runCatching { BookmarkDb.saveHomeGroups(database, it) }
+                    .onFailure { e -> Diag.log("bookmarks: save home groups failed: ${e.message}") }
+            }
         }
     }
 
@@ -674,6 +770,11 @@ class FavoritesStore(context: Context) {
         private const val SAVE_MAX_WAIT_MS = 2_000L
 
         private const val KEY_FOLDERS = "favorites_folders"
+        /** 首页书签分组配置的旧存储键（备份恢复写回 / 加密库不可用时使用），明文 JSON，见 [BookmarkDb.homeGroupsToJson]。 */
+        private const val KEY_HOME_GROUPS = "home_groups"
+        /** 旧版本把首页分组 id 放在应用设置里的位置（升级 / 旧备份时一次性导入加密库） */
+        private const val SETTINGS_PREFS = "mafari_settings"
+        private const val LEGACY_SETTINGS_HOME_GROUP_IDS = "home_group_ids"
         private const val KEY = "favorites"
         /** 加密上下文（进 AAD）：密文只能在这个用途下解开 */
         private const val PURPOSE = SecureStore.PURPOSE_FAVORITES

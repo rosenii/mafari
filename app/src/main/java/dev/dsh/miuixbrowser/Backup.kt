@@ -316,7 +316,8 @@ object BackupManager {
         if (EngineSupport.GECKO_BUNDLED && EngineSupport.defaultIsGecko(context)) COOKIE_ENGINE_GECKO else COOKIE_ENGINE_WEBVIEW
 
     /** 「mafari」里属于书签的键；其余键算应用设置 */
-    private val BOOKMARK_KEYS = setOf("favorites", "favorites_folders")
+    // home_groups：首页「书签分组」配置（文件夹 id 顺序 + 弹窗排列方式）。id 指向文件夹注册表，所以和书签同一类别、同进同出
+    private val BOOKMARK_KEYS = setOf("favorites", "favorites_folders", "home_groups")
 
     /** 数据实际存在数据库里的键：备份时从数据库导出，不读 SharedPreferences（迁移后那里是空的） */
     private val DB_BACKED = setOf(
@@ -425,6 +426,7 @@ object BackupManager {
                 if (jsonArrayLength(favorites) > 0) {
                     add("mafari", "favorites", text(favorites), BackupCategory.BOOKMARKS)
                     add("mafari", "favorites_folders", text(folders), BackupCategory.BOOKMARKS)
+                    BookmarkDb.exportHomeGroups(app)?.let { add("mafari", "home_groups", text(it), BackupCategory.BOOKMARKS) }
                 }
             }
         }
