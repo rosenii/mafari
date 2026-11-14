@@ -1636,7 +1636,26 @@ class BrowserTab(
     var geckoFullscreen by mutableStateOf(false)
         private set
 
-    internal fun geckoExternalBlocked() = notifyRedirectBlocked(true, "")
+    /**
+     * Gecko 版：页面无手势自动唤起其他应用（intent:// weixin:// 等），套用「网页重定向」权限，
+     * 规则与 [interceptRedirect]（external = true）一致：空白页 / 首次加载上的唤起不算；总是允许 → 直接唤起；
+     * 总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起。当前页面始终原地不动。
+     */
+    internal fun geckoExternalRequest(uri: Uri) {
+        val from = pageHost
+        if (from.isEmpty() || redirectMode == 1) {
+            launchExternalApp(uri)
+            return
+        }
+        if (redirectMode == 2) {
+            notifyRedirectBlocked(true, "")
+            return
+        }
+        if (redirectPromptPending) return
+        askRedirect(from, "打开其他应用") { allow ->
+            if (allow) launchExternalApp(uri) else notifyRedirectBlocked(true, "")
+        }
+    }
 
     internal fun geckoCloseRequest() {
         onRequestClose?.invoke()

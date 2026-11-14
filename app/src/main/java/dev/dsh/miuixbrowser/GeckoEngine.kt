@@ -615,12 +615,13 @@ class GeckoTabEngine(
                     }
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW)
                 }
-                // weixin:// alipays:// intent:// 等：交给系统。页面自己无手势地唤起其他应用一律拦截
-                val direct = SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
+                // weixin:// alipays:// intent:// 等：交给系统。有用户手势 / 地址栏输入直接唤起；
+                // 页面自己无手势地唤起其他应用，按「网页重定向」权限处理（询问 / 总是允许 / 总是拒绝，与 WebView 一致）
+                val direct = request.isDirectNavigation || SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
                 if (request.hasUserGesture || direct) {
                     tab.geckoLaunchExternal(Uri.parse(target))
                 } else {
-                    tab.geckoExternalBlocked()
+                    tab.geckoExternalRequest(Uri.parse(target))
                 }
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
