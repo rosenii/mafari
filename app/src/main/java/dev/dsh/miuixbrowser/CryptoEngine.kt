@@ -370,6 +370,9 @@ object SecureStore {
     const val PURPOSE_BACKUP_PASSWORD = "mafari.backup.defaultpassword"
     const val PURPOSE_GECKO_COOKIES = "mafari.backup.geckocookies"
 
+    /** 密码库每条记录的上下文前缀，后面接记录 id（见 PasswordDb.purposeOf）。 */
+    const val PURPOSE_PASSWORD_ITEM = "mafari.password.item."
+
     fun isLegacyPlaintext(raw: String) = !EncryptionEngine.isEncryptedString(raw)
 
     /** 旧版明文，或用旧套件 / 旧信封版本加密的，需要在下次保存时重新加密。 */

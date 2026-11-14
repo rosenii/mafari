@@ -235,6 +235,8 @@ dependencies {
     implementation("org.mozilla.components:support-ktx:$fxaComponentsVersion")
     implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     testImplementation("junit:junit:4.13.2")
+    // 纯 JVM 单元测试里 android.jar 的 org.json 只是桩：密码同步记录格式的测试需要真实实现
+    testImplementation("org.json:json:20240303")
     // 历史记录：SQLCipher 加密数据库（HistoryDb，整库 AES-256）；androidx.sqlite 是它的接口依赖
     implementation("net.zetetic:sqlcipher-android:$sqlcipherVersion@aar")
     implementation("androidx.sqlite:sqlite:$sqliteVersion")

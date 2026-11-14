@@ -98,6 +98,7 @@ fun SettingsScreen(
     onOpenAdBlock: () -> Unit,
     onOpenPrivacyEnhance: () -> Unit,
     onOpenCookies: () -> Unit = {},
+    onOpenPasswords: () -> Unit = {},
     onOpenBookmarks: () -> Unit,
     onOpenBackup: () -> Unit = {},
     onOpenAbout: () -> Unit,
@@ -122,6 +123,11 @@ fun SettingsScreen(
         }
         owner?.lifecycle?.addObserver(observer)
         onDispose { owner?.lifecycle?.removeObserver(observer) }
+    }
+    // 「密码」行的摘要：已保存条数（只数行数，不解密）；从密码页返回时重新统计
+    var passwordCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(PasswordDb.version) {
+        passwordCount = withContext(Dispatchers.IO) { HistoryDb.get(context)?.let { PasswordDb.count(it) } }
     }
     var showUa by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
@@ -331,6 +337,11 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
+                    SettingsRow(
+                        title = "密码",
+                        summary = passwordSummary(passwordCount),
+                        onClick = onOpenPasswords,
+                    )
                     SettingsRow(
                         title = "Cookie 管理",
                         summary = COOKIE_MODE_NAMES[settings.cookieMode.coerceIn(0, 3)] +
@@ -1151,6 +1162,9 @@ internal fun webViewVersion(): String? {
         runCatching { WebViewCompat.getCurrentWebViewPackage(context)?.versionName }.getOrNull()
     }
 }
+
+private fun passwordSummary(count: Int?): String =
+    (if (count != null && count > 0) "已保存 $count 个 · " else "") + "CSV 导入 · 加密存储 · 自动填充"
 
 private fun uaSummary(ua: String): String = when {
     ua.isBlank() -> "跟随系统"

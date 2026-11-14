@@ -2692,6 +2692,7 @@ fun BrowserScreen(
             onOpenGeckoDebug = { pushPage(AppRoute.GeckoDebugPage) },
             onOpenAdBlock = { pushPage(AppRoute.AdBlockPage) },
             onOpenCookies = { pushPage(AppRoute.CookiePage) },
+            onOpenPasswords = { pushPage(AppRoute.PasswordPage) },
             onOpenPrivacyEnhance = { pushPage(AppRoute.PrivacyEnhancePage) },
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
             onOpenBackup = { pushPage(AppRoute.BackupPage) },
@@ -2740,6 +2741,12 @@ fun BrowserScreen(
         CookieScreen(
             settings = settings,
             currentUrl = tab.url,
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.PasswordPage> {
+        PasswordScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )
