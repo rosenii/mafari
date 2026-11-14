@@ -25,6 +25,10 @@ val jschVersion = "0.2.21"
 val navigationEventVersion = "1.2.0"
 // 火狐账号 / Sync：Mozilla android-components（maven.mozilla.org）。默认 "+" 取最新；API 偶尔会变，建议在 gradle.properties 写 fxaComponentsVersion=<版本> 锁定
 val fxaComponentsVersion = (project.findProperty("fxaComponentsVersion") as String?) ?: "+"
+// application-services（viaduct 等）的版本：默认由 fxaComponentsVersion 推出（去掉 b3 之类的 beta 后缀，如 161.0b3 -> 161.0）；
+// fxaComponentsVersion 为 "+" 时同样用 "+"。想固定写 gradle.properties：appServicesVersion=161.0
+val appServicesVersion = (project.findProperty("appServicesVersion") as String?)
+    ?: if (fxaComponentsVersion == "+") "+" else fxaComponentsVersion.replace(Regex("b\\d+$"), "")
 // GeckoView nightly（仅 arm64-v8a）。默认 "+" = 取 Mozilla Maven 上最新的 nightly；
 // 要锁定版本（推荐，nightly 的 API 偶尔会改）在 gradle.properties 写 geckoViewVersion=152.0.20260801093011
 val geckoViewVersion = (project.findProperty("geckoViewVersion") as String?) ?: "+"
@@ -219,8 +223,9 @@ dependencies {
     // Rust 层（viaduct）本身没有网络栈：必须注册一个 HTTP 后端，否则取 Firefox 账号服务配置 / 登录地址会直接失败
     implementation("org.mozilla.components:concept-fetch:$fxaComponentsVersion")
     // 新版 application-services：用 mozilla.appservices.viaduct.initBackend(Backend) 注册网络后端（见 FxaApi.OkHttpBackend）。
-    // 需要显式声明才能在编译期引用 viaduct 包；若 Gradle 报找不到该坐标，到 maven.mozilla.org/maven2/org/mozilla/appservices/ 确认现在的 artifactId
-    implementation("org.mozilla.appservices:httpconfig:$fxaComponentsVersion")
+    // 注意是 viaduct，不是 httpconfig：httpconfig 已停更在 63.0.0（带进 Kotlin 1.3 的旧运行时，会触发 Duplicate class）。
+    // application-services 版本号与 android-components 的 161.0b3 不同（161.0），可用 appServicesVersion 覆盖
+    implementation("org.mozilla.appservices:viaduct:$appServicesVersion")
     implementation("org.mozilla.components:concept-sync:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-storage:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-toolbar:$fxaComponentsVersion")
