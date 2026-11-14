@@ -57,6 +57,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
@@ -1647,7 +1650,11 @@ private fun GroupPopupPanel(
     trailing: String,
     isEmpty: Boolean,
     emptyText: String,
-    list: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+    /** 标题行最右侧的操作（如排列方式切换）。 */
+    headerAction: (@Composable () -> Unit)? = null,
+    /** 自定义内容区（传了就替代默认的竖排 [list]），参数是它该占用的 Modifier。 */
+    body: (@Composable (Modifier) -> Unit)? = null,
+    list: (androidx.compose.foundation.lazy.LazyListScope.() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.size(width = side, height = height)) {
         Row(
@@ -1659,18 +1666,33 @@ private fun GroupPopupPanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (showBack) {
-                Text(
-                    text = "‹",
-                    fontSize = 24.sp,
-                    color = MiuixTheme.colorScheme.primary,
+                // 用 Canvas 画返回箭头：Text 的 ‹ 字形带字体内边距，会比标题文字偏高 / 偏低
+                val arrowColor = MiuixTheme.colorScheme.primary
+                Canvas(
                     modifier = Modifier
+                        .size(24.dp)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = onBack,
-                        )
-                        .padding(end = 4.dp),
-                )
+                        ),
+                ) {
+                    val w = size.width
+                    val h = size.height
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(w * 0.62f, h * 0.24f)
+                        lineTo(w * 0.36f, h * 0.5f)
+                        lineTo(w * 0.62f, h * 0.76f)
+                    }
+                    drawPath(
+                        path, arrowColor,
+                        style = Stroke(
+                            width = 2.2.dp.toPx(),
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                            join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                        ),
+                    )
+                }
             }
             Text(
                 text = title,
@@ -1686,13 +1708,15 @@ private fun GroupPopupPanel(
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
+            headerAction?.invoke()
         }
         if (isEmpty) {
             Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 HomeEmptyText(emptyText)
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), content = list)
+            val bodyModifier = Modifier.fillMaxWidth().weight(1f)
+            if (body != null) body(bodyModifier) else LazyColumn(modifier = bodyModifier, content = list ?: {})
         }
     }
 }
@@ -1769,6 +1793,77 @@ private fun GroupPopupFolderRow(
 private fun isDirectChild(path: String, parent: String): Boolean =
     if (parent.isEmpty()) '/' !in path else path.startsWith("$parent/") && '/' !in path.removePrefix("$parent/")
 
+/** 排列方式切换图标：[showGridIcon] 为 true 画 2×2 方块（点击切到横排），否则画三条横线（点击切回竖排）。 */
+@Composable
+private fun GroupLayoutToggle(showGridIcon: Boolean, onClick: () -> Unit) {
+    val color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(16.dp)) {
+            val w = size.width
+            if (showGridIcon) {
+                val cell = w * 0.42f
+                val r = androidx.compose.ui.geometry.CornerRadius(w * 0.1f)
+                for (ix in 0..1) for (iy in 0..1) {
+                    drawRoundRect(
+                        color,
+                        topLeft = Offset(ix * (w - cell), iy * (w - cell)),
+                        size = androidx.compose.ui.geometry.Size(cell, cell),
+                        cornerRadius = r,
+                    )
+                }
+            } else {
+                val bar = w * 0.14f
+                for (i in 0..2) {
+                    drawRoundRect(
+                        color,
+                        topLeft = Offset(0f, i * (w - bar) / 2f),
+                        size = androidx.compose.ui.geometry.Size(w, bar),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(bar / 2f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 横排模式的一格：图标在上、标题在下。 */
+@Composable
+private fun GroupPopupGridCell(title: String, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        icon()
+        Text(
+            text = title,
+            fontSize = 11.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            color = MiuixTheme.colorScheme.onSurface,
+            style = TextStyle(textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+    }
+}
+
 /**
  * 书签分组弹窗：以磁贴图标为锚点向下弹出的正方形窗口，沿用 [AppGlassPopup]（miuix 玻璃 / 液态玻璃 / 无模糊三种材质由它统一适配）。
  * 里面先列出该分组的子分组，再列出该分组的书签；点子分组在同一个窗口里进入下一层（标题行左侧 ‹ 返回上一层），点书签直接打开。
@@ -1785,6 +1880,8 @@ internal fun BoxScope.GroupBookmarkPopup(
 ) {
     // 每次重新弹出都回到分组根；窗口里的层级只在窗口内部记录
     var path by remember(rootPath, show) { mutableStateOf(rootPath) }
+    // 排列方式：默认竖排，点标题行右侧的图标切到横排（图标在上标题在下）
+    var gridMode by remember { mutableStateOf(false) }
     val screenWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
     val geo = groupPopupGeometry(anchorBounds, screenWidthPx)
     // 只读取不登记：不在组合里改文件夹注册表（同 GroupPickerDialog）
@@ -1806,40 +1903,75 @@ internal fun BoxScope.GroupBookmarkPopup(
             trailing = "${folders.size + marks.size} 项",
             isEmpty = folders.isEmpty() && marks.isEmpty(),
             emptyText = "这个分组还没有书签",
-        ) {
-            items(folders, key = { "f:$it" }) { folder ->
-                GroupPopupFolderRow(
-                    name = folder.substringAfterLast('/'),
-                    trailing = "${favorites.itemsInTree(folder).size}",
-                    selected = false,
-                    onClick = { path = folder },
-                    chevron = { path = folder },
-                )
-            }
-            items(marks, key = { "b:${it.id}" }) { mark ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) { onOpenUrl(mark.url) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    FaviconBadge(url = mark.url, size = 22.dp, corner = 6.dp)
-                    Text(
-                        text = mark.name.ifBlank { mark.url },
-                        fontSize = 14.sp,
-                        color = MiuixTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
+            headerAction = { GroupLayoutToggle(showGridIcon = !gridMode, onClick = { gridMode = !gridMode }) },
+            body = { bodyModifier ->
+                if (gridMode) {
+                    // 横排：每行放几个按弹窗宽度自适应（约 248dp 宽 3 个，收窄后 2~3 个）
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(64.dp),
+                        modifier = bodyModifier,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        gridItems(folders, key = { "f:$it" }) { folder ->
+                            GroupPopupGridCell(
+                                title = folder.substringAfterLast('/'),
+                                onClick = { path = folder },
+                            ) {
+                                Icon(
+                                    imageVector = AppIcons.Folder,
+                                    contentDescription = null,
+                                    tint = MiuixTheme.colorScheme.primary,
+                                    modifier = Modifier.size(32.dp),
+                                )
+                            }
+                        }
+                        gridItems(marks, key = { "b:${it.id}" }) { mark ->
+                            GroupPopupGridCell(
+                                title = mark.name.ifBlank { mark.url },
+                                onClick = { onOpenUrl(mark.url) },
+                            ) {
+                                FaviconBadge(url = mark.url, size = 32.dp, corner = 8.dp)
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(modifier = bodyModifier) {
+                        items(folders, key = { "f:$it" }) { folder ->
+                            GroupPopupFolderRow(
+                                name = folder.substringAfterLast('/'),
+                                trailing = "${favorites.itemsInTree(folder).size}",
+                                selected = false,
+                                onClick = { path = folder },
+                                chevron = { path = folder },
+                            )
+                        }
+                        items(marks, key = { "b:${it.id}" }) { mark ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) { onOpenUrl(mark.url) }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                FaviconBadge(url = mark.url, size = 22.dp, corner = 6.dp)
+                                Text(
+                                    text = mark.name.ifBlank { mark.url },
+                                    fontSize = 14.sp,
+                                    color = MiuixTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
                 }
-            }
-        }
+            },
+        )
     }
 }
 
