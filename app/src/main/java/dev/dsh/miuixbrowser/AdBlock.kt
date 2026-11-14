@@ -810,6 +810,7 @@ object AdBlock {
 
     private fun compileNow() {
         main.post { compiling = true }
+        val t0 = System.nanoTime()
         try {
             val lists = ArrayList<ParsedList>()
             lists.add(baseList)
@@ -839,6 +840,8 @@ object AdBlock {
             val built = AdEngine(lists)
             engine = built
             val total = built.networkRuleCount + built.cosmeticRuleCount
+            // 编译耗时与规模：先有数据，再决定要不要动匹配热路径
+            Diag.log("adblock: compiled $total rules (${built.networkRuleCount} net / ${built.cosmeticRuleCount} cosmetic) from ${lists.size} lists in ${(System.nanoTime() - t0) / 1_000_000}ms")
             main.post {
                 loadedRules = total
                 compiling = false

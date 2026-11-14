@@ -111,7 +111,9 @@ private fun Modifier.glassImpl(
     effects = {
         noiseDither(noiseCoefficient)
         val radius = material?.blurRadius?.value ?: (style.blur.small / GlassDefaults.SourceDensity)
-        blur(radius.coerceIn(0f, BlurDefaults.MaxBlurRadius) * density)
+        // 半径为 0（调用方已提供预模糊的取样源）时整段跳过模糊，省掉每张卡片的离屏模糊 pass
+        val radiusPx = radius.coerceIn(0f, BlurDefaults.MaxBlurRadius) * density
+        if (radiusPx > 0f) blur(radiusPx)
         if (underlayMaterial != null) {
             colorBlendEffect(underlayMaterial, 1f, "${GLASS_COLOR_BLEND_SHADER_KEY}ActionBar")
         }

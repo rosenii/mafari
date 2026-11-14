@@ -53,6 +53,15 @@ class GmBridge(
     private val abortPool = Executors.newSingleThreadExecutor { r -> Thread(r, "gm-xhr-abort").apply { isDaemon = true } }
     private val mainHandler = android.os.Handler(context.mainLooper)
 
+    // 每个脚本同时在途（执行中 + 排队）的请求上限，与 Gecko 侧 background.js 的 MAX_PENDING_PER_SCRIPT 一致；
+    // 否则一个脚本能独占 8 个线程 + 64 个队列名额，饿死同页其它脚本。
+    private val inflight = ConcurrentHashMap<String, AtomicInteger>()
+
+    /** 暴露内部缓冲区的 ByteArrayOutputStream：直接对 buf 做 Base64，省掉 toByteArray() 的整块复制 */
+    private class RawBuffer : ByteArrayOutputStream(32 * 1024) {
+        fun toBase64(): String = android.util.Base64.encodeToString(buf, 0, count, android.util.Base64.NO_WRAP)
+    }
+
     private class Pending(val json: String, val at: Long = System.currentTimeMillis())
 
     private val results = ConcurrentHashMap<String, Pending>()
@@ -96,16 +105,31 @@ class GmBridge(
     @JavascriptInterface
     fun xhrStart(reqId: String, optionsJson: String, bodyBase64: String) {
         purgeStaleResults()
+        // 脚本标识由运行时随 options 带来（sid）；解析失败就按空标识归为同一组
+        val sid = runCatching { JSONObject(optionsJson).optString("sid", "") }.getOrDefault("")
+        val counter = inflight.getOrPut(sid) { AtomicInteger(0) }
+        if (counter.incrementAndGet() > MAX_INFLIGHT_PER_SCRIPT) {
+            counter.decrementAndGet()
+            results[reqId] = Pending(
+                JSONObject().put("state", "error").put("error", "too many concurrent requests").toString(),
+            )
+            return
+        }
         try {
             pool.execute {
-                val result = runCatching { runXhr(reqId, optionsJson, bodyBase64) }.getOrElse { e ->
-                    JSONObject().put("state", "error").put("error", e.message ?: "request failed").toString()
+                try {
+                    val result = runCatching { runXhr(reqId, optionsJson, bodyBase64) }.getOrElse { e ->
+                        JSONObject().put("state", "error").put("error", e.message ?: "request failed").toString()
+                    }
+                    connections.remove(reqId)
+                    // v2 运行时在 abort 后就停止轮询，不会再来取结果：不存，免得堆积
+                    if (!aborted.remove(reqId)) results[reqId] = Pending(result)
+                } finally {
+                    if (counter.decrementAndGet() <= 0) inflight.remove(sid, counter)
                 }
-                connections.remove(reqId)
-                // v2 运行时在 abort 后就停止轮询，不会再来取结果：不存，免得堆积
-                if (!aborted.remove(reqId)) results[reqId] = Pending(result)
             }
         } catch (_: RejectedExecutionException) {
+            counter.decrementAndGet()
             // 并发请求过多（队列已满）：直接给脚本一个错误结果，而不是无限排队
             results[reqId] = Pending(
                 JSONObject().put("state", "error").put("error", "too many concurrent requests").toString(),
@@ -210,15 +234,26 @@ class GmBridge(
                     }
                 }
 
+                // 体积上限与 Gecko 侧一致（48MB）：声明的长度已超限就不读；没声明（分块 / 压缩）则边读边数
+                if (conn.contentLengthLong > MAX_RESPONSE_BYTES) {
+                    conn.disconnect()
+                    return JSONObject().put("state", "error").put("error", "response too large").toString()
+                }
                 val stream = if (status in 200..399) conn.inputStream else conn.errorStream
-                val bytes = ByteArrayOutputStream()
+                val bytes = RawBuffer()
+                var tooLarge = false
                 stream?.use { input ->
                     val buf = ByteArray(32 * 1024)
                     while (true) {
                         val n = input.read(buf)
                         if (n < 0) break
+                        if (bytes.size() + n > MAX_RESPONSE_BYTES) { tooLarge = true; break }
                         bytes.write(buf, 0, n)
                     }
+                }
+                if (tooLarge) {
+                    conn.disconnect()
+                    return JSONObject().put("state", "error").put("error", "response too large").toString()
                 }
                 val rawHeaders = StringBuilder()
                 conn.headerFields?.forEach { (name, values) ->
@@ -230,7 +265,7 @@ class GmBridge(
                     .put("statusText", conn.responseMessage ?: "")
                     .put("finalUrl", currentUrl)
                     .put("headers", rawHeaders.toString())
-                    .put("body", android.util.Base64.encodeToString(bytes.toByteArray(), android.util.Base64.NO_WRAP))
+                    .put("body", bytes.toBase64())
                     .toString()
                 conn.disconnect()
                 return out
@@ -485,5 +520,11 @@ class GmBridge(
     private companion object {
         /** 页面能随便调桥：回调函数名只接受这个字符集，杜绝拼进 evaluateJavascript 的注入 */
         val SAFE_ID = Regex("[A-Za-z0-9_]{1,80}")
+
+        /** 响应体上限，与 Gecko 侧 background.js 的 MAX_RESPONSE 一致；超限直接报错，避免大文件 + 并发 OOM */
+        const val MAX_RESPONSE_BYTES = 48 * 1024 * 1024
+
+        /** 每个脚本同时在途的请求数上限，与 Gecko 侧 MAX_PENDING_PER_SCRIPT 一致 */
+        const val MAX_INFLIGHT_PER_SCRIPT = 32
     }
 }

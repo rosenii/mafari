@@ -309,7 +309,7 @@ fun BrowserScreen(
             kotlinx.coroutines.delay(6 * 3_600_000L)
         }
     }
-    val wallpaperBitmap = rememberWallpaper(settings.wallpaper)
+    val wallpaperBitmap = rememberWallpaper(settings.wallpaper, settings.wallpaperVersion)
     // 模糊壁纸：读/写磁盘缓存里已模糊好的小图，不再实时渲染模糊
     val blurredWallpaper = rememberBlurredWallpaper(settings.wallpaper, settings.wallpaperBlur, settings.wallpaperVersion)
     val scope = rememberCoroutineScope()
@@ -1078,7 +1078,11 @@ fun BrowserScreen(
         ),
     ) {
     entry<AppRoute.Browser> {
-    CompositionLocalProvider(LocalLiquidBackdrop provides if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null) {
+    CompositionLocalProvider(
+        LocalLiquidBackdrop provides if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null,
+        // 壁纸模糊开启且模糊图已读出：首页取样源已是预模糊图，卡片不再叠加实时模糊
+        LocalWallpaperPreBlurred provides (settings.wallpaperBlur && blurredWallpaper != null && wallpaperBitmap != null),
+    ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MiuixTheme.colorScheme.surface,
@@ -1122,7 +1126,16 @@ fun BrowserScreen(
                 // 所有材质（柔光 / 液态玻璃）的首页卡片、底栏、弹层都从这一层取色，取色与所见一致，
                 // 不再另盖一层显示用的模糊图。缓存还没读出来时先显示未模糊原图，不做实时模糊，避免卡片闪动。
                 val shownWallpaper = if (settings.wallpaperBlur && blurredWallpaper != null) blurredWallpaper else wallpaperImage
-                Box(modifier = Modifier.fillMaxSize().layerBackdrop(wallpaperBackdrop).kyantLayerBackdrop(wallpaperLiquidBackdrop)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(wallpaperBackdrop)
+                        // Kyant 取样层只在液态玻璃 + 模糊开启时才有人读（见 StartPage 的 liquidBackdrop 与 homeGlass），否则不录制
+                        .then(
+                            if (settings.liquidGlass && settings.blurEnabled) Modifier.kyantLayerBackdrop(wallpaperLiquidBackdrop)
+                            else Modifier,
+                        ),
+                ) {
                     Image(
                         bitmap = shownWallpaper,
                         contentDescription = null,
@@ -2959,18 +2972,16 @@ internal fun rememberBlurredWallpaper(uri: String, enabled: Boolean, version: In
 }
 
 @Composable
-internal fun rememberWallpaper(uri: String): ImageBitmap? {
+internal fun rememberWallpaper(uri: String, version: Int = 0): ImageBitmap? {
     val context = LocalContext.current
-    val image by produceState<ImageBitmap?>(initialValue = null, uri) {
+    val image by produceState<ImageBitmap?>(initialValue = null, uri, version) {
         value = if (uri.isBlank()) {
             null
         } else {
             withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use {
-                        android.graphics.BitmapFactory.decodeStream(it)?.asImageBitmap()
-                    }
-                }.getOrNull()
+                // 只解到屏幕所需的尺寸（原先是整张原图：4000×3000 的照片要占 ~48MB 并整张上传 GPU），并带进程内缓存
+                val dm = context.resources.displayMetrics
+                WallpaperImage.load(context, uri, version, dm.widthPixels, dm.heightPixels)?.asImageBitmap()
             }
         }
     }

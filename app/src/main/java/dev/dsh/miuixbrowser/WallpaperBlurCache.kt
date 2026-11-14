@@ -30,10 +30,22 @@ object WallpaperBlurCache {
         return File(File(context.cacheDir, DIR).apply { mkdirs() }, "$name.jpg")
     }
 
+    // 进程内一级缓存（单项、软引用）：BrowserScreen 重新进入组合时不必再读盘解码；壁纸更换 / clear 时一并作废
+    private var memKey: String? = null
+    private var memRef: java.lang.ref.SoftReference<Bitmap>? = null
+
     /** 读取缓存；没有则生成并写入。必须在 IO 线程调用。 */
+    @Synchronized
     fun getOrCreate(context: Context, uri: String): Bitmap? {
         if (uri.isBlank()) return null
         val file = cacheFile(context, uri)
+        if (memKey == file.name) memRef?.get()?.takeIf { !it.isRecycled }?.let { return it }
+        val result = loadOrGenerate(context, uri, file)
+        if (result != null) { memKey = file.name; memRef = java.lang.ref.SoftReference(result) }
+        return result
+    }
+
+    private fun loadOrGenerate(context: Context, uri: String, file: File): Bitmap? {
         if (file.exists() && file.length() > 0) {
             BitmapFactory.decodeFile(file.absolutePath)?.let { return it }
             file.delete()
@@ -48,7 +60,9 @@ object WallpaperBlurCache {
     }
 
     /** 壁纸更换 / 取消时清掉旧缓存。 */
+    @Synchronized
     fun clear(context: Context) {
+        memKey = null; memRef = null
         runCatching { File(context.cacheDir, DIR).listFiles()?.forEach { it.delete() } }
     }
 
@@ -130,5 +144,54 @@ object WallpaperBlurCache {
             }
             for (y in 0 until h) px[y * w + x] = line[y]
         }
+    }
+}
+
+/**
+ * 壁纸原图加载：按「Crop 铺满屏幕所需的最小尺寸」解码，而不是整张原图。
+ * 4000×3000 的照片整图解码约 48MB（还要整张上传 GPU），屏幕只需约 10MB；
+ * 先用 inSampleSize 粗降，再精确缩到所需尺寸。单项软引用缓存，同一壁纸不重复解码。
+ */
+object WallpaperImage {
+    private var memKey: String? = null
+    private var memRef: java.lang.ref.SoftReference<Bitmap>? = null
+
+    @Synchronized
+    fun load(context: Context, uri: String, version: Int, targetW: Int, targetH: Int): Bitmap? {
+        if (uri.isBlank() || targetW <= 0 || targetH <= 0) return null
+        val key = "$version|$uri|$targetW|$targetH"
+        if (memKey == key) memRef?.get()?.takeIf { !it.isRecycled }?.let { return it }
+        val bmp = runCatching { decode(context, uri, targetW, targetH) }.getOrNull() ?: return null
+        memKey = key
+        memRef = java.lang.ref.SoftReference(bmp)
+        return bmp
+    }
+
+    private fun decode(context: Context, uri: String, targetW: Int, targetH: Int): Bitmap? {
+        val resolver = context.contentResolver
+        val parsed = Uri.parse(uri)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(parsed)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val bw = bounds.outWidth
+        val bh = bounds.outHeight
+        if (bw <= 0 || bh <= 0) return null
+        // Crop 铺满所需的最小缩放比：原图再小就会被放大，大了才有降采样的空间
+        val need = max(targetW.toFloat() / bw, targetH.toFloat() / bh)
+        var sample = 1
+        while (1f / (sample * 2) >= need) sample *= 2
+        val decoded = resolver.openInputStream(parsed)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: return null
+        // 粗降后仍明显大于所需（比所需大 15% 以上）才精确缩一次
+        val ratio = need * sample
+        if (ratio >= 0.85f) return decoded
+        val scaled = Bitmap.createScaledBitmap(
+            decoded,
+            max(1, (decoded.width * ratio).roundToInt()),
+            max(1, (decoded.height * ratio).roundToInt()),
+            true,
+        )
+        if (scaled !== decoded) decoded.recycle()
+        return scaled
     }
 }

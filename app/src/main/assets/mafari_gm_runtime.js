@@ -665,7 +665,7 @@
 
       var opts = {
         url: url, method: method, headers: headers, timeout: details.timeout || 0,
-        anonymous: !!details.anonymous, ua: navigator.userAgent, lang: navigator.language,
+        anonymous: !!details.anonymous, ua: navigator.userAgent, lang: navigator.language, sid: META.id,
         redirect: details.redirect || 'follow', referrer: W.location.href
       };
       try { bridge.xhrStart(reqId, JSON.stringify(opts), prep.b64); }

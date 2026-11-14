@@ -18,6 +18,16 @@
 | `GeckoEngine.kt` | `GeckoRuntimeHolder`（进程内唯一 GeckoRuntime，惰性创建）、`GeckoTabEngine`（一个标签 = 一个 GeckoSession + GeckoView，翻译全部 Delegate） |
 | `BrowserState.kt` | `BrowserTab` 持有 WebView **或** Gecko；`webView` 仅 WebView 标签可用，界面层改用 `contentView` / `refresh()` / `scrollOffsetY` / `evaluateJs()` 等与内核无关的接口 |
 | `AppSettings.kt` | `browserEngine`（0 = WebView，1 = Gecko） |
+| `TabDb.kt` | `tabs` 表：标签列表 / 缩略图 / Gecko 会话状态（`state`），重启恢复与后台回收共用 |
+
+## 惰性引擎与后台回收
+
+Gecko 标签的引擎（`GeckoSession` + `GeckoView`）**按需创建、可回收**：
+
+- 重启后恢复出来的标签以 `lazyEngine = true` 构造，不建引擎；成为当前标签时才 `ensureGecko()` 并加载（用库里的会话状态恢复前进后退栈 / 滚动位置，没有就按地址加载）。
+- 后台标签闲置 20 分钟、或活着的引擎超过 6 个（内存吃紧时 2 个）时，`discardEngine()` 先把会话状态写库再销毁引擎，标签变回「待恢复」，卡片 / 标题 / 缩略图保留。
+- 永不回收：当前标签、无痕标签、拓展 `tabs.create` 的 session、正在加载 / 全屏的标签。
+- 完整流程、参数与触发点见 [ARCHITECTURE.md](ARCHITECTURE.md) §4。
 
 ## 版本
 

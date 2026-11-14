@@ -1,6 +1,6 @@
 # Gecko 油猴适配（内置 WebExtension）
 
-目标：Gecko 标签与 WebView 标签共用同一套脚本系统——同一份 `mafari_gm_runtime.js`、同一个脚本库、同一份 GM 值（`userscript_gm`）。
+目标：Gecko 标签与 WebView 标签共用同一套脚本系统——同一份 `mafari_gm_runtime.js`、同一个脚本库、同一份 GM 值（加密库 `history.db` 的 `gm_values` 表，见 `GmStore`；早期版本存 SharedPreferences `userscript_gm`）。
 
 ## 一、对原方案的评价
 

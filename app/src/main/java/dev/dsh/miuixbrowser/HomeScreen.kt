@@ -670,6 +670,13 @@ internal fun FavoritesBlock(
     }
 }
 
+/**
+ * 取样源（壁纸）是否已经是磁盘缓存里预模糊好的图。为 true 时首页卡片不再对它叠加第二次实时模糊：
+ * 壁纸本身已经约等于 28dp 的模糊，再叠 20dp / 5dp 在视觉上几乎看不出差别，
+ * 却会让收藏页的每张卡片各多一次离屏模糊 pass（收藏最多 5 行，可达二十多张）。
+ */
+internal val LocalWallpaperPreBlurred = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /** 首页卡片的玻璃底板：与收藏卡片同一套 miuix-glass blur，无采样 / 关模糊时回退到实色。 */
 @Composable
 internal fun Modifier.homeGlass(
@@ -681,6 +688,7 @@ internal fun Modifier.homeGlass(
 ): Modifier {
     val shape = RoundedCornerShape(radius.dp)
     val dark = isAppDarkTheme()
+    val preBlurred = LocalWallpaperPreBlurred.current
     // liquid glass 模式：用 Kyant 液态玻璃从未模糊的壁纸取样
     if (liquid != null && blurEnabled) {
         if (dark) {
@@ -691,7 +699,7 @@ internal fun Modifier.homeGlass(
                 shape = { shape },
                 effects = {
                     vibrancy()
-                    backdropBlur(5f.dp.toPx())
+                    if (!preBlurred) backdropBlur(5f.dp.toPx())
                     lens(26f.dp.toPx(), 60f.dp.toPx(), depthEffect = true, chromaticAberration = true)
                 },
                 highlight = {
@@ -713,18 +721,22 @@ internal fun Modifier.homeGlass(
             shape = { shape },
             effects = {
                 vibrancy()
-                backdropBlur(2f.dp.toPx())
+                if (!preBlurred) backdropBlur(2f.dp.toPx())
                 lens(16f.dp.toPx(), 36f.dp.toPx(), depthEffect = true, chromaticAberration = true)
             },
             onDrawSurface = { drawRect(Color.White.copy(alpha = 0.12f)) },
         )
     }
     val useGlass = blurEnabled && wallpaperBackdrop != null
+    val glassMaterial = remember(dark, preBlurred, useGlass) {
+        if (!useGlass) null
+        else GlassMaterials.puredThinGlass(dark).let { if (preBlurred) it.copy(blurRadius = 0.dp) else it }
+    }
     return this.glassPanel(
         backdrop = if (useGlass) wallpaperBackdrop else null,
         shape = GlassShape(radius.dp),
         style = GlassDefaults.style(dark),
-        material = if (useGlass) GlassMaterials.puredThinGlass(dark) else null,
+        material = glassMaterial,
         stroke = if (blurEnabled) GlassStrokes.forTheme(dark) else null,
         shading = false,
         fallback = Modifier
