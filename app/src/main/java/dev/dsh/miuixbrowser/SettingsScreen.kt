@@ -786,6 +786,15 @@ fun SettingsScreen(
                         visuals = popupVisuals,
                         insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                     )
+                    AppDropdownPreference(
+                        title = "书签分组",
+                        items = (1..HOME_GROUP_ROWS_MAX).map { "显示${it}行" } + "不显示",
+                        selectedIndex = if (settings.homeGroupRows == 0) HOME_GROUP_ROWS_MAX else settings.homeGroupRows - 1,
+                        onSelectedIndexChange = { settings.updateHomeGroupRows(if (it >= HOME_GROUP_ROWS_MAX) 0 else it + 1) },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
                     listOf(
                         HOME_PRIVACY to "隐私报告",
                         HOME_RECENT to "最近浏览",
@@ -802,7 +811,7 @@ fun SettingsScreen(
                         )
                     }
                     Text(
-                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动；收藏超出所选行数时，最后一格显示「更多」，点击进入书签页）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
+                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动；收藏超出所选行数时，最后一格显示「更多」，点击进入书签页；书签分组每行 5 个，点击分组磁贴会在图标下方弹出窗口查看其中的书签与子分组）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
@@ -1026,7 +1035,7 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = "退出应用时更新桌面图标；极简↔极暗、多彩 / 立体→深色 随显示模式自动切换",
+            text = "退出应用时更新桌面图标，深浅色跟随显示模式自动切换",
             fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
@@ -1234,6 +1243,7 @@ private fun SearchSheet(
 private fun homeContentSummary(settings: AppSettings): String {
     val shown = buildList {
         if (settings.homeShowFavorites) add("收藏${settings.homeFavRows}行")
+        if (settings.homeShowGroups) add("书签分组${settings.homeGroupRows}行")
         if (settings.homeShowPrivacy) add("隐私报告")
         if (settings.homeShowRecent) add("最近浏览")
         if (settings.homeShowDownloads) add("下载项")

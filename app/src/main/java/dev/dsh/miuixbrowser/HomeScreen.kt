@@ -54,6 +54,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -88,6 +89,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -207,6 +209,7 @@ import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.glass.GlassIconButton
 import top.yukonga.miuix.kmp.glass.GlassMaterials
 import top.yukonga.miuix.kmp.glass.GlassPopup
+import top.yukonga.miuix.kmp.glass.GlassPopupDefaults
 import top.yukonga.miuix.kmp.glass.GlassPopupItem
 import top.yukonga.miuix.kmp.glass.GlassShape
 import top.yukonga.miuix.kmp.glass.GlassStrokes
@@ -388,6 +391,18 @@ internal fun StartPage(
     showLogo: Boolean = true,
     /** 底部导航栏被设为靠上：首页内容顶部让出栏的位置，底部不再留栏的空间 */
     barOnTop: Boolean = false,
+    /** 「书签分组」卡片 */
+    showGroups: Boolean = false,
+    groups: List<HomeGroup> = emptyList(),
+    /** 书签分组显示的行数（每行 [HOME_GROUP_COLS] 个）。 */
+    groupRows: Int = HOME_GROUP_ROWS_DEFAULT,
+    groupEditing: Boolean = false,
+    /** 点击分组磁贴：参数为分组路径与磁贴图标的屏幕坐标，由上层在图标下方弹出书签窗口。 */
+    onGroupOpen: (path: String, anchor: Rect) -> Unit = { _, _ -> },
+    onGroupToggleEdit: () -> Unit = {},
+    onGroupRemove: (Int) -> Unit = {},
+    onGroupMove: (Int, Int) -> Unit = { _, _ -> },
+    onGroupAdd: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     val gapPx = with(density) { 14.dp.toPx() }
@@ -396,6 +411,7 @@ internal fun StartPage(
     val visibleKinds = order.filter {
         when (it) {
             HOME_FAVORITES -> showFavorites
+            HOME_GROUPS -> showGroups
             HOME_PRIVACY -> showPrivacy
             HOME_RECENT -> showRecent
             else -> showDownloads
@@ -500,6 +516,23 @@ internal fun StartPage(
                                 onEdit = onEdit,
                                 onAdd = onAdd,
                             )
+                            HOME_GROUPS -> GroupsBlock(
+                                modifier = itemMod,
+                                headerModifier = handle,
+                                groups = groups,
+                                rows = groupRows,
+                                wallpaper = wallpaper,
+                                wallpaperBackdrop = wallpaperBackdrop,
+                                liquidBackdrop = liquidBackdrop,
+                                blurEnabled = blurEnabled,
+                                editing = groupEditing,
+                                guard = guard,
+                                onOpen = onGroupOpen,
+                                onToggleEdit = onGroupToggleEdit,
+                                onRemove = onGroupRemove,
+                                onMove = onGroupMove,
+                                onAdd = onGroupAdd,
+                            )
                             HOME_PRIVACY -> PrivacyReportCard(
                                 geckoMode = geckoMode,
                                 modifier = itemMod.then(handle),
@@ -594,34 +627,7 @@ internal fun FavoritesBlock(
     onAdd: () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 32.dp)
-                .then(headerModifier),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = "收藏",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
-            )
-            if (editing) {
-                AppTextButton(
-                    text = "完成",
-                    onClick = onToggleEdit,
-                    primary = true,
-                    inPage = true,
-                    minHeight = 28.dp,
-                    minWidth = 52.dp,
-                    cornerRadius = 14.dp,
-                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                    textStyle = TextStyle(fontSize = 12.sp),
-                )
-            }
-        }
+        HomeBlockHeader(title = "收藏", headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
 
         Spacer(Modifier.height(6.dp))
         // 容量 = 行数 × 3；超出时最后一格让给「更多」
@@ -1050,7 +1056,135 @@ internal fun PrivacyStat(value: String, label: String, modifier: Modifier = Modi
     }
 }
 
-/** 收藏磁贴网格（每行 3 个）：长按磁贴后拖动可排序，其余磁贴实时让位。[showMore] 时在最后一格追加「更多」（不参与排序）。 */
+/**
+ * 可长按拖动排序的磁贴网格（收藏、书签分组共用）：长按磁贴进入编辑并开始拖动，其余磁贴实时让位。
+ * [hasTrailing] 时在最后一格放 [trailing]（「更多」/「添加」），它不参与排序。
+ * 点击 / 长按 / 拖动合在同一个手势里；[guard] 包住点击回调，拖动刚结束或首页处于编辑态时会拦掉误触。
+ */
+@Composable
+internal fun <T> ReorderTileGrid(
+    items: List<T>,
+    columns: Int,
+    gap: Dp,
+    cellHeight: (cellWidth: Dp) -> Dp,
+    editing: Boolean,
+    guard: (() -> Unit) -> (() -> Unit),
+    onTap: (index: Int, item: T, editing: Boolean) -> Unit,
+    onToggleEdit: () -> Unit,
+    onMove: (Int, Int) -> Unit,
+    hasTrailing: Boolean = false,
+    trailing: @Composable (modifier: Modifier) -> Unit = {},
+    tile: @Composable (item: T, index: Int, modifier: Modifier) -> Unit,
+) {
+    val density = LocalDensity.current
+    val gapPx = with(density) { gap.toPx() }
+    val count = items.size
+    val rows = (count + (if (hasTrailing) 1 else 0) + columns - 1) / columns
+    var liveOrder by remember { mutableStateOf<List<Int>?>(null) }
+    var dragIndex by remember { mutableIntStateOf(-1) }
+    var dragPos by remember { mutableStateOf(Offset.Zero) }
+    val countNow by rememberUpdatedState(count)
+    val onMoveNow by rememberUpdatedState(onMove)
+    val editingNow by rememberUpdatedState(editing)
+    val onToggleEditNow by rememberUpdatedState(onToggleEdit)
+    val haptic = LocalHapticFeedback.current
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val cellWPx = (with(density) { maxWidth.toPx() } - (columns - 1) * gapPx) / columns
+        val cellW = with(density) { cellWPx.toDp() }
+        val cellH = cellHeight(cellW)
+        val tileHPx = with(density) { cellH.toPx() }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (rows == 0) 0.dp else cellH * rows + gap * (rows - 1)),
+        ) {
+            if (hasTrailing) {
+                trailing(
+                    Modifier
+                        .width(cellW)
+                        .offset {
+                            IntOffset(
+                                ((count % columns) * (cellWPx + gapPx)).roundToInt(),
+                                ((count / columns) * (tileHPx + gapPx)).roundToInt(),
+                            )
+                        },
+                )
+            }
+            items.forEachIndexed { index, item ->
+                key(item) {
+                    val indexNow by rememberUpdatedState(index)
+                    val tapNow by rememberUpdatedState(guard { onTap(indexNow, item, editingNow) })
+                    val slot = liveOrder?.indexOf(index) ?: index
+                    val target = IntOffset(
+                        ((slot % columns) * (cellWPx + gapPx)).roundToInt(),
+                        ((slot / columns) * (tileHPx + gapPx)).roundToInt(),
+                    )
+                    val animated by animateIntOffsetAsState(target, spring(stiffness = Spring.StiffnessMediumLow), label = "tileSlot")
+                    val dragging = dragIndex == index
+                    tile(
+                        item,
+                        index,
+                        Modifier
+                            .width(cellW)
+                            .offset { if (dragging) IntOffset(dragPos.x.roundToInt(), dragPos.y.roundToInt()) else animated }
+                            .zIndex(if (dragging) 1f else 0f)
+                            .graphicsLayer {
+                                val sc = if (dragging) 1.05f else 1f
+                                scaleX = sc
+                                scaleY = sc
+                            }
+                            .pointerInput(Unit) {
+                                // 点击 / 长按 / 拖动合在同一个手势里：不再与 clickable 的长按抢事件
+                                //（clickable 长按后会 consumeUntilUp，把后续移动吞掉，导致拖不动）
+                                awaitEachGesture {
+                                    val down = awaitFirstDown()
+                                    var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                                    val finishedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                        up = waitForUpOrCancellation()
+                                        true
+                                    }
+                                    if (finishedEarly != null) {
+                                        up?.let { it.consume(); tapNow() }
+                                        return@awaitEachGesture
+                                    }
+                                    // 长按：进入编辑态并开始拖动
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (!editingNow) onToggleEditNow()
+                                    val i = indexNow
+                                    dragIndex = i
+                                    liveOrder = List(countNow) { it }
+                                    dragPos = Offset((i % columns) * (cellWPx + gapPx), (i / columns) * (tileHPx + gapPx))
+                                    val completed = drag(down.id) { change ->
+                                        change.consume()
+                                        dragPos += change.position - change.previousPosition
+                                        val order = liveOrder ?: return@drag
+                                        val centerX = dragPos.x + cellWPx / 2f
+                                        val centerY = dragPos.y + tileHPx / 2f
+                                        val lastRow = (countNow - 1) / columns
+                                        val col = (centerX / (cellWPx + gapPx)).toInt().coerceIn(0, columns - 1)
+                                        val row = (centerY / (tileHPx + gapPx)).toInt().coerceIn(0, lastRow)
+                                        val to = (row * columns + col).coerceIn(0, countNow - 1)
+                                        val from = order.indexOf(dragIndex)
+                                        if (from >= 0 && to != from) {
+                                            liveOrder = order.toMutableList().also { it.removeAt(from); it.add(to, dragIndex) }
+                                        }
+                                    }
+                                    val from = dragIndex
+                                    val to = liveOrder?.indexOf(from) ?: -1
+                                    dragIndex = -1
+                                    liveOrder = null
+                                    if (completed && from >= 0 && to >= 0 && to != from) onMoveNow(from, to)
+                                }
+                            },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 收藏磁贴网格（每行 3 个）：长按磁贴后拖动可排序。[showMore] 时在最后一格追加「更多」（不参与排序）。 */
 @Composable
 internal fun FavoriteGrid(
     favorites: List<Favorite>,
@@ -1068,119 +1202,38 @@ internal fun FavoriteGrid(
     onMove: (Int, Int) -> Unit,
     onEdit: (Int) -> Unit,
 ) {
-    val density = LocalDensity.current
-    val gapPx = with(density) { 10.dp.toPx() }
-    val tileHPx = with(density) { 58.dp.toPx() }
-    val count = favorites.size
-    val rows = (count + (if (showMore) 1 else 0) + 2) / 3
-    var liveOrder by remember { mutableStateOf<List<Int>?>(null) }
-    var dragIndex by remember { mutableIntStateOf(-1) }
-    var dragPos by remember { mutableStateOf(Offset.Zero) }
-    val countNow by rememberUpdatedState(count)
-    val onMoveNow by rememberUpdatedState(onMove)
-    val editingNow by rememberUpdatedState(editing)
-    val onToggleEditNow by rememberUpdatedState(onToggleEdit)
-    val haptic = LocalHapticFeedback.current
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (rows == 0) 0.dp else 58.dp * rows + 10.dp * (rows - 1)),
-    ) {
-        val cellWPx = (with(density) { maxWidth.toPx() } - 2 * gapPx) / 3f
-        val cellW = with(density) { cellWPx.toDp() }
-        if (showMore) {
-            val moreTap by rememberUpdatedState(guard { onMore() })
+    val moreTap by rememberUpdatedState(guard { onMore() })
+    ReorderTileGrid(
+        items = favorites,
+        columns = 3,
+        gap = 10.dp,
+        cellHeight = { 58.dp },
+        editing = editing,
+        guard = guard,
+        onTap = { index, favorite, isEditing -> if (isEditing) onEdit(index) else onOpen(favorite.url) },
+        onToggleEdit = onToggleEdit,
+        onMove = onMove,
+        hasTrailing = showMore,
+        trailing = { mod ->
             FavoriteMoreTile(
                 wallpaper = wallpaper,
                 wallpaperBackdrop = wallpaperBackdrop,
                 liquidBackdrop = liquidBackdrop,
                 blurEnabled = blurEnabled,
-                modifier = Modifier
-                    .width(cellW)
-                    .offset {
-                        IntOffset(
-                            ((count % 3) * (cellWPx + gapPx)).roundToInt(),
-                            ((count / 3) * (tileHPx + gapPx)).roundToInt(),
-                        )
-                    }
-                    .clickable { moreTap() },
+                modifier = mod.clickable { moreTap() },
             )
-        }
-        favorites.forEachIndexed { index, favorite ->
-            key(favorite) {
-                val indexNow by rememberUpdatedState(index)
-                val tapNow by rememberUpdatedState(guard { if (editingNow) onEdit(indexNow) else onOpen(favorite.url) })
-                val slot = liveOrder?.indexOf(index) ?: index
-                val target = IntOffset(
-                    ((slot % 3) * (cellWPx + gapPx)).roundToInt(),
-                    ((slot / 3) * (tileHPx + gapPx)).roundToInt(),
-                )
-                val animated by animateIntOffsetAsState(target, spring(stiffness = Spring.StiffnessMediumLow), label = "favSlot")
-                val dragging = dragIndex == index
-                FavoriteTile(
-                    favorite = favorite,
-                    wallpaper = wallpaper,
-                    wallpaperBackdrop = wallpaperBackdrop,
-                    liquidBackdrop = liquidBackdrop,
-                    blurEnabled = blurEnabled,
-                    editing = editing,
-                    modifier = Modifier
-                        .width(cellW)
-                        .offset { if (dragging) IntOffset(dragPos.x.roundToInt(), dragPos.y.roundToInt()) else animated }
-                        .zIndex(if (dragging) 1f else 0f)
-                        .graphicsLayer {
-                            val sc = if (dragging) 1.05f else 1f
-                            scaleX = sc
-                            scaleY = sc
-                        }
-                        .pointerInput(Unit) {
-                            // 点击 / 长按 / 拖动合在同一个手势里：不再与 clickable 的长按抢事件
-                            //（clickable 长按后会 consumeUntilUp，把后续移动吞掉，导致拖不动）
-                            awaitEachGesture {
-                                val down = awaitFirstDown()
-                                var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
-                                val finishedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                                    up = waitForUpOrCancellation()
-                                    true
-                                }
-                                if (finishedEarly != null) {
-                                    up?.let { it.consume(); tapNow() }
-                                    return@awaitEachGesture
-                                }
-                                // 长按：进入编辑态并开始拖动
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (!editingNow) onToggleEditNow()
-                                val i = indexNow
-                                dragIndex = i
-                                liveOrder = List(countNow) { it }
-                                dragPos = Offset((i % 3) * (cellWPx + gapPx), (i / 3) * (tileHPx + gapPx))
-                                val completed = drag(down.id) { change ->
-                                    change.consume()
-                                    dragPos += change.position - change.previousPosition
-                                    val order = liveOrder ?: return@drag
-                                    val centerX = dragPos.x + cellWPx / 2f
-                                    val centerY = dragPos.y + tileHPx / 2f
-                                    val lastRow = (countNow - 1) / 3
-                                    val col = (centerX / (cellWPx + gapPx)).toInt().coerceIn(0, 2)
-                                    val row = (centerY / (tileHPx + gapPx)).toInt().coerceIn(0, lastRow)
-                                    val to = (row * 3 + col).coerceIn(0, countNow - 1)
-                                    val from = order.indexOf(dragIndex)
-                                    if (from >= 0 && to != from) {
-                                        liveOrder = order.toMutableList().also { it.removeAt(from); it.add(to, dragIndex) }
-                                    }
-                                }
-                                val from = dragIndex
-                                val to = liveOrder?.indexOf(from) ?: -1
-                                dragIndex = -1
-                                liveOrder = null
-                                if (completed && from >= 0 && to >= 0 && to != from) onMoveNow(from, to)
-                            }
-                        },
-                    onRemove = { onRemove(indexNow) },
-                )
-            }
-        }
+        },
+    ) { favorite, index, mod ->
+        FavoriteTile(
+            favorite = favorite,
+            wallpaper = wallpaper,
+            wallpaperBackdrop = wallpaperBackdrop,
+            liquidBackdrop = liquidBackdrop,
+            blurEnabled = blurEnabled,
+            editing = editing,
+            modifier = mod,
+            onRemove = { onRemove(index) },
+        )
     }
 }
 
@@ -1232,21 +1285,7 @@ internal fun FavoriteTile(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val icon = rememberFavicon(favorite.url)
-            if (icon != null) {
-                Image(
-                    bitmap = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)),
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.25f)),
-                )
-            }
+            FaviconBadge(url = favorite.url, size = 16.dp, corner = 4.dp)
             Text(
                 text = favorite.name,
                 fontSize = 14.sp,
@@ -1256,22 +1295,513 @@ internal fun FavoriteTile(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (editing) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
-                    .clickable(onClick = onRemove),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(text = "×", fontSize = 11.sp, color = Color.White)
-            }
-        }
+        if (editing) TileRemoveBadge(onClick = onRemove)
         HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = 16.dp)
     }
+}
+
+/** 磁贴右上角的删除按钮（编辑态显示；收藏磁贴、书签分组磁贴共用）。 */
+@Composable
+internal fun BoxScope.TileRemoveBadge(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(4.dp)
+            .size(18.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.35f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = "×", fontSize = 11.sp, color = Color.White)
+    }
+}
+
+/** 站点图标：加载到就显示，没有就用主题色占位。 */
+@Composable
+internal fun FaviconBadge(url: String, size: Dp, corner: Dp) {
+    val icon = rememberFavicon(url)
+    if (icon != null) {
+        Image(
+            bitmap = icon,
+            contentDescription = null,
+            modifier = Modifier.size(size).clip(RoundedCornerShape(corner)),
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(corner))
+                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        )
+    }
+}
+
+/** 首页块的标题行：长按它拖动整块排序；编辑态右侧出现「完成」。 */
+@Composable
+internal fun HomeBlockHeader(
+    title: String,
+    headerModifier: Modifier,
+    editing: Boolean,
+    onDone: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 32.dp)
+            .then(headerModifier),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = title,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
+        if (editing) {
+            AppTextButton(
+                text = "完成",
+                onClick = onDone,
+                primary = true,
+                inPage = true,
+                minHeight = 28.dp,
+                minWidth = 52.dp,
+                cornerRadius = 14.dp,
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                textStyle = TextStyle(fontSize = 12.sp),
+            )
+        }
+    }
+}
+
+/* -------------------------- 书签分组卡片 -------------------------- */
+
+/** 首页「书签分组」里的一格：文件夹 id（稳定）、当前路径、预览用的前几条书签地址。 */
+internal data class HomeGroup(val id: String, val path: String, val previewUrls: List<String>)
+
+/**
+ * 书签分组：正方形磁贴网格（每行 [HOME_GROUP_COLS] 个，显示 [rows] 行，设置里可选 1~[HOME_GROUP_ROWS_MAX]），
+ * 最后一格永远是「添加」，格子满了就消失；超出行数的分组只是不显示，不会被删除。
+ * 点击磁贴不再跳转，而是回调磁贴图标的坐标，由上层在图标下方弹出书签窗口。
+ * 整块作为一个块参与首页排序，长按标题行拖动。
+ */
+@Composable
+internal fun GroupsBlock(
+    modifier: Modifier,
+    headerModifier: Modifier,
+    groups: List<HomeGroup>,
+    rows: Int,
+    wallpaper: ImageBitmap?,
+    wallpaperBackdrop: LayerBackdrop?,
+    liquidBackdrop: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    editing: Boolean,
+    guard: (() -> Unit) -> (() -> Unit),
+    onOpen: (path: String, anchor: Rect) -> Unit,
+    onToggleEdit: () -> Unit,
+    onRemove: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onAdd: () -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        HomeBlockHeader(title = "书签分组", headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
+
+        Spacer(Modifier.height(6.dp))
+        val capacity = rows.coerceIn(1, HOME_GROUP_ROWS_MAX) * HOME_GROUP_COLS
+        // 只截取可见的前几个：下标与完整列表一致，拖动 / 删除回调里的位置可直接对应
+        val shown = groups.take(capacity)
+        val full = shown.size >= capacity
+        // 各磁贴图标的屏幕坐标（只在点击时读取，不需要触发重组）
+        val anchors = remember { HashMap<String, Rect>() }
+        val addTap by rememberUpdatedState(guard { onAdd() })
+        ReorderTileGrid(
+            items = shown,
+            columns = HOME_GROUP_COLS,
+            gap = 8.dp,
+            // 正方形磁贴 + 下方一行名称
+            cellHeight = { it + 20.dp },
+            editing = editing,
+            guard = guard,
+            onTap = { _, group, isEditing ->
+                if (isEditing) onToggleEdit() else onOpen(group.path, anchors[group.id] ?: Rect.Zero)
+            },
+            onToggleEdit = onToggleEdit,
+            onMove = onMove,
+            hasTrailing = !full,
+            trailing = { mod ->
+                GroupAddTile(
+                    wallpaper = wallpaper,
+                    wallpaperBackdrop = wallpaperBackdrop,
+                    liquidBackdrop = liquidBackdrop,
+                    blurEnabled = blurEnabled,
+                    modifier = mod.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { addTap() },
+                )
+            },
+        ) { group, index, mod ->
+            GroupTile(
+                group = group,
+                wallpaper = wallpaper,
+                wallpaperBackdrop = wallpaperBackdrop,
+                liquidBackdrop = liquidBackdrop,
+                blurEnabled = blurEnabled,
+                editing = editing,
+                modifier = mod,
+                onAnchor = { anchors[group.id] = it },
+                onRemove = { onRemove(index) },
+            )
+        }
+    }
+}
+
+/** 书签分组磁贴：玻璃方块里放该分组前几条书签的站点图标（空分组显示文件夹图标），名称在方块下方。 */
+@Composable
+internal fun GroupTile(
+    group: HomeGroup,
+    wallpaper: ImageBitmap?,
+    wallpaperBackdrop: LayerBackdrop?,
+    liquidBackdrop: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    editing: Boolean,
+    modifier: Modifier = Modifier,
+    /** 图标方块的屏幕坐标：弹窗以它为锚点向下展开。 */
+    onAnchor: (Rect) -> Unit = {},
+    onRemove: () -> Unit,
+) {
+    val hasWallpaper = wallpaper != null
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .onGloballyPositioned { onAnchor(it.boundsInRoot()) }
+                .homeGlass(wallpaperBackdrop, blurEnabled, hasWallpaper, liquidBackdrop),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (group.previewUrls.isEmpty()) {
+                Icon(
+                    imageVector = AppIcons.Folder,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(26.dp),
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    group.previewUrls.take(4).chunked(2).forEach { rowUrls ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            rowUrls.forEach { FaviconBadge(url = it, size = 19.dp, corner = 5.dp) }
+                        }
+                    }
+                }
+            }
+            if (editing) TileRemoveBadge(onClick = onRemove)
+            HomeOutlineOverlay(hasWallpaper = hasWallpaper, radius = 16.dp)
+        }
+        Text(
+            text = group.path.substringAfterLast('/').ifBlank { group.path },
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // 名称直接落在壁纸上：有壁纸时用白字 + 轻阴影保证可读
+            color = if (hasWallpaper) Color.White else MiuixTheme.colorScheme.onSurface,
+            style = TextStyle(
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                shadow = if (hasWallpaper) Shadow(Color.Black.copy(alpha = 0.4f), Offset(0f, 1f), 4f) else null,
+            ),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+    }
+}
+
+/** 「添加」方块：永远排在书签分组的最后一格。 */
+@Composable
+internal fun GroupAddTile(
+    wallpaper: ImageBitmap?,
+    wallpaperBackdrop: LayerBackdrop?,
+    liquidBackdrop: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "+",
+                fontSize = 26.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = 16.dp)
+        }
+    }
+}
+
+/**
+ * 书签分组弹窗：以磁贴图标为锚点向下弹出的正方形窗口，沿用 [AppGlassPopup]（miuix 玻璃 / 液态玻璃 / 无模糊三种材质由它统一适配）。
+ * 里面先列出该分组的子分组，再列出该分组的书签；点子分组在同一个窗口里进入下一层（标题行左侧 ‹ 返回上一层），点书签直接打开。
+ */
+@Composable
+internal fun BoxScope.GroupBookmarkPopup(
+    show: Boolean,
+    rootPath: String,
+    anchorBounds: Rect,
+    favorites: FavoritesStore,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    onDismiss: () -> Unit,
+    onOpenUrl: (String) -> Unit,
+) {
+    // 每次重新弹出都回到分组根；窗口里的层级只在窗口内部记录
+    var path by remember(rootPath, show) { mutableStateOf(rootPath) }
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    // GlassPopup 的宽度上限是 GlassPopupDefaults.MaxWidth（288dp），边长不能超过它，否则正方形会被压成长方形；
+    // 同时给左右各留出 SafeMargin
+    val side = minOf(GlassPopupDefaults.MaxWidth, (LocalConfiguration.current.screenWidthDp.dp - GlassPopupDefaults.SafeMargin * 2))
+    val sidePx = with(density) { side.toPx() }
+    val gapPx = with(density) { 6.dp.toPx() }
+    // 锚点：GlassPopup 默认让弹窗右边缘对齐锚点右边缘，且弹窗顶边落在锚点顶边。
+    // - 水平：左半屏的磁贴让弹窗左边缘对齐磁贴左边缘（向右展开），右半屏的反之，避免被边距挤偏；
+    // - 垂直：顶边放在图标下沿 + 间距，使窗口出现在图标正下方；下方放不下时 GlassPopup 会翻到上方，
+    //   以锚点 bottom 为底边，所以 bottom 取图标上沿 - 间距（与 HistoryScreen 的 rememberAboveAnchor 同一思路）。
+    val anchor = if (anchorBounds == Rect.Zero) {
+        anchorBounds
+    } else {
+        val right = if (anchorBounds.center.x < screenWidthPx / 2f) anchorBounds.left + sidePx else anchorBounds.right
+        Rect(right - sidePx, anchorBounds.bottom + gapPx, right, anchorBounds.top - gapPx)
+    }
+    AppGlassPopup(
+        show = show,
+        onDismissRequest = onDismiss,
+        anchorBounds = anchor,
+        backdrop = backdrop,
+    ) {
+        Column(modifier = Modifier.size(side)) {
+            val atRoot = path == rootPath
+            // 只读取不登记：不在组合里改文件夹注册表（同 GroupPickerDialog）
+            val folders = if (show) {
+                withAncestors(favorites.groups()).filter {
+                    it.startsWith("$path/") && '/' !in it.removePrefix("$path/")
+                }
+            } else {
+                emptyList()
+            }
+            val marks = if (show) favorites.itemsIn(path) else emptyList()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!atRoot) {
+                    Text(
+                        text = "‹",
+                        fontSize = 24.sp,
+                        color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { path = path.substringBeforeLast('/') }
+                            .padding(end = 4.dp),
+                    )
+                }
+                Text(
+                    text = path.substringAfterLast('/').ifBlank { path },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "${folders.size + marks.size} 项",
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            if (folders.isEmpty() && marks.isEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    HomeEmptyText("这个分组还没有书签")
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    items(folders, key = { "f:$it" }) { folder ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) { path = folder }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = AppIcons.Folder,
+                                contentDescription = null,
+                                tint = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Text(
+                                text = folder.substringAfterLast('/'),
+                                fontSize = 14.sp,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "${favorites.itemsInTree(folder).size}",
+                                fontSize = 12.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Text(
+                                text = "›",
+                                fontSize = 18.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                    items(marks, key = { "b:${it.id}" }) { mark ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) { onOpenUrl(mark.url) }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            FaviconBadge(url = mark.url, size = 22.dp, corner = 6.dp)
+                            Text(
+                                text = mark.name.ifBlank { mark.url },
+                                fontSize = 14.sp,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 选择要添加到首页的书签分组：根分组和子分组都能选，已添加的置灰。 */
+@Composable
+internal fun GroupPickerDialog(
+    show: Boolean,
+    favorites: FavoritesStore,
+    pickedIds: List<String>,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    onDismiss: () -> Unit,
+    onPick: (path: String) -> Unit,
+) {
+    AppGlassDialog(
+        show = show,
+        title = "添加书签分组",
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 展示顺序：根分组在前，子分组紧跟各自的上级（缩进表示层级）
+            // （只读取，不在组合里改注册表；选中时再由调用方登记拿 id）
+            val paths = if (show) groupTreeOrder(withAncestors(favorites.groups())) else emptyList()
+            val picked = pickedIds.toSet()
+            if (paths.isEmpty()) {
+                HomeEmptyText("还没有书签分组，请先在书签页新建")
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                    items(paths.size, key = { paths[it] }) { i ->
+                        val path = paths[i]
+                        val added = favorites.folderId(path)?.let { it in picked } == true
+                        val depth = path.count { it == '/' }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    enabled = !added,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) { onPick(path) }
+                                .alpha(if (added) 0.4f else 1f)
+                                .padding(start = 4.dp + 16.dp * depth, top = 10.dp, bottom = 10.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = AppIcons.Folder,
+                                contentDescription = null,
+                                tint = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = path.substringAfterLast('/'),
+                                fontSize = 15.sp,
+                                color = MiuixTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = if (added) "已添加" else "${favorites.itemsInTree(path).size} 个书签",
+                                fontSize = 12.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text(text = "取消", style = MiuixTheme.textStyles.button)
+            }
+        }
+    }
+}
+
+/** 补齐缺失的上级路径（"A/B" 存在而 "A" 没有书签时也要能选 "A"），保持首次出现的先后。 */
+private fun withAncestors(paths: List<String>): List<String> {
+    val seen = LinkedHashSet<String>()
+    paths.forEach { p ->
+        var cur = ""
+        p.split('/').forEach { seg ->
+            cur = if (cur.isEmpty()) seg else "$cur/$seg"
+            if (cur.isNotEmpty()) seen.add(cur)
+        }
+    }
+    return seen.toList()
+}
+
+/** 把分组路径排成「上级在前、子分组紧跟其后」的顺序；各层内部保持传入的先后。 */
+private fun groupTreeOrder(paths: List<String>): List<String> {
+    val out = ArrayList<String>()
+    fun add(parent: String?) {
+        paths.filter { p ->
+            if (parent == null) '/' !in p else p.startsWith("$parent/") && '/' !in p.removePrefix("$parent/")
+        }.forEach {
+            out.add(it)
+            add(it)
+        }
+    }
+    add(null)
+    paths.filter { it !in out }.forEach { out.add(it) }
+    return out
 }
 
 /** 新增 / 编辑收藏：GlassDialog */

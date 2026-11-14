@@ -100,6 +100,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -300,6 +301,16 @@ fun BrowserScreen(
     val favorites = remember { FavoritesStore(context) }
     // 首页收藏栏：只取「个人收藏」分组（读取 items 让列表变化时自动重组）
     val homeFavEntries = favorites.homeEntries()
+    // 首页「书签分组」：按已存的文件夹 id 解析出当前路径（改名后 id 不变）；已被删掉的文件夹自动略过。
+    // 读 folderRev / items 让文件夹改名、删除、书签增减时自动重组
+    val homeGroups = run {
+        favorites.folderRev
+        settings.homeGroupIds.mapNotNull { id ->
+            favorites.folderPath(id)?.let { path ->
+                HomeGroup(id, path, favorites.itemsInTree(path).take(4).map { it.url })
+            }
+        }
+    }
     remember { Diag.log("BrowserScreen composed, favorites=" + favorites.items.size) }
     val menuOrder = remember { MenuOrderStore(context) }
     // Gecko 拓展定期检查更新：应用在前台、Gecko 模式下，启动后稍等一会儿检查一次，之后每 6 小时看一次是否到点
@@ -399,6 +410,12 @@ fun BrowserScreen(
     val barOnTop = settings.barPosition == BAR_POS_TOP
     val alwaysMin = settings.barPosition == BAR_POS_MINIMIZED
     var favEditing by remember { mutableStateOf(false) }
+    var groupEditing by remember { mutableStateOf(false) }
+    var showGroupPicker by remember { mutableStateOf(false) }
+    // 书签分组弹窗：显示开关与路径 / 锚点分开存，关闭动画期间内容不会突然消失
+    var showGroupPopup by remember { mutableStateOf(false) }
+    var groupPopupPath by remember { mutableStateOf("") }
+    var groupPopupAnchor by remember { mutableStateOf(Rect.Zero) }
     var showFavEditor by remember { mutableStateOf(false) }
     var showBookmarkCreate by remember { mutableStateOf(false) }
     var bookmarkPrefillName by remember { mutableStateOf("") }
@@ -1087,6 +1104,8 @@ fun BrowserScreen(
             }
             showBookmarkCreate -> showBookmarkCreate = false
             showFavEditor -> showFavEditor = false
+            showGroupPopup -> showGroupPopup = false
+            showGroupPicker -> showGroupPicker = false
             sheet != Sheet.None -> sheet = Sheet.None
             tab.canGoBack -> tab.goBack()
             state.tabs.size > 1 -> state.closeTab(state.activeIndex)
@@ -1292,6 +1311,29 @@ fun BrowserScreen(
                             editingFavIndex = -1
                             showFavEditor = true
                         },
+                        showGroups = settings.homeShowGroups,
+                        groups = homeGroups,
+                        groupRows = settings.homeGroupRows,
+                        groupEditing = groupEditing,
+                        // 点击分组磁贴：不再跳转，在图标下方弹出书签窗口
+                        onGroupOpen = { path, anchor ->
+                            groupPopupPath = path
+                            groupPopupAnchor = anchor
+                            showGroupPopup = true
+                        },
+                        onGroupToggleEdit = { groupEditing = !groupEditing },
+                        // 写回时只保留还存在的分组（顺带清掉已失效的 id）
+                        onGroupRemove = { pos ->
+                            settings.updateHomeGroupIds(homeGroups.filterIndexed { i, _ -> i != pos }.map { it.id })
+                        },
+                        onGroupMove = { from, to ->
+                            val ids = homeGroups.map { it.id }.toMutableList()
+                            if (from in ids.indices && to in ids.indices) {
+                                ids.add(to, ids.removeAt(from))
+                                settings.updateHomeGroupIds(ids)
+                            }
+                        },
+                        onGroupAdd = { showGroupPicker = true },
                     )
                 }
             }
@@ -2579,6 +2621,33 @@ fun BrowserScreen(
                 showFavEditor = false
             },
         )
+
+        GroupBookmarkPopup(
+            show = showGroupPopup,
+            rootPath = groupPopupPath,
+            anchorBounds = groupPopupAnchor,
+            favorites = favorites,
+            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            onDismiss = { showGroupPopup = false },
+            onOpenUrl = { url ->
+                showGroupPopup = false
+                state.openOrReuse(url, tab.incognito, fromStartPage = true)
+            },
+        )
+
+        GroupPickerDialog(
+            show = showGroupPicker,
+            favorites = favorites,
+            pickedIds = homeGroups.map { it.id },
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            onDismiss = { showGroupPicker = false },
+            onPick = { path ->
+                // 登记（已登记则返回原 id）拿到稳定 id，追加到末尾
+                val id = favorites.registerFolder(path)
+                settings.updateHomeGroupIds(homeGroups.map { it.id } + id)
+                showGroupPicker = false
+            },
+        )
     }
     }
     }
@@ -2702,6 +2771,7 @@ fun BrowserScreen(
             },
             initialTab = route.tab,
             blurEnabled = settings.blurEnabled,
+            initialGroup = route.group,
         )
     }
     }

@@ -35,6 +35,13 @@ const val HOME_FAVORITES = 0
 const val HOME_PRIVACY = 1
 const val HOME_RECENT = 2
 const val HOME_DOWNLOADS = 3
+const val HOME_GROUPS = 4
+
+/** 首页「书签分组」卡片：每行格数 / 最多行数 */
+const val HOME_GROUP_COLS = 5
+const val HOME_GROUP_ROWS_MAX = 5
+/** 首页「书签分组」默认显示行数（沿用旧版行为：最多 5 行） */
+const val HOME_GROUP_ROWS_DEFAULT = HOME_GROUP_ROWS_MAX
 
 /** 「定制主页 → 自定义起始页」：主页按钮 / 新建标签页 / 启动应用时打开什么 */
 const val HOME_MODE_DEFAULT = 0
@@ -59,13 +66,17 @@ fun readHomeCustomUrl(context: Context): String =
     context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
         .getString(PREF_HOME_CUSTOM_URL, "").orEmpty()
 
-/** 解析首页内容块顺序；缺失 / 非法项补齐，默认 收藏 → 隐私报告 → 最近浏览 → 下载项。 */
+/** 解析首页内容块顺序；缺失 / 非法项补齐，默认 收藏 → 书签分组 → 隐私报告 → 最近浏览 → 下载项。 */
 fun parseHomeOrder(raw: String?): List<Int> {
-    val all = listOf(HOME_FAVORITES, HOME_PRIVACY, HOME_RECENT, HOME_DOWNLOADS)
+    val all = listOf(HOME_FAVORITES, HOME_GROUPS, HOME_PRIVACY, HOME_RECENT, HOME_DOWNLOADS)
     val parsed = raw.orEmpty().split(',').mapNotNull { it.trim().toIntOrNull() }
         .filter { it in all }.distinct()
     return parsed + all.filter { it !in parsed }
 }
+
+/** 解析首页「书签分组」里已添加的文件夹 id（按显示顺序，逗号分隔；id 是 UUID，不含逗号）。 */
+fun parseHomeGroupIds(raw: String?): List<String> =
+    raw.orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 
 /** 标签页创建时直接读 SharedPreferences（不必构造整个 AppSettings） */
 fun readBrowserEngine(context: Context): Int =
@@ -132,6 +143,33 @@ class AppSettings(context: Context) {
         private set
     var homeShowDownloads by mutableStateOf(prefs.getBoolean(KEY_HOME_DOWNLOADS, true))
         private set
+    /** 书签分组在首页显示的行数：0=不显示，1..5=显示对应行数（每行 5 个）。旧版「隐藏」迁移为「不显示」。 */
+    var homeGroupRows by mutableStateOf(
+        if (prefs.contains(KEY_HOME_GROUP_ROWS)) {
+            prefs.getInt(KEY_HOME_GROUP_ROWS, HOME_GROUP_ROWS_DEFAULT).coerceIn(0, HOME_GROUP_ROWS_MAX)
+        } else if (!prefs.getBoolean(KEY_HOME_GROUPS, true)) {
+            0
+        } else {
+            HOME_GROUP_ROWS_DEFAULT
+        },
+    )
+        private set
+    val homeShowGroups: Boolean get() = homeGroupRows > 0
+
+    fun updateHomeGroupRows(rows: Int) {
+        homeGroupRows = rows.coerceIn(0, HOME_GROUP_ROWS_MAX)
+        prefs.edit().putInt(KEY_HOME_GROUP_ROWS, homeGroupRows).apply()
+    }
+
+    /** 首页「书签分组」里已添加的文件夹 id（按显示顺序）。存 id 而不是路径：文件夹改名 / 搬家后 id 不变。 */
+    var homeGroupIds by mutableStateOf(parseHomeGroupIds(prefs.getString(KEY_HOME_GROUP_IDS, null)))
+        private set
+
+    fun updateHomeGroupIds(ids: List<String>) {
+        val fixed = ids.distinct().take(HOME_GROUP_COLS * HOME_GROUP_ROWS_MAX)
+        homeGroupIds = fixed
+        prefs.edit().putString(KEY_HOME_GROUP_IDS, fixed.joinToString(",")).apply()
+    }
 
     /** 首页内容块的显示顺序（含隐藏项的位置），长按拖动后持久化。 */
     var homeOrder by mutableStateOf(parseHomeOrder(prefs.getString(KEY_HOME_ORDER, null)))
@@ -145,6 +183,7 @@ class AppSettings(context: Context) {
 
     fun isHomeShown(kind: Int): Boolean = when (kind) {
         HOME_FAVORITES -> homeShowFavorites
+        HOME_GROUPS -> homeShowGroups
         HOME_PRIVACY -> homeShowPrivacy
         HOME_RECENT -> homeShowRecent
         else -> homeShowDownloads
@@ -178,6 +217,7 @@ class AppSettings(context: Context) {
         val e = prefs.edit()
         when (kind) {
             HOME_FAVORITES -> updateHomeFavRows(if (!show) 0 else if (homeFavRows == 0) HOME_FAV_ROWS_DEFAULT else homeFavRows)
+            HOME_GROUPS -> updateHomeGroupRows(if (!show) 0 else if (homeGroupRows == 0) HOME_GROUP_ROWS_DEFAULT else homeGroupRows)
             HOME_PRIVACY -> { homeShowPrivacy = show; e.putBoolean(KEY_HOME_PRIVACY, show) }
             HOME_RECENT -> { homeShowRecent = show; e.putBoolean(KEY_HOME_RECENT, show) }
             HOME_DOWNLOADS -> { homeShowDownloads = show; e.putBoolean(KEY_HOME_DOWNLOADS, show) }
@@ -659,6 +699,9 @@ class AppSettings(context: Context) {
         const val KEY_HOME_PRIVACY = "home_show_privacy"
         const val KEY_HOME_RECENT = "home_show_recent"
         const val KEY_HOME_DOWNLOADS = "home_show_downloads"
+        const val KEY_HOME_GROUPS = "home_show_groups"
+        const val KEY_HOME_GROUP_ROWS = "home_group_rows"
+        const val KEY_HOME_GROUP_IDS = "home_group_ids"
         const val KEY_HOME_ORDER = "home_order"
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"
         const val KEY_RESTORE_TABS = "restore_tabs_on_launch"

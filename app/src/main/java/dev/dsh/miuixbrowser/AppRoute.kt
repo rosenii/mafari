@@ -40,6 +40,6 @@ sealed interface AppRoute : NavKey {
     /** 设置 → 隐私与安全 → 隐私增强保护（WebView：DNT / WebRTC / 指纹） */
     data object PrivacyEnhancePage : AppRoute
 
-    /** 书签 / 历史库。[tab] 0 = 书签，1 = 历史。 */
-    data class Library(val tab: Int) : AppRoute
+    /** 书签 / 历史库。[tab] 0 = 书签，1 = 历史；[group] 非空时书签页打开后展开该分组（含上级）。 */
+    data class Library(val tab: Int, val group: String? = null) : AppRoute
 }

@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import org.json.JSONArray
@@ -46,6 +47,10 @@ class FavoritesStore(context: Context) {
 
     /** load() 里发现旧数据缺 id / id 重复时置位。 */
     private var needsPersist = false
+
+    /** 文件夹注册表每变一次加一：界面读它来订阅文件夹的改名 / 删除（注册表本身不是 Compose 状态）。 */
+    var folderRev by mutableIntStateOf(0)
+        private set
 
     // 写库是「整表快照」，Floccus 同步时一连串操作会反复 persist：延后一小会儿合并成一次
     private val main = Handler(Looper.getMainLooper())
@@ -166,6 +171,7 @@ class FavoritesStore(context: Context) {
     }
 
     private fun persistFolders() {
+        folderRev++
         if (useDb) {
             scheduleSave(bookmarks = false)
             return

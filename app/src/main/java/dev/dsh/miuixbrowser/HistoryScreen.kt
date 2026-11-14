@@ -128,6 +128,7 @@ fun LibraryScreen(
     onOpen: (String) -> Unit,
     initialTab: Int = TAB_HISTORY,
     blurEnabled: Boolean = true,
+    initialGroup: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -269,6 +270,7 @@ fun LibraryScreen(
                             onEdit = { editingFav = it },
                             onGroupLongClick = { renamingGroup = it },
                             query = query,
+                            initialGroup = initialGroup,
                         )
 
                         else -> HistoryPage(
@@ -614,13 +616,23 @@ private fun BookmarksPage(
     onEdit: (Favorite) -> Unit,
     onGroupLongClick: (String) -> Unit,
     query: String = "",
+    initialGroup: String? = null,
 ) {
     val q = query.trim()
     val roots = buildBookmarkTree(favorites, q)
     val groupHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val groupTick = { groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
     // 顶层分组默认折叠（只有一个时默认展开），次级文件夹默认折叠；搜索时全部自动展开
-    val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val expanded = remember {
+        androidx.compose.runtime.mutableStateMapOf<String, Boolean>().also { m ->
+            // 从首页「书签分组」进来：展开目标分组及其全部上级
+            var cur = initialGroup.orEmpty()
+            while (cur.isNotEmpty()) {
+                m[cur] = true
+                cur = if (cur.contains('/')) cur.substringBeforeLast('/') else ""
+            }
+        }
+    }
     val onlyOneGroup = roots.count { it.total > 0 } <= 1
     val noMatch = q.isNotEmpty() && roots.none { it.total > 0 }
     LazyColumn(
