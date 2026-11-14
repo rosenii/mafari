@@ -37,4 +37,33 @@ class PasswordAutofillTest {
         assertFalse(PasswordAutofill.hostMatches("https://other.org", "example.com"))
         assertFalse(PasswordAutofill.hostMatches("https://example.com", ""))
     }
+
+    @Test
+    fun systemAutofillNeedsTheSameHostNotJustASubdomain() {
+        assertTrue(PasswordAutofill.sameSite("https://example.com", "example.com"))
+        assertTrue(PasswordAutofill.sameSite("https://www.example.com", "example.com"))
+        assertTrue(PasswordAutofill.sameSite("https://example.com", "www.example.com"))
+        // 子域不给：sites.example.com 这类用户可自建内容的子站不能拿到 example.com 的密码
+        assertFalse(PasswordAutofill.sameSite("https://example.com", "sites.example.com"))
+        assertFalse(PasswordAutofill.sameSite("https://login.example.com", "example.com"))
+        assertFalse(PasswordAutofill.sameSite("https://evilexample.com", "example.com"))
+        assertFalse(PasswordAutofill.sameSite("https://example.com", ""))
+    }
+
+    @Test
+    fun httpsCredentialsAreNotOfferedOnHttpPages() {
+        assertFalse(PasswordAutofill.schemeAllows("https://example.com", "http"))
+        assertTrue(PasswordAutofill.schemeAllows("https://example.com", "https"))
+        assertTrue(PasswordAutofill.schemeAllows("http://example.com", "http"))
+        assertTrue(PasswordAutofill.schemeAllows("http://example.com", "https")) // 升级到 https 没问题
+        assertTrue(PasswordAutofill.schemeAllows("https://example.com", null)) // 协议未知不拦
+    }
+
+    @Test
+    fun usableCombinesHostSchemeAndHttpAuthRules() {
+        assertTrue(PasswordAutofill.usable("https://example.com", null, "example.com", "https"))
+        assertFalse(PasswordAutofill.usable("https://example.com", "Restricted", "example.com", "https")) // HTTP 认证凭据
+        assertFalse(PasswordAutofill.usable("https://example.com", null, "example.com", "http"))
+        assertFalse(PasswordAutofill.usable("https://example.com", null, "other.org", "https"))
+    }
 }

@@ -4,8 +4,12 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.PersistableBundle
+import android.provider.Settings
 import android.view.WindowManager
+import android.view.autofill.AutofillManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -69,11 +73,24 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /** 导入结果弹窗的内容。 */
 private class ImportReport(val title: String, val lines: List<String>, val success: Boolean)
 
+/** 本应用是否是当前选中的系统自动填充服务（该接口只回答「调用方自己的服务是否启用」）。 */
+private fun isAutofillServiceOn(context: Context): Boolean =
+    runCatching { context.getSystemService(AutofillManager::class.java)?.hasEnabledAutofillServices() == true }.getOrDefault(false)
+
+/** 打开系统的「选择自动填充服务」确认页，预选本应用；个别 ROM 没有这个页面时给出手动路径。 */
+private fun openAutofillSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:" + context.packageName))
+    runCatching { context.startActivity(intent) }.onFailure {
+        Toast.makeText(context, "请在系统设置里搜索「自动填充服务」并选择 Mafari 密码", Toast.LENGTH_LONG).show()
+    }
+}
+
 /**
  * 设置 → 隐私与安全 → 密码。
  *
  * 功能：从其他浏览器 / 密码管理器导出的 CSV 导入、加密存储（见 [PasswordDb]）、Firefox 同步（gecko / sync_lite 版，见 [FxaPasswordBridge]）。
- * 「保存密码 / 自动填充 / 填充前验证身份」三个开关见 [PasswordPrefs]，生效在 Gecko 标签页（[GeckoLogins] / [GeckoPromptHandler]）。
+ * 「保存密码 / 自动填充 / 填充前验证身份」三个开关见 [PasswordPrefs]：Gecko 标签页走 Gecko 自己的登录存储（[GeckoLogins] / [GeckoPromptHandler]），
+ * 系统 WebView 标签页（以及 Gecko 的系统自动填充桥）走本应用的系统自动填充服务（[MafariAutofillService]，需在系统设置里选中，入口在本页第一行）。
  * 查看 / 复制密码要先通过系统验证（生物识别或锁屏密码）；本页显示期间禁止截屏 / 录屏。
  */
 @Composable
@@ -103,7 +120,16 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
     var saveOn by remember { mutableStateOf(PasswordPrefs.saveEnabled(context)) }
     var fillOn by remember { mutableStateOf(PasswordPrefs.fillEnabled(context)) }
     var verifyOn by remember { mutableStateOf(PasswordPrefs.verifyBeforeFill(context)) }
-    val autofillAvailable = EngineSupport.GECKO_BUNDLED // 只有 Gecko 内核的标签页接了；无内核版开关置灰
+    // 本应用是否已被选为系统自动填充服务；从系统设置回来（ON_RESUME）时刷新
+    var serviceOn by remember { mutableStateOf(isAutofillServiceOn(context)) }
+    DisposableEffect(context) {
+        val lifecycle = (context.findActivity() as? androidx.lifecycle.LifecycleOwner)?.lifecycle
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) serviceOn = isAutofillServiceOn(context)
+        }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
+    }
 
     // 本页显示期间禁止截屏 / 录屏（页面上会出现站点、用户名，点开还会出现明文密码）
     DisposableEffect(context) {
@@ -191,29 +217,33 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    // ① 功能开关（只作用于 Gecko 内核的标签页；系统 WebView 的网页仍用系统自动填充服务）
+                    // ① 自动填充：系统服务入口 + 三个开关（两个内核共用，开关同时作用于 Gecko 内置填充和系统自动填充服务）
                     item {
                         SmallTitle(text = "自动填充")
                         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
+                            ArrowPreference(
+                                title = "系统自动填充服务",
+                                summary = if (serviceOn) "已启用 · 系统 WebView 与 Gecko 网页的登录框都可填充"
+                                else "未启用 · 点此在系统设置里选择「Mafari 密码」，WebView 网页即可使用这里的密码",
+                                onClick = { openAutofillSettings(context) },
+                            )
                             AppSwitchPreference(
                                 title = "保存密码",
-                                summary = if (autofillAvailable) "登录后询问是否保存或更新 · 无痕标签页不保存" else "仅 Gecko 内核可用",
-                                checked = saveOn && autofillAvailable,
+                                summary = "登录后询问是否保存或更新 · 无痕标签页不保存",
+                                checked = saveOn,
                                 onCheckedChange = {
                                     saveOn = it
                                     PasswordPrefs.set(context, PasswordPrefs.KEY_SAVE, it)
                                 },
-                                enabled = autofillAvailable,
                             )
                             AppSwitchPreference(
                                 title = "自动填充",
-                                summary = if (autofillAvailable) "点登录框时选择已保存的账号并填入" else "仅 Gecko 内核可用",
-                                checked = fillOn && autofillAvailable,
+                                summary = "点登录框时选择已保存的账号并填入",
+                                checked = fillOn,
                                 onCheckedChange = {
                                     fillOn = it
                                     PasswordPrefs.set(context, PasswordPrefs.KEY_FILL, it)
                                 },
-                                enabled = autofillAvailable,
                             )
                             AppSwitchPreference(
                                 title = "填充前验证身份",
@@ -223,7 +253,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                                     verifyOn = it
                                     PasswordPrefs.set(context, PasswordPrefs.KEY_VERIFY, it)
                                 },
-                                enabled = autofillAvailable && fillOn,
+                                enabled = fillOn,
                             )
                         }
                     }

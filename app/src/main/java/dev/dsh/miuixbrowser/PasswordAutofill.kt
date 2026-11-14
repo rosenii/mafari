@@ -25,4 +25,31 @@ internal object PasswordAutofill {
         val want = hostOf(domain) ?: return false
         return have == want || have.endsWith(".$want") || want.endsWith(".$have")
     }
+
+    /**
+     * 页面协议是否允许使用这条记录：https 站点保存的凭据不填进 http 页面（明文传输会泄露）。
+     * 页面协议未知（[pageScheme] 为 null）时不拦——系统自动填充只在受信浏览器里生效，由它保证。
+     */
+    fun schemeAllows(origin: String, pageScheme: String?): Boolean {
+        val saved = origin.substringBefore("://", "https").lowercase()
+        return !(saved == "https" && pageScheme.equals("http", ignoreCase = true))
+    }
+
+    /**
+     * 系统自动填充用的站点判断：主机必须相同（只忽略开头的 `www.`），**不**像 [hostMatches] 那样放过子域。
+     * Gecko 是「候选宽松、Gecko 再精筛」；系统自动填充没有下一层，放过子域会让 `sites.example.com` 这类
+     * 用户可自建内容的子站拿到 `example.com` 的密码。
+     */
+    fun sameSite(origin: String, pageHost: String): Boolean {
+        val have = hostOf(origin)?.removePrefix("www.") ?: return false
+        val want = hostOf(pageHost)?.removePrefix("www.") ?: return false
+        return have == want
+    }
+
+    /**
+     * 系统自动填充（[MafariAutofillService]）用的完整判断：只给网页表单凭据（HTTP 认证凭据不进网页表单），
+     * 站点要严格对得上（[sameSite]）、协议不能降级（[schemeAllows]）。
+     */
+    fun usable(origin: String, httpRealm: String?, pageHost: String, pageScheme: String?): Boolean =
+        httpRealm == null && sameSite(origin, pageHost) && schemeAllows(origin, pageScheme)
 }

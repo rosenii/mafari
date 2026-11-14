@@ -9,7 +9,8 @@ import android.content.Context
  *  - [KEY_VERIFY] 填充前验证身份：填入前先过 [BiometricGate]（生物识别或锁屏密码）。
  *
  * 默认全开：这些功能只在用户主动登录 / 点登录框时才出现，而且密码始终是加密存放的。
- * 只有 Gecko 内核的标签页接了这套（WebView 标签仍走系统自动填充服务）；lite 版没有 Gecko，开关置灰。
+ * 三个开关两边共用：Gecko 标签页走 Gecko 自己的登录存储（[GeckoLogins]）；系统 WebView 标签页走系统自动填充服务
+ * [MafariAutofillService]（要在系统设置里选中本应用）。lite 版没有 Gecko，只有后一条路，[pushToGecko] 直接跳过。
  */
 internal object PasswordPrefs {
 

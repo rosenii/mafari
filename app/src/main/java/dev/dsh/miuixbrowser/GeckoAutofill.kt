@@ -50,9 +50,10 @@ internal object GeckoAutofill {
         val am = runCatching { context.getSystemService(AutofillManager::class.java) }.getOrNull()
         val sys = when {
             am == null -> "系统不支持自动填充"
-            !am.hasEnabledAutofillServices() -> "系统未选择自动填充服务（设置 → 密码和账号 → 自动填充服务）"
+            // hasEnabledAutofillServices() 只回答「本应用自己的服务（MafariAutofillService）是否被选中」
+            !am.hasEnabledAutofillServices() -> "本应用的自动填充服务未启用（设置 → 密码和账号 → 自动填充服务 → Mafari 密码）；当前可能由其它服务负责"
             !am.isEnabled -> "系统自动填充已关闭"
-            else -> "系统自动填充服务可用"
+            else -> "本应用的自动填充服务已启用"
         }
         return "$sys；$lastState"
     }
