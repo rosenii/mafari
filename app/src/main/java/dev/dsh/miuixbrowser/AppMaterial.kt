@@ -82,6 +82,7 @@ interface AppMaterial {
         anchorBounds: Rect,
         backdrop: Backdrop?,
         modifier: Modifier,
+        alignStart: Boolean,
         content: @Composable ColumnScope.() -> Unit,
     )
 
@@ -282,7 +283,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
     @Composable
     override fun BoxScope.PopupHost(
         show: Boolean, onDismissRequest: () -> Unit, anchorBounds: Rect, backdrop: Backdrop?,
-        modifier: Modifier, content: @Composable ColumnScope.() -> Unit,
+        modifier: Modifier, alignStart: Boolean, content: @Composable ColumnScope.() -> Unit,
     ) {
         GlassPopup(
             show = show,
@@ -290,6 +291,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
             anchorBounds = anchorBounds,
             backdrop = bd(backdrop),
             modifier = modifier,
+            alignStart = alignStart,
             content = content,
         )
     }
@@ -507,13 +509,15 @@ fun BoxScope.AppGlassPopup(
     anchorBounds: Rect,
     backdrop: Backdrop?,
     modifier: Modifier = Modifier,
+    /** true：弹窗左边缘对齐锚点左边缘（向右展开）；默认 false：右边缘对齐锚点右边缘（向左展开）。 */
+    alignStart: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val m = currentMaterial()
     val liquidBackdrop = LocalLiquidBackdrop.current
     val mode = LocalBlurMode.current
     with(m) {
-        PopupHost(show, onDismissRequest, anchorBounds, backdrop, modifier) {
+        PopupHost(show, onDismissRequest, anchorBounds, backdrop, modifier, alignStart) {
             CompositionLocalProvider(LocalLiquidBackdrop provides liquidBackdrop, LocalBlurMode provides mode) {
                 content()
             }

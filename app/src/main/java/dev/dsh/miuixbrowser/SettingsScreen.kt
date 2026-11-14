@@ -1035,7 +1035,7 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = "退出应用时更新桌面图标，深浅色跟随显示模式自动切换",
+            text = "退出应用时更新桌面图标；极简↔极暗、多彩 / 立体→深色 随显示模式自动切换",
             fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )

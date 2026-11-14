@@ -271,7 +271,8 @@ object LiquidGlassMaterial : AppMaterial {
     @Composable
     override fun BoxScope.PopupHost(
         show: Boolean, onDismissRequest: () -> Unit, anchorBounds: androidx.compose.ui.geometry.Rect,
-        backdrop: Backdrop?, modifier: Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+        backdrop: Backdrop?, modifier: Modifier, alignStart: Boolean,
+        content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
     ) {
         val liquid = activeLiquidBackdrop(backdrop)
         GlassPopup(
@@ -280,6 +281,7 @@ object LiquidGlassMaterial : AppMaterial {
             anchorBounds = anchorBounds,
             backdrop = backdrop,
             modifier = modifier,
+            alignStart = alignStart,
             surface = liquid?.let { liquidPopupSurface(it) },
             content = content,
         )

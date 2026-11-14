@@ -1377,6 +1377,15 @@ internal fun HomeBlockHeader(
 
 /* -------------------------- 书签分组卡片 -------------------------- */
 
+/** 书签分组磁贴的正方形占格子宽度的比例：比例越小，磁贴越小、磁贴之间的空隙越大。 */
+private const val GROUP_TILE_FRACTION = 0.62f
+
+/** 书签分组磁贴的圆角（dp），随方块缩小。 */
+private const val GROUP_TILE_RADIUS = 12
+
+/** 书签分组弹窗的边长上限（GlassPopup 自身宽度上限 288dp，取小一点更像一个小窗）。 */
+private val GROUP_POPUP_SIDE = 248.dp
+
 /** 首页「书签分组」里的一格：文件夹 id（稳定）、当前路径、预览用的前几条书签地址。 */
 internal data class HomeGroup(val id: String, val path: String, val previewUrls: List<String>)
 
@@ -1419,8 +1428,8 @@ internal fun GroupsBlock(
             items = shown,
             columns = HOME_GROUP_COLS,
             gap = 8.dp,
-            // 正方形磁贴 + 下方一行名称
-            cellHeight = { it + 20.dp },
+            // 缩小后的正方形磁贴 + 下方一行名称 + 额外竖向间距
+            cellHeight = { it * GROUP_TILE_FRACTION + 32.dp },
             editing = editing,
             guard = guard,
             onTap = { _, group, isEditing ->
@@ -1428,7 +1437,8 @@ internal fun GroupsBlock(
             },
             onToggleEdit = onToggleEdit,
             onMove = onMove,
-            hasTrailing = !full,
+            // 「添加」：一个分组都没有时常驻（初始状态）；添加过分组后只在长按进入编辑态时出现
+            hasTrailing = !full && (shown.isEmpty() || editing),
             trailing = { mod ->
                 GroupAddTile(
                     wallpaper = wallpaper,
@@ -1475,10 +1485,10 @@ internal fun GroupTile(
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(GROUP_TILE_FRACTION)
                 .aspectRatio(1f)
                 .onGloballyPositioned { onAnchor(it.boundsInRoot()) }
-                .homeGlass(wallpaperBackdrop, blurEnabled, hasWallpaper, liquidBackdrop),
+                .homeGlass(wallpaperBackdrop, blurEnabled, hasWallpaper, liquidBackdrop, radius = GROUP_TILE_RADIUS),
             contentAlignment = Alignment.Center,
         ) {
             if (group.previewUrls.isEmpty()) {
@@ -1486,19 +1496,19 @@ internal fun GroupTile(
                     imageVector = AppIcons.Folder,
                     contentDescription = null,
                     tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(20.dp),
                 )
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     group.previewUrls.take(4).chunked(2).forEach { rowUrls ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            rowUrls.forEach { FaviconBadge(url = it, size = 19.dp, corner = 5.dp) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            rowUrls.forEach { FaviconBadge(url = it, size = 13.dp, corner = 4.dp) }
                         }
                     }
                 }
             }
             if (editing) TileRemoveBadge(onClick = onRemove)
-            HomeOutlineOverlay(hasWallpaper = hasWallpaper, radius = 16.dp)
+            HomeOutlineOverlay(hasWallpaper = hasWallpaper, radius = GROUP_TILE_RADIUS.dp)
         }
         Text(
             text = group.path.substringAfterLast('/').ifBlank { group.path },
@@ -1528,17 +1538,18 @@ internal fun GroupAddTile(
     Box(modifier = modifier) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .fillMaxWidth(GROUP_TILE_FRACTION)
                 .aspectRatio(1f)
-                .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop),
+                .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop, radius = GROUP_TILE_RADIUS),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = "+",
-                fontSize = 26.sp,
+                fontSize = 20.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-            HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = 16.dp)
+            HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = GROUP_TILE_RADIUS.dp)
         }
     }
 }
@@ -1561,26 +1572,27 @@ internal fun BoxScope.GroupBookmarkPopup(
     var path by remember(rootPath, show) { mutableStateOf(rootPath) }
     val density = LocalDensity.current
     val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
-    // GlassPopup 的宽度上限是 GlassPopupDefaults.MaxWidth（288dp），边长不能超过它，否则正方形会被压成长方形；
+    // 边长不能超过 GlassPopup 的宽度上限（288dp），否则正方形会被压成长方形；
     // 同时给左右各留出 SafeMargin
-    val side = minOf(GlassPopupDefaults.MaxWidth, (LocalConfiguration.current.screenWidthDp.dp - GlassPopupDefaults.SafeMargin * 2))
-    val sidePx = with(density) { side.toPx() }
+    val side = minOf(GROUP_POPUP_SIDE, (LocalConfiguration.current.screenWidthDp.dp - GlassPopupDefaults.SafeMargin * 2))
     val gapPx = with(density) { 6.dp.toPx() }
-    // 锚点：GlassPopup 默认让弹窗右边缘对齐锚点右边缘，且弹窗顶边落在锚点顶边。
-    // - 水平：左半屏的磁贴让弹窗左边缘对齐磁贴左边缘（向右展开），右半屏的反之，避免被边距挤偏；
-    // - 垂直：顶边放在图标下沿 + 间距，使窗口出现在图标正下方；下方放不下时 GlassPopup 会翻到上方，
+    // GlassPopup 的展开动画是「固定一条水平边 + 固定一条竖边」从锚点长出来的：
+    // - 水平：左半屏的磁贴用 alignStart（左边缘对齐磁贴左边缘，向右展开），右半屏的磁贴默认（右边缘对齐
+    //   磁贴右边缘，向左展开），这样固定边始终落在被点的磁贴上，只有被屏幕边距挤到时才会偏移；
+    // - 垂直：顶边放在图标下沿 + 间距，窗口出现在图标正下方；下方放不下时 GlassPopup 会翻到上方，
     //   以锚点 bottom 为底边，所以 bottom 取图标上沿 - 间距（与 HistoryScreen 的 rememberAboveAnchor 同一思路）。
+    val alignStart = anchorBounds.center.x < screenWidthPx / 2f
     val anchor = if (anchorBounds == Rect.Zero) {
         anchorBounds
     } else {
-        val right = if (anchorBounds.center.x < screenWidthPx / 2f) anchorBounds.left + sidePx else anchorBounds.right
-        Rect(right - sidePx, anchorBounds.bottom + gapPx, right, anchorBounds.top - gapPx)
+        Rect(anchorBounds.left, anchorBounds.bottom + gapPx, anchorBounds.right, anchorBounds.top - gapPx)
     }
     AppGlassPopup(
         show = show,
         onDismissRequest = onDismiss,
         anchorBounds = anchor,
         backdrop = backdrop,
+        alignStart = alignStart,
     ) {
         Column(modifier = Modifier.size(side)) {
             val atRoot = path == rootPath
