@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -1455,11 +1456,24 @@ internal fun FavoriteEditorDialog(
                 )
             }
         }
-        // 分组弹窗层：matchParentSize = 表单的大小；锚点从窗口坐标换算成宿主 Box 内坐标
-        Box(modifier = Modifier.matchParentSize()) {
+        // 分组弹窗层：宽度 = 表单宽度；向上多伸出 [extraTop] 的空间，让向上弹出的弹窗能多显示几行；
+        // 锚点从窗口坐标换算成该层内的坐标（该层原点在表单上沿之上 extraTop 处）
+        val extraTop = 200.dp
+        val extraTopPx = with(androidx.compose.ui.platform.LocalDensity.current) { extraTop.toPx() }
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .layout { measurable, c ->
+                    val e = extraTopPx.toInt()
+                    val placeable = measurable.measure(
+                        androidx.compose.ui.unit.Constraints.fixed(c.maxWidth, c.maxHeight + e),
+                    )
+                    layout(c.maxWidth, c.maxHeight) { placeable.place(0, -e) }
+                },
+        ) {
             GroupChoosePopup(
                 show = groupPopup,
-                anchorBounds = groupAnchor.translate(-hostPos),
+                anchorBounds = groupAnchor.translate(-hostPos).translate(androidx.compose.ui.geometry.Offset(0f, extraTopPx)),
                 pageWidthPx = hostWidth.toFloat(),
                 groups = groups,
                 current = group.trim().ifBlank { Favorite.GROUP_PERSONAL },

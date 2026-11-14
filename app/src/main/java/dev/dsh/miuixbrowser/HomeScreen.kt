@@ -1378,15 +1378,15 @@ internal fun HomeBlockHeader(
 /* -------------------------- 书签分组卡片 -------------------------- */
 
 /** 书签分组磁贴的正方形占格子宽度的比例：比例越小，磁贴越小、磁贴之间的空隙越大。 */
-private const val GROUP_TILE_FRACTION = 0.70f
+private const val GROUP_TILE_FRACTION = 0.80f
 
 /** 书签分组整块大卡片的圆角（dp）与内边距：磁贴们统一落在这一张玻璃卡片上。 */
-private const val GROUP_CARD_RADIUS = 20
+private const val GROUP_CARD_RADIUS = 22
 private val GROUP_CARD_PADDING_H = 8.dp
 private val GROUP_CARD_PADDING_V = 10.dp
 
 /** 书签分组磁贴的圆角（dp），随方块缩小。 */
-private const val GROUP_TILE_RADIUS = 12
+private const val GROUP_TILE_RADIUS = 16
 
 /** 书签分组弹窗的边长上限（GlassPopup 自身宽度上限 288dp，取小一点更像一个小窗）。 */
 private val GROUP_POPUP_SIDE = 248.dp
@@ -1586,17 +1586,18 @@ internal fun GroupAddTile(
     }
 }
 
-/** 分组弹窗的几何：边长 / 高度、水平对齐方式，以及按 GlassPopup 规则加工过的锚点。 */
+/** 分组弹窗的几何：宽 [side]、高 [height]、水平对齐方式，以及按 GlassPopup 规则加工过的锚点。 */
 internal class GroupPopupGeometry(val anchor: Rect, val alignStart: Boolean, val side: Dp, val height: Dp)
 
 /**
  * 按 GlassPopup 的规则算分组弹窗的锚点与对齐：
- * - 边长不能超过 GlassPopup 的宽度上限（288dp），也要给页面两侧各留 SafeMargin，否则正方形会被压成长方形；
- * - 水平（[alignStartByHalf] 为 true，磁贴弹窗）：锚点在页面正中（第 3 列）时，弹窗以锚点中心为中线居中；
- *   位于左半边用 alignStart（左边缘对齐锚点左边缘，向右展开），右半边用右边缘对齐锚点右边缘；
+ * - 宽度不能超过 GlassPopup 的宽度上限（288dp），也要给页面两侧各留 SafeMargin；
+ * - 水平（[alignStartByHalf] 为 true，磁贴弹窗）：页面左半边（含正中的第 3 列）用 alignStart，左边缘对齐磁贴左边缘、向右展开；
+ *   正中的磁贴弹窗宽度收窄到刚好铺到右侧屏幕边缘留一个 SafeMargin 的空隙，高度不变；右半边用右边缘对齐磁贴右边缘；
  *   [alignStartByHalf] 为 false 时固定右边缘对齐锚点右边缘（向左展开）；
  * - 垂直：默认顶边放在锚点下沿 + 间距，窗口出现在锚点正下方；
- *   [openUp] 为 true 时强制向上弹出：底边放在锚点上沿 - 间距（右下角贴着锚点），高度压到锚点上方放得下的范围内。
+ *   [openUp] 为 true 时强制向上弹出：底边放在锚点上沿 - 间距（右下角贴着锚点），高度取 [desiredHeight]
+ *   （内容刚好显示完整的高度），放不下时压到锚点上方放得下的范围。
  */
 @Composable
 internal fun groupPopupGeometry(
@@ -1605,33 +1606,34 @@ internal fun groupPopupGeometry(
     alignStartByHalf: Boolean = true,
     openUp: Boolean = false,
     gap: Dp = 6.dp,
+    desiredHeight: Dp? = null,
 ): GroupPopupGeometry {
     val density = LocalDensity.current
     val pageWidthDp = with(density) { pageWidthPx.toDp() }
-    val side = minOf(GROUP_POPUP_SIDE, (pageWidthDp - GlassPopupDefaults.SafeMargin * 2).coerceAtLeast(0.dp))
+    val margin = GlassPopupDefaults.SafeMargin
+    val side = minOf(GROUP_POPUP_SIDE, (pageWidthDp - margin * 2).coerceAtLeast(0.dp))
     val gapPx = with(density) { gap.toPx() }
     if (anchorBounds == Rect.Zero) return GroupPopupGeometry(anchorBounds, alignStartByHalf, side, side)
 
-    val sidePx = with(density) { side.toPx() }
     val cx = anchorBounds.center.x
-    val centered = alignStartByHalf && pageWidthPx > 0f && kotlin.math.abs(cx / pageWidthPx - 0.5f) < 0.12f
-    val alignStart = centered || (alignStartByHalf && cx < pageWidthPx / 2f)
-    // 居中：GlassPopup 的 alignStart 以锚点 left 为弹窗左边缘，所以把 left 设成「中心 - 半边长」
-    val left = if (centered) cx - sidePx / 2f else anchorBounds.left
-    val right = if (centered) left + sidePx else anchorBounds.right
-
+    val alignStart = alignStartByHalf && cx <= pageWidthPx / 2f + 1f
     if (!openUp) {
+        // 磁贴弹窗：左边缘对齐磁贴左边缘；宽度收窄到不超出右侧安全边距（左列磁贴空间够，仍是 side）
+        val leftDp = with(density) { anchorBounds.left.toDp() }
+        val width = if (alignStart) minOf(side, (pageWidthDp - leftDp - margin).coerceAtLeast(120.dp)) else side
         return GroupPopupGeometry(
-            Rect(left, anchorBounds.bottom + gapPx, right, anchorBounds.top - gapPx),
-            alignStart, side, side,
+            Rect(anchorBounds.left, anchorBounds.bottom + gapPx, anchorBounds.right, anchorBounds.top - gapPx),
+            alignStart, width, side,
         )
     }
     // 向上：anchor.top 取一个远在页面之外的值，GlassPopup 判定「下方放不下」而翻到上方，并以 anchor.bottom 为底边
-    val marginPx = with(density) { GlassPopupDefaults.SafeMargin.toPx() }
+    val marginPx = with(density) { margin.toPx() }
     val bottom = (anchorBounds.top - gapPx).coerceAtLeast(marginPx + 1f)
-    val availDp = with(density) { (bottom - marginPx).toDp() }
-    val height = availDp.coerceIn(minOf(140.dp, side), side)
-    return GroupPopupGeometry(Rect(left, 1e7f, right, bottom), alignStart, side, height)
+    // 扣掉 GlassPopup 自带的上下内边距（各 8dp）
+    val availDp = with(density) { (bottom - marginPx).toDp() } - GlassPopupDefaults.ContentPaddingVertical * 2
+    val want = desiredHeight ?: side
+    val height = minOf(want, availDp, 400.dp).coerceAtLeast(96.dp)
+    return GroupPopupGeometry(Rect(anchorBounds.left, 1e7f, anchorBounds.right, bottom), alignStart, side, height)
 }
 
 /** 分组弹窗的面板：固定边长的正方形，标题行（可返回上一层）+ 列表，两种分组弹窗共用。 */
@@ -1862,8 +1864,12 @@ internal fun BoxScope.GroupChoosePopup(
 ) {
     val all = remember(groups) { withAncestors(groups) }
     var path by remember(show) { mutableStateOf(current.substringBeforeLast('/', "")) }
-    val geo = groupPopupGeometry(anchorBounds, pageWidthPx, alignStartByHalf = false, openUp = true, gap = 4.dp)
     val children = all.filter { isDirectChild(it, path) }
+    // 标题行 44dp + 每行约 43dp：让所有分组一次显示完整，放不下才滚动
+    val desired = 44.dp + 43.dp * children.size.coerceAtLeast(2)
+    val geo = groupPopupGeometry(
+        anchorBounds, pageWidthPx, alignStartByHalf = false, openUp = true, gap = 4.dp, desiredHeight = desired,
+    )
     AppGlassPopup(
         show = show,
         onDismissRequest = onDismiss,
