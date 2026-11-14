@@ -676,7 +676,7 @@ internal fun FavoritesBlock(
 /**
  * 取样源（壁纸）是否已经是磁盘缓存里预模糊好的图。为 true 时首页卡片不再对它叠加第二次实时模糊：
  * 壁纸本身已经约等于 28dp 的模糊，再叠 20dp / 5dp 在视觉上几乎看不出差别，
- * 却会让收藏页的每张卡片各多一次离屏模糊 pass（收藏最多 5 行，可达二十多张）。
+ * 却会让收藏页的每张卡片各多一次离屏模糊 pass（收藏最多 6 行，可达二十多张）。
  */
 internal val LocalWallpaperPreBlurred = androidx.compose.runtime.staticCompositionLocalOf { false }
 

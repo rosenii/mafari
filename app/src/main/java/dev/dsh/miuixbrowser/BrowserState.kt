@@ -1,51 +1,3 @@
-    internal fun geckoRequestLocation(origin: String, result: (Boolean) -> Unit) {
-        decide(
-            GeckoSitePerms.override(origin, GeckoSitePerms.LOCATION) ?: locationMode,
-            origin,
-            "获取你的位置",
-            arrayOf(
-                android.Manifest.permission.ACCESS_FINE_LOCATION,
-                android.Manifest.permission.ACCESS_COARSE_LOCATION,
-            ),
-            anyOk = true,
-            permKey = GeckoSitePerms.LOCATION,
-            result = result,
-        )
-    }
-
-    /** 摄像头 / 麦克风：规则与 WebView 版 handleWebPermission 一致；其中任一被设置为「拒绝」则整体拒绝。例外网站优先于全局设置 */
-    internal fun geckoRequestMedia(origin: String, wantCam: Boolean, wantMic: Boolean, result: (Boolean) -> Unit) {
-        val camMode = GeckoSitePerms.override(origin, GeckoSitePerms.CAMERA) ?: cameraMode
-        val micMode = GeckoSitePerms.override(origin, GeckoSitePerms.MIC) ?: micMode
-        val camOk = wantCam && camMode != 2
-        val micOk = wantMic && micMode != 2
-        if ((wantCam && !camOk) || (wantMic && !micOk) || (!camOk && !micOk)) {
-            result(false)
-            return
-        }
-        val perms = buildList {
-            if (camOk) add(android.Manifest.permission.CAMERA)
-            if (micOk) add(android.Manifest.permission.RECORD_AUDIO)
-        }.toTypedArray()
-        val what = listOfNotNull(if (camOk) "摄像头" else null, if (micOk) "麦克风" else null).joinToString("、")
-        val mustAsk = (camOk && camMode == 0) || (micOk && micMode == 0)
-        val keys = listOfNotNull(
-            if (camOk) GeckoSitePerms.CAMERA else null,
-            if (micOk) GeckoSitePerms.MIC else null,
-        ).joinToString(",")
-        decide(if (mustAsk) 0 else 1, origin, "使用$what", perms, permKey = keys, result = result)
-    }
-
-    /**
-     * 不涉及 Android 系统权限的网站权限（通知 / 持久存储 / 跨站 Cookie / DRM / 设备应用和服务 / 本地网络设备）：
-     * 站点例外优先，没有例外就按全局默认（询问 / 允许 / 拒绝）。
-     */
-    internal fun geckoRequestSimple(origin: String, key: String, what: String, result: (Boolean) -> Unit) {
-        val global = if (key == GeckoSitePerms.NOTIFICATION) notificationMode else GeckoSitePerms.mode(key)
-        val mode = GeckoSitePerms.override(origin, key) ?: global
-        decide(mode, origin, what, emptyArray(), permKey = key, result = result)
-    }
-
 package dev.dsh.miuixbrowser
 
 import android.annotation.SuppressLint
@@ -1740,7 +1692,7 @@ class BrowserTab(
 
     internal fun geckoRequestLocation(origin: String, result: (Boolean) -> Unit) {
         decide(
-            locationMode,
+            GeckoSitePerms.override(origin, GeckoSitePerms.LOCATION) ?: locationMode,
             origin,
             "获取你的位置",
             arrayOf(
@@ -1748,14 +1700,17 @@ class BrowserTab(
                 android.Manifest.permission.ACCESS_COARSE_LOCATION,
             ),
             anyOk = true,
+            permKey = GeckoSitePerms.LOCATION,
             result = result,
         )
     }
 
-    /** 摄像头 / 麦克风：规则与 WebView 版 handleWebPermission 一致；其中任一被设置为「拒绝」则整体拒绝 */
+    /** 摄像头 / 麦克风：规则与 WebView 版 handleWebPermission 一致；其中任一被设置为「拒绝」则整体拒绝。例外网站优先于全局设置 */
     internal fun geckoRequestMedia(origin: String, wantCam: Boolean, wantMic: Boolean, result: (Boolean) -> Unit) {
-        val camOk = wantCam && cameraMode != 2
-        val micOk = wantMic && micMode != 2
+        val camMode = GeckoSitePerms.override(origin, GeckoSitePerms.CAMERA) ?: cameraMode
+        val micModeEff = GeckoSitePerms.override(origin, GeckoSitePerms.MIC) ?: micMode
+        val camOk = wantCam && camMode != 2
+        val micOk = wantMic && micModeEff != 2
         if ((wantCam && !camOk) || (wantMic && !micOk) || (!camOk && !micOk)) {
             result(false)
             return
@@ -1765,8 +1720,22 @@ class BrowserTab(
             if (micOk) add(android.Manifest.permission.RECORD_AUDIO)
         }.toTypedArray()
         val what = listOfNotNull(if (camOk) "摄像头" else null, if (micOk) "麦克风" else null).joinToString("、")
-        val mustAsk = (camOk && cameraMode == 0) || (micOk && micMode == 0)
-        decide(if (mustAsk) 0 else 1, origin, "使用$what", perms, result = result)
+        val mustAsk = (camOk && camMode == 0) || (micOk && micModeEff == 0)
+        val keys = listOfNotNull(
+            if (camOk) GeckoSitePerms.CAMERA else null,
+            if (micOk) GeckoSitePerms.MIC else null,
+        ).joinToString(",")
+        decide(if (mustAsk) 0 else 1, origin, "使用$what", perms, permKey = keys, result = result)
+    }
+
+    /**
+     * 不涉及 Android 系统权限的网站权限（通知 / 持久存储 / 跨站 Cookie / DRM / 设备应用和服务 / 本地网络设备）：
+     * 站点例外优先，没有例外就按全局默认（询问 / 允许 / 拒绝）。
+     */
+    internal fun geckoRequestSimple(origin: String, key: String, what: String, result: (Boolean) -> Unit) {
+        val global = if (key == GeckoSitePerms.NOTIFICATION) notificationMode else GeckoSitePerms.mode(key)
+        val mode = GeckoSitePerms.override(origin, key) ?: global
+        decide(mode, origin, what, emptyArray(), permKey = key, result = result)
     }
 
     /** Gecko 视频全屏：系统栏隐藏 + 横屏（页面本身由 Gecko 撑满 GeckoView） */
@@ -3089,7 +3058,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         return tab
     }
 
-    /** 「自定义主页」选了「指定页面」且填了有效网址时返回该网址，否则 null */
+    /** 「自定义起始页」选了「指定页面」且填了有效网址时返回该网址，否则 null */
     private fun customHomeUrl(): String? {
         if (readHomeMode(context) != HOME_MODE_CUSTOM) return null
         val raw = readHomeCustomUrl(context).trim()
@@ -3097,7 +3066,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
     }
 
     /**
-     * 点击主页按钮（底栏 / 更多菜单）：按「定制主页 → 自定义主页」处理。
+     * 点击主页按钮（底栏 / 更多菜单）：按「定制主页 → 自定义起始页」处理。
      * 默认主页：回到内置主页；新建标签页：新建并切到一个新标签页；指定页面：当前标签打开该页面。
      */
     fun goHome(tab: BrowserTab = activeTab) {

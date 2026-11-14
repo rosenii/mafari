@@ -750,7 +750,7 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
                     AppDropdownPreference(
-                        title = "自定义主页",
+                        title = "自定义起始页",
                         items = listOf("默认主页", "新建标签页", "指定页面"),
                         selectedIndex = settings.homeMode.coerceIn(0, 2),
                         onSelectedIndexChange = {
@@ -810,7 +810,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 自定义主页 → 指定页面：输入网址
+            // 自定义起始页 → 指定页面：输入网址
             var homeUrlText by remember(showHomeUrlDialog) { mutableStateOf(settings.homeCustomUrl) }
             AppGlassDialog(
                 show = showHomeUrlDialog,

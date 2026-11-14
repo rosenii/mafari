@@ -27,7 +27,7 @@ const val BLUR_LIQUID = 1
 const val BLUR_OFF = 2
 
 /** 首页个人收藏可选行数上限 / 默认行数 */
-const val HOME_FAV_ROWS_MAX = 5
+const val HOME_FAV_ROWS_MAX = 6
 const val HOME_FAV_ROWS_DEFAULT = 4
 
 /** 首页内容块 */
@@ -36,7 +36,7 @@ const val HOME_PRIVACY = 1
 const val HOME_RECENT = 2
 const val HOME_DOWNLOADS = 3
 
-/** 「定制主页 → 自定义主页」：主页按钮 / 新建标签页 / 启动应用时打开什么 */
+/** 「定制主页 → 自定义起始页」：主页按钮 / 新建标签页 / 启动应用时打开什么 */
 const val HOME_MODE_DEFAULT = 0
 const val HOME_MODE_NEW_TAB = 1
 const val HOME_MODE_CUSTOM = 2
@@ -100,7 +100,7 @@ class AppSettings(context: Context) {
     val liquidGlass: Boolean get() = blurMode == BLUR_LIQUID
 
     /** 首页内容显示：LOGO / 收藏 / 隐私报告 / 最近浏览 / 下载项默认全部显示。 */
-    /** 个人收藏在首页显示的行数：0=不显示，1..5=显示对应行数（每行 3 个）。默认 4 行（等同旧版上限 12 个）。 */
+    /** 个人收藏在首页显示的行数：0=不显示，1..6=显示对应行数（每行 3 个）。默认 4 行（等同旧版上限 12 个）。 */
     var homeFavRows by mutableStateOf(
         if (prefs.contains(KEY_HOME_FAV_ROWS)) {
             prefs.getInt(KEY_HOME_FAV_ROWS, HOME_FAV_ROWS_DEFAULT).coerceIn(0, HOME_FAV_ROWS_MAX)
