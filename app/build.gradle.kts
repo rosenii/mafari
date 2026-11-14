@@ -225,6 +225,13 @@ dependencies {
     "liteCompileOnly"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
 }
 
+// GeckoView 的 libxul.so 自带 Glean，而 glean-native（Firefox 账号库的传递依赖）也打包了一个同名 libxul.so 桩，
+// 两者在 gecko 变体里冲突（mergeNativeLibs: 2 files found with path lib/arm64-v8a/libxul.so）。
+// 与 Fenix 一致：gecko 变体排除 glean-native，用 GeckoView 里的；lite 没有 GeckoView，保留 glean-native。
+configurations.configureEach {
+    if (name.contains("gecko", ignoreCase = true)) exclude(module = "glean-native")
+}
+
 // 动态版本（"+"）每 6 小时才重新解析一次，避免每次构建都访问网络
 configurations.all {
     resolutionStrategy.cacheDynamicVersionsFor(6, "hours")
