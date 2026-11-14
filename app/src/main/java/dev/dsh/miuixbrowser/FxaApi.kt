@@ -8,6 +8,7 @@ import mozilla.components.browser.storage.sync.PlacesHistoryStorage
 import mozilla.components.browser.storage.sync.RemoteTabsStorage
 import mozilla.components.browser.storage.sync.Tab
 import mozilla.components.browser.storage.sync.TabEntry
+import mozilla.components.concept.base.crash.CrashReporting
 import mozilla.components.concept.storage.BookmarkNode
 import mozilla.components.concept.storage.BookmarkNodeType
 import mozilla.components.concept.storage.PageObservation
@@ -57,6 +58,26 @@ internal object FxaApi {
     @Suppress("UNCHECKED_CAST")
     private fun <T> unwrap(v: Any?): T = (if (v is Result<*>) v.getOrThrow() else v) as T
 
+    /**
+     * RemoteTabsStorage 要求非空的 CrashReporting。我们不上报任何崩溃：用动态代理实现一个「什么都不做」的，
+     * 不依赖接口里具体有哪些方法（Job 返回值给一个已完成的 Job，其余返回 null / 0 / false）。
+     */
+    private val noCrashReporter: CrashReporting by lazy {
+        java.lang.reflect.Proxy.newProxyInstance(
+            CrashReporting::class.java.classLoader,
+            arrayOf(CrashReporting::class.java),
+        ) { _, method, _ ->
+            val rt = method.returnType
+            when {
+                rt == Void.TYPE -> null
+                kotlinx.coroutines.Job::class.java.isAssignableFrom(rt) -> kotlinx.coroutines.Job().also { it.complete() }
+                rt == java.lang.Boolean.TYPE -> false
+                rt.isPrimitive -> 0
+                else -> null
+            }
+        } as CrashReporting
+    }
+
     @Synchronized
     fun start(context: Context, l: Listener) {
         if (started) return
@@ -64,7 +85,7 @@ internal object FxaApi {
         ctx = context.applicationContext
         bookmarks = PlacesBookmarksStorage(ctx)
         history = PlacesHistoryStorage(ctx)
-        tabs = RemoteTabsStorage(ctx, null)
+        tabs = RemoteTabsStorage(ctx, noCrashReporter)
 
         GlobalSyncableStoreProvider.configureStore(SyncEngine.Bookmarks to lazy { bookmarks })
         GlobalSyncableStoreProvider.configureStore(SyncEngine.History to lazy { history })

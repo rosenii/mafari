@@ -215,6 +215,7 @@ dependencies {
     implementation("org.mozilla.components:service-firefox-accounts:$fxaComponentsVersion")
     implementation("org.mozilla.components:browser-storage-sync:$fxaComponentsVersion")
     // 这些是上面两个库的传递依赖（implementation 不会暴露给本模块的编译 classpath），直接用到其类型，需显式声明
+    implementation("org.mozilla.components:concept-base:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-sync:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-storage:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-toolbar:$fxaComponentsVersion")
