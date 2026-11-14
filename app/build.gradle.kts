@@ -226,6 +226,8 @@ dependencies {
     // 注意是 viaduct，不是 httpconfig：httpconfig 已停更在 63.0.0（带进 Kotlin 1.3 的旧运行时，会触发 Duplicate class）。
     // application-services 版本号与 android-components 的 161.0b3 不同（161.0），可用 appServicesVersion 覆盖
     implementation("org.mozilla.appservices:viaduct:$appServicesVersion")
+    // 全局初始化（NSS 等）：application-services v138 起必须在任何 Rust 调用前执行 init_rust_components.initialize()
+    implementation("org.mozilla.appservices:init_rust_components:$appServicesVersion")
     implementation("org.mozilla.components:concept-sync:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-storage:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-toolbar:$fxaComponentsVersion")

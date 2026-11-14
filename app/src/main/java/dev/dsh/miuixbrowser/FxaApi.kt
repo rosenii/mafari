@@ -3,6 +3,7 @@ package dev.dsh.miuixbrowser
 import android.content.Context
 import androidx.lifecycle.ProcessLifecycleOwner
 import mozilla.appservices.fxaclient.FxaServer
+import mozilla.appservices.init_rust_components.initialize as initRustComponents
 import mozilla.appservices.viaduct.Backend
 import mozilla.appservices.viaduct.ClientSettings
 import mozilla.appservices.viaduct.initBackend
@@ -139,6 +140,16 @@ internal object FxaApi {
             }
     }
 
+    /**
+     * application-services 要求在任何 Rust 组件调用之前先做全局初始化（内部初始化 NSS 加密库等），
+     * 否则登录 / 同步会报「NSS has not initialized」。Fenix 在 Application 里最先做这一步。
+     * 必须在 installHttpClient、各 Storage 构造、FxaAccountManager 之前调用。
+     */
+    private fun initRustComponentsEarly() {
+        runCatching { initRustComponents() }
+            .onFailure { httpInitError = "Rust 组件初始化失败：" + (it.cause?.message ?: it.message ?: it.javaClass.simpleName) }
+    }
+
     private fun installHttpClient() {
         runCatching { initBackend(OkHttpBackend()) }
             .onFailure { httpInitError = it.cause?.message ?: it.message ?: it.javaClass.simpleName }
@@ -149,6 +160,7 @@ internal object FxaApi {
         if (started) return
         started = true
         ctx = context.applicationContext
+        initRustComponentsEarly()
         installHttpClient()
         bookmarks = PlacesBookmarksStorage(ctx)
         history = PlacesHistoryStorage(ctx)

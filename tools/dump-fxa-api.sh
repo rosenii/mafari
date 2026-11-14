@@ -4,7 +4,7 @@
 set +e
 PAT='(^|/)(FxaAccountManager|DeviceConfig|SyncConfig|ServerConfig|SyncEngine|GlobalSyncableStoreProvider|FxaAuthData|AuthType|FxAEntryPoint|FxaServer|DeviceCommandOutgoing(\$[A-Za-z]+)?|DeviceCommandIncoming(\$[A-Za-z]+)?|AccountEvent(\$[A-Za-z]+)?|PlacesBookmarksStorage|PlacesHistoryStorage|RemoteTabsStorage|BookmarkNode|BookmarkNodeType|VisitInfo|PageVisit|PageObservation|RedirectSource|VisitType|Tab|TabEntry|SyncClient|Device|DeviceConstellation|TabData|TabPrivacy|PeriodicSyncConfig|FxaConfig|OAuthAccount|Profile|AccountObserver|SyncStatusObserver)\.class$'
 # viaduct（Rust 网络后端）：FxaApi.OkHttpBackend 用到的整个包，类名太通用（Request/Response），按包路径匹配
-PAT_VIADUCT='mozilla/appservices/viaduct/[A-Za-z]+(\$[A-Za-z]+)?\.class$'
+PAT_VIADUCT='mozilla/appservices/(viaduct|init_rust_components)/[A-Za-z]+(\$[A-Za-z]+)?\.class$'
 WORK=$(mktemp -d)
 echo "=== resolved mozilla artifacts ==="
 find ~/.gradle -type f \( -name '*.aar' -o -name '*.jar' \) \( -path '*mozilla*' -o -path '*appservices*' \) 2>/dev/null | sed 's#.*/##' | sort -u | head -80
