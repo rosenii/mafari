@@ -1,11 +1,9 @@
 package dev.dsh.miuixbrowser
 
-import android.app.Activity
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.ContextWrapper
 import android.os.PersistableBundle
 import android.view.WindowManager
 import android.widget.Toast
@@ -486,9 +484,3 @@ private fun copySecret(context: Context, label: String, text: String, sensitive:
 
 private fun formatTime(ms: Long): String =
     java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
