@@ -101,6 +101,12 @@ jobs:
           MAFARI_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         run: bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release --stacktrace
 
+      # 打印 Firefox 账号 / Sync 库当前解析到的版本的真实 API 签名（构建成败都运行，供对照）
+      - name: Dump Firefox Sync API
+        if: always()
+        continue-on-error: true
+        run: bash tools/dump-fxa-api.sh
+
       # 统一命名：Mafari-<版本名>-gecko.apk、Mafari-<版本名>-lite-<架构>.apk
       # 应用内「检查更新」靠文件名里的 -gecko / -lite 选择与当前安装包同变体的那一个，改名请同步 AboutScreen.pickApkUrl
       - name: Collect APKs

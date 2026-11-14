@@ -85,8 +85,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20021
-        versionName = "v2.1.21"
+        versionCode = 20020
+        versionName = "v2.1.20"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -214,6 +214,12 @@ dependencies {
     // Firefox 账号登录 + Sync（Rust application-services，含各 ABI 的 libmegazord；APK 会增大约 10–15 MB）
     implementation("org.mozilla.components:service-firefox-accounts:$fxaComponentsVersion")
     implementation("org.mozilla.components:browser-storage-sync:$fxaComponentsVersion")
+    // 这些是上面两个库的传递依赖（implementation 不会暴露给本模块的编译 classpath），直接用到其类型，需显式声明
+    implementation("org.mozilla.components:concept-sync:$fxaComponentsVersion")
+    implementation("org.mozilla.components:concept-storage:$fxaComponentsVersion")
+    implementation("org.mozilla.components:concept-toolbar:$fxaComponentsVersion")
+    implementation("org.mozilla.components:support-base:$fxaComponentsVersion")
+    implementation("org.mozilla.components:support-ktx:$fxaComponentsVersion")
     implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     testImplementation("junit:junit:4.13.2")
     // 历史记录：SQLCipher 加密数据库（HistoryDb，整库 AES-256）；androidx.sqlite 是它的接口依赖

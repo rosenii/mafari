@@ -27,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -185,7 +187,7 @@ fun FxaScreen(
                             Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                                 FxaSync.devices.forEach { d ->
                                     ArrowPreference(
-                                        title = d.displayName,
+                                        title = d.name,
                                         summary = currentTitle.ifBlank { currentUrl },
                                         onClick = {
                                             FxaSync.sendTab(d, currentTitle, currentUrl)
