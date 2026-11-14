@@ -486,7 +486,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    // ———— 火狐账号同步（置顶）————
+                    // ———— Firefox账户同步（置顶）————
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp, bottom = 6.dp),
@@ -494,11 +494,11 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         ) {
                             val fxa = FxaSync.ui
                             ArrowPreference(
-                                title = "火狐同步",
+                                title = "Firefox账户同步",
                                 summary = when (fxa) {
                                     is FxaUi.SignedIn -> "已登录" + fxa.email.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
                                     is FxaUi.NeedsReauth -> "登录已失效，点击重新登录"
-                                    else -> "登录 Mozilla 账号，与桌面端火狐同步书签"
+                                    else -> "登录Mozilla账号，同步您的Firefox数据"
                                 },
                                 onClick = onOpenFxa,
                             )

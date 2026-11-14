@@ -7,10 +7,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
-/** 火狐同步页的 UI 状态。 */
+/** Firefox 账户同步页的 UI 状态。 */
 sealed interface FxaUi {
     data object Loading : FxaUi
     data object SignedOut : FxaUi
@@ -56,6 +58,8 @@ internal object FxaSync {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var appContext: Context
     private var inited = false
+    private var initJob: Job? = null
+    @Volatile private var initError: String? = null
 
     @Synchronized
     fun init(context: Context) {
@@ -63,14 +67,28 @@ internal object FxaSync {
         inited = true
         appContext = context.applicationContext
         FxaApi.start(appContext, listener)
-        scope.launch { runCatching { FxaApi.init() }.onFailure { ui = FxaUi.SignedOut } }
+        initJob = scope.launch {
+            runCatching { FxaApi.init() }.onFailure { initError = it.message ?: it.javaClass.simpleName; ui = FxaUi.SignedOut }
+        }
     }
 
     /** 开始登录：返回登录页地址（在内嵌 WebView 里打开）。 */
     suspend fun beginLogin(): String? {
         ui = FxaUi.Authenticating
-        val url = runCatching { FxaApi.beginLogin() }.getOrNull()
-        if (url == null) { ui = FxaUi.SignedOut; lastMessage = "无法获取登录地址" }
+        // 账号管理器还没初始化完时调用会直接失败：先等它（最多 8 秒）
+        withTimeoutOrNull(8_000) { initJob?.join() }
+        var error: String? = null
+        val url = try {
+            FxaApi.beginLogin()
+        } catch (t: Throwable) {
+            error = t.message ?: t.javaClass.simpleName
+            null
+        }
+        if (url == null) {
+            ui = FxaUi.SignedOut
+            val reason = error ?: FxaApi.httpInitError?.let { "网络组件初始化失败：$it" } ?: initError
+            lastMessage = "无法获取登录地址" + (reason?.let { "：$it" } ?: "，请检查网络后重试")
+        }
         return url
     }
 

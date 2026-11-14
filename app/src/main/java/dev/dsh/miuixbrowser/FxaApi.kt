@@ -78,11 +78,35 @@ internal object FxaApi {
         } as CrashReporting
     }
 
+    /**
+     * Rust 层（viaduct）自己没有网络栈，必须由应用注册 HTTP 客户端（Fenix 在 Application 里做同样的事）。
+     * 没注册时，取账号服务配置 / 登录地址会失败，表现就是「无法获取登录地址」。
+     * 用反射调 RustHttpConfig.setClient：类所在的包随库版本变过，找不到时把原因记下来，由界面显示。
+     */
+    @Volatile var httpInitError: String? = null
+        private set
+
+    private fun installHttpClient() {
+        runCatching {
+            val client: Lazy<mozilla.components.concept.fetch.Client> =
+                lazy { mozilla.components.lib.fetch.httpurlconnection.HttpURLConnectionClient() }
+            val cls = listOf(
+                "mozilla.appservices.httpconfig.RustHttpConfig",
+                "mozilla.components.support.rusthttp.RustHttpConfig",
+            ).firstNotNullOfOrNull { n -> runCatching { Class.forName(n) }.getOrNull() }
+                ?: error("找不到 RustHttpConfig")
+            val inst = runCatching { cls.getField("INSTANCE").get(null) }.getOrNull()
+            val m = cls.methods.first { it.name == "setClient" }
+            m.invoke(inst, client)
+        }.onFailure { httpInitError = it.cause?.message ?: it.message ?: it.javaClass.simpleName }
+    }
+
     @Synchronized
     fun start(context: Context, l: Listener) {
         if (started) return
         started = true
         ctx = context.applicationContext
+        installHttpClient()
         bookmarks = PlacesBookmarksStorage(ctx)
         history = PlacesHistoryStorage(ctx)
         tabs = RemoteTabsStorage(ctx, noCrashReporter)
@@ -128,6 +152,7 @@ internal object FxaApi {
     suspend fun init() { manager.start() }
 
     // ---------------------------------------------------------------- 账号
+    /** 不再吞异常：失败原因由 [FxaSync.beginLogin] 显示出来。 */
     suspend fun beginLogin(): String? = manager.beginAuthentication(entrypoint = FxaEntry, service = "sync")
 
     suspend fun finishLogin(code: String, state: String) {

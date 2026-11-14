@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import kotlinx.coroutines.launch
@@ -39,7 +40,7 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 备份与同步 → 火狐同步。未登录时直接进入内嵌的 Mozilla 账号登录页（页面内 WebView，回调由 [FxaSync.interceptRedirect] 截获）。 */
+/** 备份与同步 → Firefox账户同步。未登录时直接进入内嵌的 Mozilla 账号登录页（页面内 WebView，回调由 [FxaSync.interceptRedirect] 截获）。 */
 @Composable
 fun FxaScreen(
     onBack: () -> Unit,
@@ -90,7 +91,7 @@ fun FxaScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "火狐同步",
+                    title = "Firefox账户同步",
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,
@@ -146,7 +147,7 @@ fun FxaScreen(
                             is FxaUi.Loading -> ArrowPreference(title = "正在读取账号状态…", onClick = {})
                             is FxaUi.SignedOut, is FxaUi.NeedsReauth, is FxaUi.Authenticating -> ArrowPreference(
                                 title = if (ui is FxaUi.NeedsReauth) "登录已失效，重新登录" else "登录 Mozilla 账号",
-                                summary = if (ui is FxaUi.Authenticating) "正在等待登录完成…" else "与桌面端火狐同步书签",
+                                summary = if (ui is FxaUi.Authenticating) "正在等待登录完成…" else "同步您的Firefox数据",
                                 onClick = { startLogin() },
                             )
                             is FxaUi.SignedIn -> {
@@ -210,18 +211,24 @@ fun FxaScreen(
                     }
                 }
                 item {
-                    SmallTitle(text = "说明")
-                }
-                item {
-                    Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                        top.yukonga.miuix.kmp.basic.Text(
-                            "同步书签、历史和标签页。书签和历史只增不删：火狐里的书签出现在「火狐同步」分组，本地书签推到「移动设备书签」；" +
-                                "删除 / 改名暂不互相传播，推送的历史访问时间会记为同步时刻。本功能使用 Firefox 官方 Sync 协议，账号数据端到端加密。",
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
+                    FxaHintText(
+                        "同步书签、历史记录和标签页，使用 Firefox 官方 Sync 协议，账号数据端到端加密。\n" +
+                            "书签和历史记录只增不删：Firefox 中的书签会出现在「${FxaBookmarkBridge.PULL_ROOT}」分组，本地书签会推送到「移动设备书签」。\n" +
+                            "删除和重命名暂不互相同步，推送的历史访问时间会记为同步时刻。",
+                    )
                 }
             }
         }
     }
+}
+
+/** 页面底部说明文字：与拓展页等其它页面的说明文字同一规格（13sp、次级文字色、左右 24dp）。 */
+@Composable
+private fun FxaHintText(text: String) {
+    top.yukonga.miuix.kmp.basic.Text(
+        text = text,
+        fontSize = 13.sp,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+    )
 }

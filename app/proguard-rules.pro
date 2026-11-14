@@ -32,6 +32,8 @@
 -keep class mozilla.appservices.** { *; }
 -keep class mozilla.components.service.fxa.** { *; }
 -keep class mozilla.components.browser.storage.sync.** { *; }
+-keep class mozilla.components.concept.fetch.** { *; }
+-keep class mozilla.components.lib.fetch.** { *; }
 -keep class com.sun.jna.** { *; }
 -keep class * implements com.sun.jna.** { *; }
 -dontwarn com.sun.jna.**

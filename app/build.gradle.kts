@@ -216,6 +216,9 @@ dependencies {
     implementation("org.mozilla.components:browser-storage-sync:$fxaComponentsVersion")
     // 这些是上面两个库的传递依赖（implementation 不会暴露给本模块的编译 classpath），直接用到其类型，需显式声明
     implementation("org.mozilla.components:concept-base:$fxaComponentsVersion")
+    // Rust 层（viaduct）本身没有网络栈：必须注册一个 HTTP 客户端，否则取 Firefox 账号服务配置 / 登录地址会直接失败
+    implementation("org.mozilla.components:concept-fetch:$fxaComponentsVersion")
+    implementation("org.mozilla.components:lib-fetch-httpurlconnection:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-sync:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-storage:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-toolbar:$fxaComponentsVersion")
