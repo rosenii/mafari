@@ -791,6 +791,11 @@ internal fun Modifier.homeGlass(
             onDrawSurface = { drawRect(Color.White.copy(alpha = 0.12f)) },
         )
     }
+    // 取巧路径：壁纸已是缓存里的预模糊图时，直接把小图贴成卡片底，不录制壁纸层、不跑玻璃 shader
+    val bitmapSource = LocalWallpaperSource.current
+    if (HOME_CARD_BITMAP_GLASS && blurEnabled && wallpaperBackdrop != null && preBlurred && bitmapSource != null) {
+        return this.wallpaperBitmapGlass(bitmapSource, radius.dp, dark)
+    }
     val useGlass = blurEnabled && wallpaperBackdrop != null
     val glassMaterial = remember(dark, preBlurred, useGlass) {
         if (!useGlass) null
@@ -2000,6 +2005,8 @@ internal fun BoxScope.GroupBookmarkPopup(
         anchorBounds = geo.anchor,
         backdrop = backdrop,
         alignStart = geo.alignStart,
+        // 首页壁纸取样源已预模糊时，弹窗材质不再叠加实时模糊
+        preBlurred = LocalWallpaperPreBlurred.current,
     ) {
         GroupPopupPanel(
             side = geo.side,
@@ -2116,6 +2123,8 @@ internal fun BoxScope.GroupChoosePopup(
         anchorBounds = geo.anchor,
         backdrop = backdrop,
         alignStart = geo.alignStart,
+        // 首页壁纸取样源已预模糊时，弹窗材质不再叠加实时模糊
+        preBlurred = LocalWallpaperPreBlurred.current,
     ) {
         GroupPopupPanel(
             side = geo.side,
@@ -2155,6 +2164,7 @@ internal fun GroupPickerDialog(
         title = "添加书签分组",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
+        preBlurred = LocalWallpaperPreBlurred.current,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // 展示顺序：根分组在前，子分组紧跟各自的上级（缩进表示层级）
@@ -2258,6 +2268,7 @@ internal fun FavoriteEditor(
         title = if (initial == null) "添加收藏" else "编辑收藏",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
+        preBlurred = LocalWallpaperPreBlurred.current,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             TextField(

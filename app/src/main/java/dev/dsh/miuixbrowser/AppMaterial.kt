@@ -26,6 +26,7 @@ import top.yukonga.miuix.kmp.glass.GlassDialog
 import top.yukonga.miuix.kmp.glass.GlassDialogButton
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonDefaults
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
+import top.yukonga.miuix.kmp.glass.GlassDialogDefaults
 import top.yukonga.miuix.kmp.glass.GlassDropdownPreference
 import top.yukonga.miuix.kmp.glass.GlassPopup
 import top.yukonga.miuix.kmp.glass.GlassPopupDefaults
@@ -59,6 +60,8 @@ interface AppMaterial {
         summary: String?,
         onDismissFinished: (() -> Unit)?,
         content: @Composable () -> Unit,
+        /** backdrop 已是预模糊的壁纸层时为 true：材质不再叠加实时模糊（见 [LocalWallpaperPreBlurred]）。 */
+        preBlurred: Boolean = false,
     )
 
     @Composable
@@ -84,6 +87,8 @@ interface AppMaterial {
         modifier: Modifier,
         alignStart: Boolean,
         content: @Composable ColumnScope.() -> Unit,
+        /** backdrop 已是预模糊的壁纸层时为 true：材质不再叠加实时模糊。 */
+        preBlurred: Boolean = false,
     )
 
     @Composable
@@ -247,7 +252,12 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
     override fun DialogHost(
         onDismissRequest: () -> Unit, show: Boolean, backdrop: Backdrop?, modifier: Modifier,
         title: String?, summary: String?, onDismissFinished: (() -> Unit)?, content: @Composable () -> Unit,
+        preBlurred: Boolean,
     ) {
+        // 取样源已是预模糊壁纸：对话框材质默认 20dp 的实时模糊是在糊上加糊，半径清零即整段跳过模糊 pass
+        val dialogMaterial = GlassDialogDefaults.material().let {
+            if (sampling && preBlurred && backdrop != null) it.copy(blurRadius = 0.dp) else it
+        }
         GlassDialog(
             onDismissRequest = onDismissRequest,
             show = show,
@@ -255,6 +265,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
             modifier = modifier,
             title = title,
             summary = summary,
+            material = dialogMaterial,
             onDismissFinished = onDismissFinished,
             content = content,
         )
@@ -284,7 +295,13 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
     override fun BoxScope.PopupHost(
         show: Boolean, onDismissRequest: () -> Unit, anchorBounds: Rect, backdrop: Backdrop?,
         modifier: Modifier, alignStart: Boolean, content: @Composable ColumnScope.() -> Unit,
+        preBlurred: Boolean,
     ) {
+        // 同 DialogHost：预模糊取样源上不再叠加 20dp 实时模糊
+        val base = GlassPopupDefaults.visuals()
+        val visuals = if (sampling && preBlurred && backdrop != null) {
+            base.copy(material = base.material?.copy(blurRadius = 0.dp))
+        } else base
         GlassPopup(
             show = show,
             onDismissRequest = onDismissRequest,
@@ -292,6 +309,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
             backdrop = bd(backdrop),
             modifier = modifier,
             alignStart = alignStart,
+            visuals = visuals,
             content = content,
         )
     }
@@ -471,12 +489,15 @@ fun AppGlassDialog(
     title: String? = null,
     summary: String? = null,
     onDismissFinished: (() -> Unit)? = null,
+    /** backdrop 是预模糊的壁纸层时传 true（miuix 材质据此跳过实时模糊；液态材质不受影响）。 */
+    preBlurred: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val material = currentMaterial()
     material.DialogHost(
         onDismissRequest, show, backdrop, modifier, title, summary, onDismissFinished,
         content = rememberOverlayContent(content),
+        preBlurred = preBlurred,
     )
 }
 
@@ -511,17 +532,23 @@ fun BoxScope.AppGlassPopup(
     modifier: Modifier = Modifier,
     /** true：弹窗左边缘对齐锚点左边缘（向右展开）；默认 false：右边缘对齐锚点右边缘（向左展开）。 */
     alignStart: Boolean = false,
+    /** backdrop 是预模糊的壁纸层时传 true（miuix 材质据此跳过实时模糊；液态材质不受影响）。 */
+    preBlurred: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val m = currentMaterial()
     val liquidBackdrop = LocalLiquidBackdrop.current
     val mode = LocalBlurMode.current
     with(m) {
-        PopupHost(show, onDismissRequest, anchorBounds, backdrop, modifier, alignStart) {
-            CompositionLocalProvider(LocalLiquidBackdrop provides liquidBackdrop, LocalBlurMode provides mode) {
-                content()
-            }
-        }
+        PopupHost(
+            show, onDismissRequest, anchorBounds, backdrop, modifier, alignStart,
+            content = {
+                CompositionLocalProvider(LocalLiquidBackdrop provides liquidBackdrop, LocalBlurMode provides mode) {
+                    content()
+                }
+            },
+            preBlurred = preBlurred,
+        )
     }
 }
 

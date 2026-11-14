@@ -160,10 +160,11 @@ object LiquidGlassMaterial : AppMaterial {
     override fun DialogHost(
         onDismissRequest: () -> Unit, show: Boolean, backdrop: Backdrop?, modifier: Modifier,
         title: String?, summary: String?, onDismissFinished: (() -> Unit)?, content: @Composable () -> Unit,
+        preBlurred: Boolean,
     ) {
         val liquid = activeLiquidBackdrop(backdrop)
         if (liquid == null) {
-            MiuixGlassMaterial.DialogHost(onDismissRequest, show, backdrop, modifier, title, summary, onDismissFinished, content)
+            MiuixGlassMaterial.DialogHost(onDismissRequest, show, backdrop, modifier, title, summary, onDismissFinished, content, preBlurred)
             return
         }
         val containerColor = GlassDialogDefaults.containerColor()
@@ -273,6 +274,7 @@ object LiquidGlassMaterial : AppMaterial {
         show: Boolean, onDismissRequest: () -> Unit, anchorBounds: androidx.compose.ui.geometry.Rect,
         backdrop: Backdrop?, modifier: Modifier, alignStart: Boolean,
         content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+        preBlurred: Boolean,
     ) {
         val liquid = activeLiquidBackdrop(backdrop)
         GlassPopup(

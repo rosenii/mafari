@@ -19,7 +19,10 @@ import kotlin.math.roundToInt
  */
 object WallpaperBlurCache {
     private const val DIR = "wallpaper_blur"
-    private const val VERSION = 1
+    // v2：压暗层（SCRIM_ALPHA）已烘进缓存图，显示时不再另盖一层全屏黑色
+    private const val VERSION = 2
+    /** 首页壁纸压暗强度；缓存图里已烘进，未走缓存（模糊关闭 / 缓存未就绪）时由显示层自己盖同样的一层。 */
+    const val SCRIM_ALPHA = 0.28f
     private const val MAX_SIDE = 360
     /** 模糊半径占短边的比例，约等于原先 28dp 在手机屏宽上的视觉强度。 */
     private const val RADIUS_RATIO = 0.075f
@@ -34,15 +37,39 @@ object WallpaperBlurCache {
     private var memKey: String? = null
     private var memRef: java.lang.ref.SoftReference<Bitmap>? = null
 
-    /** 读取缓存；没有则生成并写入。必须在 IO 线程调用。 */
-    @Synchronized
+    private val genLock = Any()
+
+    private fun memGet(name: String): Bitmap? = synchronized(this) {
+        if (memKey == name) memRef?.get()?.takeIf { !it.isRecycled } else null
+    }
+
+    private fun memPut(name: String, bmp: Bitmap) = synchronized(this) {
+        memKey = name; memRef = java.lang.ref.SoftReference(bmp)
+    }
+
+    /**
+     * 只读缓存，不生成：进程内命中直接返回，否则同步解码磁盘上那张 360px 小图（几毫秒）；没有缓存返回 null。
+     * 用于首帧直接拿到模糊图，避免「先显示未模糊原图再切换」的闪动。
+     * 不拿生成锁：主线程调用时不会被后台正在进行的模糊生成卡住。
+     */
+    fun peek(context: Context, uri: String): Bitmap? {
+        if (uri.isBlank()) return null
+        val file = cacheFile(context, uri)
+        memGet(file.name)?.let { return it }
+        if (!file.exists() || file.length() <= 0) return null
+        val bmp = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+        memPut(file.name, bmp)
+        return bmp
+    }
+
+    /** 读取缓存；没有则生成并写入。必须在 IO 线程调用；生成过程串行，但不阻塞 [peek]。 */
     fun getOrCreate(context: Context, uri: String): Bitmap? {
         if (uri.isBlank()) return null
         val file = cacheFile(context, uri)
-        if (memKey == file.name) memRef?.get()?.takeIf { !it.isRecycled }?.let { return it }
-        val result = loadOrGenerate(context, uri, file)
-        if (result != null) { memKey = file.name; memRef = java.lang.ref.SoftReference(result) }
-        return result
+        memGet(file.name)?.let { return it }
+        return synchronized(genLock) {
+            memGet(file.name) ?: loadOrGenerate(context, uri, file)?.also { memPut(file.name, it) }
+        }
     }
 
     private fun loadOrGenerate(context: Context, uri: String, file: File): Bitmap? {
@@ -97,6 +124,15 @@ object WallpaperBlurCache {
         repeat(3) {
             boxBlurH(px, w, h, radius)
             boxBlurV(px, w, h, radius)
+        }
+        // 把壁纸压暗烘进缓存图：等价于显示时再盖一层 Black@SCRIM_ALPHA，却省掉一层全屏绘制
+        val keep = 1f - SCRIM_ALPHA
+        for (i in px.indices) {
+            val c = px[i]
+            val r = (((c shr 16) and 255) * keep).toInt()
+            val g = (((c shr 8) and 255) * keep).toInt()
+            val b = ((c and 255) * keep).toInt()
+            px[i] = (c and (0xFF shl 24)) or (r shl 16) or (g shl 8) or b
         }
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
     }

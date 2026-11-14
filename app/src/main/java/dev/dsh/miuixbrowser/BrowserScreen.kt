@@ -104,6 +104,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.focusRequester
@@ -322,9 +323,17 @@ fun BrowserScreen(
             kotlinx.coroutines.delay(6 * 3_600_000L)
         }
     }
-    val wallpaperBitmap = rememberWallpaper(settings.wallpaper, settings.wallpaperVersion)
-    // 模糊壁纸：读/写磁盘缓存里已模糊好的小图，不再实时渲染模糊
+    // 模糊壁纸：读/写磁盘缓存里已模糊好的小图，不再实时渲染模糊（首帧同步读缓存，命中时没有未模糊→模糊的闪动）
     val blurredWallpaper = rememberBlurredWallpaper(settings.wallpaper, settings.wallpaperBlur, settings.wallpaperVersion)
+    // 模糊图已就绪时屏幕上只会用到它：不再解一份屏幕分辨率的整图（约 10MB），「有壁纸」的判断也直接用模糊图
+    val wallpaperFromCache = settings.wallpaperBlur && blurredWallpaper != null
+    val fullWallpaper = rememberWallpaper(settings.wallpaper, settings.wallpaperVersion, enabled = !wallpaperFromCache)
+    val wallpaperBitmap = if (wallpaperFromCache) blurredWallpaper else fullWallpaper
+    // 壁纸显示层的位置 / 尺寸与预模糊图：首页卡片据此直接贴图当玻璃底（见 HomeBitmapGlass.kt）
+    val wallpaperLayout = remember { WallpaperLayout() }
+    val wallpaperSource = remember(blurredWallpaper, wallpaperFromCache) {
+        if (wallpaperFromCache && blurredWallpaper != null) WallpaperSource(wallpaperLayout, blurredWallpaper) else null
+    }
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val wallpaperBackdrop = rememberLayerBackdrop()
@@ -1127,6 +1136,7 @@ fun BrowserScreen(
         LocalLiquidBackdrop provides if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null,
         // 壁纸模糊开启且模糊图已读出：首页取样源已是预模糊图，卡片不再叠加实时模糊
         LocalWallpaperPreBlurred provides (settings.wallpaperBlur && blurredWallpaper != null && wallpaperBitmap != null),
+        LocalWallpaperSource provides wallpaperSource,
     ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -1156,7 +1166,11 @@ fun BrowserScreen(
                 // 避免 AndroidView / SurfaceView 与 RuntimeShader 组合时出现闪烁或崩溃。
                 .then(
                     if (homeBlurAvailable) {
-                        Modifier.layerBackdrop(browserBackdrop).kyantLayerBackdrop(liquidBackdrop)
+                        Modifier.layerBackdrop(browserBackdrop).then(
+                            // Kyant 整页层只有液态玻璃模式才有人读（miuix 模式下 activeLiquidBackdrop / 各按钮都忽略它），
+                            // 不是该模式就不录制，省掉每帧对整个首页的第二份录制
+                            if (settings.liquidGlass) Modifier.kyantLayerBackdrop(liquidBackdrop) else Modifier,
+                        )
                     } else {
                         Modifier
                     },
@@ -1170,10 +1184,14 @@ fun BrowserScreen(
                 // 取样层就是用户看到的那张壁纸（+压暗）：开启「壁纸模糊」时直接画磁盘缓存里已模糊好的图，
                 // 所有材质（柔光 / 液态玻璃）的首页卡片、底栏、弹层都从这一层取色，取色与所见一致，
                 // 不再另盖一层显示用的模糊图。缓存还没读出来时先显示未模糊原图，不做实时模糊，避免卡片闪动。
-                val shownWallpaper = if (settings.wallpaperBlur && blurredWallpaper != null) blurredWallpaper else wallpaperImage
+                val shownWallpaper = if (wallpaperFromCache && blurredWallpaper != null) blurredWallpaper else wallpaperImage
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .onGloballyPositioned {
+                            wallpaperLayout.origin = it.positionInRoot()
+                            wallpaperLayout.size = androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())
+                        }
                         .layerBackdrop(wallpaperBackdrop)
                         // Kyant 取样层只在液态玻璃 + 模糊开启时才有人读（见 StartPage 的 liquidBackdrop 与 homeGlass），否则不录制
                         .then(
@@ -1188,7 +1206,10 @@ fun BrowserScreen(
                         filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)))
+                    // 压暗层：缓存图里已烘进，只有显示未模糊原图（模糊关闭 / 缓存未就绪）时才另盖
+                    if (!wallpaperFromCache) {
+                        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = WallpaperBlurCache.SCRIM_ALPHA)))
+                    }
                 }
             }
         }
@@ -3157,11 +3178,15 @@ internal fun RefreshSpinner(progress: Float, modifier: Modifier = Modifier) {
 @Composable
 internal fun rememberBlurredWallpaper(uri: String, enabled: Boolean, version: Int): ImageBitmap? {
     val context = LocalContext.current
-    val image by produceState<ImageBitmap?>(initialValue = null, uri, enabled, version) {
-        value = if (!enabled || uri.isBlank()) {
-            null
-        } else {
-            withContext(kotlinx.coroutines.Dispatchers.IO) {
+    // 首帧同步读缓存（进程内命中免费，否则解码磁盘上那张 360px 小图）：命中时第一帧就是模糊图
+    val first = remember(uri, enabled, version) {
+        if (enabled && uri.isNotBlank()) WallpaperBlurCache.peek(context, uri)?.asImageBitmap() else null
+    }
+    val image by produceState<ImageBitmap?>(initialValue = first, uri, enabled, version) {
+        // 换壁纸 / 开关变化时先清掉上一张的旧图，缓存没命中才去 IO 线程生成
+        value = first
+        if (first == null && enabled && uri.isNotBlank()) {
+            value = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 WallpaperBlurCache.getOrCreate(context, uri)?.asImageBitmap()
             }
         }
@@ -3169,11 +3194,12 @@ internal fun rememberBlurredWallpaper(uri: String, enabled: Boolean, version: In
     return image
 }
 
+/** [enabled] 为 false 时不解码（模糊图已就绪、屏幕上用不到整图）。 */
 @Composable
-internal fun rememberWallpaper(uri: String, version: Int = 0): ImageBitmap? {
+internal fun rememberWallpaper(uri: String, version: Int = 0, enabled: Boolean = true): ImageBitmap? {
     val context = LocalContext.current
-    val image by produceState<ImageBitmap?>(initialValue = null, uri, version) {
-        value = if (uri.isBlank()) {
+    val image by produceState<ImageBitmap?>(initialValue = null, uri, version, enabled) {
+        value = if (!enabled || uri.isBlank()) {
             null
         } else {
             withContext(kotlinx.coroutines.Dispatchers.IO) {
