@@ -2,15 +2,13 @@
 
 # Mafari
 
-**简体中文** · [English](#english)
+**简体中文** · [English](README_EN.md) · [☕ 捐赠](#支持)
 
-📢 [Telegram 频道 / Channel](https://t.me/mafari_a) · 💬 [Telegram 交流群 / Discussion](https://t.me/Mafari_discuss) · 📦 [Releases](https://github.com/rosenii/mafari/releases)
+📢 [Telegram 频道](https://t.me/mafari_a) · 💬 [Telegram 交流群](https://t.me/Mafari_discuss) · 📦 [Releases](https://github.com/rosenii/mafari/releases)
 
 </div>
 
 ---
-
-# 简体中文
 
 基于 **miuix**（Compose Multiplatform）的 Android 浏览器，提供两个版本：
 
@@ -18,9 +16,10 @@
 | --- | --- | --- |
 | 渲染内核 | 系统 WebView，**不内嵌任何浏览器内核**，安装包小 | 内嵌 **GeckoView（Nightly）**，并保留系统 WebView，支持双内核切换 |
 | 设备要求 | 所有支持的 Android 设备 | 内核仅 arm64-v8a；其它架构自动使用 WebView |
-| 增强 | 油猴脚本 | 油猴脚本 + Firefox 扩展（AMO / `.xpi`） |
+| 扩展 | 油猴脚本 | 油猴脚本 + Firefox 扩展（AMO / `.xpi`） |
 | 去广告 | 内置规则引擎 | WebView 标签可用；Gecko 标签使用内置跟踪保护或自行安装 uBlock Origin |
-| 发布 | 打 tag 自动发布正式版 | `gecko` 分支每次构建发布预发布版 |
+| 安装包 | Release 里的 `Mafari-<版本>-lite-<架构>.apk`（按架构分包：arm64-v8a / armeabi-v7a / x86_64） | Release 里的 `Mafari-<版本>-gecko.apk` |
+| 发布 | 同一个 Release 同时带两个安装包：打 tag 发正式版，`gecko` 分支每次构建发预发布版 | 同左 |
 
 ## 社区
 
@@ -112,14 +111,33 @@
 ```bash
 # 需要 JDK 17+（推荐 21）、Android SDK（platforms;android-37.0、build-tools;36.0.0）
 # 根工程 Gradle 9.9.0；miuix 源码在 ./miuix，由 includeBuild 参与构建
-./gradlew :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
+# 变体 = 内核（gecko / lite）× 架构（arm64 / arm32 / x64）；Gecko 只有 arm64 有意义，请指定具体任务，不要跑 assemble
+./gradlew :app:assembleLiteArm64Debug     # 无内核版 arm64 → app/build/outputs/apk/liteArm64/debug/
+./gradlew :app:assembleGeckoArm64Debug    # Gecko 版（仅 arm64）→ app/build/outputs/apk/geckoArm64/debug/
+./gradlew :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleGeckoArm64Release   # 发布包（需签名环境变量，见下）
 ```
 
+两个版本是同一份源码的两个 product flavor（`app/build.gradle.kts`）：
+
+| | `lite`（无内核版） | `gecko`（Gecko 版） |
+| --- | --- | --- |
+| GeckoView 依赖 | 仅 `compileOnly`，**不进 APK** | `implementation` |
+| `BuildConfig.GECKO_ENABLED` | `false` | `true` |
+| ABI | 每个架构一个包：arm64-v8a / armeabi-v7a / x86_64 | 仅 arm64-v8a |
+| Gecko 专属资源 | 不含（`src/gecko/assets`） | 含 |
+
+共用代码里凡是会走到 Gecko 类的地方都要先判断 `EngineSupport.GECKO_BUNDLED`（或 `EngineSupport.geckoAvailable()`），否则 lite 运行时会 `NoClassDefFoundError`。
+
 Gecko 版会从 Mozilla Maven 拉取 GeckoView Nightly；Nightly 的 Java API 偶尔变化，建议在 `gradle.properties` 锁定 `geckoViewVersion=<版本>`。
+两个版本默认使用同一个应用 ID（可互相覆盖升级）；想让它们能同时安装，加 `-PgeckoAppIdSuffix=.gecko`。
+
+### 应用内更新如何选包
+
+同一个 Release 里有 `-gecko.apk` 与按架构分的 `-lite-<架构>.apk`。应用内「检查更新」由「关于 → 版本」里的**更新通道**决定拉哪个：`lite`（正式发布的 `-lite` 包，按本机 ABI 挑架构）、`gecko`（正式发布的 `-gecko` 包，仅 arm64-v8a）、`canary-lite` / `canary-gecko`（最新构建预发布（gecko 分支）或正式发布（dual / tag 发布）中发布时间最新的，取对应后缀的包）。旧版本升级上来默认 `gecko`（设备无 arm64 时为 `lite`）。改安装包命名时请同步 `AboutScreen.kt` 的 `pickApkUrl`。
 
 ### GitHub Actions 自动发布
 
-推 tag 即自动构建并创建 Release；`gecko` 分支每次构建发布预发布版：
+推 tag 即自动构建并创建 Release；`gecko` 分支每次构建发布预发布版。每次构建同时产出 Gecko 版与无内核版（`Mafari-<标签>-gecko.apk`、`Mafari-<标签>-lite-<架构>.apk` ×3）并附 `SHA256SUMS.txt`：
 
 ```bash
 git tag v3.3.0 && git push origin v3.3.0
@@ -133,6 +151,8 @@ git tag v3.3.0 && git push origin v3.3.0
 | `STORE_PASSWORD` | keystore 口令 |
 | `KEY_ALIAS` | key 别名 |
 | `KEY_PASSWORD` | key 口令 |
+| `TELEGRAM_BOT_TOKEN` | 可选：Telegram 机器人 token（机器人需是频道管理员）；配置后正式版与预发布会同步推送到频道 |
+| `TELEGRAM_CHAT_ID` | 可选：频道 ID，默认 `@mafari_a` |
 
 ## 许可证
 
@@ -142,140 +162,12 @@ git tag v3.3.0 && git push origin v3.3.0
 
 <https://github.com/rosenii/mafari>
 
----
+## 支持
 
-<a id="english"></a>
+Mafari 完全免费、无广告，如果它对你有帮助，欢迎请开发者喝杯咖啡 ☕，这会让项目走得更久。
 
-# English
+<div align="center">
 
-[简体中文](#简体中文)
+<img src="docs/donate_qr.png" alt="微信赞赏码" width="240">
 
-An Android browser built with **miuix** (Compose Multiplatform), available in two editions:
-
-| | No-Engine Edition | Gecko Edition |
-| --- | --- | --- |
-| Rendering engine | System WebView — **no browser engine bundled**, small APK | Bundles **GeckoView (Nightly)** and keeps system WebView; switch between the two engines |
-| Device requirement | Any supported Android device | Gecko engine is arm64-v8a only; other ABIs fall back to WebView automatically |
-| Extensions | Userscripts | Userscripts + Firefox extensions (AMO / `.xpi`) |
-| Ad blocking | Built-in rule engine | Works in WebView tabs; Gecko tabs use built-in tracking protection or uBlock Origin |
-| Releases | Stable release on every tag | Pre-release on every build of the `gecko` branch |
-
-## Community
-
-- 📢 Channel: <https://t.me/mafari_a>
-- 💬 Discussion group: <https://t.me/Mafari_discuss>
-
-## UI
-
-| Home | More panel | Settings |
-| --- | --- | --- |
-| ![Home](docs/screenshot-home.jpg) | ![More](docs/screenshot-menu.jpg) | ![Settings](docs/screenshot-settings.jpg) |
-
-- A single minimal floating bottom bar with frosted-glass / liquid-glass effects
-- Immersive full-screen browsing: the status-bar area is reserved at first, fills up as you scroll down and returns when you scroll back to the top, without blocking taps on elements at the top of the page
-- Bottom-bar gestures: it hides after about 100px of downward scrolling and needs about 120px of upward scrolling to return; **swipe left/right** on the bar to shrink it into a round search button (tap or swipe again to expand); long-press the address bar to copy the URL
-
-## Features shared by both editions
-
-**Browsing**
-- Multiple tabs (text list or card style), back / forward / reload, loading progress; the address bar can show the page title, the main domain, or the full domain
-- Pull to refresh, find in page, translate, share, copy link, open in external browser, long-press link menu
-- **Customize Home**: show / hide and drag to reorder home sections (favorites 1–5 rows, privacy report, recent, downloads). **Custom Home** lets you choose *Default home / New tab / Specified page* for what opens when you tap the home button, launch the app, or open a new tab
-- Favorites / history / download manager / script manager; settings for appearance mode, wallpaper, blur effect, search engine, custom UA, proxy and update checks
-
-**Downloads**
-- Built-in downloader (not the system one): writes to cache first, then moves into `/sdcard/Download/mafari`
-- Multi-threaded segmented download (when the server supports Range), resume, pause / continue, retry
-- Foreground service with progress notification; integrates Xiaomi **Super Island** (`miui.focus.param`, shown only when a download starts)
-
-**Userscripts**
-- Built-in userscript runtime with the `GM_*` APIs, script menu commands, import from URL / file, automatic detection of `.user.js` links with an import prompt, one-tap and scheduled updates
-
----
-
-## No-Engine Edition (System WebView)
-
-No browser engine is bundled. Pages are rendered by the system WebView, so the APK is small and web compatibility matches your system WebView.
-
-### Ad blocking (Settings → Advanced → Ad blocking)
-
-- **Network blocking**: sub-resource requests are filtered in `shouldInterceptRequest` (`||domain^`, wildcards, `@@` exceptions, `$third-party / $domain= / resource types / $important`)
-- **Element hiding**: `##selector`, per-site rules, `~site` exclusions, `#@#` exceptions; injected at document-start into all frames
-- **Subscriptions**: import from URL or local file; Adblock Plus, uBlock, AdGuard and hosts formats; enable / disable, manual or automatic updates (daily / every 3 days / weekly)
-- **Custom rules** and a **site allowlist**; long-pressing a page element and choosing "Mark as ad" writes a custom rule
-- Not supported: regex rules, `$redirect / $removeparam / $csp / $replace`, `#?#` extended selectors, `+js()` (skipped when parsing)
-- Subscriptions are third-party content; element-hiding selectors are validated before injection and selectors containing `{ } ;` are rejected
-
-### Fingerprint protection (Settings → Privacy & security → Fingerprint protection)
-
-Four independent switches:
-
-- **Canvas**: `toDataURL / toBlob / getImageData / OffscreenCanvas` reads add ±1 random pixel noise; the canvas itself is unchanged
-- **WebGL**: spoofs `UNMASKED_VENDOR / RENDERER`, adds noise to `readPixels` and WebGL canvas exports
-- **Audio**: adds roughly -100 dB noise to `AudioBuffer` (including OfflineAudioContext output) and `AnalyserNode`
-- **Fonts**: perturbs `measureText`, probe-element sizes with inline `font-family`, `FontFace local()` loading and `queryLocalFonts`, so installed fonts cannot be enumerated
-
-A separate "protection exempt sites" list is also available: scripts are registered per origin at document-start with the configuration inlined natively, so pages cannot query it; only the main frame and same-origin iframes are protected; APIs are not disabled — fingerprints are "farbled" only when read. See [docs/FINGERPRINT.md](docs/FINGERPRINT.md) for the security boundary and fallbacks.
-
-### Other
-- Site permission management (camera / microphone / location / notifications / clipboard / media sound / page redirects), proxy (HTTP / SOCKS5 with authentication), Passkey
-
----
-
-## Gecko Edition (dual engine)
-
-On top of the No-Engine Edition, it bundles **GeckoView Nightly** (arm64-v8a only). Switch between **WebView and Gecko** under Settings → Advanced → Browser engine. The engine is chosen **per tab**: a change only affects tabs opened afterwards. On non-arm64-v8a devices, or if Gecko fails to start, it falls back to WebView automatically. See [docs/GECKO.md](docs/GECKO.md) for the feature matrix and code layout (in Chinese).
-
-### Gecko-only features
-
-- **Firefox extensions** (Settings → Advanced → Extensions): search and install from the Firefox add-on store (AMO), or import from a link / local `.xpi`; enable / disable, options page, check for updates, uninstall; scheduled automatic update checks; install / update / optional-permission prompts are shown with translated permission names
-- **Userscripts**: a built-in WebExtension runtime that shares scripts and GM values with the WebView runtime. Security model: pages cannot reach the channel (private MessageChannel plus a per-script capability token, revoked as soon as a script is disabled or deleted); `GM_xmlhttpRequest` is limited to hosts allowed by `@connect`, redirects are checked hop by hop, and request / response sizes are capped; `GM_cookie` is limited to same-site or hosts explicitly listed in `@connect`; private tabs neither proxy requests nor read or write cookies; opening tabs, notifications, downloads and clipboard access are rate-limited. See [docs/GECKO_GM.md](docs/GECKO_GM.md)
-- **Gecko advanced protection** (Settings → Advanced): Enhanced Tracking Protection (off / standard / strict), URL tracking-parameter stripping, bounce-tracking protection, periodic tracker-data purge, fingerprinting protection and resist-fingerprinting, GPC / DNT, trimmed Referer, WebRTC IP-leak protection, strict first-party isolation, HTTPS-only, secure DNS (DoH), ECH, disabling prefetch / preconnect, disabling WebGL, with one-tap reset to defaults
-- **Default font follows the system font** (Settings → Advanced → Gecko debug): detects the font Android actually uses (including vendor theme fonts) and makes Gecko's default font follow it; fonts a page specifies itself are untouched; restart the app after changing the system font
-- **System autofill**: username / password fields in Gecko tabs can bring up the system autofill service (e.g. Google Password Manager)
-- **Gecko debug**: USB remote debugging, `about:config`, rendering info, runtime log, and more
-
-### Differences from the No-Engine Edition
-
-- In Gecko tabs the built-in ad-block rules, "Mark as ad" and page enhancements do not apply; install uBlock Origin or use the built-in Enhanced Tracking Protection instead
-- Fingerprint protection in Gecko tabs comes from Gecko itself (the four fine-grained switches do not apply)
-- Notifications, clipboard access and media sound permissions are handled by Gecko's own permission system
-
----
-
-## Build & release
-
-### Local build
-
-```bash
-# Requires JDK 17+ (21 recommended) and the Android SDK (platforms;android-37.0, build-tools;36.0.0)
-# Root project uses Gradle 9.9.0; miuix sources live in ./miuix and are pulled in via includeBuild
-./gradlew :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
-```
-
-The Gecko Edition pulls GeckoView Nightly from Mozilla Maven. Nightly Java APIs change from time to time, so pinning `geckoViewVersion=<version>` in `gradle.properties` is recommended.
-
-### Automated releases with GitHub Actions
-
-Pushing a tag builds and publishes a Release; every build of the `gecko` branch publishes a pre-release:
-
-```bash
-git tag v3.3.0 && git push origin v3.3.0
-```
-
-Optional signing secrets (a debug build is produced without them):
-
-| Secret | Content |
-| --- | --- |
-| `KEYSTORE_BASE64` | `base64 -w0 your.jks` |
-| `STORE_PASSWORD` | keystore password |
-| `KEY_ALIAS` | key alias |
-| `KEY_PASSWORD` | key password |
-
-## License
-
-Released under the [Apache License 2.0](LICENSE). The bundled `miuix/` sub-project is also Apache-2.0, see [miuix/LICENSE](miuix/LICENSE).
-
-## Repository
-
-<https://github.com/rosenii/mafari>
+</div>
