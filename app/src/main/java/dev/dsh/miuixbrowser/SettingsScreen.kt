@@ -39,6 +39,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -102,6 +103,24 @@ fun SettingsScreen(
     blurEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
+    // 「设为默认浏览器」：从系统角色弹窗 / 系统设置页回来后刷新状态
+    var isDefaultBrowser by remember { mutableStateOf(DefaultBrowser.isDefault(context)) }
+    var defaultRequestAt by remember { mutableStateOf(0L) }
+    val defaultBrowserLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        isDefaultBrowser = DefaultBrowser.isDefault(context)
+        // 用户多次拒绝后系统不再弹角色窗口，会立刻返回取消：直接带去系统「默认应用」设置页
+        if (!isDefaultBrowser && android.os.SystemClock.elapsedRealtime() - defaultRequestAt < 500) {
+            runCatching { context.startActivity(DefaultBrowser.settingsIntent()) }
+        }
+    }
+    DisposableEffect(context) {
+        val owner = context as? androidx.lifecycle.LifecycleOwner
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) isDefaultBrowser = DefaultBrowser.isDefault(context)
+        }
+        owner?.lifecycle?.addObserver(observer)
+        onDispose { owner?.lifecycle?.removeObserver(observer) }
+    }
     var showUa by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
@@ -330,6 +349,21 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
+                    SettingsRow(
+                        title = "设为默认浏览器",
+                        summary = if (isDefaultBrowser) "已是系统默认浏览器 · 点按前往系统设置" else "让其他应用里的网页链接用 Mafari 打开",
+                        onClick = {
+                            val ok = runCatching {
+                                if (isDefaultBrowser) {
+                                    context.startActivity(DefaultBrowser.settingsIntent())
+                                } else {
+                                    defaultRequestAt = android.os.SystemClock.elapsedRealtime()
+                                    defaultBrowserLauncher.launch(DefaultBrowser.requestIntent(context))
+                                }
+                            }.isSuccess
+                            if (!ok) Toast.makeText(context, "无法打开系统设置，请在 系统设置 → 应用 → 默认应用 里选择 Mafari", Toast.LENGTH_LONG).show()
+                        },
+                    )
                     // 内核切换只在带 Gecko 的版本里出现；无内核版只有系统 WebView
                     if (EngineSupport.GECKO_BUNDLED) {
                         AppDropdownPreference(

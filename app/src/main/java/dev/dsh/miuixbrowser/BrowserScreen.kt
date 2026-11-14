@@ -352,6 +352,18 @@ fun BrowserScreen(
         true
     }
     LaunchedEffect(Unit) { AdBlock.autoUpdateIfDue() }
+    // 首次打开：询问是否设为系统默认浏览器。无论选了设置、取消还是点外面关掉都只问这一次；已经是默认就不问
+    var showDefaultBrowserPrompt by remember { mutableStateOf(false) }
+    val defaultBrowserLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
+    LaunchedEffect(Unit) {
+        if (settings.defaultBrowserPrompted) return@LaunchedEffect
+        if (DefaultBrowser.isDefault(context)) {
+            settings.markDefaultBrowserPrompted()
+        } else {
+            kotlinx.coroutines.delay(800) // 等首页画出来再弹，不和启动抢
+            showDefaultBrowserPrompt = true
+        }
+    }
     // 首次打开 app：自动拉取并安装推荐脚本（每个只自动装一次，失败的下次启动重试）；之后按设置的间隔后台自动更新脚本
     LaunchedEffect(Unit) {
         runCatching { extensions.bootstrapRecommended() }
@@ -2066,6 +2078,40 @@ fun BrowserScreen(
             }
         }
 
+
+        AppGlassDialog(
+            show = showDefaultBrowserPrompt,
+            title = "设为默认浏览器",
+            summary = "设为系统默认浏览器后，其他应用里的网页链接会直接用 Mafari 打开。之后也可以在 设置 → 高级 里设置。",
+            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            onDismissRequest = {
+                showDefaultBrowserPrompt = false
+                settings.markDefaultBrowserPrompted()
+            },
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AppDialogButton(
+                    onClick = {
+                        showDefaultBrowserPrompt = false
+                        settings.markDefaultBrowserPrompted()
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                }
+                AppDialogButton(
+                    onClick = {
+                        showDefaultBrowserPrompt = false
+                        settings.markDefaultBrowserPrompted()
+                        runCatching { defaultBrowserLauncher.launch(DefaultBrowser.requestIntent(context)) }
+                    },
+                    modifier = Modifier.weight(1f),
+                    role = GlassDialogButtonRole.Primary,
+                ) {
+                    Text(text = "设为默认", style = MiuixTheme.textStyles.button)
+                }
+            }
+        }
 
         UpdateSheet(
             show = updateRelease != null,

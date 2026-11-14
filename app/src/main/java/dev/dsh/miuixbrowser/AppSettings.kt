@@ -351,6 +351,15 @@ class AppSettings(context: Context) {
     var wallpaperBlur by mutableStateOf(prefs.getBoolean(KEY_WALL_BLUR, false))
         private set
 
+    /** 「设为默认浏览器」的首次询问是否已经处理过（选了设置 / 取消 / 点外面关掉都算）；之后不再自动弹，只能从 设置 → 高级 进入 */
+    var defaultBrowserPrompted by mutableStateOf(prefs.getBoolean(KEY_DEFAULT_BROWSER_PROMPTED, false))
+        private set
+
+    fun markDefaultBrowserPrompted() {
+        defaultBrowserPrompted = true
+        prefs.edit().putBoolean(KEY_DEFAULT_BROWSER_PROMPTED, true).apply()
+    }
+
     fun updateWallpaperBlur(enabled: Boolean) {
         wallpaperBlur = enabled
         prefs.edit().putBoolean(KEY_WALL_BLUR, enabled).apply()
@@ -641,6 +650,7 @@ class AppSettings(context: Context) {
         const val KEY_SEARCH_CUSTOM = "search_custom"
         const val KEY_WALL = "wallpaper"
         const val KEY_WALL_BLUR = "wallpaper_blur"
+        const val KEY_DEFAULT_BROWSER_PROMPTED = "default_browser_prompted"
         const val KEY_ENHANCE = "page_enhancements"
         const val KEY_SCRIPTS = "scripts_enabled"
         const val KEY_SCRIPTS_INCOGNITO = "scripts_in_incognito"
