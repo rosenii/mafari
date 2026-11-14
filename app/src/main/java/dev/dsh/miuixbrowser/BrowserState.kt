@@ -1,3 +1,51 @@
+    internal fun geckoRequestLocation(origin: String, result: (Boolean) -> Unit) {
+        decide(
+            GeckoSitePerms.override(origin, GeckoSitePerms.LOCATION) ?: locationMode,
+            origin,
+            "获取你的位置",
+            arrayOf(
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+            anyOk = true,
+            permKey = GeckoSitePerms.LOCATION,
+            result = result,
+        )
+    }
+
+    /** 摄像头 / 麦克风：规则与 WebView 版 handleWebPermission 一致；其中任一被设置为「拒绝」则整体拒绝。例外网站优先于全局设置 */
+    internal fun geckoRequestMedia(origin: String, wantCam: Boolean, wantMic: Boolean, result: (Boolean) -> Unit) {
+        val camMode = GeckoSitePerms.override(origin, GeckoSitePerms.CAMERA) ?: cameraMode
+        val micMode = GeckoSitePerms.override(origin, GeckoSitePerms.MIC) ?: micMode
+        val camOk = wantCam && camMode != 2
+        val micOk = wantMic && micMode != 2
+        if ((wantCam && !camOk) || (wantMic && !micOk) || (!camOk && !micOk)) {
+            result(false)
+            return
+        }
+        val perms = buildList {
+            if (camOk) add(android.Manifest.permission.CAMERA)
+            if (micOk) add(android.Manifest.permission.RECORD_AUDIO)
+        }.toTypedArray()
+        val what = listOfNotNull(if (camOk) "摄像头" else null, if (micOk) "麦克风" else null).joinToString("、")
+        val mustAsk = (camOk && camMode == 0) || (micOk && micMode == 0)
+        val keys = listOfNotNull(
+            if (camOk) GeckoSitePerms.CAMERA else null,
+            if (micOk) GeckoSitePerms.MIC else null,
+        ).joinToString(",")
+        decide(if (mustAsk) 0 else 1, origin, "使用$what", perms, permKey = keys, result = result)
+    }
+
+    /**
+     * 不涉及 Android 系统权限的网站权限（通知 / 持久存储 / 跨站 Cookie / DRM / 设备应用和服务 / 本地网络设备）：
+     * 站点例外优先，没有例外就按全局默认（询问 / 允许 / 拒绝）。
+     */
+    internal fun geckoRequestSimple(origin: String, key: String, what: String, result: (Boolean) -> Unit) {
+        val global = if (key == GeckoSitePerms.NOTIFICATION) notificationMode else GeckoSitePerms.mode(key)
+        val mode = GeckoSitePerms.override(origin, key) ?: global
+        decide(mode, origin, what, emptyArray(), permKey = key, result = result)
+    }
+
 package dev.dsh.miuixbrowser
 
 import android.annotation.SuppressLint
@@ -2031,6 +2079,7 @@ class BrowserTab(
     private class DeferredPrompt(
         val origin: String,
         val what: String,
+        val permKey: String?,
         val decide: (Boolean) -> Unit,
         val at: Long,
     )
@@ -2046,9 +2095,9 @@ class BrowserTab(
         }
         val prompt = onPermissionPrompt
         if (prompt != null) {
-            prompt(origin, what, decide)
+            prompt(origin, what, null, decide)
         } else {
-            deferredPrompt = DeferredPrompt(origin, what, decide, android.os.SystemClock.elapsedRealtime())
+            deferredPrompt = DeferredPrompt(origin, what, null, decide, android.os.SystemClock.elapsedRealtime())
         }
     }
 
@@ -2057,7 +2106,7 @@ class BrowserTab(
         val prompt = onPermissionPrompt ?: return
         deferredPrompt = null
         // 挂起太久（超过 1 分钟）的请求已无意义，按拒绝收尾
-        if (android.os.SystemClock.elapsedRealtime() - d.at > 60_000) d.decide(false) else prompt(d.origin, d.what, d.decide)
+        if (android.os.SystemClock.elapsedRealtime() - d.at > 60_000) d.decide(false) else prompt(d.origin, d.what, d.permKey, d.decide)
     }
 
     /**
@@ -2176,7 +2225,7 @@ class BrowserTab(
     }
 
     /** 网页权限「询问」：由界面弹窗，decide(true/false) 只能调用一次 */
-    var onPermissionPrompt: ((origin: String, what: String, decide: (Boolean) -> Unit) -> Unit)? = null
+    var onPermissionPrompt: ((origin: String, what: String, permKey: String?, decide: (Boolean) -> Unit) -> Unit)? = null
         set(value) {
             field = value
             if (value != null) flushDeferredPrompt()
@@ -2214,6 +2263,7 @@ class BrowserTab(
         what: String,
         perms: Array<String>,
         anyOk: Boolean = false,
+        permKey: String? = null,
         result: (Boolean) -> Unit,
     ) {
         // 隐私报告：记录请求本身（允许 / 拒绝都算），无痕标签页不记
@@ -2226,7 +2276,7 @@ class BrowserTab(
                 if (prompt == null) {
                     result(false)
                 } else {
-                    prompt(origin, what) { allow ->
+                    prompt(origin, what, permKey) { allow ->
                         if (allow) ensureAndroid(perms, anyOk, result) else result(false)
                     }
                 }
@@ -2807,8 +2857,13 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
         if (EngineSupport.GECKO_BUNDLED) GeckoExtensionStore.tabHost = this
         current = this
-        // 上次的普通标签（tabs 表）；没有就开一个空白标签
-        if (!restoreSavedTabs()) newTab()
+        // 上次的普通标签（tabs 表）；没有就开一个空白标签。
+        // 「重启恢复标签页」关闭时只在进程冷启动（本进程里第一个实例）跳过恢复；
+        // 界面重建（同一进程里再建实例）仍要恢复，否则使用中会凭空丢标签。
+        val coldStart = !instanceCreated
+        instanceCreated = true
+        val restore = !coldStart || AppSettings(context).restoreTabs
+        if (!(restore && restoreSavedTabs())) newTab()
         if (EngineSupport.GECKO_BUNDLED) mainHandler.postDelayed(reclaimTick, RECLAIM_INTERVAL_MS)
     }
 
@@ -3300,6 +3355,10 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         private const val IDLE_RECLAIM_MS = 20 * 60_000L
         private const val MAX_LIVE_ENGINES = 6
         private const val TRIM_LIVE_ENGINES = 2
+
+        /** 本进程是否已经建过 BrowserState（用来区分冷启动和界面重建） */
+        @Volatile
+        private var instanceCreated = false
 
         /** 最近创建的实例：退到后台时由 MainActivity 通过它把标签列表立刻落盘。 */
         @Volatile

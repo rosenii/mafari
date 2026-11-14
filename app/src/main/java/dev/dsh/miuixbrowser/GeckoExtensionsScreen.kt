@@ -273,6 +273,7 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                         .fillMaxSize()
                         .layerBackdrop(backdrop)
                         .kyantLayerBackdrop(liquidBackdrop)
+                        .edgeHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                         .background(MiuixTheme.colorScheme.surface),
                 ) {

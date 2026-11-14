@@ -138,6 +138,7 @@ fun PrivacyEnhanceScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled:
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
+                    .edgeHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .background(MiuixTheme.colorScheme.surface)
                     .verticalScroll(rememberScrollState())

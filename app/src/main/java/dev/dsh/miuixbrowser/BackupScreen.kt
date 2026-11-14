@@ -476,6 +476,7 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
+                    .edgeHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .background(MiuixTheme.colorScheme.surface),
             ) {

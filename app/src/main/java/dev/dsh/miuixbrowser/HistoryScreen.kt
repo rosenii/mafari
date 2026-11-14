@@ -627,6 +627,7 @@ private fun BookmarksPage(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
+            .edgeHaptic()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
     ) {
@@ -965,6 +966,7 @@ private fun HistoryPage(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .edgeHaptic()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentAlignment = Alignment.Center,
         ) {
@@ -1031,6 +1033,7 @@ private fun HistoryPage(
         modifier = Modifier
             .weight(1f)
             .fillMaxWidth()
+            .edgeHaptic()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp),
     ) {

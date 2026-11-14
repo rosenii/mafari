@@ -77,6 +77,8 @@ import top.yukonga.miuix.kmp.glass.GlassDialog
 import top.yukonga.miuix.kmp.glass.GlassDialogButton
 import top.yukonga.miuix.kmp.glass.GlassDropdownPreference
 import top.yukonga.miuix.kmp.glass.GlassPopupDefaults
+import top.yukonga.miuix.kmp.glass.GlassPopupVisuals
+import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.icon.basic.Check
@@ -125,6 +127,10 @@ fun SettingsScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
+    var showPermExceptions by remember { mutableStateOf(false) }
+    var exceptionSite by remember { mutableStateOf<String?>(null) }
+    // Gecko 网站权限（自动播放 / 持久存储 / 跨站 Cookie / DRM / 例外网站…）的存储
+    LaunchedEffect(Unit) { GeckoSitePerms.load(context) }
     var showDonate by remember { mutableStateOf(false) }
     var showHomeSheet by remember { mutableStateOf(false) }
     var showHomeUrlDialog by remember { mutableStateOf(false) }
@@ -179,6 +185,7 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
+                    .edgeHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .background(MiuixTheme.colorScheme.surface)
                     .verticalScroll(rememberScrollState())
@@ -196,7 +203,7 @@ fun SettingsScreen(
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
                         title = "显示模式",
-                        items = listOf("跟随系统", "日间", "夜间"),
+                        items = listOf("跟随系统", "浅色模式", "深色模式"),
                         selectedIndex = settings.themeMode.coerceIn(0, 2),
                         onSelectedIndexChange = { settings.updateThemeMode(it) },
                     )
@@ -282,6 +289,12 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
+                    AppSwitchPreference(
+                        title = "重启恢复标签页",
+                        summary = "重新打开应用时恢复上次未关闭的标签页；关闭后启动只打开一个空白标签页",
+                        checked = settings.restoreTabs,
+                        onCheckedChange = { settings.updateRestoreTabs(it) },
+                    )
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
                         title = "外部链接打开方式",
@@ -327,7 +340,11 @@ fun SettingsScreen(
                     )
                     SettingsRow(
                         title = "网站权限管理",
-                        summary = "摄像头 · 麦克风 · 定位 · 网站通知 · 剪贴板 · 媒体发声 · 网页重定向",
+                        summary = if (settings.geckoMode) {
+                            "自动播放 · 摄像头 · 位置 · 麦克风 · 通知 · 持久存储 · 跨站 Cookie · DRM · 例外网站"
+                        } else {
+                            "摄像头 · 麦克风 · 定位 · 网站通知 · 剪贴板 · 媒体发声 · 网页重定向"
+                        },
                         onClick = { showPermSheet = true },
                     )
                     // 隐私增强保护：WebView 专属（Gecko 对应的是并列的「Gecko 高级保护」）
@@ -357,21 +374,20 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
-                    SettingsRow(
-                        title = "设为默认浏览器",
-                        summary = if (isDefaultBrowser) "已是系统默认浏览器 · 点按前往系统设置" else "让其他应用里的网页链接用 Mafari 打开",
-                        onClick = {
-                            val ok = runCatching {
-                                if (isDefaultBrowser) {
-                                    context.startActivity(DefaultBrowser.settingsIntent())
-                                } else {
+                    // 已是系统默认浏览器时整行隐藏（从系统弹窗 / 设置页回来或回到前台时 isDefaultBrowser 会刷新，自动出现 / 消失）
+                    EngineRow(visible = !isDefaultBrowser) {
+                        SettingsRow(
+                            title = "设为默认浏览器",
+                            summary = "让其他应用里的网页链接用 Mafari 打开",
+                            onClick = {
+                                val ok = runCatching {
                                     defaultRequestAt = android.os.SystemClock.elapsedRealtime()
                                     defaultBrowserLauncher.launch(DefaultBrowser.requestIntent(context))
-                                }
-                            }.isSuccess
-                            if (!ok) Toast.makeText(context, "无法打开系统设置，请在 系统设置 → 应用 → 默认应用 里选择 Mafari", Toast.LENGTH_LONG).show()
-                        },
-                    )
+                                }.isSuccess
+                                if (!ok) Toast.makeText(context, "无法打开系统设置，请在 系统设置 → 应用 → 默认应用 里选择 Mafari", Toast.LENGTH_LONG).show()
+                            },
+                        )
+                    }
                     // 内核切换只在带 Gecko 的版本里出现；无内核版只有系统 WebView
                     if (EngineSupport.GECKO_BUNDLED) {
                         AppDropdownPreference(
@@ -852,29 +868,109 @@ fun SettingsScreen(
                 backdrop = if (glass) backdrop else null,
                 onDismissRequest = { showPermSheet = false },
             ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 28.dp),
+                ) {
                     val permOptions = listOf("每次使用时询问", "总是允许", "总是拒绝")
-                    listOf(
-                        Triple("摄像头", settings.cameraPermission, settings::updateCameraPermission),
-                        Triple("麦克风", settings.micPermission, settings::updateMicPermission),
-                        Triple("定位", settings.locationPermission, settings::updateLocationPermission),
-                        Triple("网站通知", settings.notificationPermission, settings::updateNotificationPermission),
-                        Triple("剪贴板读写", settings.clipboardPermission, settings::updateClipboardPermission),
-                        Triple("网站媒体发声", settings.mediaAutoplay, settings::updateMediaAutoplay),
-                        Triple("网页重定向", settings.redirectPermission, settings::updateRedirectPermission),
-                    ).forEach { (label, current, update) ->
-                        // 这三项在 WebView 里靠注入 JS 实现，Gecko 走自己的权限系统：Gecko 下隐藏
-                        if (!(settings.geckoMode && label in GECKO_UNSUPPORTED_PERMISSIONS)) {
-                            AppDropdownPreference(
-                                title = label,
-                                items = permOptions,
-                                selectedIndex = current.coerceIn(0, 2),
-                                onSelectedIndexChange = { update(it) },
-                                backdrop = if (glass) backdrop else null,
-                                visuals = popupVisuals,
-                                insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    val permBackdrop = if (glass) backdrop else null
+                    if (settings.geckoMode) {
+                        // Gecko：与 Firefox「网站设置」一致的一组权限
+                        PermDropdown(
+                            "自动播放", GeckoSitePerms.autoplay,
+                            listOf("允许音频和视频", "仅阻止音频", "阻止音频和视频"),
+                            { GeckoSitePerms.setAutoplay(it) }, permBackdrop, popupVisuals,
+                        )
+                        PermDropdown("摄像头", settings.cameraPermission, permOptions, settings::updateCameraPermission, permBackdrop, popupVisuals)
+                        PermDropdown("位置", settings.locationPermission, permOptions, settings::updateLocationPermission, permBackdrop, popupVisuals)
+                        PermDropdown("麦克风", settings.micPermission, permOptions, settings::updateMicPermission, permBackdrop, popupVisuals)
+                        PermDropdown("通知", settings.notificationPermission, permOptions, settings::updateNotificationPermission, permBackdrop, popupVisuals)
+                        GeckoSitePerms.GLOBAL_ITEMS.forEach { item ->
+                            PermDropdown(
+                                item.label, GeckoSitePerms.mode(item.key), permOptions,
+                                { GeckoSitePerms.setMode(item.key, it) }, permBackdrop, popupVisuals,
                             )
                         }
+                        PermDropdown("网页重定向", settings.redirectPermission, permOptions, settings::updateRedirectPermission, permBackdrop, popupVisuals)
+                        ArrowPreference(
+                            title = "例外网站",
+                            summary = if (GeckoSitePerms.exceptions.isEmpty()) "没有例外" else "${GeckoSitePerms.exceptions.size} 个网站",
+                            onClick = {
+                                exceptionSite = null
+                                showPermSheet = false
+                                showPermExceptions = true
+                            },
+                        )
+                    } else {
+                        PermDropdown("摄像头", settings.cameraPermission, permOptions, settings::updateCameraPermission, permBackdrop, popupVisuals)
+                        PermDropdown("麦克风", settings.micPermission, permOptions, settings::updateMicPermission, permBackdrop, popupVisuals)
+                        PermDropdown("定位", settings.locationPermission, permOptions, settings::updateLocationPermission, permBackdrop, popupVisuals)
+                        PermDropdown("网站通知", settings.notificationPermission, permOptions, settings::updateNotificationPermission, permBackdrop, popupVisuals)
+                        PermDropdown("剪贴板读写", settings.clipboardPermission, permOptions, settings::updateClipboardPermission, permBackdrop, popupVisuals)
+                        PermDropdown("网站媒体发声", settings.mediaAutoplay, permOptions, settings::updateMediaAutoplay, permBackdrop, popupVisuals)
+                        PermDropdown("网页重定向", settings.redirectPermission, permOptions, settings::updateRedirectPermission, permBackdrop, popupVisuals)
+                    }
+                }
+            }
+
+            // 例外网站：按站点覆盖上面的全局设置（弹窗里勾选「记住此网站的选择」时产生）
+            AppBottomSheet(
+                show = showPermExceptions,
+                title = exceptionSite ?: "例外网站",
+                backdrop = if (glass) backdrop else null,
+                onDismissRequest = {
+                    if (exceptionSite != null) exceptionSite = null else showPermExceptions = false
+                },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 28.dp),
+                ) {
+                    val site = exceptionSite
+                    val permBackdrop = if (glass) backdrop else null
+                    if (site == null) {
+                        val hosts = GeckoSitePerms.exceptions.keys.sorted()
+                        if (hosts.isEmpty()) {
+                            Text(
+                                text = "还没有例外网站。网站申请权限时，在弹窗里打开「记住此网站的选择」，它就会出现在这里。",
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                            )
+                        } else {
+                            hosts.forEach { host ->
+                                ArrowPreference(
+                                    title = host,
+                                    summary = GeckoSitePerms.summaryOf(host),
+                                    onClick = { exceptionSite = host },
+                                )
+                            }
+                            ArrowPreference(
+                                title = "清除全部例外",
+                                onClick = { GeckoSitePerms.clearExceptions() },
+                            )
+                        }
+                    } else {
+                        val current = GeckoSitePerms.exceptions[site].orEmpty()
+                        val options = listOf("跟随默认", "总是允许", "总是拒绝")
+                        GeckoSitePerms.EXCEPTION_ITEMS.forEach { item ->
+                            PermDropdown(
+                                item.label, current[item.key] ?: 0, options,
+                                { GeckoSitePerms.setException(site, item.key, it.takeIf { v -> v > 0 }) },
+                                permBackdrop, popupVisuals,
+                            )
+                        }
+                        ArrowPreference(
+                            title = "删除此网站的全部例外",
+                            onClick = {
+                                GeckoSitePerms.removeSite(site)
+                                exceptionSite = null
+                            },
+                        )
                     }
                 }
             }
@@ -918,7 +1014,7 @@ private fun WallpaperDialogRow(
     }
 }
 
-/** 应用图标选择：五个预览并排一行（图标随宽度自适应缩小），选中项带主题色描边和对勾。 */
+/** 应用图标选择：六个预览并排一行（图标随宽度自适应缩小），选中项带主题色描边和对勾。 */
 @Composable
 private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
@@ -930,7 +1026,7 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = "切换后在退出应用时更新桌面图标",
+            text = "退出应用时更新桌面图标；极简↔极暗、多彩 / 立体→深色 随显示模式自动切换",
             fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
@@ -977,8 +1073,9 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
                         }
                         Text(
                             text = option.label,
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             maxLines = 1,
+                            softWrap = false,
                             color = if (active) {
                                 MiuixTheme.colorScheme.primary
                             } else {
@@ -992,8 +1089,26 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** Gecko 下不适用的网站权限项（WebView 靠注入 JS 实现） */
-private val GECKO_UNSUPPORTED_PERMISSIONS = setOf("网站通知", "剪贴板读写", "网站媒体发声")
+/** 网站权限弹层里的一行下拉 */
+@Composable
+private fun PermDropdown(
+    label: String,
+    current: Int,
+    options: List<String>,
+    onChange: (Int) -> Unit,
+    backdrop: Backdrop?,
+    visuals: GlassPopupVisuals,
+) {
+    AppDropdownPreference(
+        title = label,
+        items = options,
+        selectedIndex = current.coerceIn(0, options.lastIndex),
+        onSelectedIndexChange = onChange,
+        backdrop = backdrop,
+        visuals = visuals,
+        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+    )
+}
 
 /** 按内核显示 / 隐藏一行：切换内核时带展开 / 收起动画 */
 @Composable

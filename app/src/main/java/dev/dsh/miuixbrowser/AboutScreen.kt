@@ -153,6 +153,7 @@ fun AboutScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .edgeHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .verticalScroll(rememberScrollState())
                     .padding(top = topInset)

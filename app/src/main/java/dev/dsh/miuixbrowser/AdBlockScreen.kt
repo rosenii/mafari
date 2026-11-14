@@ -188,6 +188,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
+                    .edgeHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .background(MiuixTheme.colorScheme.surface),
             ) {

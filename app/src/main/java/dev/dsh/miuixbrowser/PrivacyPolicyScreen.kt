@@ -130,6 +130,7 @@ fun PrivacyPolicyScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .edgeHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .verticalScroll(rememberScrollState())
                     .padding(top = innerPadding.calculateTopPadding())

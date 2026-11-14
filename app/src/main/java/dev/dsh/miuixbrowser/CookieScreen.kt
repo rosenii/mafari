@@ -124,6 +124,7 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                         .fillMaxSize()
                         .layerBackdrop(backdrop)
                         .kyantLayerBackdrop(liquidBackdrop)
+                        .edgeHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                         .background(MiuixTheme.colorScheme.surface)
                         .verticalScroll(rememberScrollState())

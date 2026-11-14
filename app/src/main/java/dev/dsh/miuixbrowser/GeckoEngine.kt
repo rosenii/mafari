@@ -62,6 +62,9 @@ object GeckoRuntimeHolder {
             GeckoProtection.load(context)
             GeckoProtection.pushAll()
             CookieControl.pushGecko(context)
+            GeckoSitePerms.load(context)
+            GeckoSitePerms.pushAutoplay()
+            runCatching { created.setWebNotificationDelegate(GeckoWebNotifications(context.applicationContext)) }
             GeckoDebug.pushPrefs()
             FloccusPatcher.applyOnStartup(context) // 装过改包版 Floccus：保持签名校验关闭
             GeckoPrefs.flush()
@@ -757,16 +760,36 @@ class GeckoTabEngine(
                 val result = GeckoResult<Int>()
                 val allow = GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW
                 val deny = GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY
-                when (perm.permission) {
-                    GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION ->
-                        tab.geckoRequestLocation(hostOf(perm.uri)) { ok -> result.complete(if (ok) allow else deny) }
-                    // 站点存储 / 静音自动播放 / DRM 视频：浏览所需，直接放行
-                    GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE,
-                    GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE,
-                    GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS,
-                    -> result.complete(allow)
-                    // 网站通知等：本应用目前没有对应的界面，一律拒绝
-                    else -> result.complete(deny)
+                val answer = { ok: Boolean -> result.complete(if (ok) allow else deny) }
+                val host = hostOf(perm.uri)
+                val p = perm.permission
+                when {
+                    p == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION ->
+                        tab.geckoRequestLocation(host, answer)
+                    p == GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION ->
+                        tab.geckoRequestSimple(host, GeckoSitePerms.NOTIFICATION, "向你发送通知", answer)
+                    p == GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE ->
+                        tab.geckoRequestSimple(host, GeckoSitePerms.STORAGE, "使用持久存储", answer)
+                    p == GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS ->
+                        tab.geckoRequestSimple(host, GeckoSitePerms.DRM, "播放受 DRM 控制的内容", answer)
+                    p == PERM_STORAGE_ACCESS -> {
+                        val third = runCatching { perm.javaClass.getField("thirdPartyOrigin").get(perm) as? String }
+                            .getOrNull()?.let { hostOf(it) }.orEmpty()
+                        val what = if (third.isNotEmpty()) "使用 $third 的跨站 Cookie" else "使用跨站 Cookie"
+                        tab.geckoRequestSimple(host, GeckoSitePerms.STORAGE_ACCESS, what, answer)
+                    }
+                    // 自动播放：由 media.autoplay.default 统一控制，这里只对个别站点级请求做一致回应
+                    p == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE ->
+                        answer(GeckoSitePerms.autoplay != 2)
+                    p == GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE ->
+                        answer(GeckoSitePerms.autoplay == 0)
+                    // 较新的 nightly 才有的两项：用名字反射取常量，旧版本没有也不影响编译
+                    p == PERM_LOCAL_DEVICE ->
+                        tab.geckoRequestSimple(host, GeckoSitePerms.LOCAL_DEVICE, "访问你设备上的其他应用和服务", answer)
+                    p == PERM_LOCAL_NETWORK ->
+                        tab.geckoRequestSimple(host, GeckoSitePerms.LOCAL_NETWORK, "访问你本地网络中的设备", answer)
+                    // 其余（VR 等）：本应用没有对应界面，一律拒绝
+                    else -> answer(false)
                 }
                 return result
             }
@@ -897,3 +920,11 @@ object GeckoViewLifecycle {
 
     fun onResume() = snapshot().forEach { it.onAppForeground() }
 }
+
+/** GeckoView nightly 里较新的内容权限常量（跨站 Cookie / 设备应用 / 本地网络）（旧版本没有则为 -1，永远匹配不上） */
+private fun permConst(name: String): Int =
+    runCatching { GeckoSession.PermissionDelegate::class.java.getField(name).getInt(null) }.getOrDefault(-1)
+
+private val PERM_STORAGE_ACCESS: Int by lazy { permConst("PERMISSION_STORAGE_ACCESS") }
+private val PERM_LOCAL_DEVICE: Int by lazy { permConst("PERMISSION_LOCAL_DEVICE_ACCESS") }
+private val PERM_LOCAL_NETWORK: Int by lazy { permConst("PERMISSION_LOCAL_NETWORK_ACCESS") }

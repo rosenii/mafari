@@ -112,8 +112,17 @@ class MainActivity : ComponentActivity() {
         FavoritesStore.flushCurrent()
         ExtensionStore.flushCurrent()
         BrowserState.flushCurrent()
-        val wanted = AppSettings(this).appIcon
-        if (AppIconManager.current(this) != wanted) AppIconManager.apply(this, wanted)
+        // 退到后台时按「选定图标 + 当前深浅色」同步桌面图标
+        AppIconManager.sync(this)
+    }
+
+    // 系统深浅色切换（显示模式为跟随系统时）：应用在后台就立刻换图标；
+    // 在前台则等退出时再换（onStop），避免使用中桌面图标闪动。
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            AppIconManager.sync(this)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

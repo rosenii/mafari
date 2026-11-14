@@ -209,6 +209,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
+                    .edgeHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .background(MiuixTheme.colorScheme.surface),
             ) {

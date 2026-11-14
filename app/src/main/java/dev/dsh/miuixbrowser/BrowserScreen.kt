@@ -219,7 +219,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 internal enum class Sheet { None, Tabs, Menu, Link, Image, Element }
 
-internal class WebPermPrompt(val origin: String, val what: String, val decide: (Boolean) -> Unit)
+internal class WebPermPrompt(val origin: String, val what: String, val permKey: String?, val decide: (Boolean) -> Unit)
 
 internal data class DownloadRequest(
     val url: String,
@@ -776,10 +776,10 @@ fun BrowserScreen(
     }
 
     LaunchedEffect(tab.id) {
-        tab.onPermissionPrompt = { origin, what, decide ->
+        tab.onPermissionPrompt = { origin, what, permKey, decide ->
             // 同一时刻只显示一个弹窗：被顶掉的请求按拒绝处理，避免 WebView 回调悬空
             webPermPrompt?.decide?.invoke(false)
-            webPermPrompt = WebPermPrompt(origin, what, decide)
+            webPermPrompt = WebPermPrompt(origin, what, permKey, decide)
         }
         tab.requestAndroidPermissions = { perms, done ->
             androidPermDone = done
@@ -2405,6 +2405,16 @@ fun BrowserScreen(
         )
 
         val permPrompt = webPermPrompt
+        // 「记住此网站的选择」：只有 Gecko 的网站权限带 permKey，选了之后写进例外网站
+        var rememberChoice by remember(permPrompt) { mutableStateOf(false) }
+        val answerPrompt = { allow: Boolean ->
+            val p = permPrompt
+            webPermPrompt = null
+            if (p != null) {
+                if (rememberChoice && p.permKey != null) GeckoSitePerms.remember(p.origin, p.permKey, allow)
+                p.decide(allow)
+            }
+        }
         AppGlassDialog(
             show = permPrompt != null,
             title = "允许网站" + (permPrompt?.what ?: "") + "？",
@@ -2415,21 +2425,31 @@ fun BrowserScreen(
                 permPrompt?.decide?.invoke(false)
             },
         ) {
+            if (permPrompt?.permKey != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { rememberChoice = !rememberChoice }
+                        .padding(bottom = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "记住此网站的选择",
+                        modifier = Modifier.weight(1f),
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    AppSwitch(checked = rememberChoice, onCheckedChange = { rememberChoice = it })
+                }
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AppDialogButton(
-                    onClick = {
-                        webPermPrompt = null
-                        permPrompt?.decide?.invoke(false)
-                    },
+                    onClick = { answerPrompt(false) },
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(text = "拒绝", style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
-                    onClick = {
-                        webPermPrompt = null
-                        permPrompt?.decide?.invoke(true)
-                    },
+                    onClick = { answerPrompt(true) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {

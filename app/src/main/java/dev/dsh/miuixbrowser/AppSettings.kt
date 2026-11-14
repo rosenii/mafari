@@ -293,12 +293,15 @@ class AppSettings(context: Context) {
         Downloader.segmentMinBytes = downloadMultiThreadMinMb * 1024L * 1024L
     }
 
-    /** 应用图标：0=默认 1=多彩 2=立体 3=深色 4=极简（对应 AppIconManager.ICONS） */
-    var appIcon by mutableStateOf(prefs.getInt(KEY_APP_ICON, 0).coerceIn(0, 4))
+    /**
+     * 用户选定的应用图标：0=默认 1=多彩 2=立体 3=深色 4=极简 5=极暗（对应 AppIconManager.ICONS）。
+     * 桌面上实际显示的图标还要按深 / 浅色换算，见 [AppIconManager.effective]。
+     */
+    var appIcon by mutableStateOf(prefs.getInt(KEY_APP_ICON, 0).coerceIn(0, 5))
         private set
 
     fun updateAppIcon(index: Int) {
-        appIcon = index.coerceIn(0, 4)
+        appIcon = index.coerceIn(0, 5)
         prefs.edit().putInt(KEY_APP_ICON, appIcon).apply()
     }
 
@@ -354,7 +357,7 @@ class AppSettings(context: Context) {
         if (customSearch.isNotBlank()) updateSearch(SEARCH_ENGINES.size)
     }
 
-    /** 0=跟随系统 1=日间 2=夜间 */
+    /** 0=跟随系统 1=浅色 2=深色 */
     var themeMode by mutableStateOf(prefs.getInt(KEY_THEME, 0))
         private set
 
@@ -403,6 +406,15 @@ class AppSettings(context: Context) {
     }
 
     /** 网页 window.open / target=_blank 打开的同站链接是否新开标签页（默认关：在当前标签打开） */
+    /** 重启应用后恢复上次未关闭的标签页（默认开）；关闭后冷启动只开一个空白标签 */
+    var restoreTabs by mutableStateOf(prefs.getBoolean(KEY_RESTORE_TABS, true))
+        private set
+
+    fun updateRestoreTabs(enabled: Boolean) {
+        restoreTabs = enabled
+        prefs.edit().putBoolean(KEY_RESTORE_TABS, enabled).apply()
+    }
+
     var sameSiteNewTab by mutableStateOf(prefs.getBoolean(KEY_SAME_SITE_TAB, false))
         private set
 
@@ -649,6 +661,7 @@ class AppSettings(context: Context) {
         const val KEY_HOME_DOWNLOADS = "home_show_downloads"
         const val KEY_HOME_ORDER = "home_order"
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"
+        const val KEY_RESTORE_TABS = "restore_tabs_on_launch"
         const val KEY_APP_ICON = "app_icon"
         const val KEY_IGNORED_UPDATE = "ignored_update"
         const val KEY_UPDATE_CHANNEL = "update_channel_v2" // 旧 "update_channel" 含义不同（stable/dev/gecko），已弃用

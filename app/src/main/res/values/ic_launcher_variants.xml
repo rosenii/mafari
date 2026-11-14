@@ -4,4 +4,5 @@
     <color name="ic_launcher_bg_solid3d">#FF0B6DF5</color>
     <color name="ic_launcher_bg_minimal">#FFF3F4F9</color>
     <color name="ic_launcher_bg_dark">#FF050823</color>
+    <color name="ic_launcher_bg_ultradark">#FF000000</color>
 </resources>
