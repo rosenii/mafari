@@ -35,6 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger
  *    选中后由 [AutofillAuthActivity] 验证并只解开这一条；关闭时才解开（至多 [MAX_DATASETS] 条）直接给系统。
  *  - 只信任自己和 [TRUSTED_BROWSERS]：网页域名是调用方自己声明的，放开给任意应用，恶意应用就能谎称自己是银行网站来骗密码。
  *  - 保存提示只在本应用的 WebView 非无痕标签、以及受信浏览器里出现：Gecko 标签有自己的保存提示（[GeckoLogins]），不能重复弹。
+ *  - 本应用的 WebView 标签正常情况下已改走 [WebLoginChannel]（应用内弹窗，并关掉了该 WebView 的系统自动填充）；
+ *    只有 WebView 太旧装不上它时，本服务才继续负责本应用 WebView 的填充 / 保存。
  *  - 不能引用 `Gecko*` 类：lite 版里它们不存在（见 ARCHITECTURE §2）。
  */
 class MafariAutofillService : AutofillService() {

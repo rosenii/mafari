@@ -747,6 +747,23 @@ class BrowserTab(
         TrustedChannel.install(webView, object : TrustedChannel.Host {
             override fun onFingerprintExemptRequested(origin: WebOrigin) = handleFpExemptRequest(origin)
         })
+        // 密码填充 / 保存：和 Gecko 标签同一套应用内弹窗（见 WebLoginChannel）。装上后关掉本 WebView 的系统自动填充，
+        // 否则系统的下拉 / 保存提示会和应用弹窗同时出现；不支持（WebView 太旧）时保持系统自动填充不变
+        runCatching {
+            val ok = WebLoginChannel(object : WebLoginChannel.Host {
+                override val appContext: Context get() = this@BrowserTab.appContext
+                override val incognito: Boolean get() = this@BrowserTab.incognito
+                override fun activity() = geckoActivity()
+                override fun currentUrl() = url
+                override fun showPrompt(p: LoginPrompt): Boolean {
+                    val ui = onLoginPrompt ?: return false
+                    ui(p)
+                    return true
+                }
+                override fun evalJs(js: String) { webView.evaluateJavascript(js, null) }
+            }).install(webView)
+            if (ok) webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }.onFailure { Diag.log("web login channel failed: ${it.message}") }
         cleanStaleBlobFiles(appContext)
         runCatching {
             if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
