@@ -64,7 +64,7 @@ internal object FxaApi {
         ctx = context.applicationContext
         bookmarks = PlacesBookmarksStorage(ctx)
         history = PlacesHistoryStorage(ctx)
-        tabs = RemoteTabsStorage(ctx)
+        tabs = RemoteTabsStorage(ctx, null)
 
         GlobalSyncableStoreProvider.configureStore(SyncEngine.Bookmarks to lazy { bookmarks })
         GlobalSyncableStoreProvider.configureStore(SyncEngine.History to lazy { history })
@@ -78,7 +78,7 @@ internal object FxaApi {
                 type = DeviceType.MOBILE,
                 capabilities = setOf(DeviceCapability.SEND_TAB),
             ),
-            syncConfig = SyncConfig(setOf(SyncEngine.Bookmarks, SyncEngine.History, SyncEngine.Tabs)),
+            syncConfig = SyncConfig(setOf(SyncEngine.Bookmarks, SyncEngine.History, SyncEngine.Tabs), periodicSyncConfig = null),
             applicationScopes = emptySet(),
             crashReporter = null,
         )
@@ -146,13 +146,8 @@ internal object FxaApi {
             .filter { it.isRemote }
             .map { PVisit(it.url, it.title.orEmpty(), it.visitTime) }
 
-    private val notSource: RedirectSource by lazy {
-        val all = enumValues<RedirectSource>()
-        all.firstOrNull { it.name.contains("NOT", true) || it.name.contains("NONE", true) } ?: all.first()
-    }
-
     suspend fun recordVisit(url: String, title: String) {
-        unwrap<Any?>(history.recordVisit(url, PageVisit(VisitType.LINK, notSource)))
+        unwrap<Any?>(history.recordVisit(url, PageVisit(VisitType.LINK, null)))
         if (title.isNotBlank()) unwrap<Any?>(history.recordObservation(url, PageObservation(title)))
     }
 
@@ -194,7 +189,7 @@ internal object FxaApi {
                 i == 0 -> title
                 i == 1 -> url
                 t == java.lang.Boolean.TYPE -> false
-                t.isEnum -> t.enumConstants.first()
+                t.isEnum -> t.enumConstants.let { all -> all.firstOrNull { e -> val n = e.toString().uppercase(); n.contains("NORMAL") || n.contains("PUBLIC") || n.contains("NONE") } ?: all.first() }
                 else -> null
             }
         }
