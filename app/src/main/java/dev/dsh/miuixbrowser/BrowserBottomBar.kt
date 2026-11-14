@@ -346,17 +346,20 @@ internal fun BottomBar(
                     .height(40.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f))
-                    .combinedClickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onAddressTap()
-                        },
-                        onLongClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onCopyAddress()
-                        },
+                    // 编辑中不挂点击 / 长按复制：长按要留给输入框（放大镜、选词、拖动光标），而不是复制网址
+                    .then(
+                        if (editing) Modifier else Modifier.combinedClickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onAddressTap()
+                            },
+                            onLongClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onCopyAddress()
+                            },
+                        ),
                     )
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,

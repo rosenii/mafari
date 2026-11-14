@@ -1313,14 +1313,33 @@ fun BrowserScreen(
             // 按实际字体宽度计算地址栏所需空间：固定按钮区 + 地址文字 + 地址栏内边距。
             // 不设置人为最小宽度，短文字不会留下空白；只有屏幕可用宽度作为上限。
             val textMeasurer = rememberTextMeasurer()
-            // 输入/编辑地址时不随输入内容动态缩放，宽度固定为「搜索或输入网址」占位文字的宽度
-            val addressMeasureText = if (editing) "搜索或输入网址" else displayAddress.ifBlank { "搜索或输入网址" }
-            val measuredAddressPx = textMeasurer.measure(
-                text = AnnotatedString(addressMeasureText),
-                style = TextStyle(fontSize = 15.sp),
+            // 编辑地址时宽度至少是「搜索或输入网址」占位文字的宽度；输入内容比它长时随输入自动延长（上限仍是屏幕可用宽度），
+            // 否则超出的部分被地址栏裁掉，看不见也点不到。
+            val addressStyle = TextStyle(fontSize = 15.sp)
+            val placeholderPx = textMeasurer.measure(
+                text = AnnotatedString("搜索或输入网址"),
+                style = addressStyle,
                 maxLines = 1,
             ).size.width
-            val measuredAddressWidth = with(LocalDensity.current) { measuredAddressPx.toDp() }
+            val measuredAddressPx = if (editing) {
+                val typedPx = if (address.isEmpty()) 0 else textMeasurer.measure(
+                    text = AnnotatedString(address),
+                    style = addressStyle,
+                    maxLines = 1,
+                ).size.width
+                kotlin.math.max(placeholderPx, typedPx)
+            } else if (displayAddress.isBlank()) {
+                placeholderPx
+            } else {
+                textMeasurer.measure(
+                    text = AnnotatedString(displayAddress),
+                    style = addressStyle,
+                    maxLines = 1,
+                ).size.width
+            }
+            // 编辑时给光标留一点余量：光标在行尾时正好贴着文字右缘，会被裁掉
+            val cursorSlack = if (editing) 4.dp else 0.dp
+            val measuredAddressWidth = with(LocalDensity.current) { measuredAddressPx.toDp() } + cursorSlack
             val fixedToolbarWidth = 44.dp * 4 + 12.dp + 24.dp
             val loadingIndicatorWidth = if (tab.loading) 15.dp else 0.dp
             val refreshWidth = if (shouldShowAddressRefresh(displayAddress, tab.loading, editing)) AddressRefreshWidth else 0.dp
@@ -1406,7 +1425,10 @@ fun BrowserScreen(
                         .align(Alignment.BottomCenter)
                         .width(animatedBarWidth)
                         // 在底栏上向下滑动主动收起；左右滑动缩小为搜索圆钮。
-                        .pointerInput(tab.id, barHidden) {
+                        // 编辑地址时不挂这组手势：横向拖动要留给输入框（移动光标 / 滚动文字），
+                        // 否则累计 72px 就会把底栏缩成圆钮，向下拖还会收起底栏
+                        .pointerInput(tab.id, barHidden, editing) {
+                            if (editing) return@pointerInput
                             detectDragGestures(
                                 onDrag = { change, dragAmount ->
                                     if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
