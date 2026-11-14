@@ -3,6 +3,17 @@ package dev.dsh.miuixbrowser
 import android.content.Context
 import androidx.lifecycle.ProcessLifecycleOwner
 import mozilla.appservices.fxaclient.FxaServer
+import mozilla.appservices.viaduct.Backend
+import mozilla.appservices.viaduct.ClientSettings
+import mozilla.appservices.viaduct.initBackend
+import mozilla.appservices.viaduct.Request as ViaductRequest
+import mozilla.appservices.viaduct.Response as ViaductResponse
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request as OkRequest
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 import mozilla.components.browser.storage.sync.PlacesBookmarksStorage
 import mozilla.components.browser.storage.sync.PlacesHistoryStorage
 import mozilla.components.browser.storage.sync.RemoteTabsStorage
@@ -79,26 +90,58 @@ internal object FxaApi {
     }
 
     /**
-     * Rust 层（viaduct）自己没有网络栈，必须由应用注册 HTTP 客户端（Fenix 在 Application 里做同样的事）。
-     * 没注册时，取账号服务配置 / 登录地址会失败，表现就是「无法获取登录地址」。
-     * 用反射调 RustHttpConfig.setClient：类所在的包随库版本变过，找不到时把原因记下来，由界面显示。
+     * Rust 层（viaduct）自己没有网络栈，必须由应用注册 HTTP 后端（Fenix 在 Application 里做同样的事）。
+     * 新版 application-services 已移除 RustHttpConfig.setClient，改为 mozilla.appservices.viaduct.initBackend(Backend)。
+     * 没注册时，取账号服务配置 / 登录地址会失败，表现就是「无法获取登录地址」。失败原因记下来，由界面显示。
      */
     @Volatile var httpInitError: String? = null
         private set
 
+    /** 用 OkHttp 实现 viaduct 的 Backend：Rust 发来的请求在这里真正走网络。 */
+    private class OkHttpBackend : Backend {
+        private val base = OkHttpClient.Builder().build()
+
+        override suspend fun sendRequest(request: ViaductRequest, settings: ClientSettings): ViaductResponse =
+            withContext(Dispatchers.IO) {
+                val timeoutMs = settings.timeout.toLong()
+                val client = base.newBuilder().apply {
+                    if (timeoutMs > 0) {
+                        connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                    }
+                    followRedirects(settings.redirectLimit.toInt() > 0)
+                }.build()
+
+                val method = request.method.name.uppercase()
+                val body = request.body?.toRequestBody(null)
+                    ?: if (method == "POST" || method == "PUT" || method == "PATCH") ByteArray(0).toRequestBody(null) else null
+                val builder = OkRequest.Builder().url(request.url).method(method, body)
+                request.headers.forEach { (k, v) -> builder.header(k, v) }
+                settings.userAgent?.let { ua ->
+                    if (request.headers.keys.none { it.equals("user-agent", ignoreCase = true) }) builder.header("User-Agent", ua)
+                }
+
+                client.newCall(builder.build()).execute().use { r ->
+                    val headers = linkedMapOf<String, String>()
+                    r.headers.forEach { (k, v) ->
+                        val key = k.lowercase()
+                        headers[key] = headers[key]?.let { "$it, $v" } ?: v
+                    }
+                    ViaductResponse(
+                        requestMethod = request.method,
+                        url = r.request.url.toString(),
+                        status = r.code.toUShort(),
+                        headers = headers,
+                        body = r.body?.bytes() ?: ByteArray(0),
+                    )
+                }
+            }
+    }
+
     private fun installHttpClient() {
-        runCatching {
-            val client: Lazy<mozilla.components.concept.fetch.Client> =
-                lazy { mozilla.components.lib.fetch.httpurlconnection.HttpURLConnectionClient() }
-            val cls = listOf(
-                "mozilla.appservices.httpconfig.RustHttpConfig",
-                "mozilla.components.support.rusthttp.RustHttpConfig",
-            ).firstNotNullOfOrNull { n -> runCatching { Class.forName(n) }.getOrNull() }
-                ?: error("找不到 RustHttpConfig")
-            val inst = runCatching { cls.getField("INSTANCE").get(null) }.getOrNull()
-            val m = cls.methods.first { it.name == "setClient" }
-            m.invoke(inst, client)
-        }.onFailure { httpInitError = it.cause?.message ?: it.message ?: it.javaClass.simpleName }
+        runCatching { initBackend(OkHttpBackend()) }
+            .onFailure { httpInitError = it.cause?.message ?: it.message ?: it.javaClass.simpleName }
     }
 
     @Synchronized

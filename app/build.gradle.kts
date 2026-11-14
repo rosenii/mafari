@@ -216,9 +216,11 @@ dependencies {
     implementation("org.mozilla.components:browser-storage-sync:$fxaComponentsVersion")
     // 这些是上面两个库的传递依赖（implementation 不会暴露给本模块的编译 classpath），直接用到其类型，需显式声明
     implementation("org.mozilla.components:concept-base:$fxaComponentsVersion")
-    // Rust 层（viaduct）本身没有网络栈：必须注册一个 HTTP 客户端，否则取 Firefox 账号服务配置 / 登录地址会直接失败
+    // Rust 层（viaduct）本身没有网络栈：必须注册一个 HTTP 后端，否则取 Firefox 账号服务配置 / 登录地址会直接失败
     implementation("org.mozilla.components:concept-fetch:$fxaComponentsVersion")
-    implementation("org.mozilla.components:lib-fetch-httpurlconnection:$fxaComponentsVersion")
+    // 新版 application-services：用 mozilla.appservices.viaduct.initBackend(Backend) 注册网络后端（见 FxaApi.OkHttpBackend）。
+    // 需要显式声明才能在编译期引用 viaduct 包；若 Gradle 报找不到该坐标，到 maven.mozilla.org/maven2/org/mozilla/appservices/ 确认现在的 artifactId
+    implementation("org.mozilla.appservices:httpconfig:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-sync:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-storage:$fxaComponentsVersion")
     implementation("org.mozilla.components:concept-toolbar:$fxaComponentsVersion")
