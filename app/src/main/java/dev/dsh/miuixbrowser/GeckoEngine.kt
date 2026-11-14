@@ -597,6 +597,7 @@ class GeckoTabEngine(
                 request: GeckoSession.NavigationDelegate.LoadRequest,
             ): GeckoResult<AllowOrDeny>? {
                 val target = request.uri
+                if (FxaSync.interceptRedirect(target)) return GeckoResult.fromValue(AllowOrDeny.DENY)
                 // .user.js：与 WebView 一致，拦下并弹出「导入脚本」
                 if (isUserScriptUrl(target)) {
                     tab.geckoUserScriptLink(target)

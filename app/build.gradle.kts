@@ -23,6 +23,8 @@ val jgitVersion = "5.13.3.202401111512-r"
 // Deploy key（SSH）：JGit 的 JSch 传输 + mwiede 维护的 JSch 分支（同包名直接替换，支持 ed25519 / rsa-sha2；原版 0.1.55 连 GitHub 已不可用）
 val jschVersion = "0.2.21"
 val navigationEventVersion = "1.2.0"
+// 火狐账号 / Sync：Mozilla android-components（maven.mozilla.org）。默认 "+" 取最新；API 偶尔会变，建议在 gradle.properties 写 fxaComponentsVersion=<版本> 锁定
+val fxaComponentsVersion = (project.findProperty("fxaComponentsVersion") as String?) ?: "+"
 // GeckoView nightly（仅 arm64-v8a）。默认 "+" = 取 Mozilla Maven 上最新的 nightly；
 // 要锁定版本（推荐，nightly 的 API 偶尔会改）在 gradle.properties 写 geckoViewVersion=152.0.20260801093011
 val geckoViewVersion = (project.findProperty("geckoViewVersion") as String?) ?: "+"
@@ -53,6 +55,7 @@ fun dependencyVersionsOf(withGecko: Boolean): String = listOfNotNull(
     // JGit 完整版本号带构建时间戳（5.13.3.202401111512-r），界面只展示 5.13.3
     Triple("sync", "JGit（Git）", jgitVersion.substringBefore("-r").substringBeforeLast('.')),
     Triple("sync", "JSch（SSH）", jschVersion),
+    Triple("sync", "Firefox Sync（application-services）", if (fxaComponentsVersion == "+") "最新" else fxaComponentsVersion),
     Triple("build", "Kotlin", kotlinVersion),
     Triple("build", "Android Gradle Plugin", agpVersion),
     Triple("build", "Gradle", gradle.gradleVersion),
@@ -82,8 +85,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20020
-        versionName = "v2.1.20"
+        versionCode = 20021
+        versionName = "v2.1.21"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -208,6 +211,10 @@ dependencies {
         exclude(group = "com.jcraft", module = "jsch")
     }
     implementation("com.github.mwiede:jsch:$jschVersion")
+    // Firefox 账号登录 + Sync（Rust application-services，含各 ABI 的 libmegazord；APK 会增大约 10–15 MB）
+    implementation("org.mozilla.components:service-firefox-accounts:$fxaComponentsVersion")
+    implementation("org.mozilla.components:browser-storage-sync:$fxaComponentsVersion")
+    implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     testImplementation("junit:junit:4.13.2")
     // 历史记录：SQLCipher 加密数据库（HistoryDb，整库 AES-256）；androidx.sqlite 是它的接口依赖
     implementation("net.zetetic:sqlcipher-android:$sqlcipherVersion@aar")

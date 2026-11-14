@@ -142,6 +142,7 @@ class MainActivity : ComponentActivity() {
         }
         dev.dsh.miuixbrowser.Diag.log("MainActivity.onCreate")
         AdBlock.init(this)
+        FxaSync.init(this)
         CacheCleaner.runOnColdStart(this)
         // 从磁盘恢复下载任务列表（临时数据在 filesDir/downloads，不受清缓存影响）
         Downloader.init(this)

@@ -129,7 +129,7 @@ private data class ProfileRow(val id: String, val title: String, val subtitle: S
 
 /** 设置 → 备份与同步：本地备份与恢复；云同步（WebDAV / Git）。 */
 @Composable
-fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
+fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Boolean = true) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -486,6 +486,24 @@ fun BackupScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
+                    // ———— 火狐账号同步（置顶）————
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp, bottom = 6.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            val fxa = FxaSync.ui
+                            ArrowPreference(
+                                title = "火狐同步",
+                                summary = when (fxa) {
+                                    is FxaUi.SignedIn -> "已登录" + fxa.email.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                                    is FxaUi.NeedsReauth -> "登录已失效，点击重新登录"
+                                    else -> "登录 Mozilla 账号，与桌面端火狐同步书签"
+                                },
+                                onClick = onOpenFxa,
+                            )
+                        }
+                    }
                     // ———— 默认加密口令 + 自动推送 ————
                     item { SmallTitle(text = "口令与自动备份") }
                     item {
