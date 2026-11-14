@@ -12,6 +12,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -61,12 +63,16 @@ fun FxaScreen(
     var loginUrl by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var webCanBack by remember { mutableStateOf(false) }
+    // 正在取登录地址：此时不画账号列表，避免「列表 → 登录页」闪一下
+    var starting by remember { mutableStateOf(false) }
 
     fun startLogin() {
         scope.launch {
+            starting = true
             val url = FxaSync.beginLogin()
             if (url != null) loginUrl = url
             else Toast.makeText(context, FxaSync.lastMessage ?: "无法登录", Toast.LENGTH_SHORT).show()
+            starting = false
         }
     }
     // 回调被截获、登录完成：收起登录页
@@ -101,6 +107,12 @@ fun FxaScreen(
             },
         ) { innerPadding ->
             val url = loginUrl
+            val surface = MiuixTheme.colorScheme.surface
+            if (url == null && (starting || ui is FxaUi.Authenticating)) {
+                // 取登录地址 / 回调已截获、等待登录完成：只画底色，不闪账号列表
+                Box(Modifier.fillMaxSize().background(surface))
+                return@Scaffold
+            }
             if (url != null) {
                 androidx.compose.ui.viewinterop.AndroidView(
                     modifier = Modifier
@@ -111,6 +123,8 @@ fun FxaScreen(
                         WebView(ctx).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            // 页面加载前 WebView 默认白底，深色模式下会白闪：用主题底色
+                            setBackgroundColor(surface.toArgb())
                             webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean =
                                     FxaSync.interceptRedirect(r.url.toString())

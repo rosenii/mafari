@@ -55,7 +55,9 @@ internal object FxaHistoryBridge {
         }
 
         // ---- 推：时间游标分批 ----
-        var cursor = prefs.getLong(K_PUSH, 0L)
+        // 存的游标是「已处理到的最后一条的时间」：下一轮从它之后开始查。
+        // 此前直接从游标本身（含）开始，游标那一条每轮都被当成新访问重推 → pushed 永远 > 0 → 同步完又同步，无限循环
+        var cursor = prefs.getLong(K_PUSH, 0L) + 1
         var seenAtCursor = HashSet<String>() // 游标那一毫秒已处理过的网址（同一时刻多条时防重复 / 防遗漏）
         var pushed = 0
         var more = true
@@ -77,7 +79,7 @@ internal object FxaHistoryBridge {
             cursor = lastTime
             prefs.edit().putLong(K_PUSH, cursor).apply() // 一批处理完才前移游标
         }
-        if (pushed > 0) FxaSync.syncNow() // 没推完的下一轮同步继续
+        if (pushed > 0) FxaSync.syncFollowUp() // 没推完的下一轮同步继续
     }
 
     // ------------------------------------------------------------ 过滤 / 清洗

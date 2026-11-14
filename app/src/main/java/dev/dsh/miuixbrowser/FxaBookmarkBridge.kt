@@ -78,7 +78,7 @@ internal object FxaBookmarkBridge {
         }
         if (changed) {
             prefs.edit().putStringSet(KEY_PUSHED, pushed).apply()
-            FxaSync.syncNow()
+            FxaSync.syncFollowUp()
         }
     }
 }

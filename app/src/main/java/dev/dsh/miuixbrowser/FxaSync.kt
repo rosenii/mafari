@@ -94,6 +94,8 @@ internal object FxaSync {
 
     fun cancelLogin() { if (ui is FxaUi.Authenticating) ui = FxaUi.SignedOut }
 
+    @Volatile private var handledState: String? = null
+
     /** 命中重定向地址就取出 code/state 完成登录，返回 true 表示已消费。 */
     fun interceptRedirect(url: String?): Boolean {
         if (url == null || !url.startsWith(REDIRECT_URL)) return false
@@ -101,6 +103,9 @@ internal object FxaSync {
         val code = uri.getQueryParameter("code")
         val state = uri.getQueryParameter("state")
         if (code == null || state == null) return false
+        // 同一个回调可能被 shouldOverrideUrlLoading / onPageStarted 各截一次：只完成一次登录，否则第二次失败会把状态打回「未登录」造成界面来回闪
+        if (state == handledState) return true
+        handledState = state
         scope.launch {
             runCatching { FxaApi.finishLogin(code, state) }
                 .onFailure { lastMessage = "登录失败：${it.message}"; ui = FxaUi.SignedOut }
@@ -109,7 +114,22 @@ internal object FxaSync {
         return true
     }
 
+    /** 连续由「合并后还有东西要推」触发的续同步次数；用户 / 登录触发的 [syncNow] 会清零 */
+    @Volatile private var followUps = 0
+    private const val MAX_FOLLOW_UPS = 30
+
+    /** 合并后还有数据没推完时再同步一轮；设上限，万一哪里又有推不完的数据也不会无限循环。 */
+    fun syncFollowUp() {
+        if (++followUps > MAX_FOLLOW_UPS) return
+        syncOnce()
+    }
+
     fun syncNow() {
+        followUps = 0
+        syncOnce()
+    }
+
+    private fun syncOnce() {
         scope.launch {
             runCatching { localTabs?.invoke()?.let { FxaApi.storeLocalTabs(it) } }
             runCatching { FxaApi.syncNow() }
