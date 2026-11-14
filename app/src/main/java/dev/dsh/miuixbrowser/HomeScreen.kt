@@ -1531,7 +1531,8 @@ internal fun GroupTile(
     onAnchor: (Rect) -> Unit = {},
     onRemove: () -> Unit,
 ) {
-    val hasWallpaper = wallpaper != null
+    // 大卡片真的是「壁纸上的玻璃」才用白字；关了模糊 / 没有取样源时大卡片回退成浅色实底，标题要跟着主题色走
+    val hasWallpaper = wallpaper != null && blurEnabled && (wallpaperBackdrop != null || liquidBackdrop != null)
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
@@ -1593,7 +1594,7 @@ internal fun GroupAddTile(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth(GROUP_TILE_FRACTION)
                 .aspectRatio(1f)
-                .groupTileSurface(wallpaper != null),
+                .groupTileSurface(wallpaper != null && blurEnabled && (wallpaperBackdrop != null || liquidBackdrop != null)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
