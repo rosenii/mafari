@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
@@ -16,6 +17,8 @@
 
     <application
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
@@ -54,9 +57,10 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MiuixBrowser" />
 
-        <!-- 应用图标：同一时间只启用一个 alias，见 AppIconManager -->
+        <!-- 应用图标：同一时间只启用一个 alias，见 AppIconManager。
+             alias 名带 V2：换图标资源后改名，让桌面启动器丢弃按旧组件名缓存的图标（否则会一直显示旧图 / 默认图） -->
         <activity-alias
-            android:name=".IconDefault"
+            android:name=".IconDefaultV2"
             android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
@@ -70,7 +74,7 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".IconColorful"
+            android:name=".IconColorfulV2"
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_colorful"
@@ -84,7 +88,7 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".IconSolid"
+            android:name=".IconSolidV2"
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_solid3d"
@@ -98,7 +102,7 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".IconDark"
+            android:name=".IconDarkV2"
             android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_dark"

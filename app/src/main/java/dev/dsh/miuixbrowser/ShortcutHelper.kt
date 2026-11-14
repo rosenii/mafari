@@ -165,8 +165,7 @@ object ShortcutHelper {
     }
 
     /** 读页面声明的最大图标（link rel=icon / apple-touch-icon），读不到返回空串 */
-    private suspend fun queryPageIcon(webView: android.webkit.WebView?): String {
-        if (webView == null) return ""
+    private suspend fun queryPageIcon(webView: android.webkit.WebView): String {
         val js = """
             (function(){var best='',bs=-1;
             document.querySelectorAll('link[rel~="icon"],link[rel="shortcut icon"],link[rel^="apple-touch-icon"]').forEach(function(l){

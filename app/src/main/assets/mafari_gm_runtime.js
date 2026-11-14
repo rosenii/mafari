@@ -40,6 +40,7 @@
   var _clearInterval = W.clearInterval.bind(W);
 
   var bridge = null;
+  // 原生桥：window.MafariGM
   try { bridge = W.MafariGM || null; } catch (e) { bridge = null; }
 
   function log(level, msg) {
@@ -215,10 +216,7 @@
       if (listeners[id]) names[listeners[id].name] = 1;
     });
     var nameList = Object.keys(names);
-    if (!nameList.length) {
-      if (pollTimer) { _clearInterval(pollTimer); pollTimer = null; }
-      return;
-    }
+    if (!nameList.length) { stopPoll(); return; }
     // Batch query when native supports it.
     if (bridge && typeof bridge.getValues === 'function') {
       var results = null;
@@ -251,6 +249,9 @@
   function ensurePoll() {
     if (pollTimer) return;
     pollTimer = _setInterval(pollTick, POLL_INTERVAL_MS);
+  }
+  function stopPoll() {
+    if (pollTimer) { _clearInterval(pollTimer); pollTimer = null; }
   }
 
   function GM_getValue(k, d) { return parseVal(rawGet(k), d); }
@@ -310,16 +311,15 @@
   function GM_addValueChangeListener(name, cb) {
     var id = ++listenerSeq;
     listeners[id] = { name: name, cb: cb };
-    if (!Object.prototype.hasOwnProperty.call(lastSeen, name)) lastSeen[name] = rawGet(name);
+    if (!Object.prototype.hasOwnProperty.call(lastSeen, name)) {
+      lastSeen[name] = rawGet(name);
+    }
     ensurePoll();
     return id;
   }
   function GM_removeValueChangeListener(id) {
     delete listeners[id];
-    if (pollTimer && !Object.keys(listeners).length) {
-      _clearInterval(pollTimer);
-      pollTimer = null;
-    }
+    if (pollTimer && !Object.keys(listeners).length) stopPoll();
   }
 
   // ------------------------------------------------------------------ styles / elements
@@ -385,6 +385,7 @@
     return 'data:' + (r.mime || 'application/octet-stream') + ';base64,' + r.data;
   }
 
+  /*@@BEGIN xhr*/
   // ------------------------------------------------------------------ xmlHttpRequest
   function headerValue(rawHeaders, name) {
     var re = cachedRe('^' + escRe(name) + ':\\s*(.*)$', 'im');
@@ -428,6 +429,19 @@
   }
 
   function pollXhr(reqId, onDone) {
+    if (bridge && typeof bridge.xhrWait === 'function') { // 推送式：结果到达时由 shim 直接回调，不再轮询
+      var waiting = true;
+      try {
+        bridge.xhrWait(reqId, function (raw) {
+          if (!waiting) return;
+          waiting = false;
+          var res;
+          try { res = JSON.parse(raw); } catch (e) { res = { state: 'error', error: 'bad bridge response' }; }
+          onDone(res);
+        });
+      } catch (e) { waiting = false; onDone({ state: 'error', error: String(e) }); }
+      return { stop: function () { waiting = false; } };
+    }
     var delay = 15;
     var stopped = false;
     function tick() {
@@ -635,6 +649,16 @@
     return p;
   }
 
+  /*@@STUB xhr
+  // 脚本声明了 @grant 却没声明 GM_xmlhttpRequest / GM.xmlHttpRequest：整段（~250 行）由 UserscriptEngine 裁掉，换成这两个桩
+  function GM_xmlhttpRequest() {
+    try { console.warn('[Mafari] 脚本未声明 @grant GM_xmlhttpRequest / GM.xmlHttpRequest'); } catch (e) {}
+    return { abort: function () {} };
+  }
+  function promisifyXhr() {
+    return Promise.reject(new Error('未声明 @grant GM.xmlHttpRequest'));
+  }
+  xhr@@*/
   // ------------------------------------------------------------------ misc APIs
   function GM_notification(a, b, c, d) {
     var det = (a && typeof a === 'object') ? a : { text: a, title: b, image: c, onclick: d };
@@ -845,6 +869,7 @@
   function GM_saveTab(o) { tabObj = o || {}; }
   function GM_getTabs(cb) { var t = {}; t[0] = tabObj; safeCall(cb, null, [t]); }
 
+  /*@@BEGIN cookie*/
   // ------------------------------------------------------------------ cookies
   function cookieHost(url) { try { return new URL(url).hostname; } catch (e) { return W.location.hostname; } }
   function documentCookies(url, nameFilter) {
@@ -935,6 +960,14 @@
     }
   };
 
+  /*@@STUB cookie
+  // 脚本声明了 @grant 却没声明 GM_cookie / GM.cookie：整段由 UserscriptEngine 裁掉，换成桩
+  var GM_cookie = {
+    list: function (d, cb) { try { if (typeof cb === 'function') cb(undefined, '未声明 @grant GM_cookie'); } catch (e) {} },
+    set: function (d, cb) { try { if (typeof cb === 'function') cb('未声明 @grant GM_cookie'); } catch (e) {} },
+    delete: function (d, cb) { try { if (typeof cb === 'function') cb('未声明 @grant GM_cookie'); } catch (e) {} }
+  };
+  cookie@@*/
   // ------------------------------------------------------------------ onurlchange (shared across scripts)
   if (META.grant && META.grant.indexOf('window.onurlchange') >= 0) {
     var state = W.__mafariUrlWatchState;
@@ -1096,8 +1129,10 @@
   var GM = {
     openFileStream: openFileStream,
     info: GM_info,
-    getValue: p(GM_getValue), setValue: p(GM_setValue), deleteValue: p(GM_deleteValue),
-    listValues: p(GM_listValues), getValues: p(GM_getValues),
+    getValue: p(GM_getValue),
+    setValue: p(GM_setValue), deleteValue: p(GM_deleteValue),
+    listValues: p(GM_listValues),
+    getValues: p(GM_getValues),
     setValues: p(GM_setValues), deleteValues: p(GM_deleteValues),
     addValueChangeListener: p(GM_addValueChangeListener), removeValueChangeListener: p(GM_removeValueChangeListener),
     addStyle: p(GM_addStyle), addElement: p(GM_addElement),

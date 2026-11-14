@@ -81,7 +81,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 设置 → 隐私与安全 → 隐私增强保护（仅 WebView 内核）：
+ * 设置 → 隐私与安全 → 隐私增强保护：
  * 把「发送禁止跟踪请求」「禁用 WebRTC」「指纹保护」合并在同一页。
  */
 @Composable
@@ -94,6 +94,7 @@ fun PrivacyEnhanceScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled:
     val glass = rememberGlassActive(blurEnabled)
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
+    var showLockInfo by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides if (glass) liquidBackdrop else null) {
     Scaffold(
@@ -113,9 +114,23 @@ fun PrivacyEnhanceScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled:
                         onClick = onBack,
                     )
                 },
+                actions = {
+                    EncryptionLockButton(
+                        onClick = { showLockInfo = true },
+                        liquid = if (glass) liquidBackdrop else null,
+                        topScrolled = topScrolled,
+                    )
+                },
             )
         },
     ) { innerPadding ->
+        EncryptionInfoDialog(
+            show = showLockInfo,
+            onDismiss = { showLockInfo = false },
+            backdrop = backdrop,
+            liquid = if (glass) liquidBackdrop else null,
+            scope = "隐私报告记录：SQLCipher 整库 AES-256",
+        )
         val topInset = innerPadding.calculateTopPadding()
         Box(modifier = Modifier.fillMaxSize()) {
             Column(

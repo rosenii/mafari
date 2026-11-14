@@ -8,15 +8,14 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
- * Cookie 管理的执行层，走官方 API：[CookieManager]（removeAllCookies / removeSessionCookies / setCookie / flush）+ [WebStorage]。
+ * Cookie 管理的执行层：走 WebView 官方 API——
+ * [CookieManager]（removeAllCookies / removeSessionCookies / setCookie / flush）+ [WebStorage]。
  *
  * 接受策略与「启动时清理」存在 [AppSettings]。
  */
 object CookieControl {
 
-    // ------------------------------------------------------------------ 启动时清理
-
-    /** MainActivity.onCreate 调用：按「启动时清理」设置立刻清理 */
+    /** MainActivity.onCreate 调用：按设置在冷启动时清理 Cookie（及网站存储） */
     fun runOnColdStart(context: Context, settings: AppSettings) {
         val mode = settings.cookieClearOnLaunch
         if (mode == 0) return

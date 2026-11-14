@@ -91,6 +91,7 @@ fun SettingsScreen(
     onOpenPrivacyEnhance: () -> Unit,
     onOpenCookies: () -> Unit = {},
     onOpenBookmarks: () -> Unit,
+    onOpenBackup: () -> Unit = {},
     onOpenAbout: () -> Unit,
     onPageEnhancementsChange: (Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
@@ -100,6 +101,7 @@ fun SettingsScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
+    var showDonate by remember { mutableStateOf(false) }
     var showHomeSheet by remember { mutableStateOf(false) }
     var showHomeUrlDialog by remember { mutableStateOf(false) }
     var showProxyDialog by remember { mutableStateOf(false) }
@@ -336,6 +338,20 @@ fun SettingsScreen(
                         },
                         onClick = { showProxyDialog = true },
                     )
+                }
+
+                SmallTitle(text = "数据")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    SettingsRow(
+                        title = "备份与同步",
+                        summary = "加密备份导出 · 从备份文件恢复 · ${CipherSuites.default.shortName} 混合抗量子加密",
+                        onClick = onOpenBackup,
+                    )
                     SettingsRow(
                         title = "清理缓存",
                         summary = "每次冷启动自动清理 · 同系统「清除缓存」范围，保留未完成的下载 · 当前可清理 " +
@@ -368,12 +384,19 @@ fun SettingsScreen(
                     insideMargin = PaddingValues(0.dp),
                 ) {
                     SettingsRow(
+                        title = "捐赠",
+                        summary = DONATE_SUMMARY,
+                        onClick = { showDonate = true },
+                    )
+                    SettingsRow(
                         title = "关于 Mafari",
                         summary = "版本 " + BuildConfig.VERSION_NAME,
                         onClick = onOpenAbout,
                     )
                 }
             }
+
+            DonateSheet(show = showDonate, backdrop = if (glass) backdrop else null, onDismiss = { showDonate = false })
 
             // UA 选择放在设置页自己的 Scaffold 里：浏览主界面的覆盖层会被二级页面盖住
             UaDialog(

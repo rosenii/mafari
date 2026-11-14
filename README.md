@@ -2,7 +2,7 @@
 
 # Mafari
 
-**简体中文** · [English](README_EN.md) · [☕ 捐赠](#支持)
+**简体中文** · [English](README_EN.md) · [☕ 捐赠](#捐赠)
 
 📢 [Telegram 频道](https://t.me/mafari_a) · 💬 [Telegram 交流群](https://t.me/Mafari_discuss) · 📦 [Releases](https://github.com/rosenii/mafari/releases)
 
@@ -162,12 +162,17 @@ git tag v3.3.0 && git push origin v3.3.0
 
 <https://github.com/rosenii/mafari>
 
-## 支持
+## 捐赠
 
-Mafari 完全免费、无广告，如果它对你有帮助，欢迎请开发者喝杯咖啡 ☕，这会让项目走得更久。
+Mafari 由个人业余时间开发维护，完全免费、无广告。如果它对你有帮助，欢迎请开发者喝杯咖啡 ☕，这会让项目走得更久。
 
 <div align="center">
 
 <img src="docs/donate_qr.png" alt="微信赞赏码" width="240">
 
+微信「扫一扫」扫码赞赏（应用内路径：设置 / 关于 → 捐赠，可一键保存赞赏码）
+
 </div>
+
+不方便捐赠也没关系：点个 ⭐ Star、反馈问题、推荐给朋友，同样是很大的支持。
+

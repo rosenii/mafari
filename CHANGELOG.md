@@ -2,65 +2,91 @@
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
 
-## [2.0.0-stable]
-**无内核版**
-- 变更：设置 → 布局 →「首页内容显示」更名为「定制主页」；其中「个人收藏」改为 显示1行 ~ 显示5行  （每行 3 个，默认 4 行）；收藏数量超出所选行数时，最后一格显示「更多」，点击进入书签页；不再限制首页最多 12 个收藏
+## [2.1.0-stable]
 
-- 新增：cookie管理，更多cookie高级管理设置
+- 新增：备份与同步页加「WebDAV」—— 配置服务器（测试连接后保存）后，可把加密备份上传到服务器的 `Mafari` 文件夹（保留最近 5 份），或一键从服务器上最新的备份恢复；服务器只见密文，口令仍只在本机输入、不保存；服务器密码经本机密钥加密存放，不进备份文件也不进系统自动备份（`WebDav.kt`，新增 OkHttp 依赖以支持 PROPFIND / MKCOL）
+- 变更：WebDAV 与 Git 都只保留最近 10 份备份（WebDAV 由 5 份改为 10 份；Git 仓库只留最近 10 个提交，推送时把更早的提交裁掉并强制推送，所以目标分支需允许强推）
+- 新增：Git 同步支持 SSH Deploy key —— 仓库设置里可切换「令牌 / Deploy key」，私钥可粘贴或从文件导入（OpenSSH / PEM 格式，可带口令），私钥与口令经本机密钥加密存放；主机密钥首次连接时记下，之后变化即拒绝；引入 mwiede JSch 分支，proguard 规则整体保留 JGit / JSch（`GitSync.kt`）
+- 新增：备份与同步页加「Git」—— 配置 http(s) 仓库（地址 / 用户名 / 令牌 / 分支，测试连接后保存）后，可把加密备份提交并推送到仓库（`mafari-backup.mfbak`，每次一个提交，历史即版本），或从仓库最新提交恢复；基于 JGit 纯 Java 实现，每次把目标分支克隆到缓存目录、用完即删；仓库只见密文，令牌经本机密钥加密存放，不进备份文件也不进系统自动备份（`GitSync.kt`）
+- 修复（WebDAV）：部分服务器上传备份报「服务器不支持 WebDAV：上传备份」（HTTP 405）或只留下 0 字节文件 —— 这些服务 / 前置代理在 HTTP/2 下处理 PUT 有问题；现强制 HTTP/1.1。上传后会读回服务器上的文件大小与本地比对，不一致则删除坏文件并报错（服务器不返回大小时跳过校验）；PUT 被重定向成 GET 时明确提示，不再静默当成功；PUT 返回 405 的提示改为「服务器拒绝了上传请求」
+- 新增：关于页底部新增「隐私政策」页面，说明本地存储的数据、网络请求（GitHub 更新与加速镜像、Google 图标 / 翻译、用户同步服务器等）与权限用途
+- 调整：应用图标「多彩 / 立体 / 深色」三款替换为新图标（桌面前景图与设置页预览图同步更新，底色按新图调整）；图标 alias 改名为 `Icon*V2`，让启动器丢弃按旧组件名缓存的图标，修复选「多彩」仍显示旧图、选「立体」变回默认图的问题（升级后首次启动按已选图标自动重新启用）
+- 依赖：OkHttp 4.12.0 → 5.5.1，新增 logging-interceptor 5.5.1（仅 debug 构建的 WebDAV 请求记录请求头，Authorization 脱敏、不记录请求体）
+- 依赖：Android Gradle Plugin 9.5.0 → 9.5.1（app 与 miuix 子工程同步）；SQLCipher 4.6.1 → 4.14.1
+- 新增：关于页「依赖版本」增加「本地存储」（SQLCipher）与「内核与加密」（GeckoView、BouncyCastle）两组，并在 AndroidX 组补上 SQLite；SQLCipher / SQLite 版本改由 `app/build.gradle.kts` 统一声明
 
-- 调整：调整功能布局，更符合操作逻辑
+- 新增：关于页「依赖版本」新增「云同步」分组，展示 OkHttp、JGit、JSch 的版本
 
-- 新增：书签分组，支持编辑，重组，去重
+- 优化：备份与同步页重排 —— 云同步（WebDAV / Git 左右切换）置顶，其后是「口令与自动推送」，最后是「本地备份与恢复」（导出到本地、从本地备份文件恢复两行，不再用 sheet）
+- 新增：默认加密口令 —— 设置后（加密存本机，不进备份文件）导出 / 上传 / 推送不再逐次询问口令，可随时替换或清除；恢复仍需输入口令
+- 新增：身份验证闸门（`BiometricGate.kt`，系统 BiometricPrompt）—— 查看 / 修改默认口令、以及每次从本地文件 / WebDAV / Git 恢复备份前都要先验证；优先指纹 / 人脸，失败或不想用时可退回手机锁屏密码；未设锁屏的设备无从验证，放行并提示。恢复时验证通过后先用默认口令解密，解不开再手动输入；默认口令弹窗可「显示口令」
+- 新增：自动推送同步 —— 样式同「自动更新脚本」（手动 / 每天 / 每 3 天 / 每周），启动应用时到期则把加密备份推送到当前连接的 WebDAV / Git，以及服务器列表里开启「一并同步」的其他项（当前连接的行前显示绿点）；需先设默认口令并配置云同步，任一目标失败则下次启动整体重试（`BackupAuto.kt`）
+- 新增：WebDAV 服务器与 Git 仓库支持保存多份配置（测试通过后加密存本机，旧的单配置自动迁移）；再次点「服务器 / 仓库」弹出 sheet，顶部列出已连接的配置（点一行编辑、右侧「使用」切换当前、可删除），下方「添加新配置」打开新增弹窗（`WebDavStore` / `GitStore`）
+- 优化：弹窗统一按钮布局（取消 + 主操作，删除单独一行）、字段多时输入区可滚动、令牌 / Deploy key 改为分段切换；弹窗摘要与列表副标题精简
 
+- 优化：精简备份与同步页的小字说明（备份范围合并为一行、去掉与确认框重复的恢复提示、加密方案各项缩短）
 
-- 新增：设置 → 布局 →定制主页：「LOGO 标识」：可显示 / 隐藏首页顶部的 Mafari 标志；全部内容和标志都隐藏时，摘要显示「首页无内容」
-- 新增：设置 → 布局 →定制主页：「主页自定义」：可指定特定网站作为主页
-
-- 调整：下载：带上来源页（Referer）和登录态 Cookie 请求，防盗链、需要登录的站点也能正常下载；网页下载、长按保存图片、油猴 GM_download、独立网页应用（WebApp）下载均适用。无痕标签页不带 Cookie，避免串号
-- 调整：下载：任务列表保存到磁盘，应用被系统杀掉后重新打开会恢复为「已暂停」，可直接继续；只点通知栏的暂停 / 继续按钮拉起进程时也能正常操作
-
-- 新增：下载页加「多线程下载」开关，默认开启；关闭后一律单线程（线程数、阈值随之收起）；多线程阈值默认由 10 MB 改为 200 MB（已手动设置过的保持原值）
-- bugs反馈：https://t.me/Mafari_discuss
-- 更新频道：https://t.me/mafari_a
-
-
-
-
-
-## [99.1.7]
-
-- 修复：stable / dev 分支「检查更新」提示检查失败 —— 之前只取最近 30 条 release，gecko 分支每次构建都发一条预发布，把 stable / dev 的 release 挤出了窗口，找不到就当失败；改为每页 100 条、最多翻 6 页，找到本分支的就停；整体等待上限 8s → 15s
 
 ## [99.1.3]
 
+- 新增（Gecko）：「网页字体跟随系统」开关（Gecko 高级保护 → 其他）—— `browser.display.use_document_fonts=0` + 各语言默认字体指向系统 sans-serif；关闭时清除用户值恢复默认（`GeckoPrefs.CLEAR`）
+- 修复：拓展详情读取权限不再依赖 `MetaData.permissions`（改为反射）；`GeckoFeatureGate` 去掉多余的 `matchParentSize` import
+
+
+- 新增（Gecko）：「Gecko 高级保护」页（设置 → 高级，Gecko 模式下出现）—— 增强型跟踪保护（跟随隐私设置 / 关闭 / 标准 / 严格）、清理网址跟踪参数、弹跳跟踪保护、定期清理跟踪者数据、指纹保护、强力抗指纹、GPC / DNT、精简 Referer、防 WebRTC 泄露 IP、严格第一方隔离、仅 HTTPS、安全 DNS（DoH：Cloudflare / 阿里 / DNSPod / Google / Quad9 / 自定义，优先或仅 DoH）、ECH、禁用预取 / 预连接、禁用 WebGL，支持一键恢复默认（`GeckoProtection.kt` / `GeckoProtectionScreen.kt`）
+- 变更（Gecko）：`applyPrivacy` 改为经 `GeckoProtection` 与高级保护页合并后写入（ETP 档位以高级页为准；GPC / WebRTC / 指纹取并集）；Gecko 运行时创建时一并写入全部保护设置
 
 
 
+- 新增（Gecko）：拓展管理 —— 已安装拓展卡片带启用开关；点开详情 sheet 可看版本 / 描述 / 权限，并「启用 / 停用」「选项」（moz-extension 选项页在新标签打开）「检查更新」「卸载」（二次确认）
+- 新增（Gecko）：定期检查更新 —— 「自动检查更新」手动 / 每天 / 每 3 天 / 每周（默认每天），显示上次检查时间；Gecko 模式下应用在前台时启动 15 秒后检查一次、此后每 6 小时看是否到点；没用过 Gecko 时不会为检查更新去启动它。新版本需要新增权限的更新在后台会被拒绝，留待手动「全部更新」时确认
 
 
+- 新增（Gecko）：「拓展」页（`GeckoExtensionsScreen.kt` / `GeckoExtensions.kt`）—— 沿用脚本页的玻璃顶栏与卡片样式；右上角「搜索」「更多」：搜索在顶栏下方展开输入框，向 Firefox 拓展商店（AMO）搜索，结果显示在列表最上方，可直接「添加」；更多菜单含「导入」（底部 sheet：从链接 / 从文件，支持商店页面链接、.xpi 直链、本地 .xpi）与「全部更新」；下方列出已安装拓展
+- 新增（Gecko）：安装 / 更新 / 可选权限的确认框（动态代理 `WebExtensionController` 的提示委托，权限译成中文）
 
+- 新增（Gecko）：拓展栏显隐 —— 切到 Gecko 内核时，设置 → 高级出现「拓展」行（展开动画），更多菜单出现「拓展」图标（排在「脚本」后）；切回 WebView 自动收起。菜单项只改内存列表不落盘，用户的排列不会因临时切换而丢失（`MenuAction.geckoOnly` / `MenuOrderStore.syncGecko`）
+- 新增：路由 `AppRoute.GeckoExtensions` 与「拓展」页骨架（`GeckoExtensionsScreen.kt`），拼图图标 `AppIcons.Puzzle`
 
+- 新增（Gecko）：功能置灰 —— 浏览器内核为 Gecko 时，设置里的「网页增强 / 去广告 / 脚本管理」、网站权限里的「网站通知 / 剪贴板读写 / 网站媒体发声」，以及更多菜单里的「脚本 / 脚本菜单」置灰且不可操作，点击弹 toast「该功能在 Gecko 下不支持或有替代方案」（`GeckoFeatureGate.kt` 的 `GeckoLocked`，`AppSettings.geckoMode`）
 
-
-
+- 新增（Gecko）：`GeckoPrompts.kt` 实现 PromptDelegate —— JS alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、弹窗拦截；文件选择 / 拍照上传包装成 WebView 同款 `FileChooserParams`，复用现有选择器与相机流程
+- 新增（Gecko）：隐私设置生效 —— 拦截跟踪脚本（ETP）、DNT / GPC、禁用 WebRTC、指纹保护（`GeckoPrefs.kt`，about:config 偏好，运行时创建后统一写入）
+- 新增（Gecko）：代理 —— `WebViewProxy` 的规则同步到 `network.proxy.*`（含 SOCKS5 认证本机中转）；HTTP 代理认证自动提交
+- 新增（Gecko）：网页重定向权限（`onLoadRequest`）；视频全屏同时收起应用顶栏 / 底栏
+- 修复（Gecko）：≤ 64 MB 的 http(s) 下载直接消费 Gecko 响应体，需要登录态的下载不再失败
 
 ## [1.8.25-dev]
 
+- 新增（Gecko）：「Gecko 高级保护」页（设置 → 高级，Gecko 模式下出现）—— 增强型跟踪保护（跟随隐私设置 / 关闭 / 标准 / 严格）、清理网址跟踪参数、弹跳跟踪保护、定期清理跟踪者数据、指纹保护、强力抗指纹、GPC / DNT、精简 Referer、防 WebRTC 泄露 IP、严格第一方隔离、仅 HTTPS、安全 DNS（DoH：Cloudflare / 阿里 / DNSPod / Google / Quad9 / 自定义，优先或仅 DoH）、ECH、禁用预取 / 预连接、禁用 WebGL，支持一键恢复默认（`GeckoProtection.kt` / `GeckoProtectionScreen.kt`）
+- 变更（Gecko）：`applyPrivacy` 改为经 `GeckoProtection` 与高级保护页合并后写入（ETP 档位以高级页为准；GPC / WebRTC / 指纹取并集）；Gecko 运行时创建时一并写入全部保护设置
 
 ## [1.8.24-dev]
 
+- 新增（Gecko）：拓展管理 —— 已安装拓展卡片带启用开关；点开详情 sheet 可看版本 / 描述 / 权限，并「启用 / 停用」「选项」（moz-extension 选项页在新标签打开）「检查更新」「卸载」（二次确认）
+- 新增（Gecko）：定期检查更新 —— 「自动检查更新」手动 / 每天 / 每 3 天 / 每周（默认每天），显示上次检查时间；Gecko 模式下应用在前台时启动 15 秒后检查一次、此后每 6 小时看是否到点；没用过 Gecko 时不会为检查更新去启动它。新版本需要新增权限的更新在后台会被拒绝，留待手动「全部更新」时确认
 
 ## [1.8.23-dev]
 
+- 新增（Gecko）：「拓展」页（`GeckoExtensionsScreen.kt` / `GeckoExtensions.kt`）—— 沿用脚本页的玻璃顶栏与卡片样式；右上角「搜索」「更多」：搜索在顶栏下方展开输入框，向 Firefox 拓展商店（AMO）搜索，结果显示在列表最上方，可直接「添加」；更多菜单含「导入」（底部 sheet：从链接 / 从文件，支持商店页面链接、.xpi 直链、本地 .xpi）与「全部更新」；下方列出已安装拓展
+- 新增（Gecko）：安装 / 更新 / 可选权限的确认框（动态代理 `WebExtensionController` 的提示委托，权限译成中文）
 
 ## [1.8.22-dev]
 
+- 新增（Gecko）：拓展栏显隐 —— 切到 Gecko 内核时，设置 → 高级出现「拓展」行（展开动画），更多菜单出现「拓展」图标（排在「脚本」后）；切回 WebView 自动收起。菜单项只改内存列表不落盘，用户的排列不会因临时切换而丢失（`MenuAction.geckoOnly` / `MenuOrderStore.syncGecko`）
+- 新增：路由 `AppRoute.GeckoExtensions` 与「拓展」页骨架（`GeckoExtensionsScreen.kt`），拼图图标 `AppIcons.Puzzle`
 
 ## [1.8.21-dev]
 
+- 新增（Gecko）：功能置灰 —— 浏览器内核为 Gecko 时，设置里的「网页增强 / 去广告 / 脚本管理」、网站权限里的「网站通知 / 剪贴板读写 / 网站媒体发声」，以及更多菜单里的「脚本 / 脚本菜单」置灰且不可操作，点击弹 toast「该功能在 Gecko 下不支持或有替代方案」（`GeckoFeatureGate.kt` 的 `GeckoLocked`，`AppSettings.geckoMode`）
 
 ## [1.8.20-dev]
 
+- 新增（Gecko）：`GeckoPrompts.kt` 实现 PromptDelegate —— JS alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、弹窗拦截；文件选择 / 拍照上传包装成 WebView 同款 `FileChooserParams`，复用现有选择器与相机流程
+- 新增（Gecko）：隐私设置生效 —— 拦截跟踪脚本（ETP）、DNT / GPC、禁用 WebRTC、指纹保护（`GeckoPrefs.kt`，about:config 偏好，运行时创建后统一写入）
+- 新增（Gecko）：代理 —— `WebViewProxy` 的规则同步到 `network.proxy.*`（含 SOCKS5 认证本机中转）；HTTP 代理认证自动提交
+- 新增（Gecko）：网页重定向权限（`onLoadRequest`）；视频全屏同时收起应用顶栏 / 底栏
+- 修复（Gecko）：≤ 64 MB 的 http(s) 下载直接消费 Gecko 响应体，需要登录态的下载不再失败
 
 ## [1.8.19-dev]
 

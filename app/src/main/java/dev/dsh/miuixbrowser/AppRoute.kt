@@ -14,6 +14,9 @@ sealed interface AppRoute : NavKey {
     data object Settings : AppRoute
     data object About : AppRoute
     data object Downloads : AppRoute
+
+    /** 关于 → 隐私政策 */
+    data object PrivacyPolicyPage : AppRoute
     data object Extensions : AppRoute
 
     /** 设置 → 高级 → 去广告 */
@@ -21,6 +24,9 @@ sealed interface AppRoute : NavKey {
 
     /** 设置 → 隐私与安全 → Cookie 管理 */
     data object CookiePage : AppRoute
+
+    /** 设置 → 备份与同步（加密备份导出 / 从备份文件恢复） */
+    data object BackupPage : AppRoute
 
     /** 设置 → 隐私与安全 → 隐私增强保护（WebView：DNT / WebRTC / 指纹） */
     data object PrivacyEnhancePage : AppRoute

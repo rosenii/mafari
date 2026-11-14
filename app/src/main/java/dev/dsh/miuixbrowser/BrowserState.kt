@@ -150,9 +150,14 @@ fun isUserScriptUrl(url: String): Boolean {
     return path.endsWith(".user.js", ignoreCase = true)
 }
 
-/** 一个标签页：持有自己的 WebView 和页面状态（标题 / 地址 / 进度 / 前进后退等都是 Compose 状态）。 */
+/**
+ * 一个标签页：持有自己的 WebView 和页面状态。
+ * 标题 / 地址 / 进度 / 前进后退等状态都是 Compose 状态，界面层通过 [contentView] 等成员访问。
+ */
 @SuppressLint("SetJavaScriptEnabled")
-class BrowserTab(private val appContext: Context) {
+class BrowserTab(
+    private val appContext: Context,
+) {
 
     /** 每个标签的唯一 id，Compose 用它做 key。 */
     val id: Int = nextId()
@@ -304,10 +309,15 @@ class BrowserTab(private val appContext: Context) {
     /** 记录历史 */
     var onVisited: ((url: String, title: String) -> Unit)? = null
 
+    /** 本标签的 WebView */
     val webView: WebView = WebView(appContext)
 
+    /** 挂到界面里的内容视图 */
+    val contentView: View
+        get() = webView
+
     /** 指纹保护：按 origin 注册 document-start 脚本（见 FingerprintInjector / docs/FINGERPRINT.md）。 */
-    private val fpInjector = FingerprintInjector(webView)
+    private val fpInjector: FingerprintInjector? = FingerprintInjector(webView)
 
     private val elementBridge = object {
         @android.webkit.JavascriptInterface
@@ -649,7 +659,7 @@ class BrowserTab(private val appContext: Context) {
                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, cacheJs, setOf("*"))
                 }.onFailure { Diag.log("blob cache install failed: ${it.message}") }
                 androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, AdBlock.COSMETIC_JS, setOf("*"))
-                // 指纹保护不在这里注册：它按 origin 注册（fpInjector.prepare），配置内联在各 origin 自己的脚本里
+                // 指纹保护不在这里注册：它按 origin 注册（fpInjector?.prepare），配置内联在各 origin 自己的脚本里
                 adblockDocStart = true
             }
         }.onFailure { Diag.log("adblock: document-start install failed ${it.message}") }
@@ -735,7 +745,7 @@ class BrowserTab(private val appContext: Context) {
                 syncUserScripts()
                 if (!adblockDocStart) view.evaluateJavascript(AdBlock.COSMETIC_JS, null)
                 // 主路径：补注册（只对之后的加载生效）；降级路径：补跑脚本
-                fpInjector.onPageStarted(pageUrl)
+                fpInjector?.onPageStarted(pageUrl)
             }
 
             /** HTTP 代理认证：挑战主机等于代理主机时自动提交设置里的账号密码 */
@@ -770,7 +780,7 @@ class BrowserTab(private val appContext: Context) {
 
             override fun doUpdateVisitedHistory(view: WebView, pageUrl: String?, isReload: Boolean) {
                 // 服务端重定向的最终落点只有这里看得到：未预注册就按策略兜底
-                fpInjector.onCommitted(pageUrl)
+                fpInjector?.onCommitted(pageUrl)
                 if (!parked) pageUrl?.let { url = it }
                 updatePageHost(pageUrl)
                 syncNav()
@@ -795,7 +805,7 @@ class BrowserTab(private val appContext: Context) {
                     if (interceptRedirect(request, external = false, onAllowed = proceed)) return true
                 }
                 // 主框架导航放行前，先为目标 origin 注册指纹保护脚本（注入只作用于注册之后才开始加载的文档）
-                if (request.isForMainFrame && (scheme == "http" || scheme == "https")) fpInjector.prepare(target)
+                if (request.isForMainFrame && (scheme == "http" || scheme == "https")) fpInjector?.prepare(target)
                 // DNT / Sec-GPC：点击链接产生的主框架 GET 导航也带上请求头
                 if (dntEnabled && (scheme == "http" || scheme == "https") && request.isForMainFrame &&
                     request.method == "GET" && !request.isRedirect &&
@@ -1275,7 +1285,7 @@ class BrowserTab(private val appContext: Context) {
     /** 引擎当前的页面标题（切换地址时用来清掉旧标题） */
     fun currentPageTitle(): String = webView.title.orEmpty()
 
-    /** 在页面里执行 JS；[callback] 收到 evaluateJavascript 的原始返回值（JSON 文本）。 */
+    /** 在页面里执行 JS */
     fun evaluateJs(js: String, callback: ((String?) -> Unit)? = null) {
         if (callback == null) {
             webView.evaluateJavascript(js, null)
@@ -1286,7 +1296,7 @@ class BrowserTab(private val appContext: Context) {
 
     /** 可见区域尺寸变化后：让内容视图重新布局，并通知页面重新计算响应式布局 */
     fun onViewportChanged() {
-        val v = webView
+        val v = contentView
         v.post {
             if (!v.isAttachedToWindow) return@post
             v.requestLayout()
@@ -1316,7 +1326,7 @@ class BrowserTab(private val appContext: Context) {
         }
         parked = false
         url = target
-        fpInjector.prepare(target)
+        fpInjector?.prepare(target)
         engineLoad(target)
         syncNav()
     }
@@ -1324,7 +1334,7 @@ class BrowserTab(private val appContext: Context) {
     fun loadUrl(raw: String) {
         parked = false
         url = raw
-        fpInjector.prepare(raw)
+        fpInjector?.prepare(raw)
         engineLoad(raw)
     }
 
@@ -1334,7 +1344,7 @@ class BrowserTab(private val appContext: Context) {
             loading = false
         } else {
             // 设置 / 豁免列表变更后旧注册已作废，刷新前重新注册当前页的 origin
-            fpInjector.prepare(engineUrl())
+            fpInjector?.prepare(engineUrl())
             engineReload()
         }
     }
@@ -1626,7 +1636,7 @@ class BrowserTab(private val appContext: Context) {
         if (started) return
         val fallback = if (isIntentScheme) intent.getStringExtra("browser_fallback_url") else null
         if (!fallback.isNullOrBlank() && (fallback.startsWith("http://") || fallback.startsWith("https://"))) {
-            webView.post { loadUrl(fallback) }
+            contentView.post { loadUrl(fallback) }
         } else {
             android.widget.Toast.makeText(appContext, "未找到可打开的应用", android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -1635,7 +1645,7 @@ class BrowserTab(private val appContext: Context) {
     /** 允许重定向：目标在新标签页打开；原页面在导航被截下时就没有离开，无需回退 */
     private fun openRedirectInNewTab(target: String) {
         val open = onOpenInNewTab
-        if (open != null) open(target) else webView.post { loadUrl(target) }
+        if (open != null) open(target) else contentView.post { loadUrl(target) }
     }
 
     /**
@@ -1688,7 +1698,7 @@ class BrowserTab(private val appContext: Context) {
         val sameSite = pageHost.isNotEmpty() && targetHost.isNotEmpty() && isSameSite(targetHost, pageHost)
         if (sameSite || pageHost.isEmpty()) {
             // 同站新窗口链接：默认在当前标签打开，「同站链接新标签页打开」开关打开才新开标签
-            if (sameSiteNewTab) open(target) else webView.post { loadUrl(target) }
+            if (sameSiteNewTab) open(target) else contentView.post { loadUrl(target) }
             return
         }
         // 用户亲手点的跨站 target=_blank 链接：就是要新窗口，直接新标签打开，不走重定向权限
@@ -1867,7 +1877,7 @@ class BrowserTab(private val appContext: Context) {
         applyUserAgent()
         val target = webView.url ?: url
         if (target.isNotBlank() && !target.startsWith("about:")) {
-            fpInjector.prepare(target)
+            fpInjector?.prepare(target)
             webView.loadUrl(target)
         } else {
             webView.reload()
@@ -1965,7 +1975,9 @@ class BrowserTab(private val appContext: Context) {
             return
         }
         // 回到「从主页进入」的第一页：再返回就是主页，而不是继续翻进入主页之前的旧历史
-        if (fromHome && historyIndex() <= homeAnchor + 1) {
+        Diag.log("nav: goBack fromHome=$fromHome idx=${historyIndex()} anchor=$homeAnchor engineCanGoBack=${engineCanGoBack()} url=$url")
+        val atFirstPage = fromHome && (!engineCanGoBack() || historyIndex() <= homeAnchor + 1)
+        if (atFirstPage) {
             engineStop()
             fromHome = false
             parked = true
@@ -1975,8 +1987,9 @@ class BrowserTab(private val appContext: Context) {
             syncNav()
             return
         }
+        // 刚提交新页面、canGoBack 还没跟上时也先尝试后退：真在第一页时是空操作，不会误把标签收回主页
         if (engineCanGoBack()) {
-            fpInjector.prepareHistory(-1)
+            fpInjector?.prepareHistory(-1)
             webView.goBack()
         } else if (openedFromLink) {
             // 链接打开的标签已经在第一页：关掉它，回到来源标签（而不是先落到本标签的主页）
@@ -1987,7 +2000,7 @@ class BrowserTab(private val appContext: Context) {
     fun goForward() {
         if (url.isEmpty()) return
         if (engineCanGoForward()) {
-            fpInjector.prepareHistory(1)
+            fpInjector?.prepareHistory(1)
             webView.goForward()
         }
     }
@@ -1998,7 +2011,7 @@ class BrowserTab(private val appContext: Context) {
         cancelFileChooser()
         exitCustomView()
         discardAllBlobSessions()
-        runCatching { fpInjector.clear() }
+        runCatching { fpInjector?.clear() }
         runCatching {
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.stopLoading()
@@ -2011,7 +2024,7 @@ class BrowserTab(private val appContext: Context) {
     /** 关闭标签：等界面把 WebView 从视图树摘下来后再销毁。 */
     fun close() {
         closed = true
-        webView.post { if (webView.parent == null) destroyNow() }
+        contentView.post { if (contentView.parent == null) destroyNow() }
     }
 
     private companion object {
@@ -2054,7 +2067,10 @@ class BrowserState(private val context: Context) {
         recentIds.add(id)
     }
 
-    private fun createTab(incognito: Boolean, opener: BrowserTab?): BrowserTab {
+    private fun createTab(
+        incognito: Boolean,
+        opener: BrowserTab?,
+    ): BrowserTab {
         val tab = BrowserTab(context)
         tab.customUserAgent = userAgent
         tab.applyUserAgent()
@@ -2138,7 +2154,8 @@ class BrowserState(private val context: Context) {
         // 切走前给当前标签拍一张缩略图
         if (makeActive) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
         val tab = createTab(incognito, opener)
-        tab.openedFromLink = fromLink && opener != null && target.isNotEmpty()
+        // 翻译 / 外部链接等没有标 fromLink 的入口也一样：有来源标签、有目标地址，返回就该直接回来源
+        tab.openedFromLink = (fromLink || makeActive) && opener != null && target.isNotEmpty()
         tabs.add(tab)
         if (makeActive) activate(tabs.lastIndex)
         if (loadTarget.isNotEmpty()) tab.load(loadTarget)
@@ -2243,7 +2260,13 @@ class BrowserState(private val context: Context) {
 
     fun select(index: Int) {
         // 切走前给当前标签拍一张缩略图
-        if (index != activeIndex) tabs.getOrNull(activeIndex)?.captureThumbnailNow()
+        if (index != activeIndex) {
+            tabs.getOrNull(activeIndex)?.let {
+                it.captureThumbnailNow()
+                // 手动切走后，关闭它就按最近使用顺序回退，不再强行跳回当初的来源标签
+                it.openerId = -1
+            }
+        }
         activate(index)
     }
 

@@ -31,6 +31,7 @@ enum class MenuAction(
     Find("find", "页内查找", MiuixIcons.Glass.Search),
     Translate("translate", "翻译", MiuixIcons.Glass.Translate),
     Favorite("favorite", "收藏", MiuixIcons.Glass.Favorites),
+    Bookmarks("bookmarks", "书签", AppIcons.Bookmark),
     Share("share", "分享", MiuixIcons.Glass.Share),
     Refresh("refresh", "刷新", MiuixIcons.Glass.Refresh),
     CopyLink("copy", "复制链接", MiuixIcons.Glass.Copy),
@@ -60,7 +61,9 @@ class MenuOrderStore(context: Context) {
             prefs.getString(key, null)?.split(",")?.filter { it.isNotBlank() }.orEmpty()
                 .mapNotNull { id -> MenuAction.entries.firstOrNull { it.id == id } }
         hidden.addAll(read(KEY_HIDDEN).filter { it != MenuAction.Settings }.distinct())
-        order.addAll(read(KEY).filter { it !in hidden }.distinct())
+        val saved = read(KEY).filter { it !in hidden }.distinct()
+        // 从未自定义过：用默认排序（收藏 / 历史 / 桌面版 / 设置 … 按面板里的位置）
+        order.addAll(if (prefs.contains(KEY)) saved else DEFAULT_ORDER.filter { it !in hidden })
         // 新增的项补到末尾
         MenuAction.entries.forEach {
             if (it !in order && it !in hidden) order.add(it)
@@ -84,8 +87,16 @@ class MenuOrderStore(context: Context) {
             .apply()
     }
 
-    private companion object {
-        const val KEY = "order"
-        const val KEY_HIDDEN = "hidden"
+    companion object {
+        /** 默认排序（四列宫格，自上而下）：其余功能依次排在后面。 */
+        val DEFAULT_ORDER = listOf(
+            MenuAction.Favorite, MenuAction.History, MenuAction.Desktop, MenuAction.Settings,
+            MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
+            MenuAction.Home, MenuAction.ScriptMenu, MenuAction.Refresh,
+            MenuAction.Bookmarks,
+        )
+
+        private const val KEY = "order"
+        private const val KEY_HIDDEN = "hidden"
     }
 }

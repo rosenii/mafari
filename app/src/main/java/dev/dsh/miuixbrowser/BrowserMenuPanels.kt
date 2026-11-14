@@ -217,7 +217,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 更多面板：图标 + 文字宫格。长按任一图标进入编辑：面板自动拉长，底部出现高光分割线，
  * 线下方是「隐藏的功能」区；把图标拖到线下方即从菜单隐藏，再拖回线上方即恢复。
  */
-/** 更多菜单里长按进入管理页（脚本 / 收藏 / 拓展）所需的按住时长，含系统长按判定时间 */
+/** 更多菜单里长按进入管理页（脚本 / 收藏 / 书签）所需的按住时长，含系统长按判定时间 */
 internal const val MENU_LONG_PRESS_MS = 650L
 
 @Composable
@@ -359,7 +359,7 @@ internal fun MenuGrid(
             }
         }
 
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 6.dp)) {
             Cells(order, inHidden = false)
             if (editing) {
                 Box(modifier = Modifier.fillMaxWidth().height(dividerHeight)) {

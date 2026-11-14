@@ -1,12 +1,16 @@
 package dev.dsh.miuixbrowser
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.zetetic.database.sqlcipher.SQLiteDatabase
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -55,6 +59,24 @@ class ExtensionStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = context.getSharedPreferences("mafari_ext", Context.MODE_PRIVATE)
 
+    /** 加密库；打不开为 null。下面这些属性必须声明在 items 之前（属性按声明顺序初始化，load() 会用到）。 */
+    private val db: SQLiteDatabase? = HistoryDb.get(appContext)
+
+    /** 本次运行是否用加密库存脚本；读库出错会置 false，退回旧存储（SharedPreferences）。 */
+    private var useDb = db != null
+
+    /** 读库时发现旧数据 id 为空 / 重复时置位。 */
+    private var needsPersist = false
+
+    // 写库按行增量、延后一小会儿合并成一次，并放到写库线程
+    private val main = Handler(Looper.getMainLooper())
+    private var dirty = false
+    private var firstDirtyAt = 0L
+    private val flushTask = Runnable { flush() }
+
+    /** 上次成功写进库里的内容（只在写库线程读写；初始值在构造时设定，早于任何一次写入）。 */
+    private var written: Map<String, ScriptDb.Row> = emptyMap()
+
     /**
      * 旧版本把去广告订阅也存在脚本列表里（subscriptionUrl 非空）。
      * 读取时把它们从脚本列表里剥离出来，交给 AdBlock.migrateLegacy，
@@ -64,47 +86,106 @@ class ExtensionStore(context: Context) {
 
     val items = mutableStateListOf<UserScript>().apply { addAll(load()) }
 
+    init {
+        current = this
+        if (needsPersist) persist()
+    }
+
     fun commitLegacyMigration() {
         if (legacyAdSubs.isEmpty()) return
         legacyAdSubs.clear()
-        persist()
+        // 加密库模式：旧值里只剩去广告订阅的残留，迁完就删；退回旧存储时照常重写
+        if (useDb) prefs.edit().remove(KEY).commit() else persist()
     }
 
     private fun load(): List<UserScript> {
-        val raw = prefs.getString(KEY, null) ?: return emptyList()
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    val legacyUrl = obj.optString("subscriptionUrl")
-                    if (legacyUrl.isNotBlank()) {
-                        legacyAdSubs.add(
-                            LegacyAdSub(
-                                name = obj.optString("name"),
-                                url = legacyUrl,
-                                enabled = obj.optBoolean("enabled", true),
-                            ),
-                        )
-                        continue
-                    }
-                    add(
-                        UserScript(
-                            id = obj.optString("id"),
-                            name = obj.optString("name"),
-                            code = obj.optString("code"),
-                            enabled = obj.optBoolean("enabled", true),
-                            match = obj.optString("match"),
-                            sourceUrl = obj.optString("sourceUrl"),
-                            runAt = obj.optString("runAt", "document-end"),
-                            icon = obj.optString("icon"),
-                            updatedAt = obj.optLong("updatedAt", 0L),
-                            error = obj.optString("error"),
-                        ),
-                    )
-                }
+        val database = db
+        if (database != null) {
+            try {
+                // 旧存储里还有脚本（首次升级 / 备份恢复 / 加密库不可用期间写过）：它优先，整体导入后清掉
+                importLegacy(database)?.let { return it }
+                val loaded = ScriptDb.load(database)
+                written = ScriptDb.rows(loaded)
+                return loaded
+            } catch (t: Throwable) {
+                Diag.log("scripts: encrypted db unavailable, using prefs: ${t.message}")
+                useDb = false
             }
-        }.getOrDefault(emptyList())
+        }
+        return loadLegacy()
+    }
+
+    private class LegacyParsed(val scripts: List<UserScript>, val adSubs: List<LegacyAdSub>, val adOnly: JSONArray)
+
+    /** 解析旧格式（SharedPreferences 里的 JSON，也是备份里的格式）。格式不对抛异常。 */
+    private fun parseLegacy(raw: String): LegacyParsed {
+        val array = JSONArray(raw)
+        val scripts = ArrayList<UserScript>()
+        val ads = ArrayList<LegacyAdSub>()
+        val adOnly = JSONArray()
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            val legacyUrl = obj.optString("subscriptionUrl")
+            if (legacyUrl.isNotBlank()) {
+                ads.add(
+                    LegacyAdSub(
+                        name = obj.optString("name"),
+                        url = legacyUrl,
+                        enabled = obj.optBoolean("enabled", true),
+                    ),
+                )
+                adOnly.put(obj)
+                continue
+            }
+            scripts.add(
+                UserScript(
+                    id = obj.optString("id"),
+                    name = obj.optString("name"),
+                    code = obj.optString("code"),
+                    enabled = obj.optBoolean("enabled", true),
+                    match = obj.optString("match"),
+                    sourceUrl = obj.optString("sourceUrl"),
+                    runAt = obj.optString("runAt", "document-end"),
+                    icon = obj.optString("icon"),
+                    updatedAt = obj.optLong("updatedAt", 0L),
+                    error = obj.optString("error"),
+                ),
+            )
+        }
+        return LegacyParsed(scripts, ads, adOnly)
+    }
+
+    /**
+     * 旧版把脚本整份存在 SharedPreferences「mafari_ext」的 scripts 里（备份恢复写回的也是它）。
+     * 读得出来就在一个事务里整体导入加密库，成功后删掉旧值；读不出来不动它。没有旧值返回 null。
+     * 旧值里只剩去广告订阅残留（没有脚本）时，库里的才是最新的，不覆盖；订阅残留留到 [commitLegacyMigration] 再删。
+     */
+    private fun importLegacy(database: SQLiteDatabase): List<UserScript>? {
+        val raw = prefs.getString(KEY, null) ?: return null
+        val parsed = runCatching { parseLegacy(raw) }.getOrNull() ?: return null
+        legacyAdSubs.clear()
+        legacyAdSubs.addAll(parsed.adSubs)
+        val existing = ScriptDb.load(database)
+        val result: List<UserScript>
+        if (parsed.scripts.isEmpty() && existing.isNotEmpty()) {
+            result = existing
+            written = ScriptDb.rows(existing)
+        } else {
+            result = ScriptDb.dedupeIds(parsed.scripts).items
+            written = ScriptDb.replaceAll(database, result)
+        }
+        val editor = prefs.edit()
+        if (parsed.adSubs.isEmpty()) editor.remove(KEY) else editor.putString(KEY, parsed.adOnly.toString())
+        if (!editor.commit()) Diag.log("scripts: could not clear legacy prefs after import")
+        return result
+    }
+
+    private fun loadLegacy(): List<UserScript> {
+        val raw = prefs.getString(KEY, null) ?: return emptyList()
+        val parsed = runCatching { parseLegacy(raw) }.getOrNull() ?: return emptyList()
+        legacyAdSubs.clear()
+        legacyAdSubs.addAll(parsed.adSubs)
+        return parsed.scripts
     }
 
     fun add(
@@ -292,27 +373,66 @@ class ExtensionStore(context: Context) {
     }
 
     private fun persist() {
-        val array = JSONArray()
-        items.forEach {
-            array.put(
-                JSONObject()
-                    .put("id", it.id)
-                    .put("name", it.name)
-                    .put("code", it.code)
-                    .put("enabled", it.enabled)
-                    .put("match", it.match)
-                    .put("sourceUrl", it.sourceUrl)
-                    .put("runAt", it.runAt)
-                    .put("icon", it.icon)
-                    .put("updatedAt", it.updatedAt)
-                    .put("error", it.error),
-            )
+        if (useDb) {
+            scheduleSave()
+            return
         }
-        prefs.edit().putString(KEY, array.toString()).apply()
+        prefs.edit().putString(KEY, ScriptDb.itemsToJson(items.toList())).apply()
     }
 
-    private companion object {
-        const val KEY = "scripts"
+    /** 标记有改动待写库：安静 [SAVE_DEBOUNCE_MS] 后写；一直有改动则最迟 [SAVE_MAX_WAIT_MS] 写一次。 */
+    private fun scheduleSave() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post { scheduleSave() }
+            return
+        }
+        dirty = true
+        val now = SystemClock.uptimeMillis()
+        if (firstDirtyAt == 0L) firstDirtyAt = now
+        main.removeCallbacks(flushTask)
+        if (now - firstDirtyAt >= SAVE_MAX_WAIT_MS) flush() else main.postDelayed(flushTask, SAVE_DEBOUNCE_MS)
+    }
+
+    /**
+     * 立即把待写的改动交给写库线程（在主线程取快照，写入在 [HistoryDb.io] 上按顺序执行、单事务、只写有变化的行）。
+     * 应用退到后台时调用，免得最后一小段改动还在等延迟。主线程。
+     */
+    fun flush() {
+        main.removeCallbacks(flushTask)
+        firstDirtyAt = 0L
+        val database = db
+        if (!useDb || database == null || !dirty) return
+        dirty = false
+        val snapshot = items.toList()
+        HistoryDb.io.execute {
+            runCatching { written = ScriptDb.sync(database, snapshot, written) }
+                .onFailure { Diag.log("scripts: save failed: ${it.message}") }
+        }
+    }
+
+    /** 备份用：当前内存里的脚本列表（旧版明文 JSON 格式）。 */
+    fun snapshotJson(): String = ScriptDb.itemsToJson(items.toList())
+
+    companion object {
+        /** 最近创建的实例：备份导出靠它取界面正在用的那份（写库有短暂延迟，内存里的最新）。 */
+        @Volatile var current: ExtensionStore? = null
+            private set
+
+        /** 退到后台时调用：把还在等延迟的脚本改动立刻交给写库线程。主线程。 */
+        fun flushCurrent() {
+            current?.flush()
+        }
+
+        /** 备份用：脚本列表的旧格式 JSON；优先取内存里最新的，没有则读库；库不可用返回 null。 */
+        fun exportBackup(context: Context): String? {
+            runCatching { current?.snapshotJson() }.getOrNull()?.let { return it }
+            val database = HistoryDb.get(context) ?: return null
+            return runCatching { ScriptDb.itemsToJson(ScriptDb.load(database)) }.getOrNull()
+        }
+
+        private const val KEY = "scripts"
+        private const val SAVE_DEBOUNCE_MS = 300L
+        private const val SAVE_MAX_WAIT_MS = 2_000L
     }
 }
 

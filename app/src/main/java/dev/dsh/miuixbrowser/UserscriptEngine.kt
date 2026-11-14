@@ -157,6 +157,46 @@ object UserscriptEngine {
 
     private fun jsonArray(list: List<String>) = JSONArray().apply { list.forEach { put(it) } }
 
+    /**
+     * 按 @grant 裁剪运行时：脚本声明了 @grant、却没声明某类 API 时，把对应整段（xhr ~250 行 / cookie ~90 行）
+     * 换成运行时里 @@STUB 标记块里的桩，注入体积更小。老式（GM_xmlhttpRequest）与新式（GM.xmlHttpRequest）都认。
+     * 没写 @grant / none / * 保持全量，兼容没按规范声明就直接用 GM_* 的老脚本。
+     * 只有 4 种组合，结果按位掩码缓存。
+     */
+    private val trimCache = HashMap<Int, String>()
+
+    private fun trimmedTemplate(context: Context, grants: List<String>): String {
+        val full = template(context)
+        val g = grants.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        if (g.isEmpty() || g.contains("none") || g.contains("*")) return full
+        var mask = 0
+        if (g.none { it == "gm_xmlhttprequest" || it == "gm.xmlhttprequest" }) mask = mask or 1
+        if (g.none { it == "gm_cookie" || it == "gm.cookie" || it.startsWith("gm_cookie.") || it.startsWith("gm.cookie.") }) mask = mask or 2
+        if (mask == 0) return full
+        return synchronized(trimCache) {
+            trimCache.getOrPut(mask) {
+                var t = full
+                if ((mask and 1) != 0) t = stripSection(t, "xhr")
+                if ((mask and 2) != 0) t = stripSection(t, "cookie")
+                t
+            }
+        }
+    }
+
+    // 把 BEGIN 标记到 STUB 块结尾整体换成桩（标记写法见运行时）；找不到标记就原样返回（宁可不裁）
+    private fun stripSection(src: String, name: String): String {
+        val begin = "/*@@BEGIN $name*/"
+        val stub = "/*@@STUB $name"
+        val end = "$name@@*/"
+        val b = src.indexOf(begin)
+        if (b < 0) return src
+        val s = src.indexOf(stub, b)
+        if (s < 0) return src
+        val e = src.indexOf(end, s)
+        if (e < 0) return src
+        return src.substring(0, b) + src.substring(s + stub.length, e) + src.substring(e + end.length)
+    }
+
     /** 生成注入用的完整源码；URL 与 run-at 由运行时在各自框架内判断 */
     fun buildSource(context: Context, script: UserScript): String {
         val meta = parse(script.code)
@@ -211,7 +251,7 @@ object UserscriptEngine {
             append(script.code)
             append("\n")
         }
-        return fill(template(context), metaJson, if (meta.topLevelAwait) "async function" else "function", code)
+        return fill(trimmedTemplate(context, meta.grants), metaJson, if (meta.topLevelAwait) "async function" else "function", code)
     }
 
     /** 依次替换三个占位符各一次，不会二次扫描已填入的脚本内容 */

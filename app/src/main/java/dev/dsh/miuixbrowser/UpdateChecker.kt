@@ -34,7 +34,7 @@ object UpdateChecker {
     /** 有可提示的新版本则返回，否则 null（网络失败、已是最新、已被用户忽略都返回 null）。 */
     fun findPending(context: Context, ignored: String, channel: Int): AppRelease? {
         val rel = fetchLatestRelease(channel) ?: return null
-        if (!isUpdateAvailable(rel)) return null
+        if (!isUpdateAvailable(context, rel, channel)) return null
         if (rel.version.removePrefix("v") == ignored.removePrefix("v")) return null
         return rel
     }
@@ -74,10 +74,11 @@ object UpdateChecker {
 }
 
 /** 是否有可更新的版本（启动自动检查与「检查更新」按钮共用）：按版本号逐段比较 */
-fun isUpdateAvailable(rel: AppRelease): Boolean = isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
+fun isUpdateAvailable(context: Context, rel: AppRelease, channel: Int): Boolean =
+    isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
 
 /** 「已是最新版本」提示里显示的当前版本 */
-fun currentVersionLabel(): String = BuildConfig.VERSION_NAME.removePrefix("v")
+fun currentVersionLabel(channel: Int): String = BuildConfig.VERSION_NAME.removePrefix("v")
 
 /**
  * 版本比较：按数字段逐段比较（v1.3.10 > v1.3.9）。

@@ -832,10 +832,12 @@ private fun TitleAndActionsRow(
     startAction: (@Composable () -> Unit)?,
     endAction: (@Composable () -> Unit)?,
 ) {
+    // 标题与两侧按钮都为空时（如「更多」菜单）不再预留头部间距，让内容更贴近顶部拖动条。
+    val emptyHeader = title == null && startAction == null && endAction == null
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 6.dp, bottom = 12.dp),
+            .padding(top = if (emptyHeader) 0.dp else 6.dp, bottom = if (emptyHeader) 0.dp else 12.dp),
     ) {
         // Start action (e.g. close button)
         Box(modifier = Modifier.align(Alignment.CenterStart)) {

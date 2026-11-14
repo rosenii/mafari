@@ -87,6 +87,8 @@ class MainActivity : ComponentActivity() {
     /** 图标切换推迟到离开应用时再生效，避免正在前台的入口被停用导致界面被系统关掉 */
     override fun onStop() {
         super.onStop()
+        FavoritesStore.flushCurrent()
+        ExtensionStore.flushCurrent()
         val wanted = AppSettings(this).appIcon
         if (AppIconManager.current(this) != wanted) AppIconManager.apply(this, wanted)
     }
@@ -102,6 +104,8 @@ class MainActivity : ComponentActivity() {
         dev.dsh.miuixbrowser.Diag.init(this)
         dev.dsh.miuixbrowser.Diag.log("MainActivity.onCreate")
         AdBlock.init(this)
+        AppSettings(this).migrateFromGecko()
+        LegacyCleanup.runOnce(this)
         CacheCleaner.runOnColdStart(this)
         // 从磁盘恢复下载任务列表（临时数据在 filesDir/downloads，不受清缓存影响）
         Downloader.init(this)

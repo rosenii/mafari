@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -44,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -55,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -136,6 +141,7 @@ fun LibraryScreen(
     )
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
+    var showLockInfo by remember { mutableStateOf(false) }
     // 分页内容各自的滚动状态，避免两栏互相干扰
     val bookmarkListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val historyListState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -187,6 +193,7 @@ fun LibraryScreen(
                     LiquidGlassBackButton(backdrop = liquid, surfaceVisible = topScrolled, onClick = onBack)
                 },
                 actions = {
+                    EncryptionLockButton(onClick = { showLockInfo = true }, liquid = liquid, topScrolled = topScrolled)
                     LiquidGlassButton(
                         onClick = {
                             searching = !searching
@@ -231,6 +238,13 @@ fun LibraryScreen(
             )
         },
     ) { innerPadding ->
+        EncryptionInfoDialog(
+            show = showLockInfo,
+            onDismiss = { showLockInfo = false },
+            backdrop = backdrop,
+            liquid = liquid,
+            scope = "书签：加密套件加密；历史：SQLCipher 整库 AES-256",
+        )
         val topInset = innerPadding.calculateTopPadding()
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
@@ -328,7 +342,7 @@ fun LibraryScreen(
             }
 
             // 历史栏右下角清空 FAB：位置 / 大小 / 形状与书签 FAB 一致，图标为红色垃圾桶
-            if (pagerState.currentPage == TAB_HISTORY && store.items.isNotEmpty()) {
+            if (pagerState.currentPage == TAB_HISTORY && store.totalCount > 0) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -376,7 +390,7 @@ fun LibraryScreen(
 
         // 清除历史确认：居中对话框
         val confirmCount = if (showClearConfirm) {
-            clearRange.millis?.let { store.countWithin(it) } ?: store.items.size
+            clearRange.millis?.let { store.countWithin(it) } ?: store.totalCount
         } else {
             0
         }
@@ -423,7 +437,7 @@ fun LibraryScreen(
             }
         }
 
-        // 分组管理（长按收起的分组行）：重命名；左下删除（再弹确认），右下保存
+        // 分组管理（长按分组行）：重命名；左下删除（再弹确认），右下保存
         val groupToRename = renamingGroup
         var renameText by remember(groupToRename) { mutableStateOf(groupToRename.orEmpty()) }
         AppGlassDialog(
@@ -437,7 +451,7 @@ fun LibraryScreen(
                     value = renameText,
                     onValueChange = { renameText = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "分组名",
+                    label = "分组路径（用 / 分层）",
                     useLabelAsPlaceholder = true,
                     singleLine = true,
                 )
@@ -486,7 +500,7 @@ fun LibraryScreen(
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "将删除分组「${groupToDelete.orEmpty()}」及其中的 ${groupToDelete?.let { favorites.itemsIn(it).size } ?: 0} 个书签，此操作无法撤销。",
+                    text = "将删除分组「${groupToDelete.orEmpty()}」（含子分组）及其中的 ${groupToDelete?.let { favorites.itemsInTree(it).size } ?: 0} 个书签，此操作无法撤销。",
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -556,6 +570,41 @@ fun LibraryScreen(
     }
 }
 
+/** 书签树节点：[path] 是完整分组路径（以 / 分层）；[items] 是直接放在该文件夹里的书签。 */
+private class BmNode(val path: String) {
+    val name: String = path.substringAfterLast('/').ifBlank { "未命名" }
+    val children = ArrayList<BmNode>()
+    val items = ArrayList<Favorite>()
+    /** 含全部子孙文件夹的（已按搜索词过滤的）书签总数 */
+    var total = 0
+}
+
+/** 按分组路径里的 / 建出层级；文件夹顺序沿用 [FavoritesStore.groups]，缺失的祖先自动补齐。 */
+private fun buildBookmarkTree(favorites: FavoritesStore, q: String): List<BmNode> {
+    val nodes = HashMap<String, BmNode>()
+    val roots = ArrayList<BmNode>()
+    fun ensure(path: String): BmNode {
+        nodes[path]?.let { return it }
+        val node = BmNode(path)
+        nodes[path] = node
+        val cut = path.lastIndexOf('/')
+        if (cut > 0) ensure(path.substring(0, cut)).children.add(node) else roots.add(node)
+        return node
+    }
+    favorites.groups().forEach { ensure(it) }
+    favorites.items.forEach { f ->
+        if (q.isEmpty() || f.name.contains(q, ignoreCase = true) || f.url.contains(q, ignoreCase = true)) {
+            ensure(f.group.ifBlank { Favorite.GROUP_PERSONAL }).items.add(f)
+        }
+    }
+    fun count(n: BmNode): Int {
+        n.total = n.items.size + n.children.sumOf { count(it) }
+        return n.total
+    }
+    roots.forEach { count(it) }
+    return roots
+}
+
 @Composable
 private fun BookmarksPage(
     favorites: FavoritesStore,
@@ -566,14 +615,14 @@ private fun BookmarksPage(
     onGroupLongClick: (String) -> Unit,
     query: String = "",
 ) {
-    val groups = favorites.groups()
     val q = query.trim()
-    // 分组默认折叠（只有一个分组时默认展开）；搜索时自动展开有匹配的分组
+    val roots = buildBookmarkTree(favorites, q)
+    val groupHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val groupTick = { groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
+    // 顶层分组默认折叠（只有一个时默认展开），次级文件夹默认折叠；搜索时全部自动展开
     val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-    val onlyOneGroup = groups.count { favorites.itemsIn(it).isNotEmpty() } <= 1
-    val noMatch = q.isNotEmpty() && favorites.items.none {
-        it.name.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
-    }
+    val onlyOneGroup = roots.count { it.total > 0 } <= 1
+    val noMatch = q.isNotEmpty() && roots.none { it.total > 0 }
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -601,100 +650,238 @@ private fun BookmarksPage(
                 )
             }
         }
-        groups.forEach { group ->
-            val list = favorites.itemsIn(group).filter {
-                q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
-            }
+        roots.forEach { root ->
             // 「个人收藏」即使为空也保留标题（不能删除的保留分组）；其它空分组 / 搜索无匹配时不显示
-            if (list.isEmpty() && (q.isNotEmpty() || !favorites.isProtectedGroup(group))) return@forEach
-            val open = q.isNotEmpty() || (expanded[group] ?: onlyOneGroup)
-            item(key = "g-$group") {
+            if (root.total == 0 && (q.isNotEmpty() || !favorites.isProtectedGroup(root.path))) return@forEach
+            val open = q.isNotEmpty() || (expanded[root.path] ?: onlyOneGroup)
+            item(key = "g-${root.path}") {
                 BookmarkGroupHeader(
-                    name = group,
-                    count = list.size,
+                    name = root.name,
+                    count = root.total,
                     open = open,
-                    onClick = { expanded[group] = !open },
-                    // 仅收起状态下长按分组行可重命名 / 删除；「个人收藏」是保留分组，不可操作
-                    onLongClick = if (!open && !favorites.isProtectedGroup(group)) ({ onGroupLongClick(group) }) else null,
+                    onClick = {
+                        groupTick()
+                        expanded[root.path] = !open
+                    },
+                    // 长按分组行可重命名 / 删除（展开 / 收起都行）；「个人收藏」是保留分组，不可操作
+                    onLongClick = if (!favorites.isProtectedGroup(root.path)) ({ onGroupLongClick(root.path) }) else null,
                 )
             }
-            if (!open) return@forEach
-            items(list.size, key = { i -> "$group-${list[i].url}-$i" }) { i ->
-                val fav = list[i]
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 8.dp),
-                    insideMargin = PaddingValues(14.dp),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpen(fav.url) },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val favicon = rememberFavicon(fav.url)
-                            if (favicon != null) {
-                                androidx.compose.foundation.Image(
-                                    bitmap = favicon,
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(RoundedCornerShape(6.dp)),
-                                )
-                            } else {
-                                // 图标还在加载或抓取失败时的占位
-                                Icon(
-                                    imageVector = MiuixIcons.Glass.File,
-                                    contentDescription = null,
-                                    tint = MiuixTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = fav.name,
-                                fontSize = 15.sp,
-                                color = MiuixTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = fav.url,
-                                fontSize = 11.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Text(
-                            text = "编辑",
-                            fontSize = 12.sp,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onEdit(fav) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                        )
-                    }
-                }
+            if (open) {
+                bookmarkFolderContent(
+                    node = root,
+                    level = 0,
+                    searching = q.isNotEmpty(),
+                    expanded = expanded,
+                    onOpen = onOpen,
+                    onEdit = onEdit,
+                    onGroupLongClick = onGroupLongClick,
+                    onTick = groupTick,
+                )
             }
         }
     }
 }
 
-/** 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；收起时可长按管理分组）。 */
+/**
+ * 展开某个分组 / 文件夹后的内容：先列次级文件夹（点击就地展开，递归），再列该层的书签。
+ * [level] 控制缩进，每深一层右移一点。
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent(
+    node: BmNode,
+    level: Int,
+    searching: Boolean,
+    expanded: androidx.compose.runtime.snapshots.SnapshotStateMap<String, Boolean>,
+    onOpen: (String) -> Unit,
+    onEdit: (Favorite) -> Unit,
+    onGroupLongClick: (String) -> Unit,
+    onTick: () -> Unit,
+) {
+    node.children.forEach { child ->
+        if (child.total == 0) return@forEach
+        val open = searching || (expanded[child.path] ?: false)
+        item(key = "f-${child.path}") {
+            BookmarkFolderRow(
+                name = child.name,
+                folderCount = child.children.count { it.total > 0 },
+                bookmarkCount = child.total,
+                open = open,
+                level = level,
+                onClick = {
+                    onTick()
+                    expanded[child.path] = !open
+                },
+                onLongClick = { onGroupLongClick(child.path) },
+            )
+        }
+        if (open) {
+            bookmarkFolderContent(child, level + 1, searching, expanded, onOpen, onEdit, onGroupLongClick, onTick)
+        }
+    }
+    items(node.items.size, key = { i -> "b-${node.path}-${node.items[i].url}-$i" }) { i ->
+        BookmarkRow(fav = node.items[i], level = level, onOpen = onOpen, onEdit = onEdit)
+    }
+}
+
+/** 次级分组：文件夹图标 + 分组名，样式与普通书签行一致；点一下展开 / 收起，长按管理。 */
+@Composable
+private fun BookmarkFolderRow(
+    name: String,
+    folderCount: Int,
+    bookmarkCount: Int,
+    open: Boolean,
+    level: Int,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+) {
+    // ChevronBackward 默认朝左：收起时转 180° 朝右（›），展开时转 270° 朝下
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "folderArrow")
+    val tint = MiuixTheme.colorScheme.primary.copy(alpha = 0.05f)
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = (12 + level * 14).dp, end = 12.dp)
+            .padding(bottom = 8.dp)
+            // 非常淡的蓝色底色：一眼区分分组行和普通书签行
+            .drawWithContent {
+                drawContent()
+                drawRoundRect(tint, cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()))
+            },
+        insideMargin = PaddingValues(14.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.Folder,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    fontSize = 15.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = listOfNotNull(
+                        if (folderCount > 0) "$folderCount 个分组" else null,
+                        "$bookmarkCount 个书签",
+                    ).joinToString(" · "),
+                    fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // 与主分组标题同款：36dp 圆形小按钮 + 旋转的箭头
+            AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
+                Icon(
+                    imageVector = MiuixIcons.Glass.ChevronBackward,
+                    contentDescription = if (open) "收起" else "展开",
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+                )
+            }
+        }
+    }
+}
+
+/** 普通书签行。 */
+@Composable
+private fun BookmarkRow(
+    fav: Favorite,
+    level: Int,
+    onOpen: (String) -> Unit,
+    onEdit: (Favorite) -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = (12 + level * 14).dp, end = 12.dp)
+            .padding(bottom = 8.dp),
+        insideMargin = PaddingValues(14.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpen(fav.url) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                val favicon = rememberFavicon(fav.url)
+                if (favicon != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = favicon,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(RoundedCornerShape(6.dp)),
+                    )
+                } else {
+                    // 图标还在加载或抓取失败时的占位
+                    Icon(
+                        imageVector = MiuixIcons.Glass.File,
+                        contentDescription = null,
+                        tint = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = fav.name,
+                    fontSize = 15.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = fav.url,
+                    fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = "编辑",
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onEdit(fav) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+        }
+    }
+}
+
+/** 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；长按管理分组）。 */
 @Composable
 private fun BookmarkGroupHeader(
     name: String,
@@ -754,8 +941,25 @@ private fun HistoryPage(
     query: String = "",
 ) {
     val q = query.trim()
-    val entries = store.items.filter {
-        q.isEmpty() || it.title.contains(q, ignoreCase = true) || it.url.contains(q, ignoreCase = true)
+    // 分页从数据库读：先取一页，滑到接近底部再多取一页；搜索由数据库完成
+    var limit by remember(q) { mutableIntStateOf(HISTORY_PAGE) }
+    var entries by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
+    var hasMore by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(q, limit, store.version) {
+        val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { store.query(q, limit + 1) }
+        hasMore = rows.size > limit
+        entries = if (hasMore) rows.take(limit) else rows
+        loaded = true
+    }
+    androidx.compose.runtime.LaunchedEffect(hasMore, entries.size) {
+        if (hasMore) {
+            androidx.compose.runtime.snapshotFlow {
+                val info = listState.layoutInfo
+                (info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - 6
+            }.first { it }
+            limit += HISTORY_PAGE
+        }
     }
     if (entries.isEmpty()) {
         Box(
@@ -764,26 +968,88 @@ private fun HistoryPage(
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = if (store.items.isEmpty()) "还没有浏览记录" else "没有匹配的历史记录",
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(24.dp),
-            )
+            if (loaded) {
+                Text(
+                    text = if (q.isEmpty()) "还没有浏览记录" else "没有匹配的历史记录",
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(24.dp),
+                )
+            }
         }
         return
     }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val sp = remember { ctx.getSharedPreferences("mafari", android.content.Context.MODE_PRIVATE) }
+    var mode by remember { mutableStateOf(HistoryGroupMode.fromId(sp.getString("history_group_mode", null))) }
+    // 默认全部展开：只记录被用户手动收起的分组；换分组方式时重置
+    val collapsed = remember(mode) { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    val groups = remember(entries, mode) { groupHistory(entries, mode) }
+    // 分组方式固定在顶部：放在列表外面，滑动时不随列表滚走，顶栏折叠后仍吸附在最上方
+    Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "分组",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(end = 4.dp),
+                    )
+                    HistoryGroupMode.entries.forEach { m ->
+                        val selected = m == mode
+                        Text(
+                            text = m.label,
+                            fontSize = 13.sp,
+                            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                )
+                                .clickable {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    if (!selected) {
+                                        mode = m
+                                        sp.edit().putString("history_group_mode", m.id).apply()
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
+                    }
+                }
     LazyColumn(
         state = listState,
         modifier = Modifier
-            .fillMaxSize()
+            .weight(1f)
+            .fillMaxWidth()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp),
     ) {
-        item { SmallTitle(text = "最近访问") }
-        items(entries.size, key = { i -> entries[i].url }) { index ->
-            val entry = entries[index]
+        groups.forEach { group ->
+            val open = q.isNotEmpty() || collapsed[group.key] != true
+            item(key = "h-${group.key}") {
+                HistoryGroupHeader(
+                    title = group.title,
+                    count = group.entries.size,
+                    open = open,
+                    onClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        collapsed[group.key] = open
+                    },
+                )
+            }
+            if (!open) return@forEach
+        items(group.entries.size, key = { i -> group.entries[i].url }) { index ->
+            val entry = group.entries[index]
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -815,7 +1081,7 @@ private fun HistoryPage(
                         )
                     }
                     Text(
-                        text = formatHistoryTime(entry.time),
+                        text = formatHistoryTime(entry.time, mode),
                         fontSize = 11.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(start = 8.dp),
@@ -838,18 +1104,141 @@ private fun HistoryPage(
                 }
             }
         }
+        }
+    }
     }
 }
 
-private fun formatHistoryTime(time: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - time
-    return when {
-        diff < 60_000L -> "刚刚"
-        diff < 3_600_000L -> "${diff / 60_000} 分钟前"
-        diff < 86_400_000L -> "${diff / 3_600_000} 小时前"
-        else -> SimpleDateFormat("MM-dd", Locale.getDefault()).format(Date(time))
+/** 历史页每次从数据库多读的条数 */
+private const val HISTORY_PAGE = 200
+
+enum class HistoryGroupMode(val id: String, val label: String) {
+    Day("day", "按日"),
+    Week("week", "按周"),
+    Month("month", "按月"),
+    Year("year", "按年");
+
+    companion object {
+        fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: Day
     }
+}
+
+private class HistoryGroup(val key: String, val title: String, val entries: List<HistoryEntry>)
+
+/** 按日 / 周（周一起算）/ 月分组，保持传入的时间倒序；标题用「今天 / 昨天 / 本周 / 上月」等相对叫法。 */
+private fun groupHistory(entries: List<HistoryEntry>, mode: HistoryGroupMode): List<HistoryGroup> {
+    fun startOf(time: Long): java.util.Calendar = java.util.Calendar.getInstance().apply {
+        firstDayOfWeek = java.util.Calendar.MONDAY
+        timeInMillis = time
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+        when (mode) {
+            HistoryGroupMode.Day -> Unit
+            HistoryGroupMode.Week -> set(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.MONDAY)
+            HistoryGroupMode.Month -> set(java.util.Calendar.DAY_OF_MONTH, 1)
+            HistoryGroupMode.Year -> set(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+    }
+    val nowStart = startOf(System.currentTimeMillis())
+    fun shift(c: java.util.Calendar, n: Int): java.util.Calendar = (c.clone() as java.util.Calendar).apply {
+        when (mode) {
+            HistoryGroupMode.Day -> add(java.util.Calendar.DAY_OF_YEAR, n)
+            HistoryGroupMode.Week -> add(java.util.Calendar.WEEK_OF_YEAR, n)
+            HistoryGroupMode.Month -> add(java.util.Calendar.MONTH, n)
+            HistoryGroupMode.Year -> add(java.util.Calendar.YEAR, n)
+        }
+    }
+    val cur = nowStart.timeInMillis
+    val prev = shift(nowStart, -1).timeInMillis
+    val md = SimpleDateFormat("M月d日", Locale.getDefault())
+    val wk = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
+    fun title(start: java.util.Calendar): String {
+        val t = start.timeInMillis
+        val sameYear = start.get(java.util.Calendar.YEAR) == nowStart.get(java.util.Calendar.YEAR)
+        return when (mode) {
+            HistoryGroupMode.Day -> when (t) {
+                cur -> "今天"
+                prev -> "昨天"
+                else -> md.format(Date(t)) + " " + wk[start.get(java.util.Calendar.DAY_OF_WEEK) - 1]
+            }
+            HistoryGroupMode.Week -> {
+                val end = shift(start, 1).apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+                val range = md.format(Date(t)) + " - " + md.format(end.time)
+                when (t) {
+                    cur -> "本周 · $range"
+                    prev -> "上周 · $range"
+                    else -> range
+                }
+            }
+            HistoryGroupMode.Month -> when (t) {
+                cur -> "本月"
+                prev -> "上月"
+                else -> if (sameYear) "${start.get(java.util.Calendar.MONTH) + 1}月"
+                else "${start.get(java.util.Calendar.YEAR)}年${start.get(java.util.Calendar.MONTH) + 1}月"
+            }
+            HistoryGroupMode.Year -> when (t) {
+                cur -> "今年"
+                prev -> "去年"
+                else -> "${start.get(java.util.Calendar.YEAR)}年"
+            }
+        }
+    }
+    val out = LinkedHashMap<Long, Pair<java.util.Calendar, MutableList<HistoryEntry>>>()
+    entries.forEach { e ->
+        val st = startOf(e.time)
+        out.getOrPut(st.timeInMillis) { st to mutableListOf() }.second.add(e)
+    }
+    return out.map { (k, v) -> HistoryGroup(k.toString(), title(v.first), v.second) }
+}
+
+/** 分组标题：与书签页主分组标题同款（17sp 加粗 + 条数 + 36dp 圆形箭头按钮），文字用蓝色。 */
+@Composable
+private fun HistoryGroupHeader(title: String, count: Int, open: Boolean, onClick: () -> Unit) {
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "historyGroupArrow")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                fontSize = 17.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "$count",
+                fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
+            Icon(
+                imageVector = MiuixIcons.Glass.ChevronBackward,
+                contentDescription = if (open) "收起" else "展开",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+            )
+        }
+    }
+}
+
+/** 条目右侧时间：按日分组时只显示时分（日期已在标题里），按周 / 月显示月日 + 时分。 */
+private fun formatHistoryTime(time: Long, mode: HistoryGroupMode): String {
+    val pattern = if (mode == HistoryGroupMode.Day) "HH:mm" else "MM-dd HH:mm"
+    return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(time))
 }
 
 /** 写入系统 Download/mafari 并提示路径。 */
@@ -885,8 +1274,197 @@ private fun exportBookmarks(context: android.content.Context, html: String) {
     }
 }
 
+/** 分组路径（以 / 分层，缺失的祖先自动补齐）→ 它的直接子分组完整路径；顶层用 "" 作键，顺序沿用传入顺序。 */
+private fun groupChildren(groups: List<String>): Map<String, List<String>> {
+    val out = LinkedHashMap<String, MutableList<String>>()
+    val seen = HashSet<String>()
+    fun ensure(p: String) {
+        if (p.isEmpty() || !seen.add(p)) return
+        val parent = if (p.contains('/')) p.substringBeforeLast('/') else ""
+        ensure(parent)
+        out.getOrPut(parent) { mutableListOf() }.add(p)
+    }
+    groups.forEach { ensure(it) }
+    return out
+}
+
+/**
+ * 分组选择：一行显示当前路径，点开后在同一个面板里按层级展开分组树，
+ * 点名字选中（有子分组时顺带展开继续往下选），点右侧箭头只展开 / 收起，可以一直选到最内层。
+ */
 @Composable
-private fun FavoriteEditorDialog(
+private fun GroupTreePicker(
+    childMap: Map<String, List<String>>,
+    current: String,
+    onSelect: (String) -> Unit,
+    /** 每变一次（在下方输入框打字时）就收起整个选择面板和所有展开的分组 */
+    collapseToken: Int = 0,
+) {
+    var open by remember { mutableStateOf(false) }
+    val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
+    androidx.compose.runtime.LaunchedEffect(collapseToken) {
+        if (collapseToken > 0) {
+            open = false
+            expanded.clear()
+        }
+    }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    fun tick() = haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+    // 手风琴：只展开 [path] 及其各级祖先，其余分组（含同级、其子孙）全部收起
+    fun expandOnly(path: String) {
+        expanded.clear()
+        var cur = path
+        expanded[cur] = true
+        while (cur.contains('/')) {
+            cur = cur.substringBeforeLast('/')
+            expanded[cur] = true
+        }
+    }
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupPickerArrow")
+    val line = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    tick()
+                    if (!open) {
+                        // 打开时只展开当前选中项的各级祖先，直接看到它
+                        expanded.clear()
+                        var cur = current
+                        while (cur.contains('/')) {
+                            cur = cur.substringBeforeLast('/')
+                            expanded[cur] = true
+                        }
+                    }
+                    open = !open
+                }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "分组",
+                fontSize = 15.sp,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = current.replace("/", " › "),
+                fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                imageVector = MiuixIcons.Glass.ChevronBackward,
+                contentDescription = if (open) "收起" else "展开",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+            )
+        }
+        if (open) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+            val rows = buildList {
+                fun walk(parent: String, depth: Int) {
+                    childMap[parent].orEmpty().forEach { path ->
+                        add(path to depth)
+                        if (expanded[path] == true) walk(path, depth + 1)
+                    }
+                }
+                walk("", 0)
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                val guide = MiuixTheme.colorScheme.primary.copy(alpha = 0.30f)
+                val levelTint = MiuixTheme.colorScheme.primary
+                rows.forEachIndexed { index, (path, depth) ->
+                    // 并列：同为顶层的分组之间加一条细分隔线
+                    if (depth == 0 && index > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+                    val selected = path == current
+                    val hasKids = childMap[path].orEmpty().isNotEmpty()
+                    val isOpen = expanded[path] == true
+                    val kidAngle by androidx.compose.animation.core.animateFloatAsState(
+                        if (isOpen) 270f else 180f, label = "groupPickerKidArrow",
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // 层级：越深底色越明显 + 每一级祖先各一条竖向引导线 + 连到自己的短横线
+                            .drawBehind {
+                                if (depth > 0) {
+                                    drawRect(levelTint.copy(alpha = (0.03f * depth).coerceAtMost(0.12f)))
+                                    for (d in 1..depth) {
+                                        val x = ((d - 1) * 18 + 13).dp.toPx()
+                                        drawLine(guide, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1.5.dp.toPx())
+                                    }
+                                    val x = ((depth - 1) * 18 + 13).dp.toPx()
+                                    drawLine(guide, androidx.compose.ui.geometry.Offset(x, size.height / 2), androidx.compose.ui.geometry.Offset(x + 9.dp.toPx(), size.height / 2), strokeWidth = 1.5.dp.toPx())
+                                }
+                            }
+                            .clickable {
+                                tick()
+                                onSelect(path)
+                                if (hasKids) expandOnly(path) else open = false
+                            }
+                            .padding(start = (depth * 18 + 8).dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = path.substringAfterLast('/').ifBlank { "未命名" },
+                            fontSize = if (depth == 0) 15.sp else 14.sp,
+                            fontWeight = if (depth == 0) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
+                            color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                        )
+                        if (selected) {
+                            Text(
+                                text = "✓",
+                                fontSize = 16.sp,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
+                        if (hasKids) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        tick()
+                                        if (isOpen) expanded[path] = false else expandOnly(path)
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = MiuixIcons.Glass.ChevronBackward,
+                                    contentDescription = if (isOpen) "收起" else "展开",
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = kidAngle },
+                                )
+                            }
+                        } else {
+                            Spacer(Modifier.width(36.dp))
+                        }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+        }
+    }
+}
+
+@Composable
+internal fun FavoriteEditorDialog(
     show: Boolean,
     initial: Favorite?,
     groups: List<String>,
@@ -895,11 +1473,17 @@ private fun FavoriteEditorDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, url: String, group: String) -> Unit,
     onDelete: (() -> Unit)? = null,
+    /** 新建时预填的名称 / 网址（initial 为空才生效） */
+    prefillName: String = "",
+    prefillUrl: String = "",
 ) {
-    var name by remember(initial, show) { mutableStateOf(initial?.name ?: "") }
-    var url by remember(initial, show) { mutableStateOf(initial?.url ?: "") }
+    var name by remember(initial, show) { mutableStateOf(initial?.name ?: prefillName) }
+    var url by remember(initial, show) { mutableStateOf(initial?.url ?: prefillUrl) }
     // 分组默认选中已有的：编辑时是它当前的组，新建时是「个人收藏」；也可以在下面输入框里写新名字
     var group by remember(initial, show) { mutableStateOf(initial?.group ?: Favorite.GROUP_PERSONAL) }
+    // 输入框自己的文本：不能由 group 反推，否则打到与已有分组同名（如 a/b/c）时输入框会被清空，没法继续往后写 /d
+    var typedGroup by remember(initial, show) { mutableStateOf("") }
+    var collapseToken by remember(initial, show) { mutableStateOf(0) }
     AppGlassDialog(
         show = show,
         title = if (initial == null) "新建书签" else "编辑书签",
@@ -925,44 +1509,68 @@ private fun FavoriteEditorDialog(
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
-            Text(
-                text = "分组",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-            Spacer(Modifier.height(6.dp))
-            // 已有分组一点即选，免输入
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                groups.forEach { g ->
-                    val selected = g == group.trim().ifBlank { Favorite.GROUP_PERSONAL }
-                    Text(
-                        text = g,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                if (selected) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                            )
-                            .clickable { group = g }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
+            // 分组按 / 分层：有层级或分组超过 3 个时用「可展开的分组树」一个菜单选到最内层；否则仍是横排标签
+            val childMap = remember(groups) { groupChildren(groups) }
+            val current = group.trim().ifBlank { Favorite.GROUP_PERSONAL }
+            val chipHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+            if (childMap.keys.any { it.isNotEmpty() } || groups.size > 3) {
+                GroupTreePicker(
+                    childMap = childMap,
+                    current = current,
+                    onSelect = {
+                        group = it
+                        typedGroup = ""
+                    },
+                    collapseToken = collapseToken,
+                )
+            } else {
+                Text(
+                    text = "分组",
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Spacer(Modifier.height(6.dp))
+                // 已有分组一点即选，免输入
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    groups.forEach { g ->
+                        val selected = g == group.trim().ifBlank { Favorite.GROUP_PERSONAL }
+                        Text(
+                            text = g,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (selected) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                )
+                                .clickable {
+                                    chipHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    group = g
+                                    typedGroup = ""
+                                }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(10.dp))
             top.yukonga.miuix.kmp.basic.TextField(
-                value = if (group in groups) "" else group,
-                onValueChange = { group = it },
+                value = typedGroup,
+                onValueChange = {
+                    typedGroup = it
+                    group = it
+                    collapseToken++
+                },
                 modifier = Modifier.fillMaxWidth(),
-                label = "或输入新分组名",
+                label = "或输入/新建分组路径(以/分层)",
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
@@ -989,7 +1597,11 @@ private fun FavoriteEditorDialog(
                 }
                 LiquidGlassPillButton(
                     text = "保存",
-                    onClick = { if (url.isNotBlank()) onConfirm(name, url, group.trim()) },
+                    onClick = {
+                        // 规整路径：去掉各段首尾空格和多余的 /（如 "a/b/ " → "a/b"）
+                        val path = group.split('/').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("/")
+                        if (url.isNotBlank()) onConfirm(name, url, path)
+                    },
                     backdrop = liquidBackdrop,
                     modifier = Modifier.weight(1f),
                     role = LiquidRole.Primary,

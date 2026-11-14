@@ -61,7 +61,7 @@ private enum class CookieClear(val title: String, val ask: String) {
 }
 
 /**
- * 设置 → 隐私与安全 → Cookie 管理：接受策略、启动时清理与手动清除（走官方 API，见 [CookieControl]）。
+ * 设置 → 隐私与安全 → Cookie 管理：操作都走 WebView 官方 API（见 [CookieControl]）。
  */
 @Composable
 fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, blurEnabled: Boolean = true) {

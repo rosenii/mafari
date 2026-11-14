@@ -235,6 +235,35 @@ internal data class DownloadRequest(
     val onResult: ((ok: Boolean, error: String?) -> Unit)? = null,
 )
 
+/**
+ * 把网页 accept 里的类型（MIME / 通配 / 扩展名）整理成系统选择器能用的 MIME 列表。
+ * 返回空列表 = 不加类型过滤（任意类型）。
+ * 此前把未知扩展名直接去掉点当 MIME（如 ".zip" → "zip"），非法 MIME 会让部分机型的
+ * 文件选择器把所有文件灰掉、无法选择。
+ */
+internal fun resolvePickerMimeTypes(types: List<String>): List<String> {
+    if (types.isEmpty()) return emptyList()
+    val extra = mapOf(
+        "heic" to "image/heic", "heif" to "image/heif", "avif" to "image/avif",
+        "mkv" to "video/x-matroska", "md" to "text/markdown", "7z" to "application/x-7z-compressed",
+        "rar" to "application/vnd.rar", "apk" to "application/vnd.android.package-archive",
+        "epub" to "application/epub+zip", "json" to "application/json", "zip" to "application/zip",
+    )
+    val mimeRe = Regex("^[a-z0-9!#$&^_.+-]+/([a-z0-9!#$&^_.+-]+|\\*)$")
+    val out = LinkedHashSet<String>()
+    for (raw in types) {
+        val t = raw.lowercase()
+        val mime = if (t.startsWith(".")) {
+            val ext = t.removePrefix(".")
+            android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: extra[ext]
+        } else t
+        // 解析不了 / 不合法 / 本身就是全通配：整体不过滤
+        if (mime == null || mime == "*/*" || !mimeRe.matches(mime)) return emptyList()
+        out.add(mime)
+    }
+    return out.toList()
+}
+
 /** 网页 <input type=file capture>：文件 / 拍照 / 录像 选择 */
 internal class FileChooserChoice(
     val params: WebChromeClient.FileChooserParams,
@@ -310,6 +339,8 @@ fun BrowserScreen(
         runCatching { extensions.bootstrapRecommended() }
         runCatching { extensions.autoUpdateIfDue() }
     }
+    // 按设置的间隔把加密备份自动推送到已配置的云同步目标（需已设默认口令）
+    LaunchedEffect(Unit) { runCatching { BackupAuto.runIfDue(context) } }
     val history = remember { HistoryStore(context) }
     val tab = state.activeTab
     // 页面加载期间也禁用 MIUIX 采集，避免 URL 尚未更新时误把 WebView 帧送进 RuntimeShader。
@@ -334,6 +365,9 @@ fun BrowserScreen(
     var barMinimized by remember { mutableStateOf(false) }
     var favEditing by remember { mutableStateOf(false) }
     var showFavEditor by remember { mutableStateOf(false) }
+    var showBookmarkCreate by remember { mutableStateOf(false) }
+    var bookmarkPrefillName by remember { mutableStateOf("") }
+    var bookmarkPrefillUrl by remember { mutableStateOf("") }
     // 二级页面返回栈：官方 miuix-nav NavDisplay。栈底是浏览主界面。
     val backStack = remember { navBackStackOf(AppRoute.Browser) }
     fun pushPage(route: AppRoute) {
@@ -482,7 +516,7 @@ fun BrowserScreen(
     LaunchedEffect(tab.id, tab.url) {
         val onHome = tab.url.isEmpty()
         if (!onHome) webViewHidden = false
-        tab.webView.apply {
+        tab.contentView.apply {
             alpha = if (onHome) 0f else 1f
             visibility = if (onHome) {
                 android.view.View.INVISIBLE
@@ -601,44 +635,38 @@ fun BrowserScreen(
         val types = params.acceptTypes
             ?.mapNotNull { it?.trim()?.takeIf { t -> t.isNotEmpty() } }
             .orEmpty()
-        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+        // 只在能确定全部类型都合法时才给系统选择器加类型过滤；任何一项解析不了就不过滤，
+        // 宁可多显示文件，也不能让用户想选的文件被灰掉、点不动
+        val mimes = resolvePickerMimeTypes(types)
+        fun buildIntent(action: String) = Intent(action).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = when {
-                types.isEmpty() -> "*/*"
-                types.size == 1 && types[0].contains("/") -> types[0]
-                else -> "*/*"
-            }
-            if (types.size > 1 || (types.size == 1 && !types[0].contains("/"))) {
-                val mimes = types.map { t ->
-                    if (t.startsWith(".")) {
-                        when (t.lowercase()) {
-                            ".jpg", ".jpeg" -> "image/jpeg"
-                            ".png" -> "image/png"
-                            ".gif" -> "image/gif"
-                            ".webp" -> "image/webp"
-                            ".mp4" -> "video/mp4"
-                            ".webm" -> "video/webm"
-                            ".pdf" -> "application/pdf"
-                            else -> t.removePrefix(".")
-                        }
-                    } else t
-                }.distinct().toTypedArray()
-                if (mimes.isNotEmpty()) putExtra(Intent.EXTRA_MIME_TYPES, mimes)
+            if (mimes.size == 1) {
+                type = mimes[0]
+            } else {
+                type = "*/*"
+                if (mimes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
             }
             if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             }
         }
-        val canResolve = intent.resolveActivity(context.packageManager) != null
-        if (canResolve) {
-            filePickerLauncher.launch(intent)
-        } else {
-            runCatching { filePickerLauncher.launch(Intent.createChooser(intent, "选择文件")) }
-                .onFailure {
-                    choice.callback.onReceiveValue(null)
-                    fileChooserChoice = null
-                }
+        // 部分机型（定制文档应用）的 GET_CONTENT 不认 EXTRA_MIME_TYPES 或根本没有对应界面：
+        // 依次尝试 GET_CONTENT → OPEN_DOCUMENT → 系统 chooser。不再依赖 resolveActivity
+        // （Android 11+ 没声明 <queries> 时它会误返回 null）
+        val attempts = listOf(
+            buildIntent(Intent.ACTION_GET_CONTENT),
+            buildIntent(Intent.ACTION_OPEN_DOCUMENT),
+            Intent.createChooser(buildIntent(Intent.ACTION_GET_CONTENT), "选择文件"),
+        )
+        for (intent in attempts) {
+            val launched = runCatching { filePickerLauncher.launch(intent) }
+                .onFailure { Diag.log("file picker launch failed: ${intent.action} $it") }
+                .isSuccess
+            if (launched) return
         }
+        choice.callback.onReceiveValue(null)
+        fileChooserChoice = null
+        android.widget.Toast.makeText(context, "未找到可用的文件选择器", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     /** 拍照或录像：MediaStore pending 输出 + 相机 Intent */
@@ -852,6 +880,12 @@ fun BrowserScreen(
         }
     }
 
+    // 回到主页（页面被盖住 / 没有页面）时底栏必须显示：主页自己没有滚动采样，
+    // 之前页面滑动收起底栏后的 barHidden 会一直残留，导致主页上唤不出底栏
+    LaunchedEffect(tab.id, tab.url.isEmpty()) {
+        if (tab.url.isEmpty()) barHidden = false
+    }
+
     LaunchedEffect(tab.id) {
         var last = 0
         var lastShow = 0
@@ -860,6 +894,16 @@ fun BrowserScreen(
         while (true) {
             var moved = false
             runCatching {
+                // 主页（页面被盖住）上：引擎里的页面可能还在惯性滚动 / 回调滚动事件，
+                // 不能让它把底栏重新收起，否则主页上没有任何手势能唤出底栏
+                if (tab.url.isEmpty()) {
+                    barHidden = false
+                    last = tab.scrollOffsetY.coerceAtLeast(0)
+                    lastShow = last
+                    scrollDownAccum = 0f
+                    scrollUpAccum = 0f
+                    return@runCatching
+                }
                 val offset = tab.scrollOffsetY.coerceAtLeast(0)
                 val dy = offset - last
                 moved = dy != 0
@@ -944,6 +988,7 @@ fun BrowserScreen(
                 tab.clearFind()
                 showFind = false
             }
+            showBookmarkCreate -> showBookmarkCreate = false
             showFavEditor -> showFavEditor = false
             sheet != Sheet.None -> sheet = Sheet.None
             tab.canGoBack -> tab.goBack()
@@ -1044,14 +1089,14 @@ fun BrowserScreen(
                     AndroidView(
                         factory = { _ ->
                             // AndroidView.factory 接收的是 Context，而不是 View。
-                            // 这里返回已经由 BrowserTab 持有的内容视图（WebView）。
-                            tab.webView.apply {
+                            // 这里返回已经由 BrowserTab 持有的 WebView。
+                            tab.contentView.apply {
                                 layoutParams = android.view.ViewGroup.LayoutParams(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                 )
                                 // Insets 只在 View 首次附着时请求一次。不要在每次 Compose
-                                // factory/update 中重复 requestLayout。
+                                // factory/update 中重复 requestLayout，避免打断页面渲染。
                                 if (isAttachedToWindow) {
                                     androidx.core.view.ViewCompat.requestApplyInsets(this)
                                 } else {
@@ -1114,7 +1159,7 @@ fun BrowserScreen(
                         liquidBackdrop = if (settings.liquidGlass && wallpaperBitmap != null) wallpaperLiquidBackdrop else null,
                         order = settings.homeOrder,
                         onReorder = { settings.updateHomeOrder(it) },
-                        recent = history.items,
+                        recent = history.recent,
                         onOpenDownloads = { pushPage(AppRoute.Downloads) },
                         onHide = { kind ->
                             settings.updateHomeShow(kind, false)
@@ -1188,7 +1233,8 @@ fun BrowserScreen(
             // 按实际字体宽度计算地址栏所需空间：固定按钮区 + 地址文字 + 地址栏内边距。
             // 不设置人为最小宽度，短文字不会留下空白；只有屏幕可用宽度作为上限。
             val textMeasurer = rememberTextMeasurer()
-            val addressMeasureText = displayAddress.ifBlank { "搜索或输入网址" }
+            // 输入/编辑地址时不随输入内容动态缩放，宽度固定为「搜索或输入网址」占位文字的宽度
+            val addressMeasureText = if (editing) "搜索或输入网址" else displayAddress.ifBlank { "搜索或输入网址" }
             val measuredAddressPx = textMeasurer.measure(
                 text = AnnotatedString(addressMeasureText),
                 style = TextStyle(fontSize = 15.sp),
@@ -1197,7 +1243,8 @@ fun BrowserScreen(
             val measuredAddressWidth = with(LocalDensity.current) { measuredAddressPx.toDp() }
             val fixedToolbarWidth = 44.dp * 4 + 12.dp + 24.dp
             val loadingIndicatorWidth = if (tab.loading) 15.dp else 0.dp
-            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth
+            val refreshWidth = if (shouldShowAddressRefresh(displayAddress, tab.loading, editing)) AddressRefreshWidth else 0.dp
+            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth
             // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
             val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
             val animatedBarWidth by animateDpAsState(
@@ -1383,7 +1430,9 @@ fun BrowserScreen(
                     tab.captureThumbnailNow()
                     sheet = Sheet.Tabs
                 },
+                onNewTab = { state.newTab(incognito = tab.incognito) },
                 onMore = { sheet = Sheet.Menu },
+                onRefresh = { tab.reload() },
             )
                 }
                 } // end else (!barMinimized)
@@ -1491,6 +1540,7 @@ fun BrowserScreen(
                 Sheet.Link -> hostOf(linkUrl)
                 Sheet.Image -> "图片"
                 Sheet.Element -> "页面元素"
+                Sheet.Menu -> null // 更多菜单不显示标题
                 Sheet.Tabs -> null // 标签页自定义头部（渐进模糊 + 添加/删除）
                 else -> null
             },
@@ -1680,6 +1730,7 @@ fun BrowserScreen(
                                 }
                                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                             }
+                            MenuAction.Bookmarks -> pushPage(AppRoute.Library(0))
                             MenuAction.Share -> if (tab.url.isNotBlank()) {
                                 runCatching {
                                     context.startActivity(
@@ -1716,7 +1767,7 @@ fun BrowserScreen(
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
                     // 长按 0.65 秒（图标不动）：直接进入管理页；单击保持原有操作
-                    longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite),
+                    longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.Bookmarks),
                     onLongPressAction = { action ->
                         when (action) {
                             MenuAction.ScriptMenu -> {
@@ -1726,6 +1777,13 @@ fun BrowserScreen(
                             MenuAction.Favorite -> {
                                 sheet = Sheet.None
                                 pushPage(AppRoute.Library(0))
+                            }
+                            // 长按「书签」：弹出新建书签弹窗，自动填入当前页标题和网址
+                            MenuAction.Bookmarks -> {
+                                sheet = Sheet.None
+                                bookmarkPrefillName = tab.title.ifBlank { hostOf(tab.url) }
+                                bookmarkPrefillUrl = tab.url
+                                showBookmarkCreate = true
                             }
                             else -> Unit
                         }
@@ -2230,6 +2288,22 @@ fun BrowserScreen(
             onNext = { tab.findNext(true) },
         )
 
+        FavoriteEditorDialog(
+            show = showBookmarkCreate,
+            initial = null,
+            groups = favorites.groups(),
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            liquidBackdrop = if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null,
+            prefillName = bookmarkPrefillName,
+            prefillUrl = bookmarkPrefillUrl,
+            onDismiss = { showBookmarkCreate = false },
+            onConfirm = { name, url, group ->
+                favorites.add(name, url, group)
+                showBookmarkCreate = false
+                android.widget.Toast.makeText(context, "添加书签成功", android.widget.Toast.LENGTH_SHORT).show()
+            },
+        )
+
         FavoriteEditor(
             show = showFavEditor,
             initial = favorites.items.getOrNull(editingFavIndex),
@@ -2259,6 +2333,7 @@ fun BrowserScreen(
             onOpenCookies = { pushPage(AppRoute.CookiePage) },
             onOpenPrivacyEnhance = { pushPage(AppRoute.PrivacyEnhancePage) },
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
+            onOpenBackup = { pushPage(AppRoute.BackupPage) },
             onOpenAbout = { pushPage(AppRoute.About) },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
             blurEnabled = settings.blurEnabled,
@@ -2271,6 +2346,14 @@ fun BrowserScreen(
             blurEnabled = settings.blurEnabled,
             updateChannel = settings.updateChannel,
             onUpdateChannelChange = { settings.updateUpdateChannel(it) },
+            onOpenPrivacyPolicy = { pushPage(AppRoute.PrivacyPolicyPage) },
+        )
+    }
+    entry<AppRoute.PrivacyPolicyPage> {
+        PrivacyPolicyScreen(
+            onBack = { popPage() },
+            onOpenUrl = { openInBrowser(it) },
+            blurEnabled = settings.blurEnabled,
         )
     }
     entry<AppRoute.Downloads> {
@@ -2296,6 +2379,12 @@ fun BrowserScreen(
         CookieScreen(
             settings = settings,
             currentUrl = tab.url,
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.BackupPage> {
+        BackupScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )

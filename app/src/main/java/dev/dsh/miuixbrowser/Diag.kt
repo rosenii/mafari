@@ -8,7 +8,7 @@ import java.util.Locale
 
 /**
  * 极简运行日志：写到 /sdcard/Android/media/<pkg>/diag.txt。
- * 默认关闭（每条日志都是一次文件追加）；闪退日志（crash.txt）不受影响。
+ * 仅 debug 构建开启（每条日志都是一次文件追加）；闪退日志（crash.txt）不受影响。
  */
 object Diag {
 
@@ -17,9 +17,7 @@ object Diag {
     private val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     fun init(context: Context) {
-        val on = context.applicationContext.getSharedPreferences("mafari_debug", Context.MODE_PRIVATE)
-            .getBoolean("diag", false)
-        if (on) open(context)
+        if (BuildConfig.DEBUG) open(context)
     }
 
     fun setEnabled(context: Context, on: Boolean) {

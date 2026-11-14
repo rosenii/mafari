@@ -77,6 +77,7 @@ fun AboutScreen(
     blurEnabled: Boolean = true,
     updateChannel: Int = 0,
     onUpdateChannelChange: (Int) -> Unit = {},
+    onOpenPrivacyPolicy: () -> Unit = {},
 ) {
     val context = LocalContext.current
     // 优先交给已安装的 Telegram 客户端（不能用无包名的 ACTION_VIEW：本应用自己可能就是默认浏览器），都没有再用应用内标签打开
@@ -95,6 +96,7 @@ fun AboutScreen(
     val kernel = webViewVersion() ?: "未知"
     val ua = remember { runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault("未知") }
     val dependencyGroups = remember { parseDependencyVersions(BuildConfig.DEP_VERSIONS) }
+    val cryptoGroups = remember { parseDependencyVersions(BuildConfig.CRYPTO_ALGORITHMS) }
     var checkingUpdate by remember { mutableStateOf(false) }
 
     val pageBackdrop = rememberLayerBackdrop()
@@ -110,6 +112,7 @@ fun AboutScreen(
     val surface = MiuixTheme.colorScheme.surface
     val iconShape = RoundedCornerShape(26.dp)
     var pendingUpdate by remember { mutableStateOf<AppRelease?>(null) }
+    var showDonate by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides if (glass) liquidBackdrop else null) {
     Scaffold(
@@ -214,9 +217,9 @@ fun AboutScreen(
                                 if (result == null) {
                                     Toast.makeText(context, "检查失败，请稍后再试", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    val current = currentVersionLabel()
+                                    val current = currentVersionLabel(updateChannel)
                                     val latest = result.version.removePrefix("v")
-                                    if (!isUpdateAvailable(result)) {
+                                    if (!isUpdateAvailable(context, result, updateChannel)) {
                                         Toast.makeText(context, "已是最新版本 $current", Toast.LENGTH_SHORT).show()
                                     } else if (result.apkUrl.isNullOrBlank()) {
                                         // 无 APK 资产时在应用内浏览页打开发布页
@@ -255,6 +258,9 @@ fun AboutScreen(
                     )
                     AboutRow("WebView 内核版本", kernel)
                 }
+
+                SmallTitle(text = "加密算法")
+                DependencyVersionsCard(cryptoGroups)
 
                 SmallTitle(text = "依赖版本")
                 DependencyVersionsCard(dependencyGroups)
@@ -337,6 +343,52 @@ fun AboutScreen(
                     }
                 }
 
+                SmallTitle(text = "捐赠")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showDonate = true }
+                            .padding(16.dp),
+                    ) {
+                        Text("捐赠", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = DONATE_SUMMARY,
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+
+                SmallTitle(text = "法律")
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    insideMargin = PaddingValues(0.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenPrivacyPolicy() }
+                            .padding(16.dp),
+                    ) {
+                        Text("隐私政策", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "本地存储的数据、网络请求与权限说明",
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+
                 Spacer(Modifier.height(18.dp))
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -406,6 +458,9 @@ fun AboutScreen(
                     }
                 }
             }
+
+            // 捐赠：赞赏码 + 保存到相册
+            DonateSheet(show = showDonate, backdrop = if (glass) pageBackdrop else null, onDismiss = { showDonate = false })
         }
     }
     }
@@ -426,18 +481,14 @@ private const val TG_GROUP_URL = "https://t.me/Mafari_discuss"
 private const val COPYRIGHT = "Copyright © 2026 rosenii. All rights reserved."
 private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/releases?per_page=100"
 
-/** 最多翻几页：CI 预发布会刷屏，stable / dev 的 release 可能被挤到靠后的页里 */
+/** 最多翻几页 */
 private const val RELEASES_MAX_PAGES = 6
-
-/** 同仓库里的 CI 预发布 tag（gecko-<构建号>）不是版本号，不参与 stable / dev 的更新检查 */
-private val CI_BUILD_TAG = Regex("^gecko-\\d+$")
 
 /** 预览类后缀；带这些后缀的 tag 归入 dev 分支（-dev 为主，其余预览后缀一并算 dev） */
 private val PRE_TAG = Regex("(dev|alpha|beta|rc|snapshot)", RegexOption.IGNORE_CASE)
 
 /** tag 是否属于指定分支：0=stable（-stable 或无预览后缀） 1=dev（带预览后缀） */
 internal fun tagMatchesChannel(tag: String, channel: Int): Boolean {
-    if (CI_BUILD_TAG.matches(tag)) return false
     val isPre = PRE_TAG.containsMatchIn(tag)
     return if (channel == 1) isPre else !isPre
 }
@@ -445,7 +496,7 @@ internal fun tagMatchesChannel(tag: String, channel: Int): Boolean {
 /**
  * 拉取指定分支（0=stable 1=dev）的最新 release：版本号、页面地址、APK 直链。
  * 按页（每页 100 条、最多 6 页）从新到旧找，只保留 tag 后缀匹配分支、非草稿的，再按版本号取最高者；
- * 找到匹配分支的 release 就不再往后翻（预发布刷屏时，stable 的 release 可能在第 2 页以后）。
+ * 找到匹配分支的 release 就不再往后翻。
  * 直连 + 公共 GitHub 加速镜像并发探测，连通者优先。
  */
 internal fun fetchLatestRelease(channel: Int): AppRelease? {
@@ -473,7 +524,8 @@ private fun fetchReleaseFrom(apiUrl: String, channel: Int): AppRelease? {
             val candidate = parseRelease(o, channel) ?: continue
             matchedInPage = true
             val current = best
-            if (current == null || isNewerVersion(candidate.version, current.version)) best = candidate
+            val newer = current == null || isNewerVersion(candidate.version, current.version)
+            if (newer) best = candidate
         }
         // 已找到本分支的 release，或者已经是最后一页（不足一整页）
         if (matchedInPage || array.length() < 100) break
@@ -547,7 +599,14 @@ private fun AboutRow(title: String, value: String) {
 private val DEP_GROUP_TITLES = mapOf(
     "ui" to "界面",
     "androidx" to "AndroidX",
+    "storage" to "本地存储",
+    "engine" to "内核与加密",
+    "sync" to "云同步",
     "build" to "构建工具链",
+    "kem" to "密钥封装（后量子混合）",
+    "sym" to "对称加密",
+    "kdf" to "密钥派生",
+    "lib" to "实现库",
 )
 
 private class DependencyGroup(val title: String, val items: List<Pair<String, String>>)

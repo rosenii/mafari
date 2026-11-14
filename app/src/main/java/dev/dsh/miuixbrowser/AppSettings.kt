@@ -170,10 +170,10 @@ class AppSettings(context: Context) {
         prefs.edit().putString(KEY_IGNORED_UPDATE, version).apply()
     }
 
-    /** 更新分支：0=stable 1=dev。未设置过时跟随当前安装包 */
+    /** 更新分支：0=stable 1=dev。未设置过时跟随当前安装包（旧版本保存过的其它值一律视为 stable） */
     var updateChannel by mutableStateOf(
         if (prefs.contains(KEY_UPDATE_CHANNEL)) {
-            if (prefs.getInt(KEY_UPDATE_CHANNEL, 0) == 1) 1 else 0
+            prefs.getInt(KEY_UPDATE_CHANNEL, 0).takeIf { it in 0..1 } ?: 0
         } else if (BuildConfig.VERSION_NAME.contains("dev", ignoreCase = true)) {
             1
         } else {
@@ -185,6 +185,25 @@ class AppSettings(context: Context) {
     fun updateUpdateChannel(channel: Int) {
         updateChannel = channel.coerceIn(0, 1)
         prefs.edit().putInt(KEY_UPDATE_CHANNEL, updateChannel).apply()
+    }
+
+    /**
+     * 从带 Gecko 内核的旧版本升级上来时的一次性迁移：旧版切到 Gecko 会把去广告 / DNT / 禁 WebRTC / 指纹保护
+     * 暂时关掉并记下快照（gk_*），现在内核只剩 WebView，把它们恢复成切换前的状态，并清掉已无用的内核选项。
+     * 须在 [AdBlock.init] 之后调用。
+     */
+    fun migrateFromGecko() {
+        if (prefs.getBoolean("gk_saved", false)) {
+            fun b(k: String) = prefs.getBoolean(k, true)
+            AdBlock.updateEnabled(b("gk_adblock"))
+            updateSendDnt(b("gk_dnt"))
+            updateWebrtcDisabled(b("gk_webrtc"))
+            AdBlock.setFingerprintMaster(b("gk_fp"))
+        }
+        prefs.edit()
+            .remove("gk_saved").remove("gk_adblock").remove("gk_dnt").remove("gk_webrtc").remove("gk_fp")
+            .remove("browser_engine")
+            .apply()
     }
 
     /** 下载线程数：4/8/16/32/64 */
