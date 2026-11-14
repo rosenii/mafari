@@ -1386,7 +1386,10 @@ private const val GROUP_TILE_FRACTION = 0.80f
 /** 书签分组整块大卡片的圆角（dp）与内边距：磁贴们统一落在这一张玻璃卡片上。 */
 private const val GROUP_CARD_RADIUS = 22
 private val GROUP_CARD_PADDING_H = 8.dp
-private val GROUP_CARD_PADDING_V = 10.dp
+
+/** 方块下方标题占的高度：4dp 间距 + 14dp 行高（标题固定行高，格子不再多留空白，大卡片上下边距才对称）。 */
+private val GROUP_LABEL_BLOCK = 18.dp
+private val GROUP_CARD_PADDING_V = 14.dp
 
 /** 书签分组磁贴的圆角（dp），随方块缩小。 */
 private const val GROUP_TILE_RADIUS = 16
@@ -1431,7 +1434,11 @@ internal fun GroupsBlock(
         val full = shown.size >= capacity
         // 各磁贴图标的屏幕坐标（只在点击时读取，不需要触发重组）
         val anchors = remember { HashMap<String, Rect>() }
-        val addTap by rememberUpdatedState(guard { onAdd() })
+        val haptic = LocalHapticFeedback.current
+        val addTap by rememberUpdatedState(guard {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            onAdd()
+        })
         // 整块一张大卡片：只在这里做一次玻璃（复用页面已有的壁纸模糊缓存采样），里面的磁贴只画半透明实色，不再各自开模糊层
         Box(
             modifier = Modifier
@@ -1444,11 +1451,17 @@ internal fun GroupsBlock(
             columns = HOME_GROUP_COLS,
             gap = 8.dp,
             // 缩小后的正方形磁贴 + 下方一行名称 + 额外竖向间距
-            cellHeight = { it * GROUP_TILE_FRACTION + 32.dp },
+            cellHeight = { it * GROUP_TILE_FRACTION + GROUP_LABEL_BLOCK },
             editing = editing,
             guard = guard,
             onTap = { _, group, isEditing ->
-                if (isEditing) onToggleEdit() else onOpen(group.path, anchors[group.id] ?: Rect.Zero)
+                if (isEditing) {
+                    onToggleEdit()
+                } else {
+                    // 点击磁贴：给一下振动反馈，再弹出书签窗口
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpen(group.path, anchors[group.id] ?: Rect.Zero)
+                }
             },
             onToggleEdit = onToggleEdit,
             onMove = onMove,
@@ -1514,7 +1527,7 @@ internal fun GroupTile(
     blurEnabled: Boolean,
     editing: Boolean,
     modifier: Modifier = Modifier,
-    /** 图标方块的屏幕坐标：弹窗以它为锚点向下展开。 */
+    /** 标题文字的屏幕坐标：弹窗以它为锚点向下展开。 */
     onAnchor: (Rect) -> Unit = {},
     onRemove: () -> Unit,
 ) {
@@ -1524,7 +1537,6 @@ internal fun GroupTile(
             modifier = Modifier
                 .fillMaxWidth(GROUP_TILE_FRACTION)
                 .aspectRatio(1f)
-                .onGloballyPositioned { onAnchor(it.boundsInRoot()) }
                 .groupTileSurface(hasWallpaper),
             contentAlignment = Alignment.Center,
         ) {
@@ -1555,9 +1567,13 @@ internal fun GroupTile(
             color = if (hasWallpaper) Color.White else MiuixTheme.colorScheme.onSurface,
             style = TextStyle(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeight = 14.sp,
                 shadow = if (hasWallpaper) Shadow(Color.Black.copy(alpha = 0.4f), Offset(0f, 1f), 4f) else null,
             ),
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            // 弹窗锚在标题文字上：标题按文字宽度收紧（超长仍会省略），上报文字自己的屏幕坐标
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .onGloballyPositioned { onAnchor(it.boundsInRoot()) },
         )
     }
 }
@@ -1619,11 +1635,19 @@ internal fun groupPopupGeometry(
     if (anchorBounds == Rect.Zero) return GroupPopupGeometry(anchorBounds, alignStartByHalf, side, side)
 
     val cx = anchorBounds.center.x
-    val alignStart = alignStartByHalf && cx <= pageWidthPx / 2f + 1f
+    val ratio = if (pageWidthPx > 0f) cx / pageWidthPx else 0.5f
+    // 5 列磁贴的中心约在页宽的 0.1 / 0.3 / 0.5 / 0.7 / 0.9：<0.4 左侧、0.4~0.6 正中、>0.6 右侧
+    val middle = alignStartByHalf && ratio in 0.4f..0.6f
+    val alignStart = alignStartByHalf && ratio <= 0.6f
     if (!openUp) {
-        // 磁贴弹窗：左边缘对齐磁贴左边缘；宽度收窄到不超出右侧安全边距（左列磁贴空间够，仍是 side）
+        // 正中的磁贴：弹窗左边缘 = 标题左边缘，向右下展开，宽度刚好到右侧安全边距（留 1dp 余量避免取整后被 GlassPopup 挪动）；
+        // 其余磁贴宽度不变
         val leftDp = with(density) { anchorBounds.left.toDp() }
-        val width = if (alignStart) minOf(side, (pageWidthDp - leftDp - margin).coerceAtLeast(120.dp)) else side
+        val width = if (middle) {
+            minOf(side, (pageWidthDp - leftDp - margin - 1.dp).coerceAtLeast(120.dp))
+        } else {
+            side
+        }
         return GroupPopupGeometry(
             Rect(anchorBounds.left, anchorBounds.bottom + gapPx, anchorBounds.right, anchorBounds.top - gapPx),
             alignStart, width, side,
@@ -1883,10 +1907,16 @@ internal fun BoxScope.GroupBookmarkPopup(
     // 排列方式：默认竖排，点标题行右侧的图标切到横排（图标在上标题在下）
     var gridMode by remember { mutableStateOf(false) }
     val screenWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
-    val geo = groupPopupGeometry(anchorBounds, screenWidthPx)
+    // 弹窗宿主 Box 自己的位置和宽度：锚点（根坐标）换算成宿主内坐标，页宽取宿主的真实宽度，
+    // 这样宿主不是整屏 / 不在根原点时也不会错位
+    var hostBounds by remember { mutableStateOf(Rect.Zero) }
+    val hostW = if (hostBounds.width > 0f) hostBounds.width else screenWidthPx
+    val localAnchor = if (anchorBounds == Rect.Zero) anchorBounds else anchorBounds.translate(-hostBounds.topLeft)
+    val geo = groupPopupGeometry(localAnchor, hostW)
     // 只读取不登记：不在组合里改文件夹注册表（同 GroupPickerDialog）
     val folders = if (show) withAncestors(favorites.groups()).filter { isDirectChild(it, path) && it != path } else emptyList()
     val marks = if (show) favorites.itemsIn(path) else emptyList()
+    Box(modifier = Modifier.matchParentSize().onGloballyPositioned { hostBounds = it.boundsInRoot() }) {
     AppGlassPopup(
         show = show,
         onDismissRequest = onDismiss,
@@ -1972,6 +2002,7 @@ internal fun BoxScope.GroupBookmarkPopup(
                 }
             },
         )
+    }
     }
 }
 
