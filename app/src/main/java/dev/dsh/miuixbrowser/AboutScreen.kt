@@ -203,7 +203,7 @@ fun AboutScreen(
                     Spacer(Modifier.height(6.dp))
                     Text(
                         text = "版本 " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ") · " +
-                            (if (EngineSupport.GECKO_BUNDLED) "Gecko 版" else "无内核版"),
+                            (if (EngineSupport.GECKO_BUNDLED) "Gecko 版" else if (EngineSupport.SYNC_BUNDLED) "无内核版（含同步）" else "无内核版"),
                         fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
@@ -579,9 +579,12 @@ private fun fetchReleasePage(url: String): org.json.JSONArray? = runCatching {
     }
 }.getOrNull()
 
-/** APK 文件名里的变体标记：`Mafari-<版本>-gecko.apk` / `Mafari-<版本>-lite-<架构>.apk`（见 release.yml） */
+/** APK 文件名里的变体标记：`Mafari-<版本>-gecko.apk` / `Mafari-<版本>-lite-<架构>.apk`（见 release.yml）；`sync_lite-arm64` 也算 lite */
 private fun apkFlavorOf(name: String): String? =
     Regex("[-_.](gecko|lite)(?=[-_.])", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.lowercase()
+
+/** 带 Firefox 同步的 lite 包：`Mafari-<版本>-sync_lite-arm64.apk`（只有 arm64，文件名里架构写 arm64 而不是 arm64-v8a） */
+private fun isSyncApk(name: String): Boolean = name.contains("sync_lite", ignoreCase = true)
 
 /** 文件名里可能出现的架构标记（x86_64 要排在 x86 前面） */
 private val KNOWN_ABIS = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
@@ -589,7 +592,8 @@ private val KNOWN_ABIS = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 /**
  * 按通道变体（"lite" / "gecko"）和本机架构挑安装包：
  * - gecko：只有 arm64-v8a 设备能用（GeckoView 只发布 arm64），否则返回 null；
- * - lite：按本机支持的 ABI 优先级（Build.SUPPORTED_ABIS）挑文件名带该架构的；
+ * - lite：已装的是 liteSync（带同步）时只挑 `sync_lite` 包（仅 arm64 设备）；否则排除 `sync_lite` 包；
+ *   按本机支持的 ABI 优先级（Build.SUPPORTED_ABIS）挑文件名带该架构的；
  *   文件名完全不带架构标记的 lite 包视为通用包，作为兜底；不会退回到架构不匹配的包。
  * 没有匹配的返回 null（该 release 不参与本通道）。
  */
@@ -601,9 +605,11 @@ internal fun pickApkUrl(assets: org.json.JSONArray?, flavor: String): String? {
         val link = a.optString("browser_download_url", "")
         if (link.endsWith(".apk", ignoreCase = true)) apks.add(a.optString("name", link.substringAfterLast('/')) to link)
     }
-    val same = apks.filter { apkFlavorOf(it.first) == flavor }
+    // 已装 liteSync 且通道是 lite：升级到 sync_lite 包，不让同步功能在升级后消失
+    val wantSync = flavor == "lite" && EngineSupport.SYNC_LITE
+    val same = apks.filter { apkFlavorOf(it.first) == flavor && isSyncApk(it.first) == wantSync }
     val abis = android.os.Build.SUPPORTED_ABIS
-    if (flavor == "gecko") {
+    if (flavor == "gecko" || wantSync) {
         return if (abis.any { it == "arm64-v8a" }) same.firstOrNull()?.second else null
     }
     val byAbi = abis.firstNotNullOfOrNull { abi ->

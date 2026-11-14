@@ -84,22 +84,23 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > mafari-release.jks
 
-      # 两个变体一次编完（共用 miuix 与 Gradle 缓存）：
-      #   gecko = 内嵌 GeckoView 的双内核版；lite = 无内核版（只用系统 WebView）
+      # 变体一次编完（共用 miuix 与 Gradle 缓存）：
+      #   gecko = 内嵌 GeckoView 的双内核版（带 Firefox 同步）；lite = 无内核版（只用系统 WebView，不带 Firefox 同步，三种架构）；
+      #   liteSync = 无内核版 + Firefox 同步（只构建 arm64）
       # main 或 无 keystore 的 gecko/tag：编 debug
-      - name: Build debug (gecko + lite)
+      - name: Build debug (gecko + lite + sync_lite)
         if: env.IS_RELEASE_TAG != 'true' && env.IS_PRE_BRANCH != 'true' || env.KEYSTORE_BASE64 == ''
-        run: bash ./gradlew :app:assembleGeckoArm64Debug :app:assembleLiteArm64Debug :app:assembleLiteArm32Debug :app:assembleLiteX64Debug --stacktrace
+        run: bash ./gradlew :app:assembleGeckoArm64Debug :app:assembleLiteArm64Debug :app:assembleLiteArm32Debug :app:assembleLiteX64Debug :app:assembleLiteSyncArm64Debug --stacktrace
 
       # tag 或 gecko 且有签名：编 release（Gradle 用 MAFARI_* 直接签名并 zipalign，无需再手工签）
-      - name: Build release (gecko + lite)
+      - name: Build release (gecko + lite + sync_lite)
         if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
         env:
           MAFARI_KEYSTORE: mafari-release.jks
           MAFARI_STORE_PASS: ${{ secrets.STORE_PASSWORD }}
           MAFARI_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           MAFARI_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release --stacktrace
+        run: bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleLiteSyncArm64Release --stacktrace
 
       # 打印 Firefox 账号 / Sync 库当前解析到的版本的真实 API 签名（构建成败都运行，供对照）
       - name: Dump Firefox Sync API
@@ -107,20 +108,20 @@ jobs:
         continue-on-error: true
         run: bash tools/dump-fxa-api.sh
 
-      # 统一命名：Mafari-<版本名>-gecko.apk、Mafari-<版本名>-lite-<架构>.apk
-      # 应用内「检查更新」靠文件名里的 -gecko / -lite 选择与当前安装包同变体的那一个，改名请同步 AboutScreen.pickApkUrl
+      # 统一命名：Mafari-<版本名>-gecko.apk、Mafari-<版本名>-lite-<架构>.apk、Mafari-<版本名>-sync_lite-arm64.apk
+      # 应用内「检查更新」靠文件名里的 -gecko / -lite / sync_lite 选择与当前安装包同变体的那一个，改名请同步 AboutScreen.pickApkUrl
       - name: Collect APKs
         run: |
           set -e
           mkdir -p dist
-          # 文件名统一用版本名（去掉 v 前缀）：Mafari-2.1.3-gecko.apk、Mafari-2.1.3-lite-arm64-v8a.apk
+          # 文件名统一用版本名（去掉 v 前缀）：Mafari-2.1.3-gecko.apk、Mafari-2.1.3-lite-arm64-v8a.apk、Mafari-2.1.3-sync_lite-arm64.apk
           if [ "$IS_RELEASE_TAG" = "true" ]; then LABEL="${GITHUB_REF_NAME#v}"
           elif [ "$IS_PRE_BRANCH" = "true" ]; then LABEL="${APP_VERSION_NAME#v}"
           else LABEL="$(echo "$GITHUB_SHA" | cut -c1-7)-debug"; fi
           if [ -f mafari-release.jks ] && { [ "$IS_RELEASE_TAG" = "true" ] || [ "$IS_PRE_BRANCH" = "true" ]; }; then TYPE=release; else TYPE=debug; fi
           echo "label=$LABEL type=$TYPE"
-          # 变体目录 : 输出名后缀（lite 按架构各一个包，gecko 只有 arm64）
-          for ENTRY in geckoArm64:gecko liteArm64:lite-arm64-v8a liteArm32:lite-armeabi-v7a liteX64:lite-x86_64; do
+          # 变体目录 : 输出名后缀（lite 按架构各一个包，gecko 与 sync_lite 只有 arm64）
+          for ENTRY in geckoArm64:gecko liteArm64:lite-arm64-v8a liteArm32:lite-armeabi-v7a liteX64:lite-x86_64 liteSyncArm64:sync_lite-arm64; do
             DIR=${ENTRY%%:*}; SUFFIX=${ENTRY##*:}
             SRC=$(ls app/build/outputs/apk/$DIR/$TYPE/*.apk 2>/dev/null | head -1)
             if [ -z "$SRC" ]; then echo "::error::缺少 $DIR/$TYPE 的 APK"; exit 1; fi
@@ -193,7 +194,8 @@ jobs:
           variants = (
               "\n\n**安装包说明**\n\n"
               "- `-gecko.apk`：Gecko 版，内嵌 GeckoView（Nightly），WebView / Gecko 双内核，仅 arm64-v8a 设备\n"
-              "- `-lite-<架构>.apk`：无内核版，不内嵌浏览器内核，只用系统 WebView，体积小；按架构分包：`arm64-v8a`（绝大多数手机）、`armeabi-v7a`（旧 32 位设备）、`x86_64`（模拟器 / x86 设备）\n"
+              "- `-lite-<架构>.apk`：无内核版，不内嵌浏览器内核，只用系统 WebView，体积小；按架构分包：`arm64-v8a`（绝大多数手机）、`armeabi-v7a`（旧 32 位设备）、`x86_64`（模拟器 / x86 设备）；不含 Firefox 同步\n"
+              "- `-sync_lite-arm64.apk`：无内核版 + Firefox 账号同步，仅 arm64-v8a 设备（体积比 lite 大约 10–15 MB）\n"
           )
           out = header + body + variants
           pathlib.Path("dist/RELEASE_NOTES.md").write_text(out + "\n", encoding="utf-8")

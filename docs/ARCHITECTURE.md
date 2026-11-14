@@ -29,7 +29,7 @@ mafari-dual/
 
 ## 2. 构建变体（先理解这个，否则容易写出 lite 崩溃的代码）
 
-`flavorDimensions = engine × abi`：
+`flavorDimensions = engine × abi`；engine 有三个：`gecko` / `lite` / `liteSync`（= lite + Firefox 同步，只构建 `liteSyncArm64`）：
 
 | | `lite`（无内核版） | `gecko`（Gecko 版） |
 | --- | --- | --- |
@@ -37,9 +37,11 @@ mafari-dual/
 | `BuildConfig.GECKO_ENABLED` | `false` | `true` |
 | ABI | `liteArm64` / `liteArm32` / `liteX64` 各一个包 | 只有 `geckoArm64` |
 | `src/gecko/assets` | 不打包 | 打包 |
+| Firefox 同步库（FxA / Places） | 仅 `compileOnly`，**不进 APK** | `implementation` |
+| `BuildConfig.SYNC_ENABLED` | `false`（`liteSync` 为 `true`） | `true` |
 
-- 唯一判断入口 `EngineSupport`：`GECKO_BUNDLED`（编译期常量，R8 据此裁剪）、`geckoAvailable()`（打包了 **且** 设备是 arm64-v8a）、`defaultIsGecko(ctx)`（设置选了 Gecko 且可用）。
-- **铁律**：共用代码凡是会碰到 `Gecko*` 类的地方，必须先过 `EngineSupport`，否则 lite 运行时 `NoClassDefFoundError`。
+- 唯一判断入口 `EngineSupport`：`SYNC_BUNDLED`（有无 Firefox 同步，gecko / liteSync 为 true）、`SYNC_LITE`（liteSync，更新选包用）、`GECKO_BUNDLED`（编译期常量，R8 据此裁剪）、`geckoAvailable()`（打包了 **且** 设备是 arm64-v8a）、`defaultIsGecko(ctx)`（设置选了 Gecko 且可用）。
+- **铁律**：共用代码凡是会碰到 `Gecko*` 类的地方，必须先过 `EngineSupport`，否则 lite 运行时 `NoClassDefFoundError`；碰 `Fxa*`（Firefox 同步）同理要先过 `EngineSupport.SYNC_BUNDLED`（`proguard-rules.pro` 里的 `-dontwarn mozilla.**` 就是为普通 lite 里缺失的同步库类准备的）。
 - 构建时指定具体任务（如 `:app:assembleLiteArm64Debug`、`:app:assembleGeckoArm64Release`），不要跑 `assemble`。
 - 默认两个版本同一个 applicationId（可互相覆盖升级）；`-PgeckoAppIdSuffix=.gecko` 可并存。
 
@@ -169,14 +171,14 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 
 - **下载**：`Downloader`（自研，不走系统下载器；多线程分段 + 断点续传 + 暂停 / 重试，先写缓存再入库 `/sdcard/Download/mafari`）、`DownloadService`（前台服务 + 进度通知 / 小米超级岛）、`DownloadDb`、`DownloadsScreen`。
   Gecko 下 ≤64MB 且有 Content-Length 的直接消费 Gecko 响应体（带登录态），更大的仍由 `Downloader` 重新请求（**不带 Cookie**）。
-- **更新**：`UpdateChecker`（启动检查，进程内一次）+ `AboutScreen`（`UpdateChannel`：lite / gecko / canary-lite / canary-gecko；`pickApkUrl` 按变体与本机 ABI 选包）+ `GitHubAccelerate`（镜像并发探测）。**改 APK 命名必须同步 `pickApkUrl`。**
+- **更新**：`UpdateChecker`（启动检查，进程内一次）+ `AboutScreen`（`UpdateChannel`：lite / gecko / canary-lite / canary-gecko；`pickApkUrl` 按变体与本机 ABI 选包；已装 liteSync 时 lite 通道只选 `sync_lite` 包，普通 lite 排除它）+ `GitHubAccelerate`（镜像并发探测）。**改 APK 命名必须同步 `pickApkUrl`。**
 - **视觉**：`AppMaterial`（`MiuixGlassMaterial` / `LiquidGlassMaterial` / `FlatMaterial` 三套材质抽象，设置页统一经它取组件）、`GlassKit`、`LiquidGlassKit/Components`（Kyant backdrop）、`BlurEffects`、`WallpaperBlurCache`、`TopInset`（状态栏留白在布局阶段读取，避免每帧重组整个 `BrowserScreen`）。
   液态玻璃采样层**内部**的按钮要用实色底（`inPage`），否则递归采样闪退。
 - **图标 / 快捷方式**：`AppIconManager`（5 个 `activity-alias`，名带 `V2`，切换推迟到 `onStop`）、`ShortcutHelper` + `WebAppActivity`。
 
 ## 10. CI 与发布（`.github/workflows/release.yml`）
 
-- 触发：push `main` / `gecko` / `dual`、tag `v*`、手动。一次构建同时产出 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite-<arm64-v8a|armeabi-v7a|x86_64>.apk` + `SHA256SUMS.txt`。
+- 触发：push `main` / `gecko` / `dual`、tag `v*`、手动。一次构建同时产出 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite-<arm64-v8a|armeabi-v7a|x86_64>.apk`（不含 Firefox 同步）与 `Mafari-<标签>-sync_lite-arm64.apk`（lite + 同步，仅 arm64）+ `SHA256SUMS.txt`。
 - `v*` tag → 正式 Release；`gecko` 分支 → `gecko-<构建号>` 预发布；`dual` 分支 → 以应用版本名直接发正式 Release（同版本名重复构建会覆盖安装包，要让用户收到更新请先提高 `versionName`）。
 - 签名来自环境变量 / Secrets（不配则出 debug 包）；Telegram 推送可选。Release 正文取自 `CHANGELOG.md` 对应版本小节。
 

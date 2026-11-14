@@ -40,7 +40,8 @@ val agpVersion = "9.5.1"
 
 // 格式：分组|名称|版本;分组|名称|版本…（分组用 ASCII 标识，界面文案由 AboutScreen 映射）
 // withGecko：无内核版（lite）不带 GeckoView，不在「依赖版本」里展示它
-fun dependencyVersionsOf(withGecko: Boolean): String = listOfNotNull(
+// withSync：普通 lite 不带 Firefox Sync（application-services），不展示它；gecko / liteSync 带
+fun dependencyVersionsOf(withGecko: Boolean, withSync: Boolean): String = listOfNotNull(
     Triple("ui", "miuix-glass", miuixVersion),
     Triple("ui", "Backdrop", backdropVersion),
     Triple("ui", "Compose Multiplatform", composeMultiplatformVersion),
@@ -59,7 +60,7 @@ fun dependencyVersionsOf(withGecko: Boolean): String = listOfNotNull(
     // JGit 完整版本号带构建时间戳（5.13.3.202401111512-r），界面只展示 5.13.3
     Triple("sync", "JGit（Git）", jgitVersion.substringBefore("-r").substringBeforeLast('.')),
     Triple("sync", "JSch（SSH）", jschVersion),
-    Triple("sync", "Firefox Sync（application-services）", if (fxaComponentsVersion == "+") "最新" else fxaComponentsVersion),
+    if (withSync) Triple("sync", "Firefox Sync（application-services）", if (fxaComponentsVersion == "+") "最新" else fxaComponentsVersion) else null,
     Triple("build", "Kotlin", kotlinVersion),
     Triple("build", "Android Gradle Plugin", agpVersion),
     Triple("build", "Gradle", gradle.gradleVersion),
@@ -99,11 +100,14 @@ android {
         buildConfigField("String", "CRYPTO_ALGORITHMS", "\"$cryptoAlgorithms\"")
     }
 
-    // ---- 两个发布变体（product flavor）----
-    //  gecko：内嵌 GeckoView（Nightly，仅 arm64-v8a），WebView / Gecko 双内核
-    //  lite ：无内核版，不打包任何浏览器内核，只用系统 WebView；体积小，支持所有 ABI
-    // 共用同一份源码：lite 里 GeckoView 只以 compileOnly 参与编译（见 dependencies），运行时不存在，
-    // 共用代码通过 BuildConfig.GECKO_ENABLED（EngineSupport.GECKO_BUNDLED）保证不会走到 Gecko 类。
+    // ---- 三个发布变体（product flavor，engine 维度）----
+    //  gecko   ：内嵌 GeckoView（Nightly，仅 arm64-v8a），WebView / Gecko 双内核，带 Firefox 账号同步
+    //  lite    ：无内核版，不打包任何浏览器内核，只用系统 WebView；体积小，支持所有 ABI；不带 Firefox 同步
+    //  liteSync：lite + Firefox 同步（只构建 arm64：liteSyncArm64，输出名 sync_lite-arm64）
+    // 共用同一份源码：lite / liteSync 里 GeckoView 只以 compileOnly 参与编译（见 dependencies），运行时不存在，
+    // 共用代码通过 BuildConfig.GECKO_ENABLED（EngineSupport.GECKO_BUNDLED）保证不会走到 Gecko 类；
+    // Firefox 同步库（application-services / android-components）同理：lite 只 compileOnly，
+    // 共用代码通过 BuildConfig.SYNC_ENABLED（EngineSupport.SYNC_BUNDLED）保证不会走到 Fxa* 类。
     // Gecko 专属资源放在 src/gecko/assets，lite 不会打进包。
     // 第二维度 abi：按架构拆包（各架构一个 APK，而不是一个包塞全部 so）。
     // 构建时请指定具体任务（见 README / release.yml）：gecko 只有 arm64 有意义（GeckoView 只发布 arm64-v8a）
@@ -117,14 +121,24 @@ android {
             // 可选：-PgeckoAppIdSuffix=.gecko 让两个版本能同时安装（默认不加后缀，保持与历史安装包同一个应用 ID，可直接覆盖升级）
             (project.findProperty("geckoAppIdSuffix") as String?)?.takeIf { it.isNotBlank() }?.let { applicationIdSuffix = it }
             buildConfigField("boolean", "GECKO_ENABLED", "true")
-            buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(true)}\"")
+            buildConfigField("boolean", "SYNC_ENABLED", "true")
+            buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(true, true)}\"")
             // GeckoView nightly 只发布 arm64-v8a：Gecko 版只构建 geckoArm64；其余 ABI 的设备请用 lite
         }
         create("lite") {
             dimension = "engine"
             buildConfigField("boolean", "GECKO_ENABLED", "false")
-            buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(false)}\"")
+            buildConfigField("boolean", "SYNC_ENABLED", "false")
+            buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(false, false)}\"")
             // 只有 SQLCipher 带 so；架构由 abi 维度决定：liteArm64 / liteArm32 / liteX64 各出一个包
+        }
+        create("liteSync") {
+            dimension = "engine"
+            // 与 lite 相同（无内核、同一个应用 ID，可互相覆盖升级），只多打包 Firefox 同步库；
+            // 只构建 liteSyncArm64（不要构建 liteSyncArm32 / liteSyncX64）
+            buildConfigField("boolean", "GECKO_ENABLED", "false")
+            buildConfigField("boolean", "SYNC_ENABLED", "true")
+            buildConfigField("String", "DEP_VERSIONS", "\"${dependencyVersionsOf(false, true)}\"")
         }
     }
 
@@ -215,24 +229,7 @@ dependencies {
         exclude(group = "com.jcraft", module = "jsch")
     }
     implementation("com.github.mwiede:jsch:$jschVersion")
-    // Firefox 账号登录 + Sync（Rust application-services，含各 ABI 的 libmegazord；APK 会增大约 10–15 MB）
-    implementation("org.mozilla.components:service-firefox-accounts:$fxaComponentsVersion")
-    implementation("org.mozilla.components:browser-storage-sync:$fxaComponentsVersion")
-    // 这些是上面两个库的传递依赖（implementation 不会暴露给本模块的编译 classpath），直接用到其类型，需显式声明
-    implementation("org.mozilla.components:concept-base:$fxaComponentsVersion")
-    // Rust 层（viaduct）本身没有网络栈：必须注册一个 HTTP 后端，否则取 Firefox 账号服务配置 / 登录地址会直接失败
-    implementation("org.mozilla.components:concept-fetch:$fxaComponentsVersion")
-    // 新版 application-services：用 mozilla.appservices.viaduct.initBackend(Backend) 注册网络后端（见 FxaApi.OkHttpBackend）。
-    // 注意是 viaduct，不是 httpconfig：httpconfig 已停更在 63.0.0（带进 Kotlin 1.3 的旧运行时，会触发 Duplicate class）。
-    // application-services 版本号与 android-components 的 161.0b3 不同（161.0），可用 appServicesVersion 覆盖
-    implementation("org.mozilla.appservices:viaduct:$appServicesVersion")
-    // 全局初始化（NSS 等）：application-services v138 起必须在任何 Rust 调用前执行 init_rust_components.initialize()
-    implementation("org.mozilla.appservices:init_rust_components:$appServicesVersion")
-    implementation("org.mozilla.components:concept-sync:$fxaComponentsVersion")
-    implementation("org.mozilla.components:concept-storage:$fxaComponentsVersion")
-    implementation("org.mozilla.components:concept-toolbar:$fxaComponentsVersion")
-    implementation("org.mozilla.components:support-base:$fxaComponentsVersion")
-    implementation("org.mozilla.components:support-ktx:$fxaComponentsVersion")
+    // Firefox 账号登录 + Sync：见下方 syncLibs（gecko / liteSync 打包，普通 lite 仅 compileOnly）
     implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     testImplementation("junit:junit:4.13.2")
     // 纯 JVM 单元测试里 android.jar 的 org.json 只是桩：密码同步记录格式的测试需要真实实现
@@ -244,6 +241,34 @@ dependencies {
     // gecko 变体：正常打包；lite 变体：仅 compileOnly（让共用源码里的 Gecko 引用能通过编译），不进 APK
     "geckoImplementation"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
     "liteCompileOnly"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
+    "liteSyncCompileOnly"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
+
+    // Firefox 账号登录 + Sync（Rust application-services，含各 ABI 的 libmegazord；APK 会增大约 10–15 MB）
+    // gecko / liteSync：正常打包；普通 lite：仅 compileOnly（让共用源码里的 Fxa* 能通过编译），不进 APK
+    val syncLibs = listOf(
+        "org.mozilla.components:service-firefox-accounts:$fxaComponentsVersion",
+        "org.mozilla.components:browser-storage-sync:$fxaComponentsVersion",
+        // 这些是上面两个库的传递依赖（implementation 不会暴露给本模块的编译 classpath），直接用到其类型，需显式声明
+        "org.mozilla.components:concept-base:$fxaComponentsVersion",
+        // Rust 层（viaduct）本身没有网络栈：必须注册一个 HTTP 后端，否则取 Firefox 账号服务配置 / 登录地址会直接失败
+        "org.mozilla.components:concept-fetch:$fxaComponentsVersion",
+        // 新版 application-services：用 mozilla.appservices.viaduct.initBackend(Backend) 注册网络后端（见 FxaApi.OkHttpBackend）。
+        // 注意是 viaduct，不是 httpconfig：httpconfig 已停更在 63.0.0（带进 Kotlin 1.3 的旧运行时，会触发 Duplicate class）。
+        // application-services 版本号与 android-components 的 161.0b3 不同（161.0），可用 appServicesVersion 覆盖
+        "org.mozilla.appservices:viaduct:$appServicesVersion",
+        // 全局初始化（NSS 等）：application-services v138 起必须在任何 Rust 调用前执行 init_rust_components.initialize()
+        "org.mozilla.appservices:init_rust_components:$appServicesVersion",
+        "org.mozilla.components:concept-sync:$fxaComponentsVersion",
+        "org.mozilla.components:concept-storage:$fxaComponentsVersion",
+        "org.mozilla.components:concept-toolbar:$fxaComponentsVersion",
+        "org.mozilla.components:support-base:$fxaComponentsVersion",
+        "org.mozilla.components:support-ktx:$fxaComponentsVersion",
+    )
+    syncLibs.forEach {
+        "geckoImplementation"(it)
+        "liteSyncImplementation"(it)
+        "liteCompileOnly"(it)
+    }
 }
 
 // GeckoView 的 libxul.so 自带 Glean，而 glean-native（Firefox 账号库的传递依赖）也打包了一个同名 libxul.so 桩，

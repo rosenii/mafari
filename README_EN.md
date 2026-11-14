@@ -18,7 +18,7 @@ An Android browser built with **miuix** (Compose Multiplatform), available in tw
 | Device requirement | Any supported Android device | Gecko engine is arm64-v8a only; other ABIs fall back to WebView automatically |
 | Extensions | Userscripts | Userscripts + Firefox extensions (AMO / `.xpi`) |
 | Ad blocking | Built-in rule engine | Works in WebView tabs; Gecko tabs use built-in tracking protection or uBlock Origin |
-| APK | `Mafari-<version>-lite-<abi>.apk` in each Release (one per ABI: arm64-v8a / armeabi-v7a / x86_64) | `Mafari-<version>-gecko.apk` in each Release |
+| APK | `Mafari-<version>-lite-<abi>.apk` in each Release (one per ABI: arm64-v8a / armeabi-v7a / x86_64, no Firefox Sync; for Sync use the arm64-only `Mafari-<version>-sync_lite-arm64.apk`) | `Mafari-<version>-gecko.apk` in each Release |
 | Releases | Every Release carries both APKs: stable release on every tag, pre-release on every build of the `gecko` branch | Same |
 
 ## Community
@@ -114,18 +114,19 @@ On top of the No-Engine Edition, it bundles **GeckoView Nightly** (arm64-v8a onl
 # Variants = engine (gecko / lite) x ABI (arm64 / arm32 / x64); Gecko only makes sense on arm64, so name the tasks explicitly instead of running `assemble`
 ./gradlew :app:assembleLiteArm64Debug     # No-Engine Edition, arm64 → app/build/outputs/apk/liteArm64/debug/
 ./gradlew :app:assembleGeckoArm64Debug    # Gecko Edition (arm64 only) → app/build/outputs/apk/geckoArm64/debug/
-./gradlew :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleGeckoArm64Release   # release builds (needs the signing env vars below)
+./gradlew :app:assembleLiteSyncArm64Debug # No-Engine Edition + Firefox Sync (arm64 only) → app/build/outputs/apk/liteSyncArm64/debug/
+./gradlew :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleLiteSyncArm64Release :app:assembleGeckoArm64Release   # release builds (needs the signing env vars below)
 ```
 
-The two editions are two product flavors of the same sources (`app/build.gradle.kts`): in `lite`, GeckoView is `compileOnly` (not packaged), `BuildConfig.GECKO_ENABLED` is `false`, and Gecko-only assets (`src/gecko/assets`) are excluded. Shared code that can reach a Gecko class must first check `EngineSupport.GECKO_BUNDLED` / `EngineSupport.geckoAvailable()`.
+The two editions are two product flavors of the same sources (`app/build.gradle.kts`): in `lite`, GeckoView is `compileOnly` (not packaged), `BuildConfig.GECKO_ENABLED` is `false`, and Gecko-only assets (`src/gecko/assets`) are excluded. Shared code that can reach a Gecko class must first check `EngineSupport.GECKO_BUNDLED` / `EngineSupport.geckoAvailable()`. The Firefox Sync libraries follow the same pattern: `compileOnly` in plain `lite` (`BuildConfig.SYNC_ENABLED = false`), packaged in `gecko` and in the third flavor `liteSync` (arm64 only, `Mafari-<version>-sync_lite-arm64.apk`, same application ID as lite); shared code must check `EngineSupport.SYNC_BUNDLED` before touching `Fxa*`.
 
 The Gecko Edition pulls GeckoView Nightly from Mozilla Maven. Nightly Java APIs change from time to time, so pinning `geckoViewVersion=<version>` in `gradle.properties` is recommended. Both editions share one application ID by default (they upgrade over each other); pass `-PgeckoAppIdSuffix=.gecko` to install them side by side.
 
-In-app update checks pick the asset matching the current flavor (`-gecko.apk` / `-lite-<abi>.apk`, the latter by the device ABI), so one edition never upgrades into the other. Keep `AboutScreen.kt` `pickApkUrl` in sync if you rename the APKs.
+In-app update checks pick the asset matching the current flavor (`-gecko.apk` / `-lite-<abi>.apk` by the device ABI / `-sync_lite-arm64.apk`, the last only for an installed sync_lite), so one edition never upgrades into the other. Keep `AboutScreen.kt` `pickApkUrl` in sync if you rename the APKs.
 
 ### Automated releases with GitHub Actions
 
-Pushing a tag builds and publishes a Release; every build of the `gecko` branch publishes a pre-release. Each run builds both editions (`Mafari-<label>-gecko.apk`, plus `Mafari-<label>-lite-<abi>.apk` ×3) plus `SHA256SUMS.txt`:
+Pushing a tag builds and publishes a Release; every build of the `gecko` branch publishes a pre-release. Each run builds both editions (`Mafari-<label>-gecko.apk`, plus `Mafari-<label>-lite-<abi>.apk` ×3 and `Mafari-<label>-sync_lite-arm64.apk`) plus `SHA256SUMS.txt`:
 
 ```bash
 git tag v3.3.0 && git push origin v3.3.0

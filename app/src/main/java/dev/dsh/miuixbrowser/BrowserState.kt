@@ -893,7 +893,7 @@ class BrowserTab(
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url.toString()
-                if (FxaSync.interceptRedirect(target)) return true
+                if (EngineSupport.SYNC_BUNDLED && FxaSync.interceptRedirect(target)) return true
                 if (isUserScriptUrl(target)) {
                     onUserScriptLink?.invoke(target)
                     return true

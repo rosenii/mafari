@@ -487,7 +487,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                     ),
                 ) {
                     // ———— Firefox账户同步（置顶）————
-                    item {
+                    if (EngineSupport.SYNC_BUNDLED) item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp, bottom = 6.dp),
                             insideMargin = PaddingValues(0.dp),

@@ -18,7 +18,7 @@
 | 设备要求 | 所有支持的 Android 设备 | 内核仅 arm64-v8a；其它架构自动使用 WebView |
 | 扩展 | 油猴脚本 | 油猴脚本 + Firefox 扩展（AMO / `.xpi`） |
 | 去广告 | 内置规则引擎 | WebView 标签可用；Gecko 标签使用内置跟踪保护或自行安装 uBlock Origin |
-| 安装包 | Release 里的 `Mafari-<版本>-lite-<架构>.apk`（按架构分包：arm64-v8a / armeabi-v7a / x86_64） | Release 里的 `Mafari-<版本>-gecko.apk` |
+| 安装包 | Release 里的 `Mafari-<版本>-lite-<架构>.apk`（按架构分包：arm64-v8a / armeabi-v7a / x86_64，不含 Firefox 同步；需要同步用 arm64 的 `Mafari-<版本>-sync_lite-arm64.apk`） | Release 里的 `Mafari-<版本>-gecko.apk` |
 | 发布 | 同一个 Release 同时带两个安装包：打 tag 发正式版，`gecko` 分支每次构建发预发布版 | 同左 |
 
 ## 社区
@@ -115,7 +115,8 @@
 # 变体 = 内核（gecko / lite）× 架构（arm64 / arm32 / x64）；Gecko 只有 arm64 有意义，请指定具体任务，不要跑 assemble
 ./gradlew :app:assembleLiteArm64Debug     # 无内核版 arm64 → app/build/outputs/apk/liteArm64/debug/
 ./gradlew :app:assembleGeckoArm64Debug    # Gecko 版（仅 arm64）→ app/build/outputs/apk/geckoArm64/debug/
-./gradlew :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleGeckoArm64Release   # 发布包（需签名环境变量，见下）
+./gradlew :app:assembleLiteSyncArm64Debug # 无内核版 + Firefox 同步（只有 arm64）→ app/build/outputs/apk/liteSyncArm64/debug/
+./gradlew :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleLiteSyncArm64Release :app:assembleGeckoArm64Release   # 发布包（需签名环境变量，见下）
 ```
 
 两个版本是同一份源码的两个 product flavor（`app/build.gradle.kts`）：
@@ -126,6 +127,9 @@
 | `BuildConfig.GECKO_ENABLED` | `false` | `true` |
 | ABI | 每个架构一个包：arm64-v8a / armeabi-v7a / x86_64 | 仅 arm64-v8a |
 | Gecko 专属资源 | 不含（`src/gecko/assets`） | 含 |
+| Firefox 同步库 | 仅 `compileOnly`，**不进 APK**（`BuildConfig.SYNC_ENABLED = false`） | `implementation`（`true`） |
+
+另有第三个变体 `liteSync`（`liteSyncArm64`，文件名 `sync_lite-arm64`）：无内核，但打包 Firefox 同步库（`SYNC_ENABLED = true`），只构建 arm64；应用 ID 与 lite 相同，可互相覆盖升级。共用代码碰 `Fxa*` 前要先判断 `EngineSupport.SYNC_BUNDLED`。
 
 共用代码里凡是会走到 Gecko 类的地方都要先判断 `EngineSupport.GECKO_BUNDLED`（或 `EngineSupport.geckoAvailable()`），否则 lite 运行时会 `NoClassDefFoundError`。
 
@@ -134,11 +138,11 @@ Gecko 版会从 Mozilla Maven 拉取 GeckoView Nightly；Nightly 的 Java API �
 
 ### 应用内更新如何选包
 
-同一个 Release 里有 `-gecko.apk` 与按架构分的 `-lite-<架构>.apk`。应用内「检查更新」由「关于 → 版本」里的**更新通道**决定拉哪个：`lite`（正式发布的 `-lite` 包，按本机 ABI 挑架构）、`gecko`（正式发布的 `-gecko` 包，仅 arm64-v8a）、`canary-lite` / `canary-gecko`（最新构建预发布（gecko 分支）或正式发布（dual / tag 发布）中发布时间最新的，取对应后缀的包）。旧版本升级上来默认 `gecko`（设备无 arm64 时为 `lite`）。改安装包命名时请同步 `AboutScreen.kt` 的 `pickApkUrl`。
+同一个 Release 里有 `-gecko.apk`、按架构分的 `-lite-<架构>.apk` 与 `-sync_lite-arm64.apk`（已装 sync_lite 的更新通道 lite 只会升级到 sync_lite 包，普通 lite 则不会选到它）。应用内「检查更新」由「关于 → 版本」里的**更新通道**决定拉哪个：`lite`（正式发布的 `-lite` 包，按本机 ABI 挑架构）、`gecko`（正式发布的 `-gecko` 包，仅 arm64-v8a）、`canary-lite` / `canary-gecko`（最新构建预发布（gecko 分支）或正式发布（dual / tag 发布）中发布时间最新的，取对应后缀的包）。旧版本升级上来默认 `gecko`（设备无 arm64 时为 `lite`）。改安装包命名时请同步 `AboutScreen.kt` 的 `pickApkUrl`。
 
 ### GitHub Actions 自动发布
 
-推 tag 即自动构建并创建 Release；`gecko` 分支每次构建发布预发布版。每次构建同时产出 Gecko 版与无内核版（`Mafari-<标签>-gecko.apk`、`Mafari-<标签>-lite-<架构>.apk` ×3）并附 `SHA256SUMS.txt`：
+推 tag 即自动构建并创建 Release；`gecko` 分支每次构建发布预发布版。每次构建同时产出 Gecko 版与无内核版（`Mafari-<标签>-gecko.apk`、`Mafari-<标签>-lite-<架构>.apk` ×3、`Mafari-<标签>-sync_lite-arm64.apk`）并附 `SHA256SUMS.txt`：
 
 ```bash
 git tag v3.3.0 && git push origin v3.3.0

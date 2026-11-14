@@ -290,7 +290,7 @@ fun BrowserScreen(
             // 启动时把设置里保存的 UA 应用到所有标签（之前只有在设置里点确定才会应用，重启后一律回到系统默认 UA）
             it.applyUserAgent(settings.userAgent)
             // 火狐同步：本机标签（非无痕）随同步上传
-            FxaSync.localTabs = { it.tabs.filter { t -> !t.incognito }.map { t -> t.title to t.url } }
+            if (EngineSupport.SYNC_BUNDLED) FxaSync.localTabs = { it.tabs.filter { t -> !t.incognito }.map { t -> t.title to t.url } }
         }
     }
     // 标签列表落盘（tabs 表，见 TabDb）：标签增减 / 换页 / 标题 / 顺序 / 切换变化时才触发，
