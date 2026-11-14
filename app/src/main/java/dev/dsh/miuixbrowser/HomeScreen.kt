@@ -1554,6 +1554,168 @@ internal fun GroupAddTile(
     }
 }
 
+/** 分组弹窗的几何：边长、水平对齐方式，以及按 GlassPopup 规则加工过的锚点。 */
+internal class GroupPopupGeometry(val anchor: Rect, val alignStart: Boolean, val side: Dp)
+
+/**
+ * 按 GlassPopup 的规则算分组弹窗的锚点与对齐：
+ * - 边长不能超过 GlassPopup 的宽度上限（288dp），也要给页面两侧各留 SafeMargin，否则正方形会被压成长方形；
+ * - 水平：GlassPopup 的展开动画固定一条竖边。[alignStartByHalf] 为 true 时，位于页面左半边的锚点用 alignStart
+ *   （左边缘对齐锚点左边缘，向右展开），右半边的用默认的右边缘对齐，这样固定边始终落在被点的位置上；
+ * - 垂直：顶边放在锚点下沿 + 间距，窗口出现在锚点正下方；下方放不下时 GlassPopup 会翻到上方并以锚点 bottom
+ *   为底边，所以 bottom 取锚点上沿 - 间距（与 HistoryScreen 的 rememberAboveAnchor 同一思路）。
+ */
+@Composable
+internal fun groupPopupGeometry(
+    anchorBounds: Rect,
+    pageWidthPx: Float,
+    alignStartByHalf: Boolean = true,
+): GroupPopupGeometry {
+    val density = LocalDensity.current
+    val pageWidthDp = with(density) { pageWidthPx.toDp() }
+    val side = minOf(GROUP_POPUP_SIDE, (pageWidthDp - GlassPopupDefaults.SafeMargin * 2).coerceAtLeast(0.dp))
+    val gapPx = with(density) { 6.dp.toPx() }
+    val alignStart = alignStartByHalf && anchorBounds.center.x < pageWidthPx / 2f
+    val anchor = if (anchorBounds == Rect.Zero) {
+        anchorBounds
+    } else {
+        Rect(anchorBounds.left, anchorBounds.bottom + gapPx, anchorBounds.right, anchorBounds.top - gapPx)
+    }
+    return GroupPopupGeometry(anchor, alignStart, side)
+}
+
+/** 分组弹窗的面板：固定边长的正方形，标题行（可返回上一层）+ 列表，两种分组弹窗共用。 */
+@Composable
+private fun GroupPopupPanel(
+    side: Dp,
+    title: String,
+    showBack: Boolean,
+    onBack: () -> Unit,
+    trailing: String,
+    isEmpty: Boolean,
+    emptyText: String,
+    list: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    Column(modifier = Modifier.size(side)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (showBack) {
+                Text(
+                    text = "‹",
+                    fontSize = 24.sp,
+                    color = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onBack,
+                        )
+                        .padding(end = 4.dp),
+                )
+            }
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = trailing,
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        if (isEmpty) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                HomeEmptyText(emptyText)
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), content = list)
+        }
+    }
+}
+
+/**
+ * 分组弹窗里的一行子分组：点整行执行 [onClick]；有下一层时右侧有 ›，点它进入下一层（[chevron]）。
+ * [trailing] 是右侧的小字（如书签数），[selected] 时显示 ✓。
+ */
+@Composable
+private fun GroupPopupFolderRow(
+    name: String,
+    trailing: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    chevron: (() -> Unit)?,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = AppIcons.Folder,
+            contentDescription = null,
+            tint = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = name,
+            fontSize = 14.sp,
+            color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (trailing != null) {
+            Text(
+                text = trailing,
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        if (selected) {
+            Text(text = "✓", fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
+        }
+        if (chevron != null) {
+            Text(
+                text = "›",
+                fontSize = 20.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = chevron,
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        } else {
+            // 没有下一层：留出同样的宽度，让各行右侧对齐
+            Spacer(Modifier.width(8.dp))
+        }
+    }
+}
+
+/** [path] 是否正好是 [parent] 的直接子分组（[parent] 为空串表示顶层）。 */
+private fun isDirectChild(path: String, parent: String): Boolean =
+    if (parent.isEmpty()) '/' !in path else path.startsWith("$parent/") && '/' !in path.removePrefix("$parent/")
+
 /**
  * 书签分组弹窗：以磁贴图标为锚点向下弹出的正方形窗口，沿用 [AppGlassPopup]（miuix 玻璃 / 液态玻璃 / 无模糊三种材质由它统一适配）。
  * 里面先列出该分组的子分组，再列出该分组的书签；点子分组在同一个窗口里进入下一层（标题行左侧 ‹ 返回上一层），点书签直接打开。
@@ -1570,145 +1732,110 @@ internal fun BoxScope.GroupBookmarkPopup(
 ) {
     // 每次重新弹出都回到分组根；窗口里的层级只在窗口内部记录
     var path by remember(rootPath, show) { mutableStateOf(rootPath) }
-    val density = LocalDensity.current
-    val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
-    // 边长不能超过 GlassPopup 的宽度上限（288dp），否则正方形会被压成长方形；
-    // 同时给左右各留出 SafeMargin
-    val side = minOf(GROUP_POPUP_SIDE, (LocalConfiguration.current.screenWidthDp.dp - GlassPopupDefaults.SafeMargin * 2))
-    val gapPx = with(density) { 6.dp.toPx() }
-    // GlassPopup 的展开动画是「固定一条水平边 + 固定一条竖边」从锚点长出来的：
-    // - 水平：左半屏的磁贴用 alignStart（左边缘对齐磁贴左边缘，向右展开），右半屏的磁贴默认（右边缘对齐
-    //   磁贴右边缘，向左展开），这样固定边始终落在被点的磁贴上，只有被屏幕边距挤到时才会偏移；
-    // - 垂直：顶边放在图标下沿 + 间距，窗口出现在图标正下方；下方放不下时 GlassPopup 会翻到上方，
-    //   以锚点 bottom 为底边，所以 bottom 取图标上沿 - 间距（与 HistoryScreen 的 rememberAboveAnchor 同一思路）。
-    val alignStart = anchorBounds.center.x < screenWidthPx / 2f
-    val anchor = if (anchorBounds == Rect.Zero) {
-        anchorBounds
-    } else {
-        Rect(anchorBounds.left, anchorBounds.bottom + gapPx, anchorBounds.right, anchorBounds.top - gapPx)
-    }
+    val screenWidthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    val geo = groupPopupGeometry(anchorBounds, screenWidthPx)
+    // 只读取不登记：不在组合里改文件夹注册表（同 GroupPickerDialog）
+    val folders = if (show) withAncestors(favorites.groups()).filter { isDirectChild(it, path) && it != path } else emptyList()
+    val marks = if (show) favorites.itemsIn(path) else emptyList()
     AppGlassPopup(
         show = show,
         onDismissRequest = onDismiss,
-        anchorBounds = anchor,
+        anchorBounds = geo.anchor,
         backdrop = backdrop,
-        alignStart = alignStart,
+        alignStart = geo.alignStart,
     ) {
-        Column(modifier = Modifier.size(side)) {
-            val atRoot = path == rootPath
-            // 只读取不登记：不在组合里改文件夹注册表（同 GroupPickerDialog）
-            val folders = if (show) {
-                withAncestors(favorites.groups()).filter {
-                    it.startsWith("$path/") && '/' !in it.removePrefix("$path/")
-                }
-            } else {
-                emptyList()
+        GroupPopupPanel(
+            side = geo.side,
+            title = path.substringAfterLast('/').ifBlank { path },
+            showBack = path != rootPath,
+            onBack = { path = path.substringBeforeLast('/') },
+            trailing = "${folders.size + marks.size} 项",
+            isEmpty = folders.isEmpty() && marks.isEmpty(),
+            emptyText = "这个分组还没有书签",
+        ) {
+            items(folders, key = { "f:$it" }) { folder ->
+                GroupPopupFolderRow(
+                    name = folder.substringAfterLast('/'),
+                    trailing = "${favorites.itemsInTree(folder).size}",
+                    selected = false,
+                    onClick = { path = folder },
+                    chevron = { path = folder },
+                )
             }
-            val marks = if (show) favorites.itemsIn(path) else emptyList()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (!atRoot) {
+            items(marks, key = { "b:${it.id}" }) { mark ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { onOpenUrl(mark.url) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    FaviconBadge(url = mark.url, size = 22.dp, corner = 6.dp)
                     Text(
-                        text = "‹",
-                        fontSize = 24.sp,
-                        color = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) { path = path.substringBeforeLast('/') }
-                            .padding(end = 4.dp),
+                        text = mark.name.ifBlank { mark.url },
+                        fontSize = 14.sp,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                Text(
-                    text = path.substringAfterLast('/').ifBlank { path },
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "${folders.size + marks.size} 项",
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
             }
-            if (folders.isEmpty() && marks.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    HomeEmptyText("这个分组还没有书签")
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    items(folders, key = { "f:$it" }) { folder ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                ) { path = folder }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(
-                                imageVector = AppIcons.Folder,
-                                contentDescription = null,
-                                tint = MiuixTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp),
-                            )
-                            Text(
-                                text = folder.substringAfterLast('/'),
-                                fontSize = 14.sp,
-                                color = MiuixTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = "${favorites.itemsInTree(folder).size}",
-                                fontSize = 12.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                            Text(
-                                text = "›",
-                                fontSize = 18.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                        }
-                    }
-                    items(marks, key = { "b:${it.id}" }) { mark ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                ) { onOpenUrl(mark.url) }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            FaviconBadge(url = mark.url, size = 22.dp, corner = 6.dp)
-                            Text(
-                                text = mark.name.ifBlank { mark.url },
-                                fontSize = 14.sp,
-                                color = MiuixTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
+        }
+    }
+}
+
+/**
+ * 分组选择弹窗（新建 / 编辑书签时选分组）：与 [GroupBookmarkPopup] 同一套面板与动效，
+ * 只列分组：点一行直接选中并关闭，有下一层的分组右侧有 ›，点它进入下一层继续选（标题行 ‹ 返回上一层）。
+ * 打开时先停在当前分组所在的那一层，直接看到它（✓ 标出）。
+ *
+ * 必须放在一个尺寸确定（如 matchParentSize）的 Box 里：GlassPopup 把父 Box 当作整个页面；
+ * [anchorBounds] 要换算成该 Box 的坐标，[pageWidthPx] 是该 Box 的宽度。
+ */
+@Composable
+internal fun BoxScope.GroupChoosePopup(
+    show: Boolean,
+    anchorBounds: Rect,
+    pageWidthPx: Float,
+    groups: List<String>,
+    current: String,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    val all = remember(groups) { withAncestors(groups) }
+    var path by remember(show) { mutableStateOf(current.substringBeforeLast('/', "")) }
+    val geo = groupPopupGeometry(anchorBounds, pageWidthPx, alignStartByHalf = false)
+    val children = all.filter { isDirectChild(it, path) }
+    AppGlassPopup(
+        show = show,
+        onDismissRequest = onDismiss,
+        anchorBounds = geo.anchor,
+        backdrop = backdrop,
+        alignStart = geo.alignStart,
+    ) {
+        GroupPopupPanel(
+            side = geo.side,
+            title = if (path.isEmpty()) "选择分组" else path.substringAfterLast('/'),
+            showBack = path.isNotEmpty(),
+            onBack = { path = path.substringBeforeLast('/', "") },
+            trailing = "${children.size} 项",
+            isEmpty = children.isEmpty(),
+            emptyText = "还没有分组",
+        ) {
+            items(children, key = { it }) { p ->
+                GroupPopupFolderRow(
+                    name = p.substringAfterLast('/'),
+                    trailing = null,
+                    selected = p == current,
+                    onClick = { onSelect(p) },
+                    chevron = if (all.any { isDirectChild(it, p) }) ({ path = p }) else null,
+                )
             }
         }
     }

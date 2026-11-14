@@ -54,6 +54,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1289,192 +1291,49 @@ private fun exportBookmarks(context: android.content.Context, html: String) {
     }
 }
 
-/** 分组路径（以 / 分层，缺失的祖先自动补齐）→ 它的直接子分组完整路径；顶层用 "" 作键，顺序沿用传入顺序。 */
-private fun groupChildren(groups: List<String>): Map<String, List<String>> {
-    val out = LinkedHashMap<String, MutableList<String>>()
-    val seen = HashSet<String>()
-    fun ensure(p: String) {
-        if (p.isEmpty() || !seen.add(p)) return
-        val parent = if (p.contains('/')) p.substringBeforeLast('/') else ""
-        ensure(parent)
-        out.getOrPut(parent) { mutableListOf() }.add(p)
-    }
-    groups.forEach { ensure(it) }
-    return out
-}
-
 /**
- * 分组选择：一行显示当前路径，点开后在同一个面板里按层级展开分组树，
- * 点名字选中（有子分组时顺带展开继续往下选），点右侧箭头只展开 / 收起，可以一直选到最内层。
+ * 分组选择行：一行显示当前分组路径，点开后在行的正下方弹出 [GroupChoosePopup]（与首页书签分组弹窗同一套面板）。
+ * 行自己的屏幕坐标通过 [onAnchor] 交给外层换算成弹窗宿主 Box 的坐标。
  */
 @Composable
-private fun GroupTreePicker(
-    childMap: Map<String, List<String>>,
+private fun GroupSelectRow(
     current: String,
-    onSelect: (String) -> Unit,
-    /** 每变一次（在下方输入框打字时）就收起整个选择面板和所有展开的分组 */
-    collapseToken: Int = 0,
+    open: Boolean,
+    onClick: () -> Unit,
+    onAnchor: (Rect) -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
-    val expanded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
-    androidx.compose.runtime.LaunchedEffect(collapseToken) {
-        if (collapseToken > 0) {
-            open = false
-            expanded.clear()
-        }
-    }
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    fun tick() = haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-    // 手风琴：只展开 [path] 及其各级祖先，其余分组（含同级、其子孙）全部收起
-    fun expandOnly(path: String) {
-        expanded.clear()
-        var cur = path
-        expanded[cur] = true
-        while (cur.contains('/')) {
-            cur = cur.substringBeforeLast('/')
-            expanded[cur] = true
-        }
-    }
-    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupPickerArrow")
-    val line = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                    tick()
-                    if (!open) {
-                        // 打开时只展开当前选中项的各级祖先，直接看到它
-                        expanded.clear()
-                        var cur = current
-                        while (cur.contains('/')) {
-                            cur = cur.substringBeforeLast('/')
-                            expanded[cur] = true
-                        }
-                    }
-                    open = !open
-                }
-                .padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "分组",
-                fontSize = 15.sp,
-                color = MiuixTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = current.replace("/", " › "),
-                fontSize = 14.sp,
-                color = MiuixTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.End,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                imageVector = MiuixIcons.Glass.ChevronBackward,
-                contentDescription = if (open) "收起" else "展开",
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
-            )
-        }
-        if (open) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
-            val rows = buildList {
-                fun walk(parent: String, depth: Int) {
-                    childMap[parent].orEmpty().forEach { path ->
-                        add(path to depth)
-                        if (expanded[path] == true) walk(path, depth + 1)
-                    }
-                }
-                walk("", 0)
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                val guide = MiuixTheme.colorScheme.primary.copy(alpha = 0.30f)
-                val levelTint = MiuixTheme.colorScheme.primary
-                rows.forEachIndexed { index, (path, depth) ->
-                    // 并列：同为顶层的分组之间加一条细分隔线
-                    if (depth == 0 && index > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(line))
-                    val selected = path == current
-                    val hasKids = childMap[path].orEmpty().isNotEmpty()
-                    val isOpen = expanded[path] == true
-                    val kidAngle by androidx.compose.animation.core.animateFloatAsState(
-                        if (isOpen) 270f else 180f, label = "groupPickerKidArrow",
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            // 层级：越深底色越明显 + 每一级祖先各一条竖向引导线 + 连到自己的短横线
-                            .drawBehind {
-                                if (depth > 0) {
-                                    drawRect(levelTint.copy(alpha = (0.03f * depth).coerceAtMost(0.12f)))
-                                    for (d in 1..depth) {
-                                        val x = ((d - 1) * 18 + 13).dp.toPx()
-                                        drawLine(guide, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), strokeWidth = 1.5.dp.toPx())
-                                    }
-                                    val x = ((depth - 1) * 18 + 13).dp.toPx()
-                                    drawLine(guide, androidx.compose.ui.geometry.Offset(x, size.height / 2), androidx.compose.ui.geometry.Offset(x + 9.dp.toPx(), size.height / 2), strokeWidth = 1.5.dp.toPx())
-                                }
-                            }
-                            .clickable {
-                                tick()
-                                onSelect(path)
-                                if (hasKids) expandOnly(path) else open = false
-                            }
-                            .padding(start = (depth * 18 + 8).dp, top = 4.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = path.substringAfterLast('/').ifBlank { "未命名" },
-                            fontSize = if (depth == 0) 15.sp else 14.sp,
-                            fontWeight = if (depth == 0) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
-                            color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(vertical = 8.dp),
-                        )
-                        if (selected) {
-                            Text(
-                                text = "✓",
-                                fontSize = 16.sp,
-                                color = MiuixTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 8.dp),
-                            )
-                        }
-                        if (hasKids) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .clickable {
-                                        tick()
-                                        if (isOpen) expanded[path] = false else expandOnly(path)
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = MiuixIcons.Glass.ChevronBackward,
-                                    contentDescription = if (isOpen) "收起" else "展开",
-                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = kidAngle },
-                                )
-                            }
-                        } else {
-                            Spacer(Modifier.width(36.dp))
-                        }
-                    }
-                }
-            }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
-        }
+    val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupSelectArrow")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { onAnchor(it.boundsInWindow()) }
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "分组",
+            fontSize = 15.sp,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = current.replace("/", " › "),
+            fontSize = 14.sp,
+            color = MiuixTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(6.dp))
+        Icon(
+            imageVector = MiuixIcons.Glass.ChevronBackward,
+            contentDescription = if (open) "收起" else "展开",
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
+        )
     }
 }
 
@@ -1498,13 +1357,26 @@ internal fun FavoriteEditorDialog(
     var group by remember(initial, show) { mutableStateOf(initial?.group ?: Favorite.GROUP_PERSONAL) }
     // 输入框自己的文本：不能由 group 反推，否则打到与已有分组同名（如 a/b/c）时输入框会被清空，没法继续往后写 /d
     var typedGroup by remember(initial, show) { mutableStateOf("") }
-    var collapseToken by remember(initial, show) { mutableStateOf(0) }
+    // 分组弹窗：是否打开、分组行的窗口坐标、宿主 Box 的窗口位置与尺寸（弹窗在宿主 Box 的坐标里定位）
+    var groupPopup by remember(initial, show) { mutableStateOf(false) }
+    var groupAnchor by remember { mutableStateOf(Rect.Zero) }
+    var hostPos by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var hostWidth by remember { mutableStateOf(0) }
     AppGlassDialog(
         show = show,
         title = if (initial == null) "新建书签" else "编辑书签",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
+        // 宿主 Box：GlassPopup 把它的父 Box 当整个页面，所以弹窗叠在表单上、被限制在对话框内部
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onGloballyPositioned {
+                    hostPos = it.positionInWindow()
+                    hostWidth = it.size.width
+                },
+        ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             top.yukonga.miuix.kmp.basic.TextField(
                 value = name,
@@ -1524,65 +1396,25 @@ internal fun FavoriteEditorDialog(
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
-            // 分组按 / 分层：有层级或分组超过 3 个时用「可展开的分组树」一个菜单选到最内层；否则仍是横排标签
-            val childMap = remember(groups) { groupChildren(groups) }
+            // 分组按 / 分层：一行显示当前分组，点开在正下方弹出分组弹窗，可逐层选到最内层
             val current = group.trim().ifBlank { Favorite.GROUP_PERSONAL }
             val chipHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-            if (childMap.keys.any { it.isNotEmpty() } || groups.size > 3) {
-                GroupTreePicker(
-                    childMap = childMap,
-                    current = current,
-                    onSelect = {
-                        group = it
-                        typedGroup = ""
-                    },
-                    collapseToken = collapseToken,
-                )
-            } else {
-                Text(
-                    text = "分组",
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-                Spacer(Modifier.height(6.dp))
-                // 已有分组一点即选，免输入
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    groups.forEach { g ->
-                        val selected = g == group.trim().ifBlank { Favorite.GROUP_PERSONAL }
-                        Text(
-                            text = g,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (selected) MiuixTheme.colorScheme.primary
-                                    else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                                )
-                                .clickable {
-                                    chipHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    group = g
-                                    typedGroup = ""
-                                }
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                        )
-                    }
-                }
-            }
+            GroupSelectRow(
+                current = current,
+                open = groupPopup,
+                onClick = {
+                    chipHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    groupPopup = !groupPopup
+                },
+                onAnchor = { groupAnchor = it },
+            )
             Spacer(Modifier.height(10.dp))
             top.yukonga.miuix.kmp.basic.TextField(
                 value = typedGroup,
                 onValueChange = {
                     typedGroup = it
                     group = it
-                    collapseToken++
+                    groupPopup = false
                 },
                 modifier = Modifier.fillMaxWidth(),
                 label = "或输入/新建分组路径(以/分层)",
@@ -1622,6 +1454,24 @@ internal fun FavoriteEditorDialog(
                     role = LiquidRole.Primary,
                 )
             }
+        }
+        // 分组弹窗层：matchParentSize = 表单的大小；锚点从窗口坐标换算成宿主 Box 内坐标
+        Box(modifier = Modifier.matchParentSize()) {
+            GroupChoosePopup(
+                show = groupPopup,
+                anchorBounds = groupAnchor.translate(-hostPos),
+                pageWidthPx = hostWidth.toFloat(),
+                groups = groups,
+                current = group.trim().ifBlank { Favorite.GROUP_PERSONAL },
+                backdrop = backdrop,
+                onDismiss = { groupPopup = false },
+                onSelect = {
+                    group = it
+                    typedGroup = ""
+                    groupPopup = false
+                },
+            )
+        }
         }
     }
 }
