@@ -125,6 +125,8 @@ import androidx.compose.foundation.gestures.drag
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -392,7 +394,10 @@ fun BrowserScreen(
     var editing by remember { mutableStateOf(false) }
     var barHidden by remember { mutableStateOf(false) }
     /** 底栏被左右滑动缩小为圆形搜索钮 */
-    var barMinimized by remember { mutableStateOf(false) }
+    var barMinimized by remember { mutableStateOf(settings.barPosition == BAR_POS_MINIMIZED) }
+    // 「定制主页 → 底部导航栏位置」：靠上 / 靠下 / 始终最小化（圆钮是常态，展开后一段时间无操作自动缩回）
+    val barOnTop = settings.barPosition == BAR_POS_TOP
+    val alwaysMin = settings.barPosition == BAR_POS_MINIMIZED
     var favEditing by remember { mutableStateOf(false) }
     var showFavEditor by remember { mutableStateOf(false) }
     var showBookmarkCreate by remember { mutableStateOf(false) }
@@ -494,7 +499,16 @@ fun BrowserScreen(
         }
         editing = false
         barHidden = false
-        barMinimized = false
+        barMinimized = settings.barPosition == BAR_POS_MINIMIZED
+    }
+    // 切换到「始终最小化」立即缩成圆钮；切走则恢复完整底栏
+    LaunchedEffect(alwaysMin) { barMinimized = alwaysMin }
+    // 始终最小化：展开后（点圆钮输入网址 / 滑动展开）在不输入、没有弹层时，约 4 秒无导航变化就自动缩回
+    LaunchedEffect(alwaysMin, barMinimized, editing, sheet, tab.url, tab.loading) {
+        if (alwaysMin && !barMinimized && !editing && sheet == Sheet.None) {
+            delay(4_000)
+            barMinimized = true
+        }
     }
     // URL 发生变化时先清掉上一页标题，避免新页面加载期间地址栏继续显示旧标题。
     // WebChromeClient.onReceivedTitle 更新 tab.title 后，下面的同步逻辑会立即显示新标题。
@@ -1241,6 +1255,7 @@ fun BrowserScreen(
                         blurEnabled = settings.blurEnabled,
                         favorites = homeFavEntries.map { it.second },
                         showLogo = settings.homeShowLogo,
+                        barOnTop = barOnTop,
                         showFavorites = settings.homeShowFavorites,
                         favRows = settings.homeFavRows,
                         onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
@@ -1315,13 +1330,17 @@ fun BrowserScreen(
         // 根据地址文本长度动态调整宽度，并使用弹簧动画平滑过渡。
         BoxWithConstraints(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(if (barOnTop) Alignment.TopCenter else Alignment.BottomCenter)
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 8.dp)
-                .padding(bottom = 8.dp),
+                .then(
+                    // 靠上：状态栏下方留 12dp，键盘弹出时不跟着动；靠下：避开键盘 / 导航栏
+                    if (barOnTop) Modifier.statusBarsPadding().padding(top = 12.dp)
+                    else Modifier.imePadding().navigationBarsPadding().padding(bottom = 8.dp),
+                )
+                .padding(horizontal = 8.dp),
         ) {
+            // 收起 / 弹出动画的方向：靠下向下沉，靠上向上缩
+            val barEdgeSign = if (barOnTop) -1f else 1f
             // 按实际字体宽度计算地址栏所需空间：固定按钮区 + 地址文字 + 地址栏内边距。
             // 不设置人为最小宽度，短文字不会留下空白；只有屏幕可用宽度作为上限。
             val textMeasurer = rememberTextMeasurer()
@@ -1378,15 +1397,15 @@ fun BrowserScreen(
                     )
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 4.dp)
+                            .align(if (barOnTop) Alignment.TopCenter else Alignment.BottomCenter)
+                            .padding(top = if (barOnTop) 4.dp else 0.dp, bottom = if (barOnTop) 0.dp else 4.dp)
                             .size(48.dp)
-                            .pointerInput(tab.id) {
+                            .pointerInput(tab.id, barOnTop) {
                                 detectDragGestures(
                                     onDrag = { change, dragAmount ->
                                         hDragDistance += dragAmount.x
-                                        // 再次左右滑或上滑可展开
-                                        if (kotlin.math.abs(hDragDistance) > 72f || dragAmount.y < -40f) {
+                                        // 再次左右滑，或朝屏幕中间滑（靠下上滑 / 靠上下滑）可展开
+                                        if (kotlin.math.abs(hDragDistance) > 72f || dragAmount.y * barEdgeSign < -40f) {
                                             barMinimized = false
                                             hDragDistance = 0f
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1398,11 +1417,11 @@ fun BrowserScreen(
                                 )
                             }
                             .graphicsLayer {
-                                translationY = hide * 210.dp.toPx()
+                                translationY = barEdgeSign * hide * 210.dp.toPx()
                                 alpha = (1f - hide) * circleScale
                                 scaleX = circleScale
                                 scaleY = circleScale
-                                transformOrigin = TransformOrigin(0.5f, 1f)
+                                transformOrigin = TransformOrigin(0.5f, if (barOnTop) 0f else 1f)
                             }
                             .clickable {
                                 barMinimized = false
@@ -1434,15 +1453,20 @@ fun BrowserScreen(
                 } else {
                 Column(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(if (barOnTop) Alignment.TopCenter else Alignment.BottomCenter)
                         .width(animatedBarWidth)
-                        // 在底栏上向下滑动主动收起；左右滑动缩小为搜索圆钮。
+                        // 在底栏上朝屏幕边缘滑动（靠下向下 / 靠上向上）主动收起；左右滑动缩小为搜索圆钮；
+                        // 朝屏幕中间快速一扫（靠下快速上扫 / 靠上快速下扫）把底栏换到另一侧并记进设置。
                         // 编辑地址时不挂这组手势：横向拖动要留给输入框（移动光标 / 滚动文字），
                         // 否则累计 72px 就会把底栏缩成圆钮，向下拖还会收起底栏
-                        .pointerInput(tab.id, barHidden, editing) {
+                        .pointerInput(tab.id, barHidden, editing, barOnTop, alwaysMin) {
                             if (editing) return@pointerInput
+                            val tracker = VelocityTracker()
+                            val flingPx = 1_200.dp.toPx()
                             detectDragGestures(
+                                onDragStart = { tracker.resetTracking() },
                                 onDrag = { change, dragAmount ->
+                                    tracker.addPosition(change.uptimeMillis, change.position)
                                     if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
                                         hDragDistance += dragAmount.x
                                         if (kotlin.math.abs(hDragDistance) > 72f) {
@@ -1452,7 +1476,8 @@ fun BrowserScreen(
                                             change.consume()
                                         }
                                     } else {
-                                        dragDistance += dragAmount.y
+                                        // 统一成「朝屏幕边缘为正」，靠上时方向取反
+                                        dragDistance += dragAmount.y * barEdgeSign
                                         // 提高竖向隐藏阈值，降低误触
                                         if (dragDistance > 56f && !barHidden) {
                                             barHidden = true
@@ -1466,6 +1491,16 @@ fun BrowserScreen(
                                     }
                                 },
                                 onDragEnd = {
+                                    // 快速朝屏幕中间一扫：换到另一侧（「始终最小化」下不换，位置由设置决定）
+                                    if (!alwaysMin) {
+                                        val v = tracker.calculateVelocity()
+                                        val towardCenter = v.y * barEdgeSign < -flingPx &&
+                                            kotlin.math.abs(v.y) > kotlin.math.abs(v.x) * 1.5f
+                                        if (towardCenter) {
+                                            settings.updateBarPosition(if (barOnTop) BAR_POS_BOTTOM else BAR_POS_TOP)
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    }
                                     dragDistance = 0f
                                     hDragDistance = 0f
                                 },
@@ -1476,7 +1511,7 @@ fun BrowserScreen(
                             )
                         }
                         .graphicsLayer {
-                            translationY = hide * 210.dp.toPx()
+                            translationY = barEdgeSign * hide * 210.dp.toPx()
                             alpha = 1f - hide
                             val s = 1f - 0.08f * hide
                             scaleX = s

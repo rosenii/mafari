@@ -41,6 +41,12 @@ const val HOME_MODE_DEFAULT = 0
 const val HOME_MODE_NEW_TAB = 1
 const val HOME_MODE_CUSTOM = 2
 
+/** 「定制主页 → 底部导航栏位置」：数值写进 SharedPreferences，不要改 */
+const val BAR_POS_TOP = 0
+const val BAR_POS_BOTTOM = 1
+const val BAR_POS_MINIMIZED = 2
+
+private const val PREF_BAR_POSITION = "bar_position"
 private const val PREF_HOME_MODE = "home_mode"
 private const val PREF_HOME_CUSTOM_URL = "home_custom_url"
 
@@ -148,6 +154,15 @@ class AppSettings(context: Context) {
         private set
     var homeCustomUrl by mutableStateOf(readHomeCustomUrl(context))
         private set
+
+    /** 底部导航栏位置：靠上 / 靠下（默认）/ 始终最小化。快速上扫 / 下扫底栏也会改这里 */
+    var barPosition by mutableStateOf(prefs.getInt(PREF_BAR_POSITION, BAR_POS_BOTTOM).coerceIn(BAR_POS_TOP, BAR_POS_MINIMIZED))
+        private set
+
+    fun updateBarPosition(pos: Int) {
+        barPosition = pos.coerceIn(BAR_POS_TOP, BAR_POS_MINIMIZED)
+        prefs.edit().putInt(PREF_BAR_POSITION, barPosition).apply()
+    }
 
     fun updateHomeMode(mode: Int) {
         homeMode = mode.coerceIn(HOME_MODE_DEFAULT, HOME_MODE_CUSTOM)

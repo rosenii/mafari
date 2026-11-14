@@ -128,13 +128,14 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | --- | --- |
 | `CipherSuite.kt` | 套件注册表 `CipherSuites`、`Envelope`、`KeyProvider`。**套件号发布后永不复用 / 不改格式；淘汰的套件不删，只改 `DEFAULT_ID`** |
 | `CryptoEngine.kt` | `EncryptionEngine`（seal / open / reseal）、`AndroidKeyVault`（Keystore）、`SecureStore`（按 `PURPOSE_*` 加密小字符串：库密钥、WebDAV 密码、Git 令牌 / 私钥、默认口令…） |
-| `Backup.kt` | `BackupFormat`（`.mfbak`，文件头记录套件与 Argon2id 参数，写最新版读所有版本）、`BackupCategory`（书签 / 历史 / 设置 / 脚本 / 脚本数据 / 去广告 / Cookie）、`BackupManager`（收集与恢复） |
+| `Backup.kt` | `BackupFormat`（`.mfbak`，文件头记录套件与 Argon2id 参数，写最新版读所有版本）、`BackupCategory`（书签 / 历史 / 标签列表 / 设置 / 脚本 / 脚本数据 / 去广告 / Cookie）、`BackupManager`（收集与恢复） |
 | `WebDav.kt` / `GitSync.kt` | 云同步：WebDAV（OkHttp，强制 HTTP/1.1，上传后读回大小校验，留 10 份）/ Git（JGit + JSch，令牌或 Deploy key，只留最近 10 个提交并强推） |
 | `BackupAuto.kt` | 自动推送：启动时到期则推送到当前连接及开启「一并同步」的目标 |
 | `BiometricGate.kt` | 查看 / 修改默认口令、每次恢复前的身份验证 |
 | `BackupScreen.kt` | 备份页 UI（约 1800 行） |
 | `WebViewCookies.kt` / `CookieControl.kt` | Cookie 导出导入（WebView 读 Chromium Cookie 库副本；Gecko 经内置拓展）与清理 |
 
+- 标签列表（`tabs/list` 单元）：`TabDb.exportJson` 导出（含缩略图 base64 + Gecko 会话状态），`prepareRestore` 里先 `parseBackup` 校验，`applyRestore` 调 `TabDb.restoreAll` 在 `HistoryDb.io` 上单事务整表替换，并置 `TabDb.frozen` 让 `sync / saveThumb / saveState` 停写（否则界面里还活着的旧标签会把恢复的列表覆盖回去；进程随后重启）。
 - 恢复**只覆盖备份里有数据的类别**，没选 / 为空的类别保持原样。
 - 备份里设备上是密文的键必须存**明文**（再由备份信封加密），否则换机无法恢复（`BackupManager.DEVICE_ENCRYPTED`）；已迁到 DB 的数据走 DB 导出（`DB_BACKED`）。
 - 新增要进备份的设置：加入 `BackupManager.PREFS` 并在 `categoryOf` 里归类。
@@ -196,7 +197,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | 想改 | 先看 |
 | --- | --- |
 | 标签切换 / 恢复 / 回收策略 | `BrowserState`（`activate` / `restoreSavedTabs` / `reclaimEngines`）、`BrowserTab`（`discardEngine` / `loadPending`）、`TabDb` |
-| 地址栏 / 底栏 / 手势 | `BrowserBottomBar`、`BrowserScreen` |
+| 地址栏 / 底栏 / 手势（底栏位置 `AppSettings.barPosition`：靠上 / 靠下 / 始终最小化；快速朝屏幕中间一扫换边） | `BrowserBottomBar`、`BrowserScreen` |
 | 主页（收藏 / 隐私报告 / 排序） | `HomeScreen`、`Favorites.kt`、`BookmarkDb` |
 | 更多面板 / 菜单项 | `BrowserMenuPanels`、`MenuActions` |
 | 设置项 | `AppSettings`、`SettingsScreen` 及各子页（路由在 `AppRoute`） |

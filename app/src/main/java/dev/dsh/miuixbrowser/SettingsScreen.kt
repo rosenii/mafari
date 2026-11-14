@@ -745,6 +745,16 @@ fun SettingsScreen(
                         )
                     }
                     AppDropdownPreference(
+                        title = "底部导航栏位置",
+                        items = listOf("靠上", "靠下", "始终最小化"),
+                        // 选项顺序与 BAR_POS_* 数值一致
+                        selectedIndex = settings.barPosition.coerceIn(0, 2),
+                        onSelectedIndexChange = { settings.updateBarPosition(it) },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                    AppDropdownPreference(
                         title = "LOGO 标识",
                         items = listOf("显示", "隐藏"),
                         selectedIndex = if (settings.homeShowLogo) 0 else 1,
@@ -1115,7 +1125,12 @@ private fun homeContentSummary(settings: AppSettings): String {
         if (settings.homeShowRecent) add("最近浏览")
         if (settings.homeShowDownloads) add("下载项")
     }
-    val mode = when (settings.homeMode) {
+    val bar = when (settings.barPosition) {
+        BAR_POS_TOP -> "导航栏靠上 · "
+        BAR_POS_MINIMIZED -> "导航栏最小化 · "
+        else -> ""
+    }
+    val mode = bar + when (settings.homeMode) {
         HOME_MODE_NEW_TAB -> "主页按钮：新建标签页 · "
         HOME_MODE_CUSTOM -> "指定页面 · "
         else -> ""

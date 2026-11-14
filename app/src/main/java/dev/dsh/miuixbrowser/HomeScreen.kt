@@ -386,6 +386,8 @@ internal fun StartPage(
     geckoMode: Boolean = false,
     /** 首页顶部的 LOGO 标识 */
     showLogo: Boolean = true,
+    /** 底部导航栏被设为靠上：首页内容顶部让出栏的位置，底部不再留栏的空间 */
+    barOnTop: Boolean = false,
 ) {
     val density = LocalDensity.current
     val gapPx = with(density) { 14.dp.toPx() }
@@ -454,7 +456,8 @@ internal fun StartPage(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
-                .padding(top = 44.dp, bottom = 150.dp),
+                // 底栏在上方时（浮在状态栏下 ≈ 70dp）顶部让位，底部不用再留底栏的空间
+                .padding(top = if (barOnTop) 114.dp else 44.dp, bottom = if (barOnTop) 40.dp else 150.dp),
         ) {
             if (showLogo) {
                 Row(
