@@ -16,16 +16,19 @@ import android.webkit.WebChromeClient
 import android.widget.EditText
 import android.widget.LinearLayout
 import org.mozilla.geckoview.AllowOrDeny
+import org.mozilla.geckoview.Autocomplete
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSession.PromptDelegate
 import java.io.File
 import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Gecko 的网页弹层（GeckoView 自己不画任何界面，全部交给 PromptDelegate）：
- * JS alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、拦截弹窗、文件选择 / 拍照。
+ * JS alert / confirm / prompt、`<select>` 下拉、HTTP / 代理认证、日期时间、拦截弹窗、文件选择 / 拍照，
+ * 以及网页登录的「保存密码」提示和「选择要填的账号」（存储端见 [GeckoLogins]）。
  *
  * - 文件选择：包装成 WebView 版同一套 [WebChromeClient.FileChooserParams] + 回调，交给界面层现有的
  *   「系统选择器 / 相机」流程（`BrowserTab.onShowFileChooser`），不重复实现。
@@ -55,6 +58,91 @@ class GeckoPromptHandler(
     }
 
     private fun dp(ctx: Context, v: Int) = (v * ctx.resources.displayMetrics.density).toInt()
+
+    // ---------------------------------------------------------------- 登录：保存提示 / 选择要填的账号
+    //
+    // 两个 prompt 都是异步的：先在 GeckoLogins 的 io 线程判断 / 验证，再回主线程弹框，用 [done] 保证只回应一次
+    // （对话框的按钮、取消、验证失败可能先后触发）。
+
+    override fun onLoginSave(
+        session: GeckoSession,
+        prompt: PromptDelegate.AutocompleteRequest<Autocomplete.LoginSaveOption>,
+    ): GeckoResult<PromptDelegate.PromptResponse>? {
+        val appCtx = activity?.applicationContext
+        val option = prompt.options.firstOrNull()
+        // 关了保存 / 无痕标签页 / 没有可用界面：当作「不保存」，不打扰
+        if (option == null || appCtx == null || tab.incognito || !PasswordPrefs.saveEnabled(appCtx)) {
+            return GeckoResult.fromValue(prompt.dismiss())
+        }
+        val result = GeckoResult<PromptDelegate.PromptResponse>()
+        val done = AtomicBoolean(false)
+        fun finish(r: PromptDelegate.PromptResponse) {
+            if (done.compareAndSet(false, true)) result.complete(r)
+        }
+        GeckoLogins.runIo {
+            val decision = runCatching { GeckoLogins.decide(appCtx, option.value) }.getOrNull()
+            Handler(Looper.getMainLooper()).post {
+                // 不能保存 / 已存且密码没变：不弹
+                if (decision == null || decision.kind == GeckoLogins.SaveKind.SAME) {
+                    finish(prompt.dismiss())
+                    return@post
+                }
+                val update = decision.kind == GeckoLogins.SaveKind.UPDATE
+                val who = decision.entry.username.ifEmpty { "（无用户名）" }
+                val shown = show { b ->
+                    b.setTitle(if (update) "更新密码？" else "保存密码？")
+                    b.setMessage(PasswordCsv.displayHost(decision.entry.origin) + "\n" + who + "\n\n密码会加密保存在本机")
+                    b.setPositiveButton(if (update) "更新" else "保存") { _, _ ->
+                        // Gecko 确认后也会回调存储委托；这里先直接写一遍，库的合并是幂等的，不会重复
+                        GeckoLogins.runIo { GeckoLogins.save(appCtx, decision.entry) }
+                        finish(prompt.confirm(option))
+                    }
+                    b.setNegativeButton("不保存") { _, _ -> finish(prompt.dismiss()) }
+                    b.setOnCancelListener { finish(prompt.dismiss()) }
+                }
+                if (!shown) finish(prompt.dismiss())
+            }
+        }
+        return result
+    }
+
+    override fun onLoginSelect(
+        session: GeckoSession,
+        prompt: PromptDelegate.AutocompleteRequest<Autocomplete.LoginSelectOption>,
+    ): GeckoResult<PromptDelegate.PromptResponse>? {
+        val act = activity
+        val appCtx = act?.applicationContext
+        val options = prompt.options
+        if (act == null || appCtx == null || options.isEmpty() || !PasswordPrefs.fillEnabled(appCtx)) {
+            return GeckoResult.fromValue(prompt.dismiss())
+        }
+        val result = GeckoResult<PromptDelegate.PromptResponse>()
+        val done = AtomicBoolean(false)
+        fun finish(r: PromptDelegate.PromptResponse) {
+            if (done.compareAndSet(false, true)) result.complete(r)
+        }
+        fun pick(option: Autocomplete.LoginSelectOption) {
+            if (PasswordPrefs.verifyBeforeFill(appCtx)) {
+                BiometricGate.authenticate(act, "验证身份", "验证后才会填入账号和密码") { ok ->
+                    finish(if (ok) prompt.confirm(option) else prompt.dismiss())
+                }
+            } else {
+                finish(prompt.confirm(option))
+            }
+        }
+        val labels = options.map { o ->
+            val l = o.value
+            l.username.orEmpty().ifEmpty { "（无用户名）" } + "\n" + PasswordCsv.displayHost(l.origin.orEmpty())
+        }.toTypedArray<CharSequence>()
+        val shown = show { b ->
+            b.setTitle("填充登录信息")
+            b.setItems(labels) { _, i -> pick(options[i]) }
+            b.setNegativeButton("取消") { _, _ -> finish(prompt.dismiss()) }
+            b.setOnCancelListener { finish(prompt.dismiss()) }
+        }
+        if (!shown) finish(prompt.dismiss())
+        return result
+    }
 
     // ---------------------------------------------------------------- alert / confirm / prompt
 

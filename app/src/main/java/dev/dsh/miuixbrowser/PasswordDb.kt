@@ -119,6 +119,30 @@ internal object PasswordDb {
         return readFull(context, db, "WHERE guid=?", arrayOf(guid), upgrade = true).firstOrNull()
     }
 
+    // ------------------------------------------------------------------ 自动填充（Gecko 登录存储 / 保存提示用）
+
+    /**
+     * 站点匹配 [host]（规则见 [PasswordAutofill.hostMatches]）的记录，含密码。
+     * 先只读元数据挑出匹配的几条，再只解开这几条；解不开的跳过。
+     */
+    fun candidatesForHost(context: Context, db: SQLiteDatabase, host: String): List<PasswordEntry> {
+        val guids = list(db).filter { PasswordAutofill.hostMatches(it.origin, host) }.map { it.guid }.take(200)
+        if (guids.isEmpty()) return emptyList()
+        return readFull(context, db, "WHERE guid IN (" + guids.joinToString(",") { "?" } + ")", guids.toTypedArray(), upgrade = true)
+    }
+
+    /** 同站点 + 同用户名 + 同认证域的已存记录（含密码）；没有返回 null。保存提示据此区分「新增 / 更新 / 已存在」。 */
+    fun findSaved(context: Context, db: SQLiteDatabase, origin: String, username: String, httpRealm: String?): PasswordEntry? =
+        readFull(
+            context, db, "WHERE origin=? AND username=? AND COALESCE(http_realm,'')=? LIMIT 1",
+            arrayOf(origin, username, httpRealm.orEmpty()), upgrade = false,
+        ).firstOrNull()
+
+    /** 填充后记一次使用。只改使用统计、不动 sync_status：用了一次不值得为它再上传一遍。 */
+    fun markUsed(db: SQLiteDatabase, guid: String, now: Long = System.currentTimeMillis()) {
+        db.execSQL("UPDATE passwords SET time_last_used=?, times_used=times_used+1 WHERE guid=?", arrayOf<Any?>(now, guid))
+    }
+
     private fun readFull(context: Context, db: SQLiteDatabase, where: String, args: Array<String>, upgrade: Boolean): List<PasswordEntry> {
         val out = ArrayList<PasswordEntry>()
         val upgrades = ArrayList<Pair<String, String>>()

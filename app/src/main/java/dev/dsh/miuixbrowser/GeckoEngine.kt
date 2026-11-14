@@ -64,6 +64,7 @@ object GeckoRuntimeHolder {
             CookieControl.pushGecko(context)
             GeckoSitePerms.load(context)
             GeckoSitePerms.pushAutoplay()
+            GeckoLogins.install(created, context) // 网页登录的存储端（密码库）+ 自动填充开关
             runCatching { created.setWebNotificationDelegate(GeckoWebNotifications(context.applicationContext)) }
             GeckoDebug.pushPrefs()
             FloccusPatcher.applyOnStartup(context) // 装过改包版 Floccus：保持签名校验关闭

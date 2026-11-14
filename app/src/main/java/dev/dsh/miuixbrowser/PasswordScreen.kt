@@ -73,7 +73,7 @@ private class ImportReport(val title: String, val lines: List<String>, val succe
  * 设置 → 隐私与安全 → 密码。
  *
  * 功能：从其他浏览器 / 密码管理器导出的 CSV 导入、加密存储（见 [PasswordDb]）、Firefox 同步（gecko / sync_lite 版，见 [FxaPasswordBridge]）。
- * 「保存密码 / 自动填充 / 填充前验证身份」只有界面框架（开关置灰），具体功能后续再接。
+ * 「保存密码 / 自动填充 / 填充前验证身份」三个开关见 [PasswordPrefs]，生效在 Gecko 标签页（[GeckoLogins] / [GeckoPromptHandler]）。
  * 查看 / 复制密码要先通过系统验证（生物识别或锁屏密码）；本页显示期间禁止截屏 / 录屏。
  */
 @Composable
@@ -100,6 +100,10 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
     var confirmDelete by remember { mutableStateOf<PasswordDb.Item?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var fxaSyncing by remember { mutableStateOf(false) }
+    var saveOn by remember { mutableStateOf(PasswordPrefs.saveEnabled(context)) }
+    var fillOn by remember { mutableStateOf(PasswordPrefs.fillEnabled(context)) }
+    var verifyOn by remember { mutableStateOf(PasswordPrefs.verifyBeforeFill(context)) }
+    val autofillAvailable = EngineSupport.GECKO_BUNDLED // 只有 Gecko 内核的标签页接了；无内核版开关置灰
 
     // 本页显示期间禁止截屏 / 录屏（页面上会出现站点、用户名，点开还会出现明文密码）
     DisposableEffect(context) {
@@ -187,30 +191,39 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    // ① 功能开关：只有界面框架，具体实现后续再接
+                    // ① 功能开关（只作用于 Gecko 内核的标签页；系统 WebView 的网页仍用系统自动填充服务）
                     item {
                         SmallTitle(text = "自动填充")
                         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                             AppSwitchPreference(
                                 title = "保存密码",
-                                summary = "登录成功后询问是否保存 · 即将支持",
-                                checked = false,
-                                onCheckedChange = {},
-                                enabled = false,
+                                summary = if (autofillAvailable) "登录后询问是否保存或更新 · 无痕标签页不保存" else "仅 Gecko 内核可用",
+                                checked = saveOn && autofillAvailable,
+                                onCheckedChange = {
+                                    saveOn = it
+                                    PasswordPrefs.set(context, PasswordPrefs.KEY_SAVE, it)
+                                },
+                                enabled = autofillAvailable,
                             )
                             AppSwitchPreference(
                                 title = "自动填充",
-                                summary = "在登录框里填入已保存的账号和密码 · 即将支持",
-                                checked = false,
-                                onCheckedChange = {},
-                                enabled = false,
+                                summary = if (autofillAvailable) "点登录框时选择已保存的账号并填入" else "仅 Gecko 内核可用",
+                                checked = fillOn && autofillAvailable,
+                                onCheckedChange = {
+                                    fillOn = it
+                                    PasswordPrefs.set(context, PasswordPrefs.KEY_FILL, it)
+                                },
+                                enabled = autofillAvailable,
                             )
                             AppSwitchPreference(
                                 title = "填充前验证身份",
-                                summary = "填入密码前先通过生物识别或锁屏密码 · 即将支持",
-                                checked = true,
-                                onCheckedChange = {},
-                                enabled = false,
+                                summary = "填入密码前先通过生物识别或锁屏密码",
+                                checked = verifyOn,
+                                onCheckedChange = {
+                                    verifyOn = it
+                                    PasswordPrefs.set(context, PasswordPrefs.KEY_VERIFY, it)
+                                },
+                                enabled = autofillAvailable && fillOn,
                             )
                         }
                     }

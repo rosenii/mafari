@@ -94,6 +94,7 @@ On top of the No-Engine Edition, it bundles **GeckoView Nightly** (arm64-v8a onl
 - **Gecko advanced protection** (Settings → Advanced): Enhanced Tracking Protection (off / standard / strict), URL tracking-parameter stripping, bounce-tracking protection, periodic tracker-data purge, fingerprinting protection and resist-fingerprinting, GPC / DNT, trimmed Referer, WebRTC IP-leak protection, strict first-party isolation, HTTPS-only, secure DNS (DoH), ECH, disabling prefetch / preconnect, disabling WebGL, with one-tap reset to defaults
 - **Default font follows the system font** (Settings → Advanced → Gecko debug): detects the font Android actually uses (including vendor theme fonts) and makes Gecko's default font follow it; fonts a page specifies itself are untouched; restart the app after changing the system font
 - **System autofill**: username / password fields in Gecko tabs can bring up the system autofill service (e.g. Google Password Manager)
+- **Built-in password saving & autofill** (Gecko): asks to save / update after login, lets you pick an account when tapping a login field, optionally requires identity verification before filling; shares the same encrypted store as the Passwords page and Firefox Sync
 - **Gecko debug**: USB remote debugging, `about:config`, rendering info, runtime log, and more
 
 ### Differences from the No-Engine Edition
