@@ -146,8 +146,15 @@ internal object FxaSync {
             syncing = false
             lastMessage = "同步完成"
             scope.launch {
-                runCatching { FxaBookmarkBridge.reconcile(appContext) }
-                runCatching { FxaHistoryBridge.reconcile(appContext) }
+                // 合并失败不再静默：同步完成但本地合并出错时，如实告诉用户
+                val failed = listOf(
+                    "书签" to runCatching { FxaBookmarkBridge.reconcile(appContext) },
+                    "历史记录" to runCatching { FxaHistoryBridge.reconcile(appContext) },
+                ).filter { it.second.isFailure }
+                if (failed.isNotEmpty()) {
+                    lastMessage = "同步完成，但" + failed.joinToString("、") { it.first } + "合并失败：" +
+                        (failed.first().second.exceptionOrNull()?.message ?: "未知错误")
+                }
                 refreshDevices()
             }
         }

@@ -209,6 +209,18 @@ internal object HistoryDb {
         }
     }
 
+    /** 按时间升序取 time >= [since] 的最多 [limit] 条（同步推送用：游标式分批，不丢记录）。 */
+    fun queryFrom(db: SQLiteDatabase, since: Long, limit: Int): List<HistoryEntry> {
+        db.rawQuery(
+            "SELECT url,title,time FROM history WHERE time>=? ORDER BY time ASC, url ASC LIMIT $limit",
+            arrayOf(since.toString()),
+        ).use { c ->
+            val out = ArrayList<HistoryEntry>(minOf(limit, 512))
+            while (c.moveToNext()) out.add(HistoryEntry(c.getString(0), c.getString(1), c.getLong(2)))
+            return out
+        }
+    }
+
     /** 全部历史导出成旧格式的 JSON 数组（备份用：备份里始终是明文 JSON，再由备份自己的信封加密）；没有记录返回 null。 */
     fun exportJson(context: Context): String? {
         val db = get(context) ?: return null
