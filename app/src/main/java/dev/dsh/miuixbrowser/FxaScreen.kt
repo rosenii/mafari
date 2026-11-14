@@ -42,7 +42,7 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 备份与同步 → Firefox账户同步。未登录时直接进入内嵌的 Mozilla 账号登录页（页面内 WebView，回调由 [FxaSync.interceptRedirect] 截获）。 */
+/** 备份与同步 → Firefox帐户同步。未登录时直接进入内嵌的 Mozilla 账号登录页（页面内 WebView，回调由 [FxaSync.interceptRedirect] 截获）。 */
 @Composable
 fun FxaScreen(
     onBack: () -> Unit,
@@ -109,7 +109,7 @@ fun FxaScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "Firefox账户同步",
+                    title = "Firefox帐户同步",
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,

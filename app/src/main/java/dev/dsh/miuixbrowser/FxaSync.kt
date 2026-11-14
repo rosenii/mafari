@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Firefox 账户同步页的 UI 状态。 */
+/** Firefox 帐户同步页的 UI 状态。 */
 sealed interface FxaUi {
     data object Loading : FxaUi
     data object SignedOut : FxaUi
@@ -144,6 +144,24 @@ internal object FxaSync {
         syncOnce()
     }
 
+    /** 等待本轮同步结束的人（[syncAndReport]）；同步结束 / 失败时给它结果文案。 */
+    @Volatile private var waiter: kotlinx.coroutines.CompletableDeferred<String>? = null
+
+    /**
+     * 立即同步，等结果出来再返回给界面显示（toast）。同步由 Firefox 引擎完成，随后对账密码（[FxaPasswordBridge]）。
+     * 为了不依赖库里「只同步某个引擎」的接口签名，这里同步的是全部类别，文案只汇报密码。
+     */
+    suspend fun syncAndReport(): String {
+        if (ui !is FxaUi.SignedIn) return "未登录"
+        if (syncing) return "正在同步中，请稍候"
+        val w = kotlinx.coroutines.CompletableDeferred<String>()
+        waiter = w
+        syncNow()
+        val r = withTimeoutOrNull(90_000) { w.await() }
+        if (r == null) waiter = null
+        return r ?: "同步超时，请稍后重试"
+    }
+
     private fun syncOnce() {
         scope.launch {
             runCatching { localTabs?.invoke()?.let { FxaApi.storeLocalTabs(it) } }
@@ -223,20 +241,39 @@ internal object FxaSync {
             lastMessage = "同步完成"
             scope.launch {
                 // 合并失败不再静默：同步完成但本地合并出错时，如实告诉用户
+                val pw = runCatching { FxaPasswordBridge.reconcile(appContext) }
                 val failed = listOf(
                     "书签" to runCatching { FxaBookmarkBridge.reconcile(appContext) },
                     "历史记录" to runCatching { FxaHistoryBridge.reconcile(appContext) },
-                    "密码" to runCatching { FxaPasswordBridge.reconcile(appContext) },
+                    "密码" to pw,
                 ).filter { it.second.isFailure }
                 if (failed.isNotEmpty()) {
                     lastMessage = "同步完成，但" + failed.joinToString("、") { it.first } + "合并失败：" +
                         (failed.first().second.exceptionOrNull()?.message ?: "未知错误")
                 }
+                val r = pw.getOrNull()
+                waiter?.complete(
+                    when {
+                        pw.isFailure -> "密码同步失败：" + (pw.exceptionOrNull()?.message ?: "未知错误")
+                        r == null || (r.pulled == 0 && r.pushed == 0 && r.deletedRemote == 0) -> "密码已是最新"
+                        else -> "密码同步完成：" + listOfNotNull(
+                            r.pulled.takeIf { it > 0 }?.let { "收到 $it 条" },
+                            r.pushed.takeIf { it > 0 }?.let { "发出 $it 条" },
+                            r.deletedRemote.takeIf { it > 0 }?.let { "服务器已删除 $it 条" },
+                        ).joinToString("，")
+                    },
+                )
+                waiter = null
                 refreshDevices()
                 refreshSynced()
             }
         }
-        override fun onSyncError(message: String?) { syncing = false; lastMessage = "同步失败：$message" }
+        override fun onSyncError(message: String?) {
+            syncing = false
+            lastMessage = "同步失败：$message"
+            waiter?.complete("同步失败：${message ?: "未知错误"}")
+            waiter = null
+        }
         override fun onTabReceived(from: String, title: String, url: String) {
             receivedTabs = receivedTabs + Incoming(from, title, url)
         }

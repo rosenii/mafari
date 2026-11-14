@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -49,7 +52,9 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -67,12 +72,12 @@ private class ImportReport(val title: String, val lines: List<String>, val succe
 /**
  * 设置 → 隐私与安全 → 密码。
  *
- * 本期实现：从其他浏览器 / 密码管理器导出的 CSV 导入、加密存储（见 [PasswordDb]）、Firefox 同步记录的数据格式（见 [PasswordSyncFormat]）。
+ * 功能：从其他浏览器 / 密码管理器导出的 CSV 导入、加密存储（见 [PasswordDb]）、Firefox 同步（gecko / sync_lite 版，见 [FxaPasswordBridge]）。
  * 「保存密码 / 自动填充 / 填充前验证身份」只有界面框架（开关置灰），具体功能后续再接。
  * 查看 / 复制密码要先通过系统验证（生物识别或锁屏密码）；本页显示期间禁止截屏 / 录屏。
  */
 @Composable
-fun PasswordScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
+fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Boolean = true) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -94,6 +99,7 @@ fun PasswordScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     var shownPassword by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf<PasswordDb.Item?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    var fxaSyncing by remember { mutableStateOf(false) }
 
     // 本页显示期间禁止截屏 / 录屏（页面上会出现站点、用户名，点开还会出现明文密码）
     DisposableEffect(context) {
@@ -102,7 +108,8 @@ fun PasswordScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
-    LaunchedEffect(refresh) {
+    // 同步（Firefox 密码）拉下来 / 推出去后本地记录会变：PasswordDb.version 变化也重新读取
+    LaunchedEffect(refresh, PasswordDb.version) {
         loaded = withContext(Dispatchers.IO) { HistoryDb.get(context)?.let { PasswordDb.list(it) } ?: emptyList() }
     }
 
@@ -124,6 +131,18 @@ fun PasswordScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                 val e = withContext(Dispatchers.IO) { HistoryDb.get(context)?.let { PasswordDb.reveal(context, it, guid) } }
                 if (e == null) Toast.makeText(context, "无法解密这条密码（密钥已失效或数据损坏）", Toast.LENGTH_LONG).show() else block(e)
             }
+        }
+    }
+
+    /** 点同步行右侧刷新：同步并 toast 结果。 */
+    fun syncFirefox() {
+        if (!EngineSupport.SYNC_BUNDLED || fxaSyncing) return
+        scope.launch {
+            fxaSyncing = true
+            val msg = FxaSync.syncAndReport()
+            fxaSyncing = false
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            refresh++
         }
     }
 
@@ -207,13 +226,33 @@ fun PasswordScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                     if (!importing) picker.launch(arrayOf("text/csv", "text/comma-separated-values", "application/csv", "text/plain", "application/vnd.ms-excel", "*/*"))
                                 },
                             )
-                            ArrowPreference(
-                                title = "Firefox 同步",
-                                summary = "密码记录格式已支持，同步功能将在后续版本接入",
-                                onClick = {
-                                    Toast.makeText(context, "Firefox 密码同步暂未接入：目前只支持数据格式", Toast.LENGTH_SHORT).show()
-                                },
-                            )
+                            if (EngineSupport.SYNC_BUNDLED) {
+                                val fxa = FxaSync.ui
+                                val signedIn = fxa as? FxaUi.SignedIn
+                                if (signedIn != null) {
+                                    // 已登录：右侧是刷新图标，点它同步 Firefox 密码并 toast 结果
+                                    BasicComponent(
+                                        title = "Firefox 同步",
+                                        summary = "已登录" + signedIn.email.takeIf { it.isNotBlank() }?.let { "•$it" }.orEmpty(),
+                                        endActions = {
+                                            Icon(
+                                                imageVector = AppIcons.Refresh,
+                                                contentDescription = "同步 Firefox 密码",
+                                                modifier = Modifier.size(22.dp),
+                                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = if (fxaSyncing || FxaSync.syncing) 0.4f else 1f),
+                                            )
+                                        },
+                                        onClick = { syncFirefox() },
+                                        enabled = !fxaSyncing && !FxaSync.syncing,
+                                    )
+                                } else {
+                                    ArrowPreference(
+                                        title = "Firefox 同步",
+                                        summary = "未登录，点击前往Firefox帐户同步页登录",
+                                        onClick = onOpenFxa,
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -340,38 +379,38 @@ fun PasswordScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     onDismissRequest = { detail = null; shownPassword = null },
                 ) {
                     if (d != null) Column(Modifier.fillMaxWidth()) {
-                        DetailLine("用户名", d.username.ifEmpty { "（无）" })
-                        DetailLine("密码", shownPassword ?: "••••••••••")
+                        // 用户名：右侧复制（不需要验证）
+                        DetailLine(
+                            label = "用户名",
+                            value = d.username.ifEmpty { "（无）" },
+                        ) {
+                            if (d.username.isNotEmpty()) DetailIconButton(AppIcons.Copy, "复制用户名") { copySecret(context, "用户名", d.username) }
+                        }
+                        // 密码：右侧「眼睛 + 复制」，显示和复制都要先通过生物验证；眼睛闭合 = 已隐藏，睁开 = 已显示，点一下切换
+                        DetailLine(
+                            label = "密码",
+                            value = shownPassword ?: "••••••••••",
+                        ) {
+                            DetailIconButton(if (shownPassword != null) AppIcons.Eye else AppIcons.EyeOff, if (shownPassword != null) "隐藏密码" else "显示密码") {
+                                if (shownPassword != null) shownPassword = null
+                                else withSecret(d.guid) { shownPassword = it.password }
+                            }
+                            DetailIconButton(AppIcons.Copy, "复制密码") {
+                                withSecret(d.guid) { copySecret(context, "密码", it.password, sensitive = true) }
+                            }
+                        }
                         if (d.timePasswordChanged > 0) DetailLine("修改时间", formatTime(d.timePasswordChanged))
                         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            AppDialogButton(
-                                onClick = { copySecret(context, "用户名", d.username) },
-                                modifier = Modifier.weight(1f),
-                                enabled = d.username.isNotEmpty(),
-                            ) { Text(text = "复制用户名", style = MiuixTheme.textStyles.button) }
-                            AppDialogButton(
-                                onClick = { withSecret(d.guid) { copySecret(context, "密码", it.password, sensitive = true) } },
-                                modifier = Modifier.weight(1f),
-                            ) { Text(text = "复制密码", style = MiuixTheme.textStyles.button) }
-                        }
-                        Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            AppDialogButton(
-                                onClick = {
-                                    if (shownPassword != null) shownPassword = null
-                                    else withSecret(d.guid) { shownPassword = it.password }
-                                },
-                                modifier = Modifier.weight(1f),
-                            ) { Text(text = if (shownPassword != null) "隐藏密码" else "显示密码", style = MiuixTheme.textStyles.button) }
                             AppDialogButton(
                                 onClick = { confirmDelete = d },
                                 modifier = Modifier.weight(1f),
                             ) { Text(text = "删除", style = MiuixTheme.textStyles.button, color = MiuixTheme.colorScheme.error) }
+                            AppDialogButton(
+                                onClick = { detail = null; shownPassword = null },
+                                modifier = Modifier.weight(1f),
+                                role = GlassDialogButtonRole.Primary,
+                            ) { Text(text = "完成", style = MiuixTheme.textStyles.button) }
                         }
-                        AppDialogButton(
-                            onClick = { detail = null; shownPassword = null },
-                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                            role = GlassDialogButtonRole.Primary,
-                        ) { Text(text = "完成", style = MiuixTheme.textStyles.button) }
                     }
                 }
 
@@ -425,11 +464,26 @@ fun PasswordScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
     }
 }
 
+/** 详情里的一行：左边标签 + 值，[actions] 放在右侧（图标按钮）。 */
 @Composable
-private fun DetailLine(label: String, value: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(text = label, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Text(text = value, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
+private fun DetailLine(label: String, value: String, actions: (@Composable () -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(text = label, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text(text = value, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        actions?.invoke()
+    }
+}
+
+/** 值右侧的图标按钮（40dp 点击区）。 */
+@Composable
+private fun DetailIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(imageVector = icon, contentDescription = description, modifier = Modifier.size(22.dp), tint = MiuixTheme.colorScheme.primary)
     }
 }
 

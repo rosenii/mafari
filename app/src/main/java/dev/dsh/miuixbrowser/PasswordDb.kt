@@ -151,6 +151,10 @@ internal object PasswordDb {
         return out
     }
 
+    /** 备份用：全部记录（含密码和备注，已解密）。解不开的行跳过，调用方可用 [count] 对比得知跳过了几条。 */
+    fun exportAll(context: Context, db: SQLiteDatabase): List<PasswordEntry> =
+        readFull(context, db, "", emptyArray(), upgrade = false)
+
     // ------------------------------------------------------------------ 写
 
     /**

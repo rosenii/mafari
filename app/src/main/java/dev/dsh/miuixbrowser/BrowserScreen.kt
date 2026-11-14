@@ -2748,6 +2748,7 @@ fun BrowserScreen(
     entry<AppRoute.PasswordPage> {
         PasswordScreen(
             onBack = { popPage() },
+            onOpenFxa = { pushPage(AppRoute.FxaPage) },
             blurEnabled = settings.blurEnabled,
         )
     }

@@ -252,20 +252,21 @@ object BackupFormat {
 enum class BackupCategory(val id: String, val title: String, val summary: String) {
     BOOKMARKS("bookmarks", "书签", "收藏与文件夹"),
     HISTORY("history", "历史记录", "浏览历史"),
-    TABS("tabs", "标签列表", "已打开的普通标签页（地址、顺序、缩略图、页面状态；不含无痕标签）"),
-    SETTINGS("settings", "应用设置", "各项设置、搜索引擎、代理、Cookie 策略、菜单等"),
+    TABS("tabs", "标签列表", "已打开的普通标签页，不含无痕"),
+    PASSWORDS("passwords", "密码", "已保存的账号、密码和备注"),
+    SETTINGS("settings", "应用设置", "设置、搜索引擎、代理、菜单等"),
     SCRIPTS("scripts", "用户脚本", "油猴脚本及其开关"),
     SCRIPT_DATA("script_data", "脚本数据", "脚本用 GM_setValue 保存的值"),
     ADBLOCK("adblock", "去广告规则", "订阅、开关与自定义规则"),
     // id 仍是 "gecko_cookies"：沿用旧备份与已保存的勾选；现在 Gecko / WebView 两种内核都用它
-    COOKIES("gecko_cookies", "Cookie", "当前内核里的登录状态（仅持久 Cookie，不含会话 Cookie）；Gecko 与 WebView 的备份可互相恢复");
+    COOKIES("gecko_cookies", "Cookie", "当前内核的登录状态，仅持久 Cookie");
 
     companion object {
         fun byId(id: String): BackupCategory? = entries.firstOrNull { it.id == id }
             ?: if (id == "cookies") COOKIES else null
 
-        /** 默认勾选：除 Cookie（含登录凭据）外的全部 */
-        val DEFAULT_SELECTION: Set<BackupCategory> = entries.filter { it != COOKIES }.toSet()
+        /** 默认勾选：除 Cookie、密码（都含登录凭据）外的全部；这两类要用户自己打开 */
+        val DEFAULT_SELECTION: Set<BackupCategory> = entries.filter { it != COOKIES && it != PASSWORDS }.toSet()
     }
 }
 
@@ -305,6 +306,9 @@ object BackupManager {
 
     /** 标签列表在备份里的单元名（明文 JSON 数组，由备份信封加密；内容见 [TabDb.exportJson]） */
     private const val TABS_UNIT = "tabs/list"
+
+    /** 密码在备份里的单元名（明文 JSON 数组，由备份信封加密；内容见 [passwordsToJson]） */
+    private const val PASSWORDS_UNIT = "passwords/list"
 
     /** meta.json 里记录 Cookie 来自哪个内核的键，值为 [COOKIE_ENGINE_GECKO] / [COOKIE_ENGINE_WEBVIEW]（旧备份没有这个键，一律按 Gecko） */
     private const val META_COOKIE_ENGINE = "cookieEngine"
@@ -449,6 +453,19 @@ object BackupManager {
             }
         }
 
+        if (BackupCategory.PASSWORDS in categories) {
+            val db = HistoryDb.get(app) ?: throw IOException("加密数据库不可用，无法备份密码")
+            val rows = PasswordDb.exportAll(app, db)
+            val total = PasswordDb.count(db)
+            // 有记录却一条都解不开：不能悄悄生成缺密码的备份
+            if (total > 0 && rows.isEmpty()) throw IOException("无法解密已保存的密码（密钥已失效或数据损坏），未生成备份")
+            skipped += (total - rows.size).coerceAtLeast(0)
+            if (rows.isNotEmpty()) {
+                units[PASSWORDS_UNIT] = passwordsToJson(rows).toByteArray(Charsets.UTF_8)
+                included.add(BackupCategory.PASSWORDS)
+            }
+        }
+
         // 3) 文件
         if (BackupCategory.ADBLOCK in categories) {
             for (rel in FILES) {
@@ -490,6 +507,48 @@ object BackupManager {
         return Collected(units, done, BackupCategory.entries.filter { it in categories && it !in included }, skipped)
     }
 
+    /** 密码 → 备份里的 JSON 数组（字段与 [PasswordEntry] 一一对应，含备注）。 */
+    internal fun passwordsToJson(rows: List<PasswordEntry>): String = JSONArray().apply {
+        for (e in rows) put(
+            JSONObject()
+                .put("id", e.guid).put("origin", e.origin)
+                .put("formOrigin", e.formOrigin ?: JSONObject.NULL).put("httpRealm", e.httpRealm ?: JSONObject.NULL)
+                .put("username", e.username).put("password", e.password).put("note", e.note)
+                .put("usernameField", e.usernameField).put("passwordField", e.passwordField)
+                .put("timeCreated", e.timeCreated).put("timeLastUsed", e.timeLastUsed)
+                .put("timePasswordChanged", e.timePasswordChanged).put("timesUsed", e.timesUsed),
+        )
+    }.toString()
+
+    /** 备份里的 JSON → 密码；格式不对抛异常，站点不合法 / 缺密码的单条跳过。 */
+    internal fun passwordsFromJson(text: String): List<PasswordEntry> {
+        val arr = JSONArray(text)
+        val out = ArrayList<PasswordEntry>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val origin = PasswordCsv.originOf(o.optString("origin")) ?: continue
+            val password = o.optString("password")
+            if (password.isEmpty()) continue
+            val realm = if (o.isNull("httpRealm")) null else o.optString("httpRealm").takeIf { it.isNotEmpty() }
+            out += PasswordEntry(
+                guid = o.optString("id"),
+                origin = origin,
+                formOrigin = if (realm != null || o.isNull("formOrigin")) null else o.optString("formOrigin").takeIf { it.isNotEmpty() }?.let { PasswordCsv.originOf(it) },
+                httpRealm = realm,
+                username = o.optString("username"),
+                password = password,
+                usernameField = o.optString("usernameField"),
+                passwordField = o.optString("passwordField"),
+                note = o.optString("note"),
+                timeCreated = o.optLong("timeCreated"),
+                timeLastUsed = o.optLong("timeLastUsed"),
+                timePasswordChanged = o.optLong("timePasswordChanged"),
+                timesUsed = o.optInt("timesUsed"),
+            )
+        }
+        return out
+    }
+
     /**
      * 解密并校验后的恢复计划。所有校验、解析、设备密文重新加密都在 [prepareRestore] 里完成，
      * 所以 [applyRestore] 开始写入之前任何失败都不会改动现有数据。
@@ -513,6 +572,8 @@ object BackupManager {
         internal val cookies: ByteArray?,
         /** 备份里的标签列表（已解析校验）；没有为 null */
         internal val tabs: List<TabBackupRow>? = null,
+        /** 备份里的密码（已解析校验）；没有为 null */
+        internal val passwords: List<PasswordEntry>? = null,
     ) {
         /** 默认要恢复的类别：备份里有且本机能恢复的全部 */
         val defaultSelection: Set<BackupCategory> get() = categories.filter { it !in unavailable }.toSet()
@@ -555,6 +616,7 @@ object BackupManager {
         val files = LinkedHashMap<String, ByteArray>()
         var cookies: ByteArray? = null
         var tabs: List<TabBackupRow>? = null
+        var passwords: List<PasswordEntry>? = null
         for ((name, bytes) in contents.units) {
             when {
                 name.startsWith("prefs/") -> {
@@ -579,6 +641,14 @@ object BackupManager {
                     }
                     if (rows.isNotEmpty()) tabs = rows
                 }
+                name == PASSWORDS_UNIT -> {
+                    val rows = try {
+                        passwordsFromJson(String(bytes, Charsets.UTF_8))
+                    } catch (e: Exception) {
+                        throw CryptoException("备份中的密码数据已损坏", e)
+                    }
+                    if (rows.isNotEmpty()) passwords = rows
+                }
                 name == COOKIES_UNIT -> {
                     val ok = runCatching { JSONArray(String(bytes, Charsets.UTF_8)).length() > 0 }.getOrDefault(false)
                     if (ok) cookies = bytes
@@ -593,6 +663,7 @@ object BackupManager {
         if (files.isNotEmpty()) present.add(BackupCategory.ADBLOCK)
         if (cookies != null) present.add(BackupCategory.COOKIES)
         if (tabs != null) present.add(BackupCategory.TABS)
+        if (passwords != null) present.add(BackupCategory.PASSWORDS)
         if (present.isEmpty()) throw CryptoException("备份里没有可恢复的数据")
 
         val unavailable = emptySet<BackupCategory>()
@@ -614,6 +685,7 @@ object BackupManager {
             files = files,
             cookies = cookies,
             tabs = tabs,
+            passwords = passwords,
         )
     }
 
@@ -681,6 +753,12 @@ object BackupManager {
                 BackupCategory.BOOKMARKS -> BookmarkDb.clearAll(app)
                 // 标签列表：直接整表替换（单事务）；之后进程重启，从 tabs 表恢复标签
                 BackupCategory.TABS -> plan.tabs?.let { TabDb.restoreAll(app, it) }
+                // 密码：合并而不是清空重写——同站点同用户名按修改时间较新者为准，备份之外的本机密码不会被删
+                // （清空会留下删除墓碑，登录 Firefox 同步后会把这些删除传到服务器）。导入的记录标为待上传，同步时推出去
+                BackupCategory.PASSWORDS -> plan.passwords?.let { rows ->
+                    val db = HistoryDb.get(app) ?: throw IOException("加密数据库不可用，无法恢复密码")
+                    PasswordDb.importEntries(app, db, rows)
+                }
                 BackupCategory.SCRIPT_DATA -> runCatching { GmStore.clearAll(app) }
                 BackupCategory.SCRIPTS -> if (byPref["mafari_ext"]?.containsKey("scripts") == true) ScriptDb.clearAll(app)
                 else -> {}

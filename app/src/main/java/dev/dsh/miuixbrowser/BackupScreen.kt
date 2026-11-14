@@ -386,7 +386,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
             if (git == null) {
                 password.fill('\u0000')
             } else {
-                gitTask = "正在加密并推送…"
+                gitTask = "加密推送中"
                 scope.launch {
                     val result = withContext(Dispatchers.IO) {
                         runCatching {
@@ -412,7 +412,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
         } else if (cfg == null) {
             password.fill('\u0000')
         } else {
-            webdavTask = "正在加密并上传…"
+            webdavTask = "加密上传中"
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
@@ -486,7 +486,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    // ———— Firefox账户同步（置顶）————
+                    // ———— Firefox帐户同步（置顶）————
                     if (EngineSupport.SYNC_BUNDLED) item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp, bottom = 6.dp),
@@ -494,7 +494,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         ) {
                             val fxa = FxaSync.ui
                             ArrowPreference(
-                                title = "Firefox账户同步",
+                                title = "Firefox帐户同步",
                                 summary = when (fxa) {
                                     is FxaUi.SignedIn -> "已登录" + fxa.email.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
                                     is FxaUi.NeedsReauth -> "登录已失效，点击重新登录"
@@ -1243,8 +1243,8 @@ private fun CategoryDialog(
     AppGlassDialog(
         show = show,
         title = "备份内容",
-        summary = "所有备份方式共用，改动立即生效。没有数据的类别不会写进备份；恢复只覆盖备份里有的内容" +
-            if (BackupCategory.COOKIES in selected) "\nCookie 含登录凭据，请妥善保管备份文件与口令；恢复后重启生效。" else "",
+        summary = "所有备份方式共用，改动立即生效" +
+            if (BackupCategory.COOKIES in selected || BackupCategory.PASSWORDS in selected) "\n密码和 Cookie 含登录凭据，请妥善保管备份文件与口令。" else "",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1529,7 +1529,11 @@ private fun RestoreConfirmDialog(
                         checked = !unavailable && cat in selected,
                         onCheckedChange = { onToggle(cat, it) },
                         title = cat.title,
-                        summary = if (unavailable) "本机不支持，无法恢复" else cat.summary,
+                        summary = when {
+                            unavailable -> "本机不支持，无法恢复"
+                            cat == BackupCategory.PASSWORDS -> "与本机合并，不删除本机已有的密码"
+                            else -> cat.summary
+                        },
                         enabled = !unavailable,
                     )
                 }
