@@ -92,6 +92,7 @@ import dev.dsh.miuixbrowser.ui.AppDialogButton
 import dev.dsh.miuixbrowser.ui.AppDropdownPreference
 import dev.dsh.miuixbrowser.ui.AppGlassDialog
 import dev.dsh.miuixbrowser.ui.AppSwitchPreference
+import dev.dsh.miuixbrowser.ui.edgeHaptic
 import dev.dsh.miuixbrowser.ui.LiquidGlassBackButton
 import dev.dsh.miuixbrowser.ui.LocalLiquidBackdrop
 import dev.dsh.miuixbrowser.ui.PageGlassTopBar
