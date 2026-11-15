@@ -553,7 +553,7 @@ private val CI_TAG = Regex("^gecko-(\\d+)$")
 internal fun ciBuildOf(tag: String): Int = CI_TAG.matchEntire(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
 
 /** 预览类后缀；带这些后缀的 tag 不算正式发布 */
-private val PRE_TAG = Regex("(dev|alpha|beta|rc|snapshot)", RegexOption.IGNORE_CASE)
+private val PRE_TAG = Regex("(dev|alpha|beta|rc|snapshot|canary)", RegexOption.IGNORE_CASE)
 
 /**
  * 拉取指定通道的最新 release（见 [UpdateChannel]）：版本号、页面地址、与通道变体 / 本机架构匹配的 APK 直链。
@@ -663,7 +663,7 @@ private fun parseRelease(o: org.json.JSONObject, channel: Int): AppRelease? {
     if (o.optBoolean("draft", false)) return null
     val tag = o.optString("tag_name", "")
     if (tag.isBlank()) return null
-    // 正式通道（lite / gecko）：只要正式发布，排除 CI 构建预发布、GitHub 标为预发布的、带 dev/alpha/beta/rc 后缀的
+    // 正式通道（lite / gecko）：只要正式发布，排除 CI 构建预发布、GitHub 标为预发布的、带 dev/alpha/beta/rc/canary 后缀的
     if (!UpdateChannel.isCanary(channel)) {
         if (ciBuildOf(tag) > 0 || o.optBoolean("prerelease", false) || PRE_TAG.containsMatchIn(tag)) return null
     }

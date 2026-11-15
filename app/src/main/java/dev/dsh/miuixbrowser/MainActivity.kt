@@ -223,12 +223,14 @@ class MainActivity : ComponentActivity() {
                             onOpenDownloadsConsumed = { openDownloads.value = false },
                         )
                     } else {
+                        remember { Diag.log("placeholder composed (db not ready yet)") }
                         Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background))
                     }
                     LaunchedEffect(Unit) {
                         if (!contentReady.value) {
                             withContext(Dispatchers.IO) { StartupWarmup.awaitDb(context) }
                             contentReady.value = true
+                            Diag.log("gate open: db ready, composing BrowserScreen")
                         }
                         // Firefox 同步预热排在界面真正出来之后（此前是首帧后 3 秒，现在首帧提前了，不能再和加密库打开抢资源）
                         scheduleSyncWarmUp()

@@ -99,11 +99,12 @@ fun currentVersionLabel(@Suppress("UNUSED_PARAMETER") channel: Int): String =
     else BuildConfig.VERSION_NAME.removePrefix("v")
 
 /**
- * 版本比较：按数字段逐段比较（v1.3.10 > v1.3.9）。
- * 数字完全相同时，本地若是 dev/alpha/beta/rc 预览版而远端是正式版，视为远端更新。
+ * 版本比较：只比 `-` 之前的数字段，逐段比较（v1.3.10 > v1.3.9）；后缀（-canary 等）里的数字不参与。
+ * 数字完全相同时，本地若是 canary / dev / alpha / beta / rc 预览版而远端是正式版，视为远端更新；
+ * 两边都是预览版、数字相同则不算更新（要推送新的 canary，请先提高版本名）。
  */
 fun isNewerVersion(remote: String, local: String): Boolean {
-    fun nums(v: String) = Regex("\\d+").findAll(v).map { it.value.toLongOrNull() ?: 0L }.toList()
+    fun nums(v: String) = Regex("\\d+").findAll(v.substringBefore('-')).map { it.value.toLongOrNull() ?: 0L }.toList()
     val r = nums(remote)
     val l = nums(local)
     for (i in 0 until maxOf(r.size, l.size)) {
@@ -111,7 +112,7 @@ fun isNewerVersion(remote: String, local: String): Boolean {
         val b = l.getOrElse(i) { 0L }
         if (a != b) return a > b
     }
-    fun pre(v: String) = Regex("(dev|alpha|beta|rc|snapshot)", RegexOption.IGNORE_CASE).containsMatchIn(v)
+    fun pre(v: String) = Regex("(dev|alpha|beta|rc|snapshot|canary)", RegexOption.IGNORE_CASE).containsMatchIn(v)
     return pre(local) && !pre(remote)
 }
 

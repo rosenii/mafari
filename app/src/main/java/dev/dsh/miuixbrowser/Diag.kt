@@ -17,6 +17,7 @@ object Diag {
     private val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
     fun init(context: Context) {
+        if (file != null) return // Application 里已经打开过：别再清空文件，否则早期日志全丢
         val on = context.applicationContext.getSharedPreferences("mafari_gecko_debug", Context.MODE_PRIVATE)
             .getBoolean("diag", false)
         if (on) open(context)

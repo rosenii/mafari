@@ -10,6 +10,10 @@ import android.app.Application
 class MafariApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        if (Application.getProcessName() == packageName) StartupWarmup.start(this)
+        if (Application.getProcessName() == packageName) {
+            Diag.init(this) // 先开诊断日志，预热线程里的分段耗时才记得下来
+            Diag.log("MafariApp.onCreate")
+            StartupWarmup.start(this)
+        }
     }
 }

@@ -18,7 +18,8 @@ jobs:
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      # tag → 正式 release；gecko 分支 → 预发布；其余只出 debug
+      # 版本名（或 tag 名）以 -canary 结尾 → 预发布（canary，只出 3 个包）；没有任何后缀 → 正式发布（全部安装包，标 latest）；
+      # 其它后缀一律报错。tag 推送和 dual / gecko 分支推送都按这条规则；其余分支只出 debug
       IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
       IS_GECKO_BRANCH: ${{ github.ref == 'refs/heads/gecko' }}
       # dual 分支：同时构建 gecko + lite 两个变体，直接发布为正式 release（tag = 应用版本名，如 v2.1.3，标 latest，进 lite / gecko 更新通道）；
@@ -72,11 +73,15 @@ jobs:
           CODE=$(grep -E '^\s*versionCode\s*=' app/build.gradle.kts | head -1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           echo "APP_VERSION_NAME=$NAME" >> "$GITHUB_ENV"
           echo "APP_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
-          # 发布 tag：版本 tag 推送用 tag 名；dual 直接发布用应用版本名；gecko 预发布用 gecko-<构建号>
-          if [ "$IS_RELEASE_TAG" = "true" ]; then RTAG="$GITHUB_REF_NAME"
-          elif [ "$IS_DUAL_BRANCH" = "true" ]; then RTAG="$NAME"
-          else RTAG="gecko-$GITHUB_RUN_NUMBER"; fi
+          # 发布 tag：版本 tag 推送用 tag 名；dual / gecko 分支推送用应用版本名（要让用户收到更新请先提高版本名）
+          if [ "$IS_RELEASE_TAG" = "true" ]; then RTAG="$GITHUB_REF_NAME"; else RTAG="$NAME"; fi
           echo "RELEASE_TAG_NAME=$RTAG" >> "$GITHUB_ENV"
+          # 只有两种：以 -canary 结尾 = 预发布；没有后缀 = 正式发布。其它后缀（-beta、-rc …）直接报错，免得误发成正式版
+          if [[ "$RTAG" == *-canary ]]; then CANARY=true
+          elif [[ "$RTAG" == *-* ]]; then echo "::error::版本名 $RTAG 的后缀只能是 -canary 或没有后缀"; exit 1
+          else CANARY=false; fi
+          echo "IS_CANARY=$CANARY" >> "$GITHUB_ENV"
+          echo "canary=$CANARY tag=$RTAG"
           echo "version: $NAME ($CODE)"
 
       - name: Prepare keystore
@@ -100,7 +105,13 @@ jobs:
           MAFARI_STORE_PASS: ${{ secrets.STORE_PASSWORD }}
           MAFARI_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           MAFARI_KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleLiteSyncArm64Release --stacktrace
+        run: |
+          # canary 只出 3 个包（gecko、lite-arm64、sync_lite-arm64）；正式发布全部 5 个
+          if [ "$IS_CANARY" = "true" ]; then
+            bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteSyncArm64Release --stacktrace
+          else
+            bash ./gradlew :app:assembleGeckoArm64Release :app:assembleLiteArm64Release :app:assembleLiteArm32Release :app:assembleLiteX64Release :app:assembleLiteSyncArm64Release --stacktrace
+          fi
 
       # 打印 Firefox 账号 / Sync 库当前解析到的版本的真实 API 签名（构建成败都运行，供对照）
       - name: Dump Firefox Sync API
@@ -121,7 +132,13 @@ jobs:
           if [ -f mafari-release.jks ] && { [ "$IS_RELEASE_TAG" = "true" ] || [ "$IS_PRE_BRANCH" = "true" ]; }; then TYPE=release; else TYPE=debug; fi
           echo "label=$LABEL type=$TYPE"
           # 变体目录 : 输出名后缀（lite 按架构各一个包，gecko 与 sync_lite 只有 arm64）
-          for ENTRY in geckoArm64:gecko liteArm64:lite-arm64-v8a liteArm32:lite-armeabi-v7a liteX64:lite-x86_64 liteSyncArm64:sync_lite-arm64; do
+          # canary 只收 3 个包：Mafari-<版本>-canary-gecko.apk、-canary-lite-arm64-v8a.apk、-canary-sync_lite-arm64.apk（版本名已带 -canary）
+          if [ "$IS_CANARY" = "true" ]; then
+            ENTRIES="geckoArm64:gecko liteArm64:lite-arm64-v8a liteSyncArm64:sync_lite-arm64"
+          else
+            ENTRIES="geckoArm64:gecko liteArm64:lite-arm64-v8a liteArm32:lite-armeabi-v7a liteX64:lite-x86_64 liteSyncArm64:sync_lite-arm64"
+          fi
+          for ENTRY in $ENTRIES; do
             DIR=${ENTRY%%:*}; SUFFIX=${ENTRY##*:}
             SRC=$(ls app/build/outputs/apk/$DIR/$TYPE/*.apk 2>/dev/null | head -1)
             if [ -z "$SRC" ]; then echo "::error::缺少 $DIR/$TYPE 的 APK"; exit 1; fi
@@ -172,7 +189,7 @@ jobs:
               app_code = os.environ.get("APP_VERSION_CODE", "")
               header = f"## {app_name} ({app_code})\n\n"
               body = (
-                  f"来自 `{prefix}` 分支的{'发布' if prefix == 'dual' else '自动预发布'}构建。\n\n"
+                  f"来自 `{prefix}` 分支的{'预发布（canary）' if os.environ.get('IS_CANARY') == 'true' else '发布'}构建。\n\n"
                   f"- 提交：`{sha}`\n"
                   f"- 分支：`{prefix}`\n"
               )
@@ -197,6 +214,13 @@ jobs:
               "- `-lite-<架构>.apk`：无内核版，不内嵌浏览器内核，只用系统 WebView，体积小；按架构分包：`arm64-v8a`（绝大多数手机）、`armeabi-v7a`（旧 32 位设备）、`x86_64`（模拟器 / x86 设备）；不含 Firefox 同步\n"
               "- `-sync_lite-arm64.apk`：无内核版 + Firefox 账号同步，仅 arm64-v8a 设备（体积比 lite 大约 10–15 MB）\n"
           )
+          if os.environ.get("IS_CANARY") == "true":
+              variants = (
+                  "\n\n**安装包说明（canary 只提供以下 3 个包）**\n\n"
+                  "- `-gecko.apk`：Gecko 版，内嵌 GeckoView（Nightly），WebView / Gecko 双内核，仅 arm64-v8a 设备\n"
+                  "- `-lite-arm64-v8a.apk`：无内核版，只用系统 WebView；不含 Firefox 同步\n"
+                  "- `-sync_lite-arm64.apk`：无内核版 + Firefox 账号同步\n"
+              )
           out = header + body + variants
           pathlib.Path("dist/RELEASE_NOTES.md").write_text(out + "\n", encoding="utf-8")
           print(out)
@@ -214,11 +238,11 @@ jobs:
           generate_release_notes: true
           # tag 用 tag 名；gecko 自动生成 gecko-<run_number> 作为 tag
           tag_name: ${{ env.RELEASE_TAG_NAME }}
-          # dual 发布标题：应用版本名 (版本号)；其余沿用 tag 名
-          name: ${{ env.IS_DUAL_BRANCH == 'true' && format('{0} ({1})', env.APP_VERSION_NAME, env.APP_VERSION_CODE) || '' }}
-          # gecko 分支标预发布；不抢 latest
-          prerelease: ${{ env.IS_GECKO_BRANCH == 'true' }}
-          make_latest: ${{ env.IS_GECKO_BRANCH == 'true' && 'false' || 'true' }}
+          # 分支推送的发布标题：应用版本名 (版本号)；tag 推送沿用 tag 名
+          name: ${{ env.IS_PRE_BRANCH == 'true' && format('{0} ({1})', env.APP_VERSION_NAME, env.APP_VERSION_CODE) || '' }}
+          # -canary 标预发布且不抢 latest；没有后缀 = 正式发布，标 latest
+          prerelease: ${{ env.IS_CANARY == 'true' }}
+          make_latest: ${{ env.IS_CANARY == 'true' && 'false' || 'true' }}
 
       # 同步推送到 Telegram 频道（正式版 + 预发布）。
       # 需要 Secrets：TELEGRAM_BOT_TOKEN（机器人需是频道管理员）；TELEGRAM_CHAT_ID 可选，默认 @mafari_a。
@@ -237,7 +261,7 @@ jobs:
           token = os.environ["TG_TOKEN"]
           chat = os.environ["TG_CHAT"]
           tag = os.environ["TAG_NAME"]
-          is_gecko = os.environ.get("IS_GECKO_BRANCH") == "true"  # 仅 gecko 分支是预发布；dual 是正式发布
+          is_gecko = os.environ.get("IS_CANARY") == "true"  # -canary 是预发布；没有后缀是正式发布
           repo = os.environ.get("GITHUB_REPOSITORY", "")
           url = os.environ.get("RELEASE_URL") or f"https://github.com/{repo}/releases/tag/{tag}"
           api = f"https://api.telegram.org/bot{token}"
