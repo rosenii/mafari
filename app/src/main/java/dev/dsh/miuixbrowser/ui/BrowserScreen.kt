@@ -2870,6 +2870,7 @@ fun BrowserScreen(
             onOpenGeckoExtensions = { pushPage(AppRoute.GeckoExtensions) },
             onOpenGeckoProtection = { pushPage(AppRoute.GeckoProtectionPage) },
             onOpenGeckoDebug = { pushPage(AppRoute.GeckoDebugPage) },
+            onOpenWebViewDebug = { pushPage(AppRoute.WebViewDebugPage) },
             onOpenAdBlock = { pushPage(AppRoute.AdBlockPage) },
             onOpenCookies = { pushPage(AppRoute.CookiePage) },
             onOpenPasswords = { pushPage(AppRoute.PasswordPage) },
@@ -2965,6 +2966,12 @@ fun BrowserScreen(
     }
     entry<AppRoute.GeckoProtectionPage> {
         GeckoProtectionScreen(
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.WebViewDebugPage> {
+        WebViewDebugScreen(
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )

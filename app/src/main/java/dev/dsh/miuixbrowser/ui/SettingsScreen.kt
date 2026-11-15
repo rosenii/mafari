@@ -123,6 +123,7 @@ fun SettingsScreen(
     onOpenGeckoExtensions: () -> Unit = {},
     onOpenGeckoProtection: () -> Unit = {},
     onOpenGeckoDebug: () -> Unit = {},
+    onOpenWebViewDebug: () -> Unit = {},
     onOpenAdBlock: () -> Unit,
     onOpenPrivacyEnhance: () -> Unit,
     onOpenCookies: () -> Unit = {},
@@ -519,6 +520,13 @@ fun SettingsScreen(
                             title = "Gecko 调试",
                             summary = "渲染信息 · 沉浸模式 · 系统字体 · 性能叠层 · 运行日志",
                             onClick = onOpenGeckoDebug,
+                        )
+                    }
+                    EngineRow(visible = !settings.geckoMode) {
+                        SettingsRow(
+                            title = "WebView 调试",
+                            summary = "内核信息 · 运行日志 · 控制台日志 · 远程调试 · 清理缓存",
+                            onClick = onOpenWebViewDebug,
                         )
                     }
                 }

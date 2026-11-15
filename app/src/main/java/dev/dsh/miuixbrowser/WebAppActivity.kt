@@ -9,6 +9,7 @@ import dev.dsh.miuixbrowser.engine.gecko.GeckoSitePerms
 import dev.dsh.miuixbrowser.engine.webview.FingerprintInjector
 import dev.dsh.miuixbrowser.engine.webview.FpFallbackBridge
 import dev.dsh.miuixbrowser.net.WebViewProxy
+import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
 import dev.dsh.miuixbrowser.script.ExtensionStore
 import dev.dsh.miuixbrowser.script.GmBridge
 import dev.dsh.miuixbrowser.script.ScriptResources
@@ -146,6 +147,7 @@ class WebAppActivity : ComponentActivity() {
         settings = appContainer.settings
         GeckoSitePerms.load(this) // 例外网站（与浏览器共用）
         AdBlock.init(this)
+        WebViewDebug.load(this)
         AdBlock.startCompile() // 独立 PWA 窗口没有主界面的启动阶段，直接编译
         WebViewProxy.applyFrom(settings)
 
@@ -379,6 +381,11 @@ class WebAppActivity : ComponentActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                WebViewDebug.logConsole(message)
+                return super.onConsoleMessage(message)
+            }
+
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 progress.progress = newProgress
                 progress.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE

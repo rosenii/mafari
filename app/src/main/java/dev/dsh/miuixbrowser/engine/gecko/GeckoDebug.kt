@@ -80,8 +80,8 @@ object GeckoDebug {
     }
 
     fun updateDiagLog(context: Context, v: Boolean) {
-        diagLog = v; save { putBoolean("diag", v) }
-        Diag.setEnabled(context, v)
+        diagLog = v
+        Diag.setPersisted(context, v)
     }
 
     fun updateHighRefresh(v: Boolean) {

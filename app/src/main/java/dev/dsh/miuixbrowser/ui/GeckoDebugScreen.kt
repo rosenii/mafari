@@ -1,6 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
 import dev.dsh.miuixbrowser.engine.gecko.GeckoDebug
+import dev.dsh.miuixbrowser.util.Diag
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -169,7 +170,7 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             AppSwitchPreference(
                                 title = "运行日志",
                                 summary = "记录 Surface 创建 / 销毁等到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭",
-                                checked = d.diagLog,
+                                checked = Diag.enabledState,
                                 onCheckedChange = { d.updateDiagLog(context, it) },
                             )
                             AppSwitchPreference(

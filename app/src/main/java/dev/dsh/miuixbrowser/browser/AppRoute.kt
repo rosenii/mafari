@@ -28,6 +28,9 @@ sealed interface AppRoute : NavKey {
     /** 设置 → 高级 → Gecko 调试 */
     data object GeckoDebugPage : AppRoute
 
+    /** 设置 → 高级 → WebView 调试 */
+    data object WebViewDebugPage : AppRoute
+
     /** 设置 → 高级 → 去广告 */
     data object AdBlockPage : AppRoute
 

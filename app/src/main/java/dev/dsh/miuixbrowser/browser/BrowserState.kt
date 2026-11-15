@@ -38,6 +38,7 @@ import dev.dsh.miuixbrowser.script.UserScript
 import dev.dsh.miuixbrowser.script.UserscriptEngine
 import dev.dsh.miuixbrowser.sync.fxa.FxaSync
 import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
 import dev.dsh.miuixbrowser.util.isSameSite
 import dev.dsh.miuixbrowser.util.isUserScriptUrl
 import dev.dsh.miuixbrowser.util.looksLikeUrl
@@ -801,6 +802,7 @@ class BrowserTab(
 
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
+                WebViewDebug.logPage("start", pageUrl)
                 if (!parked) pageUrl?.let { url = it }
                 pageHost = runCatching { Uri.parse(pageUrl).host }.getOrNull().orEmpty()
                 resetReaderState()
@@ -830,6 +832,7 @@ class BrowserTab(
             }
 
             override fun onPageFinished(view: WebView, pageUrl: String?) {
+                WebViewDebug.logPage("finish", pageUrl)
                 if (!parked) pageUrl?.let { url = it }
                 loading = false
                 progress = 1f
@@ -861,6 +864,11 @@ class BrowserTab(
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) errorText = error.description?.toString()
+                WebViewDebug.logLoadError(request, error)
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                WebViewDebug.logHttpError(request, errorResponse)
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -905,6 +913,11 @@ class BrowserTab(
             override fun onProgressChanged(view: WebView, newProgress: Int) {
                 progress = newProgress / 100f
                 loading = newProgress < 100
+            }
+
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                WebViewDebug.logConsole(message)
+                return super.onConsoleMessage(message)
             }
 
             override fun onReceivedTitle(view: WebView, pageTitle: String?) {
