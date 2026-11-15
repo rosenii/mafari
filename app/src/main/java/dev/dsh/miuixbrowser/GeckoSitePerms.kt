@@ -17,6 +17,9 @@ import org.json.JSONObject
  *   在权限弹窗里勾选「记住此网站的选择」时写入，也可以在设置里查看、修改、删除。
  *
  * 三态统一为 0 = 每次使用时询问，1 = 总是允许，2 = 总是拒绝。
+ *
+ * WebView 引擎共用同一份例外存储（按站点的设置本来就与引擎无关），但只认 [WEBVIEW_ITEMS] 里的项：
+ * 摄像头 / 麦克风 / 位置 / 通知 / 剪贴板 / 媒体发声 / 网页重定向。
  */
 object GeckoSitePerms {
 
@@ -29,6 +32,11 @@ object GeckoSitePerms {
     const val DRM = "drm"
     const val LOCAL_DEVICE = "local_device"
     const val LOCAL_NETWORK = "local_network"
+
+    /** 以下三项只有 WebView 引擎用到 */
+    const val CLIPBOARD = "clipboard"
+    const val MEDIA = "media_sound"
+    const val REDIRECT = "redirect"
 
     class Item(val key: String, val label: String)
 
@@ -48,6 +56,17 @@ object GeckoSitePerms {
         Item(MIC, "麦克风"),
         Item(NOTIFICATION, "通知"),
     ) + GLOBAL_ITEMS
+
+    /** WebView 引擎里可以按站点覆盖的项 */
+    val WEBVIEW_ITEMS = listOf(
+        Item(CAMERA, "摄像头"),
+        Item(MIC, "麦克风"),
+        Item(LOCATION, "位置"),
+        Item(NOTIFICATION, "网站通知"),
+        Item(CLIPBOARD, "剪贴板读写"),
+        Item(MEDIA, "网站媒体发声"),
+        Item(REDIRECT, "网页重定向"),
+    )
 
     /** 默认值：持久存储、DRM 保持原来的「直接允许」（浏览所需），其余与 Firefox 一致，询问 */
     private val DEFAULTS = mapOf(STORAGE to 1, DRM to 1)
@@ -123,15 +142,31 @@ object GeckoSitePerms {
         saveExceptions()
     }
 
-    fun removeSite(host: String) {
-        exceptions.remove(norm(host))
+    /** [items] = null 删除整站；否则只删这些项（另一个引擎的例外保留），一项不剩时整站移除 */
+    fun removeSite(host: String, items: List<Item>? = null) {
+        val h = norm(host)
+        if (items == null) {
+            exceptions.remove(h)
+        } else {
+            val map = HashMap(exceptions[h].orEmpty())
+            items.forEach { map.remove(it.key) }
+            if (map.isEmpty()) exceptions.remove(h) else exceptions[h] = map
+        }
         saveExceptions()
     }
 
-    fun clearExceptions() {
-        exceptions.clear()
-        saveExceptions()
+    fun clearExceptions(items: List<Item>? = null) {
+        if (items == null) {
+            exceptions.clear()
+            saveExceptions()
+        } else {
+            exceptions.keys.toList().forEach { removeSite(it, items) }
+        }
     }
+
+    /** 在 [items] 范围内有例外的站点（已排序） */
+    fun hostsFor(items: List<Item>): List<String> =
+        exceptions.filter { (_, m) -> items.any { it.key in m } }.keys.sorted()
 
     private fun saveExceptions() {
         val obj = JSONObject()
@@ -144,8 +179,8 @@ object GeckoSitePerms {
     fun labelOf(key: String): String = EXCEPTION_ITEMS.firstOrNull { it.key == key }?.label ?: key
 
     /** 一个站点的例外摘要：「摄像头：允许 · 位置：拒绝」 */
-    fun summaryOf(host: String): String =
-        EXCEPTION_ITEMS.mapNotNull { item ->
+    fun summaryOf(host: String, items: List<Item> = EXCEPTION_ITEMS): String =
+        items.mapNotNull { item ->
             exceptions[host]?.get(item.key)?.let { "${item.label}：${if (it == 1) "允许" else "拒绝"}" }
         }.joinToString(" · ")
 }

@@ -721,7 +721,10 @@ class BrowserTab(
      */
     private fun updatePageHost(pageUrl: String?) {
         val h = runCatching { Uri.parse(pageUrl).host }.getOrNull()
-        if (!h.isNullOrEmpty()) pageHost = h
+        if (!h.isNullOrEmpty()) {
+            pageHost = h
+            applyMediaGesture()
+        }
     }
 
     /** 去广告元素隐藏脚本是否已作为 document-start 脚本装上（没装上时由页面加载回调兜底注入） */
@@ -854,6 +857,7 @@ class BrowserTab(
             override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
                 if (!parked) pageUrl?.let { url = it }
                 pageHost = runCatching { Uri.parse(pageUrl).host }.getOrNull().orEmpty()
+                applyMediaGesture()
                 loading = true
                 errorText = null
                 syncNav()
@@ -1012,15 +1016,18 @@ class BrowserTab(
                 callback: GeolocationPermissions.Callback,
             ) {
                 webView.post {
+                    val host = Uri.parse(origin).host ?: origin
                     decide(
-                        locationMode,
-                        Uri.parse(origin).host ?: origin,
+                        // 例外网站优先于全局设置
+                        GeckoSitePerms.override(host, GeckoSitePerms.LOCATION) ?: locationMode,
+                        host,
                         "获取你的位置",
                         arrayOf(
                             android.Manifest.permission.ACCESS_FINE_LOCATION,
                             android.Manifest.permission.ACCESS_COARSE_LOCATION,
                         ),
                         anyOk = true,
+                        permKey = GeckoSitePerms.LOCATION,
                     ) { allow -> callback.invoke(origin, allow, false) }
                 }
             }
@@ -1889,6 +1896,7 @@ class BrowserTab(
         blockTrackers: Boolean = false,
         fingerprintProtect: Boolean = false,
     ) {
+        GeckoSitePerms.load(appContext) // 例外网站存储：纯 WebView 引擎下也要先载入
         gecko?.applyCookieMode(cookieMode)
         gecko?.applyPrivacy()
         webViewOrNull?.let { wv ->
@@ -1905,12 +1913,22 @@ class BrowserTab(
         this.locationMode = locationMode
         this.notificationMode = notificationMode
         this.redirectMode = redirectMode
+        this.mediaModeGlobal = mediaMode
         this.blockTrackers = blockTrackers
         // 媒体发声：允许=可自动播放；询问/拒绝=需用户手势才能出声
         // 以下全是 WebView 专用：脚本注入 / 媒体自动播放策略。Gecko 对应能力见 docs/GECKO.md
         val wv = webViewOrNull ?: return
-        runCatching { wv.settings.mediaPlaybackRequiresUserGesture = mediaMode != 1 }
+        applyMediaGesture()
 
+        // 例外网站：脚本是对所有站点注册的，所以把相关例外一并写进脚本，在页面里按 location.hostname 取生效模式
+        fun excJs(key: String, global: Int): String {
+            val obj = org.json.JSONObject()
+            GeckoSitePerms.exceptions.forEach { (host, m) ->
+                m[key]?.let { v -> obj.put(host, v) }
+            }
+            return "var m=(($obj)[String(location.hostname).toLowerCase()])||$global;"
+        }
+        fun hasExc(key: String) = GeckoSitePerms.exceptions.values.any { it.containsKey(key) }
         val script = buildString {
             if (webrtcDisabled) {
                 InjectAssets.read(appContext, "mafari_no_webrtc.js")?.let {
@@ -1918,9 +1936,9 @@ class BrowserTab(
                     append('\n')
                 }
             }
-            if (clipboardMode == 2) {
+            if (clipboardMode == 2 || hasExc(GeckoSitePerms.CLIPBOARD)) {
                 append(
-                    "(function(){try{var d=function(){return Promise.reject(new DOMException('Permission denied','NotAllowedError'))};" +
+                    "(function(){try{" + excJs(GeckoSitePerms.CLIPBOARD, clipboardMode) + "if(m!=2)return;var d=function(){return Promise.reject(new DOMException('Permission denied','NotAllowedError'))};" +
                         "if(navigator.clipboard){['read','readText','write','writeText'].forEach(function(m){try{navigator.clipboard[m]=d}catch(e){}})}}catch(e){}})();\n",
                 )
             }
@@ -1930,18 +1948,18 @@ class BrowserTab(
                         "Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true},configurable:true})}catch(e){}})();\n",
                 )
             }
-            if (mediaMode == 2) {
+            if (mediaMode == 2 || hasExc(GeckoSitePerms.MEDIA)) {
                 append(
-                    "(function(){try{Object.defineProperty(HTMLMediaElement.prototype,'muted',{get:function(){return true},set:function(v){},configurable:true});" +
+                    "(function(){try{" + excJs(GeckoSitePerms.MEDIA, mediaMode) + "if(m!=2)return;Object.defineProperty(HTMLMediaElement.prototype,'muted',{get:function(){return true},set:function(v){},configurable:true});" +
                         "var p=HTMLMediaElement.prototype.play;HTMLMediaElement.prototype.play=function(){try{this.volume=0}catch(e){}return p.apply(this,arguments)}}catch(e){}})();\n",
                 )
             }
             // 网站通知拒绝：JS Notification 权限固定为 denied
-            if (notificationMode == 2) {
+            if (notificationMode == 2 || hasExc(GeckoSitePerms.NOTIFICATION)) {
                 append(
-                    "(function(){try{" +
+                    "(function(){try{" + excJs(GeckoSitePerms.NOTIFICATION, notificationMode) + "if(m!=2)return;" +
                         "if(window.Notification){Object.defineProperty(Notification,'permission',{get:function(){return 'denied'},configurable:true});" +
-                        "Notification.requestPermission=function(){return Promise.resolve('denied')}}}" +
+                        "Notification.requestPermission=function(){return Promise.resolve('denied')}}" +
                         "}catch(e){}})();\n",
                 )
             }
@@ -1975,6 +1993,10 @@ class BrowserTab(
     private var pageHost = ""
 
     private var lastDntUrl = ""
+
+    /** 全局「网站媒体发声」：0 询问 / 1 允许 / 2 拒绝（按站点的例外见 [effMediaMode]） */
+    @Volatile
+    private var mediaModeGlobal = 1
 
     private var cameraMode = 0
     private var micMode = 0
@@ -2015,20 +2037,21 @@ class BrowserTab(
         // 同站（含子网站，如 m. / login. / www.）跳转视为页面内部导航，不拦截
         if (!external && targetHost.isNotEmpty() && isSameSite(targetHost, from)) return false
         // 总是允许：外部应用直接唤起；跨站跳转与「允许」一致，在新标签页打开（当前页不动）
-        if (redirectMode == 1) {
+        val mode = effRedirectMode()
+        if (mode == 1) {
             if (external) return false
             onAllowed()
             return true
         }
         val label = if (external) "打开其他应用" else "跳转到 ${targetHost.ifEmpty { request.url.toString().take(60) }}"
-        if (redirectMode == 2) {
+        if (mode == 2) {
             notifyRedirectBlocked(external, targetHost)
             return true
         }
         if (redirectPromptPending) return true
         // 拒绝只是不执行这次跳转 / 唤起：这次导航在 shouldOverrideUrlLoading 里就已被截下，
         // 当前页面一直没有离开，所以这里什么都不用回退 —— 停留在网页，不能再 goBack 把页面「关掉」
-        askRedirect(from, label) { allow ->
+        askRedirect(from, label, GeckoSitePerms.REDIRECT) { allow ->
             if (allow) onAllowed() else notifyRedirectBlocked(external, targetHost)
         }
         return true
@@ -2074,7 +2097,20 @@ class BrowserTab(
     /** 后台标签没有弹窗载体时先挂起，切到该标签再弹，而不是悄悄当成拒绝 */
     private var deferredPrompt: DeferredPrompt? = null
 
-    private fun askRedirect(origin: String, what: String, onResult: (Boolean) -> Unit) {
+    /** WebView：当前页面生效的「网页重定向」模式（例外网站优先） */
+    private fun effRedirectMode(): Int =
+        GeckoSitePerms.override(pageHost, GeckoSitePerms.REDIRECT) ?: redirectMode
+
+    /** WebView：当前页面生效的「网站媒体发声」模式（例外网站优先）；1 = 允许自动出声 */
+    private fun effMediaMode(): Int =
+        GeckoSitePerms.override(pageHost, GeckoSitePerms.MEDIA) ?: mediaModeGlobal
+
+    private fun applyMediaGesture() {
+        val wv = webViewOrNull ?: return
+        runCatching { wv.settings.mediaPlaybackRequiresUserGesture = effMediaMode() != 1 }
+    }
+
+    private fun askRedirect(origin: String, what: String, permKey: String? = null, onResult: (Boolean) -> Unit) {
         redirectPromptPending = true
         val decide = { allow: Boolean ->
             redirectPromptPending = false
@@ -2082,9 +2118,9 @@ class BrowserTab(
         }
         val prompt = onPermissionPrompt
         if (prompt != null) {
-            prompt(origin, what, null, decide)
+            prompt(origin, what, permKey, decide)
         } else {
-            deferredPrompt = DeferredPrompt(origin, what, null, decide, android.os.SystemClock.elapsedRealtime())
+            deferredPrompt = DeferredPrompt(origin, what, permKey, decide, android.os.SystemClock.elapsedRealtime())
         }
     }
 
@@ -2189,16 +2225,17 @@ class BrowserTab(
             open(target)
             return
         }
-        if (redirectMode == 1) {
+        val popupMode = effRedirectMode()
+        if (popupMode == 1) {
             open(target)
             return
         }
-        if (redirectMode == 2) {
+        if (popupMode == 2) {
             notifyRedirectBlocked(false, targetHost)
             return
         }
         if (redirectPromptPending) return
-        askRedirect(pageHost, "跳转到 ${targetHost.ifEmpty { target.take(60) }}") { allow ->
+        askRedirect(pageHost, "跳转到 ${targetHost.ifEmpty { target.take(60) }}", GeckoSitePerms.REDIRECT) { allow ->
             if (allow) open(target) else notifyRedirectBlocked(false, targetHost)
         }
     }
@@ -2284,8 +2321,12 @@ class BrowserTab(
         val res = request.resources.toSet()
         val keep = mutableListOf<String>()
         if (PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID in res) keep += PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID
-        val camOk = PermissionRequest.RESOURCE_VIDEO_CAPTURE in res && cameraMode != 2
-        val micOk = PermissionRequest.RESOURCE_AUDIO_CAPTURE in res && micMode != 2
+        val host = request.origin.host ?: request.origin.toString()
+        // 例外网站优先于全局设置
+        val camMode = GeckoSitePerms.override(host, GeckoSitePerms.CAMERA) ?: cameraMode
+        val micModeEff = GeckoSitePerms.override(host, GeckoSitePerms.MIC) ?: micMode
+        val camOk = PermissionRequest.RESOURCE_VIDEO_CAPTURE in res && camMode != 2
+        val micOk = PermissionRequest.RESOURCE_AUDIO_CAPTURE in res && micModeEff != 2
         fun finish(extra: List<String>) {
             val all = keep + extra
             if (all.isEmpty()) request.deny() else request.grant(all.toTypedArray())
@@ -2299,8 +2340,12 @@ class BrowserTab(
             if (micOk) add(android.Manifest.permission.RECORD_AUDIO)
         }.toTypedArray()
         val what = listOfNotNull(if (camOk) "摄像头" else null, if (micOk) "麦克风" else null).joinToString("、")
-        val mustAsk = (camOk && cameraMode == 0) || (micOk && micMode == 0)
-        decide(if (mustAsk) 0 else 1, request.origin.host ?: request.origin.toString(), "使用$what", perms) { ok ->
+        val mustAsk = (camOk && camMode == 0) || (micOk && micModeEff == 0)
+        val keys = listOfNotNull(
+            if (camOk) GeckoSitePerms.CAMERA else null,
+            if (micOk) GeckoSitePerms.MIC else null,
+        ).joinToString(",")
+        decide(if (mustAsk) 0 else 1, host, "使用$what", perms, permKey = keys) { ok ->
             finish(
                 if (ok) buildList {
                     if (camOk) add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)

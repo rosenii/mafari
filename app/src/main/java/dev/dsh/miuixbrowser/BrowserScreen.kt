@@ -846,6 +846,7 @@ fun BrowserScreen(
         AdBlock.fpWebgl,
         AdBlock.fpAudio,
         AdBlock.fpFonts,
+        GeckoSitePerms.exceptions.toMap(), // 例外网站变化 → 重新生成 WebView 的隐私脚本
     ) {
         tab.applyPrivacy(
             cookieMode = settings.cookieMode,

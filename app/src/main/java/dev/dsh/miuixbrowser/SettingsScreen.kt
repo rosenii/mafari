@@ -923,7 +923,9 @@ fun SettingsScreen(
                         PermDropdown("网页重定向", settings.redirectPermission, permOptions, settings::updateRedirectPermission, permBackdrop, popupVisuals)
                         ArrowPreference(
                             title = "例外网站",
-                            summary = if (GeckoSitePerms.exceptions.isEmpty()) "没有例外" else "${GeckoSitePerms.exceptions.size} 个网站",
+                            summary = GeckoSitePerms.hostsFor(GeckoSitePerms.EXCEPTION_ITEMS).let {
+                                if (it.isEmpty()) "没有例外" else "${it.size} 个网站"
+                            },
                             onClick = {
                                 exceptionSite = null
                                 showPermSheet = false
@@ -938,6 +940,17 @@ fun SettingsScreen(
                         PermDropdown("剪贴板读写", settings.clipboardPermission, permOptions, settings::updateClipboardPermission, permBackdrop, popupVisuals)
                         PermDropdown("网站媒体发声", settings.mediaAutoplay, permOptions, settings::updateMediaAutoplay, permBackdrop, popupVisuals)
                         PermDropdown("网页重定向", settings.redirectPermission, permOptions, settings::updateRedirectPermission, permBackdrop, popupVisuals)
+                        ArrowPreference(
+                            title = "例外网站",
+                            summary = GeckoSitePerms.hostsFor(GeckoSitePerms.WEBVIEW_ITEMS).let {
+                                if (it.isEmpty()) "没有例外" else "${it.size} 个网站"
+                            },
+                            onClick = {
+                                exceptionSite = null
+                                showPermSheet = false
+                                showPermExceptions = true
+                            },
+                        )
                     }
                 }
             }
@@ -959,8 +972,10 @@ fun SettingsScreen(
                 ) {
                     val site = exceptionSite
                     val permBackdrop = if (glass) backdrop else null
+                    // 两个引擎共用一份例外存储，各自只显示 / 修改自己认的项
+                    val excItems = if (settings.geckoMode) GeckoSitePerms.EXCEPTION_ITEMS else GeckoSitePerms.WEBVIEW_ITEMS
                     if (site == null) {
-                        val hosts = GeckoSitePerms.exceptions.keys.sorted()
+                        val hosts = GeckoSitePerms.hostsFor(excItems)
                         if (hosts.isEmpty()) {
                             Text(
                                 text = "还没有例外网站。网站申请权限时，在弹窗里打开「记住此网站的选择」，它就会出现在这里。",
@@ -972,19 +987,19 @@ fun SettingsScreen(
                             hosts.forEach { host ->
                                 ArrowPreference(
                                     title = host,
-                                    summary = GeckoSitePerms.summaryOf(host),
+                                    summary = GeckoSitePerms.summaryOf(host, excItems),
                                     onClick = { exceptionSite = host },
                                 )
                             }
                             ArrowPreference(
                                 title = "清除全部例外",
-                                onClick = { GeckoSitePerms.clearExceptions() },
+                                onClick = { GeckoSitePerms.clearExceptions(excItems) },
                             )
                         }
                     } else {
                         val current = GeckoSitePerms.exceptions[site].orEmpty()
                         val options = listOf("跟随默认", "总是允许", "总是拒绝")
-                        GeckoSitePerms.EXCEPTION_ITEMS.forEach { item ->
+                        excItems.forEach { item ->
                             PermDropdown(
                                 item.label, current[item.key] ?: 0, options,
                                 { GeckoSitePerms.setException(site, item.key, it.takeIf { v -> v > 0 }) },
@@ -994,7 +1009,7 @@ fun SettingsScreen(
                         ArrowPreference(
                             title = "删除此网站的全部例外",
                             onClick = {
-                                GeckoSitePerms.removeSite(site)
+                                GeckoSitePerms.removeSite(site, excItems)
                                 exceptionSite = null
                             },
                         )
