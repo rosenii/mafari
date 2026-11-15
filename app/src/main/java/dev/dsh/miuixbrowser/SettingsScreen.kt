@@ -796,6 +796,15 @@ fun SettingsScreen(
                         insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                     )
                     AppDropdownPreference(
+                        title = "快捷菜单",
+                        items = (1..HOME_QUICK_ROWS_MAX).map { "显示${it}行" } + "不显示",
+                        selectedIndex = if (settings.homeQuickRows == 0) HOME_QUICK_ROWS_MAX else settings.homeQuickRows - 1,
+                        onSelectedIndexChange = { settings.updateHomeQuickRows(if (it >= HOME_QUICK_ROWS_MAX) 0 else it + 1) },
+                        backdrop = if (glass) backdrop else null,
+                        visuals = popupVisuals,
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    )
+                    AppDropdownPreference(
                         title = "个人收藏",
                         items = (1..HOME_FAV_ROWS_MAX).map { "显示${it}行" } + "不显示",
                         selectedIndex = if (settings.homeFavRows == 0) HOME_FAV_ROWS_MAX else settings.homeFavRows - 1,
@@ -829,7 +838,7 @@ fun SettingsScreen(
                         )
                     }
                     Text(
-                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动；收藏超出所选行数时，最后一格显示「更多」，点击进入书签页；书签分组每行 5 个，点击分组磁贴会在图标下方弹出窗口查看其中的书签与子分组）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
+                        text = "在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动；快捷菜单每行 6 个，可放底部菜单里的功能按钮（依赖当前网页的功能除外），长按进入编辑，可拖动排序、点 × 移除、点「+」添加，同样长按「快捷菜单」标题行拖动排序；收藏超出所选行数时，最后一格显示「更多」，点击进入书签页；书签分组每行 5 个，点击分组磁贴会在图标下方弹出窗口查看其中的书签与子分组）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。",
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),

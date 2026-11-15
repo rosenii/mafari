@@ -316,6 +316,8 @@ fun BrowserScreen(
     }
     remember { Diag.log("BrowserScreen composed, favorites=" + favorites.items.size) }
     val menuOrder = remember { MenuOrderStore(context) }
+    // 首页「快捷菜单」点击功能时转发给下面的 runMenuAction（它要等脚本菜单等函数声明之后才能定义）
+    val quickRunner = remember { MenuActionRunner() }
     // Gecko 拓展定期检查更新：应用在前台、Gecko 模式下，启动后稍等一会儿检查一次，之后每 6 小时看一次是否到点
     LaunchedEffect(settings.geckoMode) {
         if (!settings.geckoMode) return@LaunchedEffect
@@ -424,6 +426,8 @@ fun BrowserScreen(
     val barFixed = settings.barPosition == BAR_POS_FIXED_TOP || settings.barPosition == BAR_POS_FIXED_BOTTOM
     var favEditing by remember { mutableStateOf(false) }
     var groupEditing by remember { mutableStateOf(false) }
+    var quickEditing by remember { mutableStateOf(false) }
+    var showQuickPicker by remember { mutableStateOf(false) }
     var showGroupPicker by remember { mutableStateOf(false) }
     // 书签分组弹窗：显示开关与路径 / 锚点分开存，关闭动画期间内容不会突然消失
     var showGroupPopup by remember { mutableStateOf(false) }
@@ -1164,6 +1168,7 @@ fun BrowserScreen(
             showFavEditor -> showFavEditor = false
             showGroupPopup -> showGroupPopup = false
             showGroupPicker -> showGroupPicker = false
+            showQuickPicker -> showQuickPicker = false
             sheet != Sheet.None -> sheet = Sheet.None
             // 阅读模式：返回先退出阅读模式
             tab.readerActive -> tab.exitReader()
@@ -1406,6 +1411,31 @@ fun BrowserScreen(
                             }
                         },
                         onGroupAdd = { showGroupPicker = true },
+                        showQuick = settings.homeShowQuick,
+                        quickActions = settings.homeQuickItems,
+                        quickRows = settings.homeQuickRows,
+                        quickEditing = quickEditing,
+                        onQuickAction = { action ->
+                            // 拓展只在 Gecko 内核可用：WebView 下只提示
+                            if (action == MenuAction.GeckoExtensions && !settings.geckoMode) {
+                                showWebViewUnsupportedToast(context)
+                            } else {
+                                quickRunner.run(action)
+                            }
+                        },
+                        onQuickToggleEdit = { quickEditing = !quickEditing },
+                        // 回调里的下标是可见部分的位置，与完整列表的前缀一致
+                        onQuickRemove = { pos ->
+                            settings.updateHomeQuickItems(settings.homeQuickItems.filterIndexed { i, _ -> i != pos })
+                        },
+                        onQuickMove = { from, to ->
+                            val list = settings.homeQuickItems.toMutableList()
+                            if (from in list.indices && to in list.indices) {
+                                list.add(to, list.removeAt(from))
+                                settings.updateHomeQuickItems(list)
+                            }
+                        },
+                        onQuickAdd = { showQuickPicker = true },
                         pinBottom = settings.homePinBottom,
                         onPinBottomChange = { settings.updateHomePinBottom(it) },
                     )
@@ -1736,6 +1766,60 @@ fun BrowserScreen(
         t.queryMenuCommands { scriptMenuItems = it }
     }
 
+    // 菜单功能的执行：底部「更多」菜单和首页「快捷菜单」共用
+    fun runMenuAction(action: MenuAction) {
+        when (action) {
+            MenuAction.NewTab -> state.newTab(incognito = false)
+            MenuAction.Incognito -> state.toggleIncognito()
+            MenuAction.Desktop -> tab.toggleDesktopMode(!tab.desktopMode)
+            MenuAction.Find -> showFind = true
+            MenuAction.Translate -> if (tab.url.isNotBlank()) {
+                state.newTab(
+                    "https://translate.google.com/translate?sl=auto&tl=zh-CN&u=" +
+                        java.net.URLEncoder.encode(tab.url, "UTF-8"),
+                )
+            }
+            MenuAction.Favorite -> if (tab.url.isNotBlank()) {
+                val favName = tab.title.ifBlank { hostOf(tab.url) }
+                val msg = if (favorites.exists(favName, tab.url)) {
+                    "已添加此书签"
+                } else {
+                    favorites.add(favName, tab.url)
+                    "添加书签成功"
+                }
+                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            }
+            MenuAction.Bookmarks -> pushPage(AppRoute.Library(0))
+            MenuAction.Share -> if (tab.url.isNotBlank()) {
+                if (needsInAppShareDialog()) showShareDialog = true else shareUrlSystem(context, tab.url, tab.title)
+            }
+            MenuAction.Refresh -> tab.reload()
+            MenuAction.CopyLink -> if (tab.url.isNotBlank()) {
+                clipboard.setText(AnnotatedString(tab.url))
+            }
+            MenuAction.External -> if (tab.url.isNotBlank()) {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(tab.url)))
+                }
+            }
+            MenuAction.AddToDesktop -> ShortcutHelper.addToDesktop(context, scope, tab)
+            MenuAction.Home -> state.goHome(tab)
+            MenuAction.Downloads -> pushPage(AppRoute.Downloads)
+            MenuAction.Scan -> launchScan()
+            // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
+            MenuAction.GeckoExtensions -> geckoExtSheetShow = true
+            MenuAction.ScriptMenu -> {
+                scriptSheetShow = true
+                refreshScriptSheet()
+            }
+            MenuAction.History -> pushPage(AppRoute.Library(1))
+            MenuAction.Settings -> pushPage(AppRoute.Settings)
+            MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)
+            MenuAction.CloseTab -> state.closeTab(state.activeIndex)
+        }
+    }
+    quickRunner.run = { runMenuAction(it) }
+
     // 脚本总开关 → 所有标签页
     LaunchedEffect(settings.scriptsEnabled, state.tabs.size) {
         state.tabs.forEach { it.scriptsEnabled = settings.scriptsEnabled }
@@ -2015,55 +2099,7 @@ fun BrowserScreen(
                     hidden = menuOrder.hidden,
                     onAction = { action ->
                         sheet = Sheet.None
-                        when (action) {
-                            MenuAction.NewTab -> state.newTab(incognito = false)
-                            MenuAction.Incognito -> state.toggleIncognito()
-                            MenuAction.Desktop -> tab.toggleDesktopMode(!tab.desktopMode)
-                            MenuAction.Find -> showFind = true
-                            MenuAction.Translate -> if (tab.url.isNotBlank()) {
-                                state.newTab(
-                                    "https://translate.google.com/translate?sl=auto&tl=zh-CN&u=" +
-                                        java.net.URLEncoder.encode(tab.url, "UTF-8"),
-                                )
-                            }
-                            MenuAction.Favorite -> if (tab.url.isNotBlank()) {
-                                val favName = tab.title.ifBlank { hostOf(tab.url) }
-                                val msg = if (favorites.exists(favName, tab.url)) {
-                                    "已添加此书签"
-                                } else {
-                                    favorites.add(favName, tab.url)
-                                    "添加书签成功"
-                                }
-                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                            MenuAction.Bookmarks -> pushPage(AppRoute.Library(0))
-                            MenuAction.Share -> if (tab.url.isNotBlank()) {
-                                if (needsInAppShareDialog()) showShareDialog = true else shareUrlSystem(context, tab.url, tab.title)
-                            }
-                            MenuAction.Refresh -> tab.reload()
-                            MenuAction.CopyLink -> if (tab.url.isNotBlank()) {
-                                clipboard.setText(AnnotatedString(tab.url))
-                            }
-                            MenuAction.External -> if (tab.url.isNotBlank()) {
-                                runCatching {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(tab.url)))
-                                }
-                            }
-                            MenuAction.AddToDesktop -> ShortcutHelper.addToDesktop(context, scope, tab)
-                            MenuAction.Home -> state.goHome(tab)
-                            MenuAction.Downloads -> pushPage(AppRoute.Downloads)
-                            MenuAction.Scan -> launchScan()
-                            // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
-                            MenuAction.GeckoExtensions -> geckoExtSheetShow = true
-                            MenuAction.ScriptMenu -> {
-                                scriptSheetShow = true
-                                refreshScriptSheet()
-                            }
-                            MenuAction.History -> pushPage(AppRoute.Library(1))
-                            MenuAction.Settings -> pushPage(AppRoute.Settings)
-                            MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)
-                            MenuAction.CloseTab -> state.closeTab(state.activeIndex)
-                        }
+                        runMenuAction(action)
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
                     // 长按 0.65 秒（图标不动）：直接进入管理页；单击保持原有操作
@@ -2733,6 +2769,23 @@ fun BrowserScreen(
             },
         )
 
+        run {
+            val cap = settings.homeQuickRows.coerceAtLeast(1) * HOME_QUICK_COLS
+            val all = settings.homeQuickItems
+            QuickMenuPickerDialog(
+                show = showQuickPicker,
+                candidates = quickMenuCandidates(),
+                pickedActions = all.take(cap).toSet(),
+                backdrop = if (homeBlurAvailable) homeBackdrop else null,
+                onDismiss = { showQuickPicker = false },
+                onPick = { action ->
+                    // 追加到可见部分的末尾；被行数挡住的旧项排在后面（去重）
+                    settings.updateHomeQuickItems(all.take(cap) + action + all.drop(cap).filter { it != action })
+                    showQuickPicker = false
+                },
+            )
+        }
+
         GroupPickerDialog(
             show = showGroupPicker,
             favorites = favorites,
@@ -3300,4 +3353,9 @@ internal fun rememberWallpaper(uri: String, version: Int = 0, enabled: Boolean =
         }
     }
     return image
+}
+
+/** 把「执行菜单功能」转发给稍后才定义的函数（首页快捷菜单要在它声明之前就引用到） */
+private class MenuActionRunner {
+    var run: (MenuAction) -> Unit = {}
 }

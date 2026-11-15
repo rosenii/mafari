@@ -413,6 +413,16 @@ internal fun StartPage(
     onGroupRemove: (Int) -> Unit = {},
     onGroupMove: (Int, Int) -> Unit = { _, _ -> },
     onGroupAdd: () -> Unit = {},
+    /** 「快捷菜单」卡片：底部菜单里的功能按钮，每行 [HOME_QUICK_COLS] 个，显示 [quickRows] 行 */
+    showQuick: Boolean = false,
+    quickActions: List<MenuAction> = emptyList(),
+    quickRows: Int = HOME_QUICK_ROWS_DEFAULT,
+    quickEditing: Boolean = false,
+    onQuickAction: (MenuAction) -> Unit = {},
+    onQuickToggleEdit: () -> Unit = {},
+    onQuickRemove: (Int) -> Unit = {},
+    onQuickMove: (Int, Int) -> Unit = { _, _ -> },
+    onQuickAdd: () -> Unit = {},
     /** 只剩一张卡片可见时是否固定在底部；长按拖动该卡片往下 / 往上切换。 */
     pinBottom: Boolean = false,
     onPinBottomChange: (Boolean) -> Unit = {},
@@ -426,6 +436,7 @@ internal fun StartPage(
         when (it) {
             HOME_FAVORITES -> showFavorites
             HOME_GROUPS -> showGroups
+            HOME_QUICK -> showQuick
             HOME_PRIVACY -> showPrivacy
             HOME_RECENT -> showRecent
             else -> showDownloads
@@ -570,6 +581,23 @@ internal fun StartPage(
                                 onMove = onMove,
                                 onEdit = onEdit,
                                 onAdd = onAdd,
+                            )
+                            HOME_QUICK -> QuickMenuBlock(
+                                modifier = itemMod,
+                                headerModifier = handle,
+                                actions = quickActions,
+                                rows = quickRows,
+                                wallpaper = wallpaper,
+                                wallpaperBackdrop = wallpaperBackdrop,
+                                liquidBackdrop = liquidBackdrop,
+                                blurEnabled = blurEnabled,
+                                editing = quickEditing,
+                                guard = guard,
+                                onAction = onQuickAction,
+                                onToggleEdit = onQuickToggleEdit,
+                                onRemove = onQuickRemove,
+                                onMove = onQuickMove,
+                                onAdd = onQuickAdd,
                             )
                             HOME_GROUPS -> GroupsBlock(
                                 modifier = itemMod,
@@ -1686,6 +1714,163 @@ internal fun GroupAddTile(
     }
 }
 
+/* -------------------------- 快捷菜单卡片 -------------------------- */
+
+/** 快捷菜单磁贴的方块占格子宽度的比例 / 方块下方名称占的高度（3dp 间距 + 13dp 行高） */
+private const val QUICK_TILE_FRACTION = 0.80f
+private val QUICK_LABEL_BLOCK = 16.dp
+
+/**
+ * 快捷菜单：把底部「更多」菜单里的功能按钮放到首页。方块图标 + 下方名称，每行 [HOME_QUICK_COLS] 个，
+ * 显示 [rows] 行（设置里可选 1 / 2 行 / 不显示）；最后一格是「添加」，格子满了就消失，超出行数的功能只是不显示、不会被删除。
+ * 点击执行对应功能；长按进入编辑态，可拖动排序、点右上角 × 移除。整块作为一个块参与首页排序，长按标题行拖动。
+ */
+@Composable
+internal fun QuickMenuBlock(
+    modifier: Modifier,
+    headerModifier: Modifier,
+    actions: List<MenuAction>,
+    rows: Int,
+    wallpaper: ImageBitmap?,
+    wallpaperBackdrop: LayerBackdrop?,
+    liquidBackdrop: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    editing: Boolean,
+    guard: (() -> Unit) -> (() -> Unit),
+    onAction: (MenuAction) -> Unit,
+    onToggleEdit: () -> Unit,
+    onRemove: (Int) -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onAdd: () -> Unit,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        HomeBlockHeader(title = "快捷菜单", headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
+
+        Spacer(Modifier.height(6.dp))
+        val capacity = rows.coerceIn(1, HOME_QUICK_ROWS_MAX) * HOME_QUICK_COLS
+        // 只截取可见的前几个：下标与完整列表一致，拖动 / 删除回调里的位置可直接对应
+        val shown = actions.take(capacity)
+        val full = shown.size >= capacity
+        val haptic = LocalHapticFeedback.current
+        val addTap by rememberUpdatedState(guard {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            onAdd()
+        })
+        val editingNow by rememberUpdatedState(editing)
+        val onToggleEditNow by rememberUpdatedState(onToggleEdit)
+        val hasWallpaper = wallpaper != null && blurEnabled && (wallpaperBackdrop != null || liquidBackdrop != null)
+        // 整块一张大卡片：只在这里做一次玻璃，里面的磁贴只画半透明实色（与书签分组同款）
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .homeGlass(wallpaperBackdrop, blurEnabled, wallpaper != null, liquidBackdrop, radius = GROUP_CARD_RADIUS),
+        ) {
+            // 垫在最底层的「空白感应层」：落在大卡片空白处的长按进入编辑态（与长按磁贴等效）；不消费按下事件，不影响滚动
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            val finishedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                waitForUpOrCancellation()
+                                true
+                            }
+                            if (finishedEarly == null) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (!editingNow) onToggleEditNow()
+                                waitForUpOrCancellation()
+                            }
+                        }
+                    },
+            )
+            Box(modifier = Modifier.fillMaxWidth().padding(horizontal = GROUP_CARD_PADDING_H, vertical = GROUP_CARD_PADDING_V)) {
+                ReorderTileGrid(
+                    items = shown,
+                    columns = HOME_QUICK_COLS,
+                    gap = 6.dp,
+                    cellHeight = { it * QUICK_TILE_FRACTION + QUICK_LABEL_BLOCK },
+                    editing = editing,
+                    guard = guard,
+                    onTap = { _, action, isEditing ->
+                        if (isEditing) {
+                            onToggleEdit()
+                        } else {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onAction(action)
+                        }
+                    },
+                    onToggleEdit = onToggleEdit,
+                    onMove = onMove,
+                    // 「添加」：一个都没有时常驻；添加过之后只在长按进入编辑态时出现
+                    hasTrailing = !full && (shown.isEmpty() || editing),
+                    trailing = { mod ->
+                        GroupAddTile(
+                            wallpaper = wallpaper,
+                            wallpaperBackdrop = wallpaperBackdrop,
+                            liquidBackdrop = liquidBackdrop,
+                            blurEnabled = blurEnabled,
+                            modifier = mod.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { addTap() },
+                        )
+                    },
+                ) { action, index, mod ->
+                    QuickMenuTile(
+                        action = action,
+                        hasWallpaper = hasWallpaper,
+                        editing = editing,
+                        modifier = mod,
+                        onRemove = { onRemove(index) },
+                    )
+                }
+            }
+            HomeOutlineOverlay(hasWallpaper = wallpaper != null, radius = GROUP_CARD_RADIUS.dp)
+        }
+    }
+}
+
+/** 快捷菜单磁贴：方块里放功能图标，名称在方块下方。 */
+@Composable
+private fun QuickMenuTile(
+    action: MenuAction,
+    hasWallpaper: Boolean,
+    editing: Boolean,
+    modifier: Modifier = Modifier,
+    onRemove: () -> Unit,
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(QUICK_TILE_FRACTION)
+                .aspectRatio(1f)
+                .groupTileSurface(hasWallpaper),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = action.icon,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.size(20.dp),
+            )
+            if (editing) TileRemoveBadge(onClick = onRemove)
+        }
+        Text(
+            text = action.label,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = MiuixTheme.colorScheme.onSurface,
+            style = TextStyle(
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeight = 13.sp,
+            ),
+            modifier = Modifier.padding(top = 3.dp),
+        )
+    }
+}
+
 /** 分组弹窗的几何：宽 [side]、高 [height]、水平对齐方式，以及按 GlassPopup 规则加工过的锚点。 */
 internal class GroupPopupGeometry(val anchor: Rect, val alignStart: Boolean, val side: Dp, val height: Dp)
 
@@ -2208,6 +2393,73 @@ internal fun GroupPickerDialog(
                             )
                             Text(
                                 text = if (added) "已添加" else "${favorites.itemsInTree(path).size} 个书签",
+                                fontSize = 12.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text(text = "取消", style = MiuixTheme.textStyles.button)
+            }
+        }
+    }
+}
+
+/** 选择要添加到首页快捷菜单的功能：已添加的置灰。 */
+@Composable
+internal fun QuickMenuPickerDialog(
+    show: Boolean,
+    candidates: List<MenuAction>,
+    pickedActions: Set<MenuAction>,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    onDismiss: () -> Unit,
+    onPick: (MenuAction) -> Unit,
+) {
+    AppGlassDialog(
+        show = show,
+        title = "添加快捷功能",
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+        preBlurred = LocalWallpaperPreBlurred.current,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                items(candidates.size, key = { candidates[it].id }) { i ->
+                    val action = candidates[i]
+                    val added = action in pickedActions
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                enabled = !added,
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { onPick(action) }
+                            .alpha(if (added) 0.4f else 1f)
+                            .padding(horizontal = 4.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            imageVector = action.icon,
+                            contentDescription = null,
+                            tint = MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Text(
+                            text = action.label,
+                            fontSize = 15.sp,
+                            color = MiuixTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (added) {
+                            Text(
+                                text = "已添加",
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )

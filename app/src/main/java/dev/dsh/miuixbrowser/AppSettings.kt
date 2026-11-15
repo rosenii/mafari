@@ -37,6 +37,10 @@ const val HOME_PRIVACY = 1
 const val HOME_RECENT = 2
 const val HOME_DOWNLOADS = 3
 const val HOME_GROUPS = 4
+const val HOME_QUICK = 5
+
+/** 首页「快捷菜单」默认显示行数（0=不显示，1..2 行，每行 6 个；见 [HOME_QUICK_COLS]） */
+const val HOME_QUICK_ROWS_DEFAULT = 1
 
 /** 首页「书签分组」卡片：每行格数 / 最多行数 */
 const val HOME_GROUP_COLS = 5
@@ -70,9 +74,9 @@ fun readHomeCustomUrl(context: Context): String =
     context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
         .getString(PREF_HOME_CUSTOM_URL, "").orEmpty()
 
-/** 解析首页内容块顺序；缺失 / 非法项补齐，默认 收藏 → 书签分组 → 隐私报告 → 最近浏览 → 下载项。 */
+/** 解析首页内容块顺序；缺失 / 非法项补齐，默认 快捷菜单 → 收藏 → 书签分组 → 隐私报告 → 最近浏览 → 下载项（旧版升级上来的，新增的快捷菜单排在末尾）。 */
 fun parseHomeOrder(raw: String?): List<Int> {
-    val all = listOf(HOME_FAVORITES, HOME_GROUPS, HOME_PRIVACY, HOME_RECENT, HOME_DOWNLOADS)
+    val all = listOf(HOME_QUICK, HOME_FAVORITES, HOME_GROUPS, HOME_PRIVACY, HOME_RECENT, HOME_DOWNLOADS)
     val parsed = raw.orEmpty().split(',').mapNotNull { it.trim().toIntOrNull() }
         .filter { it in all }.distinct()
     return parsed + all.filter { it !in parsed }
@@ -175,6 +179,28 @@ class AppSettings(context: Context) {
     // 首页「书签分组」里已添加的文件夹 id、点开分组弹窗的排列方式：现在存在加密库 history.db 里（见 FavoritesStore / BookmarkDb），
     // 随「书签」类别备份；旧版放在这里的 home_group_ids 由 FavoritesStore 启动时一次性导入。
 
+    /** 首页「快捷菜单」显示的行数：0=不显示，1..2=显示对应行数（每行 6 个）。 */
+    var homeQuickRows by mutableStateOf(
+        prefs.getInt(KEY_HOME_QUICK_ROWS, HOME_QUICK_ROWS_DEFAULT).coerceIn(0, HOME_QUICK_ROWS_MAX),
+    )
+        private set
+    val homeShowQuick: Boolean get() = homeQuickRows > 0
+
+    fun updateHomeQuickRows(rows: Int) {
+        homeQuickRows = rows.coerceIn(0, HOME_QUICK_ROWS_MAX)
+        prefs.edit().putInt(KEY_HOME_QUICK_ROWS, homeQuickRows).apply()
+    }
+
+    /** 快捷菜单里已添加的功能（有序）；超出所选行数的不显示但保留。 */
+    var homeQuickItems by mutableStateOf(parseQuickMenu(prefs.getString(KEY_HOME_QUICK_ITEMS, null)))
+        private set
+
+    fun updateHomeQuickItems(items: List<MenuAction>) {
+        val fixed = items.distinct().take(HOME_QUICK_COLS * HOME_QUICK_ROWS_MAX)
+        homeQuickItems = fixed
+        prefs.edit().putString(KEY_HOME_QUICK_ITEMS, fixed.joinToString(",") { it.id }).apply()
+    }
+
     /** 首页内容块的显示顺序（含隐藏项的位置），长按拖动后持久化。 */
     var homeOrder by mutableStateOf(parseHomeOrder(prefs.getString(KEY_HOME_ORDER, null)))
         private set
@@ -197,6 +223,7 @@ class AppSettings(context: Context) {
     fun isHomeShown(kind: Int): Boolean = when (kind) {
         HOME_FAVORITES -> homeShowFavorites
         HOME_GROUPS -> homeShowGroups
+        HOME_QUICK -> homeShowQuick
         HOME_PRIVACY -> homeShowPrivacy
         HOME_RECENT -> homeShowRecent
         else -> homeShowDownloads
@@ -231,6 +258,7 @@ class AppSettings(context: Context) {
         when (kind) {
             HOME_FAVORITES -> updateHomeFavRows(if (!show) 0 else if (homeFavRows == 0) HOME_FAV_ROWS_DEFAULT else homeFavRows)
             HOME_GROUPS -> updateHomeGroupRows(if (!show) 0 else if (homeGroupRows == 0) HOME_GROUP_ROWS_DEFAULT else homeGroupRows)
+            HOME_QUICK -> updateHomeQuickRows(if (!show) 0 else if (homeQuickRows == 0) HOME_QUICK_ROWS_DEFAULT else homeQuickRows)
             HOME_PRIVACY -> { homeShowPrivacy = show; e.putBoolean(KEY_HOME_PRIVACY, show) }
             HOME_RECENT -> { homeShowRecent = show; e.putBoolean(KEY_HOME_RECENT, show) }
             HOME_DOWNLOADS -> { homeShowDownloads = show; e.putBoolean(KEY_HOME_DOWNLOADS, show) }
@@ -723,6 +751,8 @@ class AppSettings(context: Context) {
         const val KEY_HOME_DOWNLOADS = "home_show_downloads"
         const val KEY_HOME_GROUPS = "home_show_groups"
         const val KEY_HOME_GROUP_ROWS = "home_group_rows"
+        const val KEY_HOME_QUICK_ROWS = "home_quick_rows"
+        const val KEY_HOME_QUICK_ITEMS = "home_quick_items"
         const val KEY_HOME_ORDER = "home_order"
         const val KEY_HOME_PIN_BOTTOM = "home_pin_bottom"
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"

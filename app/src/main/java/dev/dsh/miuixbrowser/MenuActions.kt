@@ -124,3 +124,36 @@ class MenuOrderStore(context: Context) {
         private const val KEY_HIDDEN = "hidden"
     }
 }
+
+/** 首页「快捷菜单」：每行格数 / 最多行数 */
+const val HOME_QUICK_COLS = 6
+const val HOME_QUICK_ROWS_MAX = 2
+
+/** 依赖当前网页的功能：首页上没有网页，放进快捷菜单点了也没有效果，所以不提供 */
+private val QUICK_MENU_NEEDS_PAGE = setOf(
+    MenuAction.Find, MenuAction.Translate, MenuAction.Favorite, MenuAction.Share, MenuAction.Refresh,
+    MenuAction.CopyLink, MenuAction.External, MenuAction.AddToDesktop, MenuAction.Home,
+)
+
+/** 快捷菜单里可以添加的功能（与底部「更多」菜单同一套，去掉依赖网页的和本安装包没有的） */
+fun quickMenuCandidates(): List<MenuAction> = MenuAction.entries.filter {
+    it !in QUICK_MENU_NEEDS_PAGE &&
+        (it != MenuAction.Account || EngineSupport.SYNC_BUNDLED) &&
+        (it != MenuAction.GeckoExtensions || EngineSupport.GECKO_BUNDLED)
+}
+
+/** 快捷菜单的默认内容（一行 6 个） */
+val QUICK_MENU_DEFAULT: List<MenuAction> = listOf(
+    MenuAction.NewTab, MenuAction.Bookmarks, MenuAction.History,
+    MenuAction.Downloads, MenuAction.Scan, MenuAction.Settings,
+)
+
+/** 解析存下来的快捷菜单（功能 id，逗号分隔）；从没存过用默认，存过空串就是空；去掉失效 / 重复项 */
+fun parseQuickMenu(raw: String?): List<MenuAction> {
+    if (raw == null) return QUICK_MENU_DEFAULT
+    val allowed = quickMenuCandidates()
+    return raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        .mapNotNull { id -> allowed.firstOrNull { it.id == id } }
+        .distinct()
+        .take(HOME_QUICK_COLS * HOME_QUICK_ROWS_MAX)
+}
