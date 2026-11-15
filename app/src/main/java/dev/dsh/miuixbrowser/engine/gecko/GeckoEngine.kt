@@ -31,6 +31,7 @@ import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.GeckoView
+import org.mozilla.geckoview.MediaSession
 import org.mozilla.geckoview.StorageController
 import org.mozilla.geckoview.WebRequestError
 import org.mozilla.geckoview.WebResponse
@@ -364,7 +365,7 @@ class GeckoTabEngine(
     // 这里通过 Gecko 的 MediaSession 拿到正在播放的媒体，在这两种时机主动暂停（回前台 / 切回来后由用户自己点播放）。
 
     @Volatile
-    private var mediaSession: GeckoSession.MediaSession? = null
+    private var mediaSession: MediaSession? = null
 
     /** 应用已退到后台（Activity.onStop）到切回前台之间为 true */
     @Volatile
@@ -589,16 +590,16 @@ class GeckoTabEngine(
         session.promptDelegate = GeckoPromptHandler(tab)
 
         // 媒体会话：记下当前的媒体，供切走标签 / 退到后台时暂停
-        session.setMediaSessionDelegate(object : GeckoSession.MediaSession.Delegate {
-            override fun onActivated(session: GeckoSession, mediaSession: GeckoSession.MediaSession) {
+        session.setMediaSessionDelegate(object : MediaSession.Delegate {
+            override fun onActivated(session: GeckoSession, mediaSession: MediaSession) {
                 this@GeckoTabEngine.mediaSession = mediaSession
             }
 
-            override fun onDeactivated(session: GeckoSession, mediaSession: GeckoSession.MediaSession) {
+            override fun onDeactivated(session: GeckoSession, mediaSession: MediaSession) {
                 if (this@GeckoTabEngine.mediaSession === mediaSession) this@GeckoTabEngine.mediaSession = null
             }
 
-            override fun onPlay(session: GeckoSession, mediaSession: GeckoSession.MediaSession) {
+            override fun onPlay(session: GeckoSession, mediaSession: MediaSession) {
                 // 切走 / 退到后台之后才开始播的（缓冲完成后自动播放、定时脚本等）：补一次暂停
                 if (!sessionActive || appStopped) runCatching { mediaSession.pause() }
             }
