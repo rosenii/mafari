@@ -671,20 +671,21 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
-                            ActionPair(
-                                status = when {
-                                    busy -> "正在加密并导出…"
-                                    restoring -> "正在解密并校验…"
-                                    else -> "加密后保存为 .${BackupFormat.EXTENSION} 文件"
-                                },
-                                primary = "导出备份",
-                                primaryEnabled = !working && hasContent,
-                                onPrimary = { startExport(ExportTarget.FILE) },
-                                secondary = "从文件恢复",
-                                secondaryEnabled = !working,
-                                onSecondary = { requireAuth("从本地备份文件恢复") { openLauncher.launch(arrayOf("*/*")) } },
-                                topPadding = 16.dp,
-                            )
+                            // 两行文字条目（不再是并排的两个按钮）
+                            Column {
+                                ArrowPreference(
+                                    title = "导出备份",
+                                    summary = if (busy) "正在加密并导出…" else "加密后保存为 .${BackupFormat.EXTENSION} 文件",
+                                    enabled = !working && hasContent,
+                                    onClick = { startExport(ExportTarget.FILE) },
+                                )
+                                ArrowPreference(
+                                    title = "从文件恢复",
+                                    summary = if (restoring) "正在解密并校验…" else "选择备份文件，解密后恢复",
+                                    enabled = !working,
+                                    onClick = { requireAuth("从本地备份文件恢复") { openLauncher.launch(arrayOf("*/*")) } },
+                                )
+                            }
                         }
                     }
                     item { Note("恢复只覆盖备份里有的内容，恢复前可再勾选；完成后自动重启。") }

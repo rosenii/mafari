@@ -658,9 +658,12 @@ internal fun AddressField(
     // 用 TextFieldValue 才能控制选区：外部（String）是文字的唯一来源，这里只额外记住光标 / 选区
     var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
     // 外部文字变了（切换显示标题 / 网址、页面跳转）而选区还是旧文字的：光标放到末尾
-    val shown = if (field.text == value) field else TextFieldValue(value, TextRange(value.length))
+    // 未编辑时光标放在开头：输入框会把光标滚进可视区，光标在末尾的话，底栏收起时（地址栏很窄）文字被滚到末尾，
+    // 之后滑出变宽，滚动位置不会回到开头，网址头部就被遮住一截
+    val idleCursor = if (editing) value.length else 0
+    val shown = if (field.text == value) field else TextFieldValue(value, TextRange(idleCursor))
     LaunchedEffect(value) {
-        if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
+        if (field.text != value) field = TextFieldValue(value, TextRange(idleCursor))
     }
     // 进入编辑态（点击地址栏 / 圆形搜索钮）：先全选当前网址，再拿焦点，用户可以直接输入替换或粘贴；
     // 退出编辑态时选区收起。失焦时通知外部退出编辑态。
@@ -669,7 +672,7 @@ internal fun AddressField(
             field = TextFieldValue(value, TextRange(0, value.length))
             runCatching { focusRequester.requestFocus() }
         } else {
-            field = TextFieldValue(value, TextRange(value.length))
+            field = TextFieldValue(value, TextRange(0))
         }
     }
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
