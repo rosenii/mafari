@@ -1142,6 +1142,8 @@ fun BrowserScreen(
             showGroupPopup -> showGroupPopup = false
             showGroupPicker -> showGroupPicker = false
             sheet != Sheet.None -> sheet = Sheet.None
+            // 阅读模式：返回先退出阅读模式
+            tab.readerActive -> tab.exitReader()
             tab.canGoBack -> tab.goBack()
             state.tabs.size > 1 -> state.closeTab(state.activeIndex)
             else -> (context as? Activity)?.finish()
@@ -1465,7 +1467,13 @@ fun BrowserScreen(
             val fixedToolbarWidth = 44.dp * 4 + 12.dp + 24.dp
             val loadingIndicatorWidth = if (tab.loading) 15.dp else 0.dp
             val refreshWidth = if (shouldShowAddressRefresh(displayAddress, tab.loading, editing)) AddressRefreshWidth else 0.dp
-            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth
+            // 阅读模式图标（地址栏最左侧）：可进入 / 正在阅读，且有页面（主页 url 为空不显示）
+            val readerShown = tab.url.isNotEmpty() && (tab.readerable || tab.readerActive)
+            // 阅读层按当前应用主题配色：用 surface 亮度判断深浅（MiuixTheme 的取值只能在组合里读，不能放进点击回调）
+            val readerSurface = MiuixTheme.colorScheme.surface
+            val readerDark = (0.299f * readerSurface.red + 0.587f * readerSurface.green + 0.114f * readerSurface.blue) < 0.5f
+            val readerWidth = if (shouldShowAddressReader(readerShown, editing)) AddressReaderWidth else 0.dp
+            val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth + readerWidth
             // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
             val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
             val animatedBarWidth by animateDpAsState(
@@ -1618,7 +1626,8 @@ fun BrowserScreen(
                 backdrop = homeBackdrop,
                 address = displayAddress,
                 loading = tab.loading,
-                canGoBack = tab.canGoBack,
+                // 阅读模式中「后退」= 退出阅读模式，所以即使没有历史也可点
+                canGoBack = tab.canGoBack || tab.readerActive,
                 canGoForward = tab.canGoForward,
                 tabCount = state.tabs.size,
                 onChange = {
@@ -1649,6 +1658,9 @@ fun BrowserScreen(
                     }
                 },
                 editing = editing,
+                readerVisible = readerShown,
+                readerActive = tab.readerActive,
+                onReader = { tab.toggleReader(readerDark) },
                 onShare = {
                     if (tab.url.isNotBlank()) {
                         runCatching {

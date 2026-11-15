@@ -156,6 +156,9 @@ class GeckoTabEngine(
         installDelegates()
         GeckoGm.ensureInstalled(context, tab.userScripts, tab.gmScriptsEnabled())
         GeckoGm.attachSession(session, tab)
+        // 阅读模式：内置拓展（内容脚本检测 + 渲染）与会话端口
+        GeckoReader.ensureInstalled(context)
+        GeckoReader.attachSession(session, tab)
         if (!isAdopted) session.open(runtime)
         // 拓展按钮的弹出页请求按标签页 session 路由：给这个 session 挂上拓展的 ActionDelegate / TabDelegate
         GeckoExtensionStore.registerSession(session)
@@ -539,6 +542,7 @@ class GeckoTabEngine(
 
     fun destroy() {
         GeckoGm.detachSession(session)
+        GeckoReader.detachSession(session)
         GeckoViewLifecycle.unregister(this)
         clearFreeze()
         runCatching { view.releaseSession() }

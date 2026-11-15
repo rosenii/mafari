@@ -857,6 +857,7 @@ class BrowserTab(
             override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
                 if (!parked) pageUrl?.let { url = it }
                 pageHost = runCatching { Uri.parse(pageUrl).host }.getOrNull().orEmpty()
+                resetReaderState()
                 applyMediaGesture()
                 loading = true
                 errorText = null
@@ -895,6 +896,8 @@ class BrowserTab(
                 // 重定向 / 跳转后以最终地址为准更新页面主机名，去广告的第三方判定、白名单、$domain 都依赖它
                 updatePageHost(pageUrl)
                 installElementInspector(view)
+                // 阅读模式：页面加载完后检测能否进入
+                if (!parked) onWebPageSettled(pageUrl ?: url, 400L)
             }
 
             override fun doUpdateVisitedHistory(view: WebView, pageUrl: String?, isReload: Boolean) {
@@ -903,6 +906,8 @@ class BrowserTab(
                 if (!parked) pageUrl?.let { url = it }
                 updatePageHost(pageUrl)
                 syncNav()
+                // 单页应用站内跳转（pushState）：文档没换，需要重新判断阅读模式
+                if (!parked && !isReload && !loading) onWebPageSettled(pageUrl, 800L)
             }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
@@ -1529,6 +1534,155 @@ class BrowserTab(
     }
 
     // ======================================================================
+    // 阅读模式（两种内核共用 assets/mafari_reader.js，见 ReaderMode / GeckoReader）
+    // ======================================================================
+
+    /** 当前页面能进入阅读模式（地址栏最左侧显示阅读图标）。每次导航开始清零，页面加载后重新检测 */
+    var readerable by mutableStateOf(false)
+        private set
+
+    /** 正处于阅读模式（图标点亮） */
+    var readerActive by mutableStateOf(false)
+        private set
+
+    /** 进入阅读模式时的页面地址：单页应用换了地址就自动退出 */
+    private var readerUrl = ""
+
+    /** 最近一次检测对应的地址（WebView：避免同一地址重复清零） */
+    private var readerDetectUrl = ""
+
+    /** 检测已重试的次数（页面内容晚渲染时多测几次） */
+    private var readerAttempt = 0
+
+    /** 每次导航 +1：丢弃上一个文档遗留的异步回调 */
+    private var readerGeneration = 0
+
+    /** Gecko：已向内容脚本发出 enter、等它回报结果（用来在提取失败时给用户提示） */
+    private var readerEnterPending = false
+
+    /** Gecko：当前页面里内容脚本的原生端口（页面离开 / 重新加载后由 [geckoReaderGone] 清掉） */
+    @Volatile private var readerPort: org.mozilla.geckoview.WebExtension.Port? = null
+
+    private val readerDetectRunnable = Runnable { runReaderDetect() }
+
+    /** 新文档开始加载：阅读模式状态随旧文档一起失效 */
+    private fun resetReaderState() {
+        mainHandler.removeCallbacks(readerDetectRunnable)
+        readerEnterPending = false
+        readerGeneration++
+        readerAttempt = 0
+        readerDetectUrl = ""
+        readerUrl = ""
+        readerable = false
+        readerActive = false
+    }
+
+    /** WebView：延迟检测（页面刚结束加载时正文可能还在渲染） */
+    private fun scheduleReaderDetect(delayMs: Long) {
+        if (isGecko || closed || destroyed) return
+        mainHandler.removeCallbacks(readerDetectRunnable)
+        mainHandler.postDelayed(readerDetectRunnable, delayMs)
+    }
+
+    private fun runReaderDetect() {
+        if (isGecko || closed || destroyed || parked || readerActive) return
+        val u = url
+        if (!(u.startsWith("http://", true) || u.startsWith("https://", true))) return
+        readerDetectUrl = u
+        val gen = readerGeneration
+        evaluateJs(ReaderMode.detectScript(ReaderMode.source(appContext))) { raw ->
+            if (gen != readerGeneration || closed || destroyed || readerActive) return@evaluateJs
+            val ok = raw == "true"
+            readerable = ok
+            if (!ok && readerAttempt < 2) {
+                readerAttempt++
+                scheduleReaderDetect(if (readerAttempt == 1) 1500L else 3500L)
+            }
+        }
+    }
+
+    /** WebView 页面加载结束 / 单页应用换了地址：重新检测；阅读中换了地址则先退出 */
+    private fun onWebPageSettled(newUrl: String?, delayMs: Long) {
+        if (isGecko || newUrl.isNullOrEmpty()) return
+        if (readerActive) {
+            if (readerUrl.isNotEmpty() && newUrl != readerUrl) exitReader()
+            else return
+        }
+        if (newUrl == readerDetectUrl && readerable) return
+        // 地址变了：上一个地址的检测结果作废，图标先收起，等新结果
+        if (newUrl != readerDetectUrl) readerable = false
+        readerAttempt = 0
+        scheduleReaderDetect(delayMs)
+    }
+
+    /**
+     * 地址栏阅读图标的点击：未进入 → 进入；已进入 → 退出。[dark] 是当前应用的深浅色，阅读层按它配色。
+     */
+    fun toggleReader(dark: Boolean) {
+        if (readerActive) {
+            exitReader()
+            return
+        }
+        if (!readerable || closed || destroyed) return
+        if (isGecko) {
+            val port = readerPort
+            if (port == null) {
+                android.widget.Toast.makeText(appContext, "阅读模式尚未就绪，请稍后再试", android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
+            // 结果由内容脚本回报（geckoReaderState）：active=true 时图标才点亮；提取失败则 readerable 会被置回 false
+            readerEnterPending = true
+            GeckoReader.send(port, org.json.JSONObject().put("t", "enter").put("dark", dark))
+            return
+        }
+        evaluateJs(ReaderMode.enterScript(ReaderMode.source(appContext), dark)) { raw ->
+            if (closed || destroyed) return@evaluateJs
+            if (raw == "true") {
+                readerActive = true
+                readerUrl = url
+            } else {
+                readerable = false
+                android.widget.Toast.makeText(appContext, "无法提取这个页面的正文", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** 退出阅读模式，回到原页面（滚动位置还原） */
+    fun exitReader() {
+        if (!readerActive) return
+        readerActive = false
+        readerUrl = ""
+        if (isGecko) {
+            readerPort?.let { GeckoReader.send(it, org.json.JSONObject().put("t", "exit")) }
+        } else {
+            evaluateJs(ReaderMode.EXIT_SCRIPT, null)
+        }
+    }
+
+    /** Gecko：内容脚本回报状态（主线程）。active 为 false 且 readerable 为 false 时图标消失 */
+    internal fun geckoReaderState(port: org.mozilla.geckoview.WebExtension.Port, canRead: Boolean, active: Boolean) {
+        if (closed || destroyed) return
+        readerPort = port
+        if (readerEnterPending) {
+            readerEnterPending = false
+            if (!active) {
+                android.widget.Toast.makeText(appContext, "无法提取这个页面的正文", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+        readerActive = active
+        readerable = canRead || active
+        if (active) readerUrl = url
+    }
+
+    /** Gecko：内容脚本断开（页面离开 / 重新加载）。只处理当前端口，旧页面迟到的断开不能清掉新页面的状态 */
+    internal fun geckoReaderGone(port: org.mozilla.geckoview.WebExtension.Port) {
+        if (port !== readerPort) return
+        readerPort = null
+        readerable = false
+        readerActive = false
+    }
+
+    // ======================================================================
     // Gecko 回调 → 标签状态（由 GeckoTabEngine 调用，均在主线程）
     // ======================================================================
 
@@ -1539,6 +1693,7 @@ class BrowserTab(
         // 主页（url 为空）或被主页盖住（parked）时，页面侧回调不得改写 url；引擎初始化产生的 about:blank 也忽略
         if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
         pageHost = runCatching { Uri.parse(u).host }.getOrNull().orEmpty()
+        resetReaderState()
         loading = true
         errorText = null
         gmResetPage()
@@ -2768,6 +2923,11 @@ class BrowserTab(
     }
 
     fun goBack() {
+        // 阅读模式中：返回先退出阅读模式，回到原页面
+        if (readerActive) {
+            exitReader()
+            return
+        }
         // Gecko 视频全屏：返回键先退出全屏
         val engine = gecko
         if (engine != null && engine.inFullScreen) {

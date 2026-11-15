@@ -49,6 +49,18 @@ object AppIcons {
         )
     }
 
+    /** 阅读模式：四行文字（末行较短），类似 Safari 的阅读器图标。 */
+    val Reader: ImageVector by lazy {
+        stroked(
+            "Reader",
+            "M4.5,6H19.5",
+            "M4.5,10.5H19.5",
+            "M4.5,15H19.5",
+            "M4.5,19.5H12.5",
+            width = 2.0f,
+        )
+    }
+
     /** 复制：前方圆角方块 + 后方露出的 L 形轮廓。 */
     val Copy: ImageVector by lazy {
         stroked(

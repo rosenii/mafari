@@ -296,10 +296,16 @@ internal fun BottomBar(
     onAddressTap: () -> Unit = {},
     onFocusLost: () -> Unit = {},
     editing: Boolean = false,
+    /** 当前页面能进入（或正处于）阅读模式：地址栏最左侧显示阅读图标 */
+    readerVisible: Boolean = false,
+    /** 正处于阅读模式：图标点亮 */
+    readerActive: Boolean = false,
+    onReader: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(29.dp)
     val showRefresh = shouldShowAddressRefresh(address = address, loading = loading, editing = editing)
+    val showReader = shouldShowAddressReader(readerVisible = readerVisible, editing = editing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -366,6 +372,11 @@ internal fun BottomBar(
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 阅读模式图标：地址栏最左侧（比加载小圆点还靠左）
+                if (showReader) {
+                    AddressReaderButton(active = readerActive, onClick = onReader)
+                    Spacer(Modifier.width(2.dp))
+                }
                 if (loading) {
                     LoadingDot()
                     Spacer(Modifier.width(8.dp))
@@ -588,6 +599,44 @@ internal fun shouldShowAddressRefresh(address: String, loading: Boolean, editing
 
 /** 地址栏内刷新图标占用的宽度（按钮 24dp + 左侧间距 2dp），用于底栏宽度计算。 */
 internal val AddressRefreshWidth = 26.dp
+
+/** 阅读图标显示条件：页面可进入 / 正处于阅读模式，且不在输入状态（输入时让位给文字编辑）。 */
+internal fun shouldShowAddressReader(readerVisible: Boolean, editing: Boolean): Boolean =
+    readerVisible && !editing
+
+/** 地址栏内阅读图标占用的宽度（按钮 24dp + 右侧间距 2dp），用于底栏宽度计算。 */
+internal val AddressReaderWidth = 26.dp
+
+/** 地址栏最左侧的阅读模式按钮：未进入时是灰色线条，进入后图标点亮（主题色 + 淡色底）。 */
+@Composable
+internal fun AddressReaderButton(active: Boolean, onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    val primary = MiuixTheme.colorScheme.primary
+    val tint = if (active) primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(if (active) primary.copy(alpha = 0.16f) else Color.Transparent)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
+        Icon(
+            imageVector = AppIcons.Reader,
+            contentDescription = if (active) "退出阅读模式" else "阅读模式",
+            tint = tint,
+            modifier = Modifier.size(iconSize),
+        )
+    }
+}
 
 /** 地址栏最右端的刷新按钮 */
 @Composable
