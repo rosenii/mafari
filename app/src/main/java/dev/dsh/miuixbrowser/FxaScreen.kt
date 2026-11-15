@@ -272,20 +272,28 @@ fun FxaScreen(
                 }
             }
 
-            // 已同步内容列表：搜索 + 每页 50 条，点底部「更多」继续加载
+            // 已同步内容列表：打开才读取；搜索防抖 + 后台过滤；每页 50 条，点底部「更多」继续
             val cat = sheetCat
-            val group = FxaSync.synced[cat]
-            SearchableListSheet(
+            // 本次打开期间缓存已读出的条目（搜索 / 加载更多不重复读）；sheet 关闭后随 remember 的 key 变化丢弃
+            val cache = remember(sheetOpen, sheetCat) { arrayOfNulls<List<FxaSync.SyncedItem>>(1) }
+            SearchableListSheet<FxaSync.SyncedItem>(
                 show = sheetOpen,
                 title = cat.label,
-                data = group?.items.orEmpty(),
                 state = listState,
                 backdrop = bd,
                 onDismiss = { sheetOpen = false },
                 searchHint = "搜索" + cat.label,
                 emptyText = "暂无",
-                matches = { it, q ->
-                    it.title.lowercase().contains(q) || (it.summary?.lowercase()?.contains(q) == true)
+                reloadKey = cat,
+                load = { q, limit ->
+                    if (cat == FxaSync.Category.Passwords) {
+                        FxaSync.passwordsPage(q, limit)
+                    } else {
+                        val all = cache[0] ?: FxaSync.loadItems(cat).also { cache[0] = it }
+                        filterPage(all, q, limit) { e, query ->
+                            e.title.lowercase().contains(query) || (e.summary?.lowercase()?.contains(query) == true)
+                        }
+                    }
                 },
             ) { entry ->
                 ListSheetRow(

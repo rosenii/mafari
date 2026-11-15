@@ -57,17 +57,12 @@ internal object FxaSync {
     /** [title] 主文字；[summary] 次级文字（密码只给用户名，绝不含密码）；[url] 非 null 时可点开。 */
     class SyncedItem(val title: String, val summary: String?, val url: String?)
 
-    /** 某一类已同步内容：[count] 是总条数，[items] 放前 [MAX_STORED] 条；界面按 [MAX_SHOWN] 一页分页展示、可搜索。 */
-    class SyncedGroup(val count: Int, val items: List<SyncedItem>)
-
-    /** 列表 sheet 每页显示的条数。 */
-    const val MAX_SHOWN = 50
-
-    /** 每类最多保留多少条用于搜索 / 分页（防止历史记录特别多时占内存）。 */
-    const val MAX_STORED = 5000
+    /** 某一类已同步内容的总条数。条目本身不常驻内存：打开列表 sheet 时才通过 [loadItems] / [passwordsPage] 读取。 */
+    class SyncedGroup(val count: Int)
 
     var synced by mutableStateOf<Map<Category, SyncedGroup>>(emptyMap())
         private set
+    private val syncedLock = Any()
 
     /** 登录完成（回调被截获）后回调，主线程。 */
     @Volatile var onRedirectHandled: (() -> Unit)? = null
@@ -184,41 +179,58 @@ internal object FxaSync {
         }
     }
 
-    /** 重新统计各类「已同步」的内容（同步结束、打开页面时调用）。 */
+    private fun putCount(cat: Category, n: Int) {
+        synchronized(syncedLock) { synced = synced + (cat to SyncedGroup(n)) }
+    }
+
+    /** 本地「从 Firefox 拉下来」的书签（读的是书签库在内存里的当前视图，在主线程取）。 */
+    private suspend fun pulledBookmarks() = withContext(Dispatchers.Main) {
+        FavoritesStore.current?.items.orEmpty()
+            .filter { it.group == FxaBookmarkBridge.PULL_ROOT || it.group.startsWith(FxaBookmarkBridge.PULL_ROOT + "/") }
+    }
+
+    /** 其他设备的访问，按网址去重、最近的在前。要读全量历史，开销最大，只在需要时调用。 */
+    private suspend fun remoteHistory(): List<PVisit> =
+        FxaApi.remoteVisits(0L)
+            .filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
+            .groupBy { it.url }.map { (_, v) -> v.maxByOrNull { it.time }!! }
+            .sortedByDescending { it.time }
+
+    /**
+     * 重新统计各类「已同步」内容的**条数**（同步结束、打开页面时调用）。只存条数，不保留条目；
+     * 每类算完就立刻更新，便宜的先出来，历史记录（要读全量）最后。
+     */
     fun refreshSynced() {
         scope.launch {
-            val out = LinkedHashMap<Category, SyncedGroup>()
+            runCatching { putCount(Category.Bookmarks, pulledBookmarks().size) }
+            runCatching { putCount(Category.Tabs, FxaApi.remoteTabs().sumOf { it.tabs.size }) }
             runCatching {
-                val pulled = withContext(Dispatchers.Main) {
-                    FavoritesStore.current?.items.orEmpty().filter { it.group == FxaBookmarkBridge.PULL_ROOT || it.group.startsWith(FxaBookmarkBridge.PULL_ROOT + "/") }
-                }
-                out[Category.Bookmarks] = SyncedGroup(
-                    pulled.size,
-                    pulled.take(MAX_STORED).map { SyncedItem(it.name.ifBlank { it.url }, it.group.removePrefix(FxaBookmarkBridge.PULL_ROOT).trim('/').ifEmpty { null }, it.url) },
-                )
+                HistoryDb.get(appContext)?.let { putCount(Category.Passwords, PasswordDb.count(it, syncedOnly = true)) }
             }
-            runCatching {
-                // 其他设备的访问，按网址去重、最近的在前
-                val visits = FxaApi.remoteVisits(0L)
-                    .filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
-                    .groupBy { it.url }.map { (_, v) -> v.maxByOrNull { it.time }!! }
-                    .sortedByDescending { it.time }
-                out[Category.History] = SyncedGroup(visits.size, visits.take(MAX_STORED).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
-            }
-            runCatching {
-                val tabs = FxaApi.remoteTabs().flatMap { it.tabs }
-                out[Category.Tabs] = SyncedGroup(tabs.size, tabs.take(MAX_STORED).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
-            }
-            runCatching {
-                // 只列站点和用户名，不解密任何密码
-                val rows = HistoryDb.get(appContext)?.let { PasswordDb.list(it, syncedOnly = true) }.orEmpty()
-                out[Category.Passwords] = SyncedGroup(
-                    rows.size,
-                    rows.take(MAX_STORED).map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { "（无用户名）" }, null) },
-                )
-            }
-            synced = out
+            runCatching { putCount(Category.History, remoteHistory().size) }
         }
+    }
+
+    /** 打开列表 sheet 时读取某一类的全部条目（密码走 [passwordsPage]，在库里分页）。在 IO 线程执行。 */
+    suspend fun loadItems(cat: Category): List<SyncedItem> = withContext(Dispatchers.IO) {
+        when (cat) {
+            Category.Bookmarks -> pulledBookmarks().map {
+                SyncedItem(it.name.ifBlank { it.url }, it.group.removePrefix(FxaBookmarkBridge.PULL_ROOT).trim('/').ifEmpty { null }, it.url)
+            }
+            Category.History -> remoteHistory().map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) }
+            Category.Tabs -> FxaApi.remoteTabs().flatMap { it.tabs }.map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) }
+            Category.Passwords -> emptyList()
+        }
+    }
+
+    /** 已同步的密码：只列站点和用户名，不解密任何密码；搜索和 LIMIT 在数据库里做。 */
+    suspend fun passwordsPage(query: String, limit: Int): ListPage<SyncedItem> = withContext(Dispatchers.IO) {
+        val db = HistoryDb.get(appContext) ?: return@withContext ListPage(emptyList(), 0)
+        ListPage(
+            PasswordDb.search(db, query, limit, syncedOnly = true)
+                .map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { "（无用户名）" }, null) },
+            PasswordDb.count(db, query, syncedOnly = true),
+        )
     }
 
     fun sendTab(device: PDevice, title: String, url: String) {

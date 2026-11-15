@@ -106,7 +106,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
 
-    var loaded by remember { mutableStateOf<List<PasswordDb.Item>?>(null) } // null = 还在加载
+    var count by remember { mutableStateOf<Int?>(null) } // 密码总条数；null = 还在加载。列表条目只在打开 sheet 时按页查询
     var refresh by remember { mutableIntStateOf(0) }
     var listOpen by remember { mutableStateOf(false) }
     val listState = rememberListSheetState()
@@ -141,7 +141,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
 
     // 同步（Firefox 密码）拉下来 / 推出去后本地记录会变：PasswordDb.version 变化也重新读取
     LaunchedEffect(refresh, PasswordDb.version) {
-        loaded = withContext(Dispatchers.IO) { HistoryDb.get(context)?.let { PasswordDb.list(it) } ?: emptyList() }
+        count = withContext(Dispatchers.IO) { HistoryDb.get(context)?.let { PasswordDb.count(it) } ?: 0 }
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -177,7 +177,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
         }
     }
 
-    val all = loaded.orEmpty()
+    val total = count ?: 0
 
     CompositionLocalProvider(LocalLiquidBackdrop provides liquid) {
         Scaffold(
@@ -307,24 +307,24 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                             ArrowPreference(
                                 title = "已保存的密码",
                                 summary = when {
-                                    loaded == null -> "读取中…"
-                                    all.isEmpty() -> "还没有保存的密码，可从其他浏览器或密码管理器导出 CSV 后导入"
-                                    else -> "共 ${all.size} 项，点击查看"
+                                    count == null -> "读取中…"
+                                    total == 0 -> "还没有保存的密码，可从其他浏览器或密码管理器导出 CSV 后导入"
+                                    else -> "共 $total 项，点击查看"
                                 },
-                                enabled = all.isNotEmpty(),
+                                enabled = total > 0,
                                 onClick = { listState.reset(); listOpen = true },
                             )
                         }
                     }
 
                     // ④ 清空 + 说明
-                    if (all.isNotEmpty()) {
+                    if (total > 0) {
                         item {
                             SmallTitle(text = "管理")
                             Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                                 ArrowPreference(
                                     title = "清除所有密码",
-                                    summary = "删除本机保存的全部 ${all.size} 条密码，不可恢复",
+                                    summary = "删除本机保存的全部 $total 条密码，不可恢复",
                                     onClick = { confirmClear = true },
                                 )
                             }
@@ -342,17 +342,24 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 }
 
                 // ---- 已保存的密码列表（弹出单条详情 / 删除确认时先收起，避免 sheet 与对话框叠在一起；关掉后自动回到列表）
-                SearchableListSheet(
+                SearchableListSheet<PasswordDb.Item>(
                     show = listOpen && detail == null && confirmDelete == null,
                     title = "已保存的密码",
-                    data = all,
                     state = listState,
                     backdrop = bd,
                     onDismiss = { listOpen = false },
                     searchHint = "搜索网站或用户名",
                     emptyText = "还没有保存的密码",
-                    matches = { it, q -> it.origin.lowercase().contains(q) || it.username.lowercase().contains(q) },
+                    reloadKey = PasswordDb.version,
                     key = { it.guid },
+                    // 搜索 + LIMIT 都在数据库里做，不读整表
+                    load = { q, limit ->
+                        withContext(Dispatchers.IO) {
+                            val db = HistoryDb.get(context)
+                            if (db == null) ListPage(emptyList(), 0)
+                            else ListPage(PasswordDb.search(db, q, limit), PasswordDb.count(db, q))
+                        }
+                    },
                 ) { item ->
                     ListSheetRow(
                         title = PasswordCsv.displayHost(item.origin) + (item.httpRealm?.let { " · $it" } ?: ""),
@@ -461,7 +468,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 AppGlassDialog(
                     show = confirmClear,
                     title = "清除所有密码？",
-                    summary = "本机保存的全部 ${all.size} 条密码将被删除，不可恢复",
+                    summary = "本机保存的全部 $total 条密码将被删除，不可恢复",
                     backdrop = bd,
                     onDismissRequest = { confirmClear = false },
                 ) {

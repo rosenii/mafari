@@ -87,8 +87,50 @@ internal object PasswordDb {
 
     // ------------------------------------------------------------------ 读
 
-    fun count(db: SQLiteDatabase): Int =
-        db.rawQuery("SELECT COUNT(*) FROM passwords", emptyArray<String>()).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    /** 条数。[query] 非空时只数站点或用户名包含它的记录（不区分大小写）；[syncedOnly] 只数已同步的。 */
+    fun count(db: SQLiteDatabase, query: String = "", syncedOnly: Boolean = false): Int {
+        val args = ArrayList<String>()
+        val where = whereClause(query, syncedOnly, args)
+        return db.rawQuery("SELECT COUNT(*) FROM passwords $where", args.toTypedArray()).use { if (it.moveToFirst()) it.getInt(0) else 0 }
+    }
+
+    /** 站点或用户名包含 [query] 的前 [limit] 条记录的元数据（按站点、用户名排序）。在库里过滤 + LIMIT，不读整表，不解密任何东西。 */
+    fun search(db: SQLiteDatabase, query: String, limit: Int, syncedOnly: Boolean = false): List<Item> {
+        val args = ArrayList<String>()
+        val where = whereClause(query, syncedOnly, args)
+        val out = ArrayList<Item>()
+        db.rawQuery(
+            "SELECT guid,origin,username,form_origin,http_realm,time_created,time_last_used,time_changed,times_used " +
+                "FROM passwords $where" +
+                "ORDER BY origin COLLATE NOCASE, username COLLATE NOCASE LIMIT $limit",
+            args.toTypedArray(),
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    Item(
+                        guid = c.getString(0), origin = c.getString(1), username = c.getString(2),
+                        formOrigin = if (c.isNull(3)) null else c.getString(3),
+                        httpRealm = if (c.isNull(4)) null else c.getString(4),
+                        timeCreated = c.getLong(5), timeLastUsed = c.getLong(6),
+                        timePasswordChanged = c.getLong(7), timesUsed = c.getInt(8),
+                    ),
+                )
+            }
+        }
+        return out
+    }
+
+    private fun whereClause(query: String, syncedOnly: Boolean, args: MutableList<String>): String {
+        val parts = ArrayList<String>()
+        if (syncedOnly) parts.add("sync_status=$SYNC_DONE")
+        if (query.isNotEmpty()) {
+            val like = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            parts.add("(origin LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\')")
+            args.add(like)
+            args.add(like)
+        }
+        return if (parts.isEmpty()) "" else "WHERE " + parts.joinToString(" AND ") + " "
+    }
 
     /** 全部记录的元数据，按站点、用户名排序。不解密任何东西。 */
     fun list(db: SQLiteDatabase, syncedOnly: Boolean = false): List<Item> {

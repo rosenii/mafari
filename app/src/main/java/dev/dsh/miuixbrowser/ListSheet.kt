@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,6 +30,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.blur.Backdrop
@@ -55,10 +60,22 @@ class ListSheetState {
 @Composable
 fun rememberListSheetState(): ListSheetState = remember { ListSheetState() }
 
+/** 一页结果：[items] 是当前要显示的行，[total] 是匹配搜索词的总条数（用于判断还有没有「更多」）。 */
+class ListPage<T>(val items: List<T>, val total: Int)
+
+/** 内存里已有的完整列表：在后台线程过滤 + 截取前 [limit] 条。 */
+suspend fun <T> filterPage(all: List<T>, query: String, limit: Int, matches: (T, String) -> Boolean): ListPage<T> =
+    withContext(Dispatchers.Default) {
+        val f = if (query.isEmpty()) all else all.filter { matches(it, query) }
+        ListPage(if (f.size > limit) f.subList(0, limit).toList() else f, f.size)
+    }
+
 /**
- * 带搜索框、分页加载的列表 sheet。
+ * 带搜索框、分页加载的列表 sheet。数据只在 sheet 打开时通过 [load] 读取，关闭后丢弃，页面本身不常驻列表。
  *
- * @param matches 参数是 trim 后的小写搜索词，返回该条是否匹配
+ * @param load 参数是 trim 后的小写搜索词和要显示的最大行数；在协程里调用，自己负责切到合适的线程
+ *   （数据库查询用 IO，内存过滤用 [filterPage]）
+ * @param reloadKey 变化时重新 [load]（比如底层数据被改动）
  * @param key 列表项的稳定 key；条目可能重复（如同一网址的多个标签）时传 null
  * @param row 每一行的内容，通常用 [ListSheetRow]
  */
@@ -66,25 +83,43 @@ fun rememberListSheetState(): ListSheetState = remember { ListSheetState() }
 fun <T> SearchableListSheet(
     show: Boolean,
     title: String,
-    data: List<T>,
     state: ListSheetState,
     backdrop: Backdrop?,
     onDismiss: () -> Unit,
     searchHint: String,
     emptyText: String,
-    matches: (T, String) -> Boolean,
+    load: suspend (query: String, limit: Int) -> ListPage<T>,
+    reloadKey: Any? = null,
     key: ((T) -> Any)? = null,
     row: @Composable (T) -> Unit,
 ) {
+    var page by remember { mutableStateOf<ListPage<T>?>(null) }
+    var debounced by remember { mutableStateOf(state.query) }
+    val latestLoad by rememberUpdatedState(load)
+
+    // 搜索词防抖：打字时停 250ms 才触发查询；清空 / 重置立即生效
+    LaunchedEffect(state.query, show) {
+        if (!show) return@LaunchedEffect
+        if (state.query.isNotEmpty() && state.query != debounced) delay(250)
+        debounced = state.query
+    }
+    LaunchedEffect(show, debounced, state.limit, reloadKey) {
+        if (!show) {
+            // 等收起动画走完再释放结果
+            delay(400)
+            page = null
+            return@LaunchedEffect
+        }
+        page = latestLoad(debounced.trim().lowercase(), state.limit)
+    }
+
     AppBottomSheet(
         show = show,
         title = title,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
-        val q = state.query.trim().lowercase()
-        val filtered = remember(data, q) { if (q.isEmpty()) data else data.filter { matches(it, q) } }
-        val visible = if (filtered.size > state.limit) filtered.subList(0, state.limit) else filtered
+        val p = page
         val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
 
         Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
@@ -99,17 +134,21 @@ fun <T> SearchableListSheet(
                 singleLine = true,
             )
             Spacer(Modifier.height(6.dp))
-            if (filtered.isEmpty()) {
+            if (p == null || p.items.isEmpty()) {
                 Text(
-                    text = if (q.isEmpty()) emptyText else "没有匹配的内容",
+                    text = when {
+                        p == null -> "加载中…"
+                        state.query.isBlank() -> emptyText
+                        else -> "没有匹配的内容"
+                    },
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
                 )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
-                    items(visible, key = key) { row(it) }
-                    if (filtered.size > visible.size) {
+                    items(p.items, key = key) { row(it) }
+                    if (p.total > p.items.size) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -120,7 +159,7 @@ fun <T> SearchableListSheet(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = "更多（还有 ${filtered.size - visible.size} 项）",
+                                    text = "更多（还有 ${p.total - p.items.size} 项）",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = MiuixTheme.colorScheme.primary,
