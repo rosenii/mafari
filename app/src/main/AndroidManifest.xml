@@ -189,6 +189,15 @@
             android:taskAffinity=""
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- 系统分享面板里的「发送到设备」：由 BrowserScreen 分享时放进 EXTRA_CHOOSER_CUSTOM_ACTIONS 的 PendingIntent 启动 -->
+        <activity
+            android:name=".SendTabActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
+            android:theme="@style/Theme.MafariTranslucent" />
     </application>
 
 </manifest>

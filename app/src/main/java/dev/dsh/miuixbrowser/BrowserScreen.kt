@@ -1985,7 +1985,7 @@ fun BrowserScreen(
                             }
                             MenuAction.Bookmarks -> pushPage(AppRoute.Library(0))
                             MenuAction.Share -> if (tab.url.isNotBlank()) {
-                                if (canSendTab()) showShareDialog = true else shareUrlSystem(context, tab.url)
+                                if (needsInAppShareDialog()) showShareDialog = true else shareUrlSystem(context, tab.url, tab.title)
                             }
                             MenuAction.Refresh -> tab.reload()
                             MenuAction.CopyLink -> if (tab.url.isNotBlank()) {

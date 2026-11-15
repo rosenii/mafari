@@ -24,21 +24,46 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 调起系统分享面板（纯文本链接）。 */
-fun shareUrlSystem(context: Context, url: String) {
+/**
+ * 调起系统分享面板（纯文本链接）。已登录 Firefox 帐户时，在 Android 14+ 的分享面板顶部操作行里
+ * 加一个「发送到设备」（和 Firefox 一样，EXTRA_CHOOSER_CUSTOM_ACTIONS），点它由 [SendTabActivity] 选设备发送。
+ */
+fun shareUrlSystem(context: Context, url: String, title: String = "") {
     if (url.isBlank()) return
     runCatching {
-        context.startActivity(
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, url)
-                },
-                "分享链接",
-            ),
+        val chooser = Intent.createChooser(
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, url)
+                if (title.isNotBlank()) putExtra(Intent.EXTRA_SUBJECT, title)
+            },
+            "分享链接",
         )
+        if (android.os.Build.VERSION.SDK_INT >= 34 && canSendTab()) {
+            runCatching {
+                val pi = android.app.PendingIntent.getActivity(
+                    context,
+                    0,
+                    Intent(context, SendTabActivity::class.java)
+                        .putExtra(SendTabActivity.EXTRA_URL, url)
+                        .putExtra(SendTabActivity.EXTRA_TITLE, title)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                val action = android.service.chooser.ChooserAction.Builder(
+                    android.graphics.drawable.Icon.createWithResource(context, R.drawable.ic_send_device),
+                    "发送到设备",
+                    pi,
+                ).build()
+                chooser.putExtra(Intent.EXTRA_CHOOSER_CUSTOM_ACTIONS, arrayOf(action))
+            }
+        }
+        context.startActivity(chooser)
     }
 }
+
+/** Android 13 的分享面板没有自定义操作：改由应用内对话框先选「发到其他设备」或「系统分享」。 */
+fun needsInAppShareDialog(): Boolean = android.os.Build.VERSION.SDK_INT < 34 && canSendTab()
 
 /** 已登录 Firefox 帐户（且本包带同步）时，分享要先问「发到哪」：其他设备（Send Tab）或系统分享。 */
 fun canSendTab(): Boolean = EngineSupport.SYNC_BUNDLED && FxaSync.ui is FxaUi.SignedIn
@@ -111,7 +136,7 @@ fun ShareDialog(
                     Text(text = "取消", style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
-                    onClick = { onDismiss(); shareUrlSystem(context, url) },
+                    onClick = { onDismiss(); shareUrlSystem(context, url, title) },
                     modifier = Modifier.weight(1f),
                     role = top.yukonga.miuix.kmp.glass.GlassDialogButtonRole.Primary,
                 ) {

@@ -284,11 +284,21 @@ internal object FxaSync {
         return ok
     }
 
-    fun sendTab(device: PDevice, title: String, url: String) {
+    /** [onResult] 在后台线程回调，要弹 toast 请自己切主线程。 */
+    fun sendTab(device: PDevice, title: String, url: String, onResult: ((Boolean) -> Unit)? = null) {
         scope.launch {
             val ok = runCatching { FxaApi.sendTab(device.id, title, url) }.getOrDefault(false)
             lastMessage = if (ok) "已发送到 ${device.name}" else "发送失败"
+            onResult?.invoke(ok)
         }
+    }
+
+    /** 等账号管理器就绪后读取可接收标签页的设备；未登录返回 null（给从系统分享面板冷启动的场景用）。 */
+    suspend fun loadDevices(): List<PDevice>? {
+        withTimeoutOrNull(8_000) { initJob?.join() }
+        withTimeoutOrNull(6_000) { while (ui is FxaUi.Loading) kotlinx.coroutines.delay(100) }
+        if (ui !is FxaUi.SignedIn) return null
+        return withContext(Dispatchers.IO) { runCatching { FxaApi.devices() }.getOrDefault(emptyList()) }
     }
 
     private val listener = object : FxaApi.Listener {
