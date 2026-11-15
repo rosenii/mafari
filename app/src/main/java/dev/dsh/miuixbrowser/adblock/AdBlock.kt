@@ -237,6 +237,18 @@ object AdBlock {
 
         migrateUserAdRules()
         customLines = countCustomLines()
+        // 规则编译不在 init 里触发：冷启动期间让出 CPU，由 [startCompile] 在界面出来后再开始
+    }
+
+    /** 是否已允许编译规则（界面出来后由 [startCompile] 打开；在此之前的 [requestRebuild] 都只记账不执行） */
+    @Volatile private var compileAllowed = false
+    @Volatile private var rebuildPending = false
+
+    /** 启动完成后调用：开始首次规则编译，并补上此前被推迟的重建请求。幂等。 */
+    fun startCompile() {
+        if (compileAllowed) return
+        compileAllowed = true
+        rebuildPending = false
         requestRebuild()
     }
 
@@ -802,6 +814,7 @@ object AdBlock {
     private val baseList: ParsedList by lazy { AdParser.parse(BASE_RULES) }
 
     fun requestRebuild() {
+        if (!compileAllowed) { rebuildPending = true; return }
         val gen = generation.incrementAndGet()
         scope.launch {
             delay(150)

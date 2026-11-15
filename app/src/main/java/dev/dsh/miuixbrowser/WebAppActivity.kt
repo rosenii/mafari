@@ -146,6 +146,7 @@ class WebAppActivity : ComponentActivity() {
         settings = appContainer.settings
         GeckoSitePerms.load(this) // 例外网站（与浏览器共用）
         AdBlock.init(this)
+        AdBlock.startCompile() // 独立 PWA 窗口没有主界面的启动阶段，直接编译
         WebViewProxy.applyFrom(settings)
 
         val systemDark =

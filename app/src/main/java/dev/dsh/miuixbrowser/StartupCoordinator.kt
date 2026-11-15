@@ -37,6 +37,9 @@ internal object StartupCoordinator {
     /** 首帧之后再等这么久才预热 Firefox 同步：让页面加载、标签恢复先跑完。 */
     private const val SYNC_WARMUP_DELAY_MS = 3_000L
 
+    /** 首帧之后等这么久再编译去广告规则（约 0.5 秒的后台编译），让界面先出来。 */
+    private const val ADBLOCK_COMPILE_DELAY_MS = 500L
+
     /** 下载列表（读库 + 清理已完成任务的临时目录）不是首屏必需：首帧之后再恢复。 */
     private const val DOWNLOADS_INIT_DELAY_MS = 300L
 
@@ -87,8 +90,12 @@ internal object StartupCoordinator {
      * decorView.post 保证排在首次布局 / 绘制之后；init 幂等，Activity 重建不会重复初始化。
      */
     fun onContentShown(activity: Activity) {
-        if (!EngineSupport.SYNC_BUNDLED) return
         val app = activity.applicationContext
+        // 去广告规则：界面出来后再编译（init 只读设置，不编译），不和冷启动抢 CPU
+        activity.window.decorView.post {
+            Handler(Looper.getMainLooper()).postDelayed({ AdBlock.startCompile() }, ADBLOCK_COMPILE_DELAY_MS)
+        }
+        if (!EngineSupport.SYNC_BUNDLED) return
         activity.window.decorView.post {
             Handler(Looper.getMainLooper()).postDelayed({ FxaSync.warmUp(app) }, SYNC_WARMUP_DELAY_MS)
         }
