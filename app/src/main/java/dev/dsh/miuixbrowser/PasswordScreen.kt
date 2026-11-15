@@ -225,7 +225,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                             ArrowPreference(
                                 title = "系统自动填充服务",
                                 summary = if (serviceOn) "已启用 · 系统 WebView 与 Gecko 网页的登录框都可填充"
-                                else "未启用 · 点此在系统设置里选择「Mafari 密码」，WebView 网页即可使用这里的密码",
+                                else "未启用 · 点此在系统设置里选择「Mafari 密码」，即可全局使用本密码填充服务",
                                 onClick = { openAutofillSettings(context) },
                             )
                             AppSwitchPreference(

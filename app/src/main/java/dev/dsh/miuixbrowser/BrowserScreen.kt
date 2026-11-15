@@ -418,8 +418,10 @@ fun BrowserScreen(
     /** 底栏被左右滑动缩小为圆形搜索钮 */
     var barMinimized by remember { mutableStateOf(settings.barPosition == BAR_POS_MINIMIZED) }
     // 「布局 → 导航栏位置」：顶部 / 底部 / 始终最小化（圆钮是常态，展开后一段时间无操作自动缩回）
-    val barOnTop = settings.barPosition == BAR_POS_TOP
+    val barOnTop = settings.barPosition == BAR_POS_TOP || settings.barPosition == BAR_POS_FIXED_TOP
     val alwaysMin = settings.barPosition == BAR_POS_MINIMIZED
+    // 固定在顶部 / 底部：不随滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边
+    val barFixed = settings.barPosition == BAR_POS_FIXED_TOP || settings.barPosition == BAR_POS_FIXED_BOTTOM
     var favEditing by remember { mutableStateOf(false) }
     var groupEditing by remember { mutableStateOf(false) }
     var showGroupPicker by remember { mutableStateOf(false) }
@@ -1003,7 +1005,12 @@ fun BrowserScreen(
         if (tab.url.isEmpty()) barHidden = false
     }
 
-    LaunchedEffect(tab.id) {
+    // 切到「固定」立即把已收起的底栏显示出来（视频全屏除外）
+    LaunchedEffect(barFixed) {
+        if (barFixed) barHidden = tab.geckoFullscreen
+    }
+
+    LaunchedEffect(tab.id, barFixed) {
         var last = 0
         var lastShow = 0
         var scrollDownAccum = 0f
@@ -1012,6 +1019,11 @@ fun BrowserScreen(
             runCatching {
                 if (tab.geckoFullscreen) {
                     barHidden = true
+                    return@runCatching
+                }
+                // 固定模式：不做滚动隐藏
+                if (barFixed) {
+                    barHidden = false
                     return@runCatching
                 }
                 // 主页（页面被盖住）上：引擎里的页面可能还在惯性滚动 / 回调滚动事件，
@@ -1537,8 +1549,8 @@ fun BrowserScreen(
                         // 朝屏幕中间快速一扫（靠下快速上扫 / 靠上快速下扫）把底栏换到另一侧并记进设置。
                         // 编辑地址时不挂这组手势：横向拖动要留给输入框（移动光标 / 滚动文字），
                         // 否则累计 72px 就会把底栏缩成圆钮，向下拖还会收起底栏
-                        .pointerInput(tab.id, barHidden, editing, barOnTop, alwaysMin) {
-                            if (editing) return@pointerInput
+                        .pointerInput(tab.id, barHidden, editing, barOnTop, alwaysMin, barFixed) {
+                            if (editing || barFixed) return@pointerInput
                             val tracker = VelocityTracker()
                             val flingPx = 1_200.dp.toPx()
                             detectDragGestures(

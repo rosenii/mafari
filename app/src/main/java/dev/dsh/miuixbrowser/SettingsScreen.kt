@@ -261,9 +261,10 @@ fun SettingsScreen(
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
                         title = "导航栏位置",
-                        items = listOf("顶部", "底部", "始终最小化"),
-                        // 选项顺序与 BAR_POS_* 数值一致
-                        selectedIndex = settings.barPosition.coerceIn(0, 2),
+                        // 顶部 / 底部：随页面滚动自动隐藏；固定在底部 / 顶部：始终显示，不再自动隐藏
+                        items = listOf("顶部", "底部", "始终最小化", "固定在底部", "固定在顶部"),
+                        // 选项顺序与 BAR_POS_* 数值一致（0..4）
+                        selectedIndex = settings.barPosition.coerceIn(0, 4),
                         onSelectedIndexChange = { settings.updateBarPosition(it) },
                     )
                     SettingsRow(
