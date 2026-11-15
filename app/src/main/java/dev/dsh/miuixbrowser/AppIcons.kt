@@ -49,6 +49,19 @@ object AppIcons {
         )
     }
 
+    /** 扫一扫：四个角括号 + 中间一条扫描线。 */
+    val Scan: ImageVector by lazy {
+        stroked(
+            "Scan",
+            "M4,8V6.5A2.5,2.5 0 0 1 6.5,4H8",
+            "M16,4H17.5A2.5,2.5 0 0 1 20,6.5V8",
+            "M20,16V17.5A2.5,2.5 0 0 1 17.5,20H16",
+            "M8,20H6.5A2.5,2.5 0 0 1 4,17.5V16",
+            "M4,12H20",
+            width = 2.0f,
+        )
+    }
+
     /** 阅读模式：四行文字（末行较短），类似 Safari 的阅读器图标。 */
     val Reader: ImageVector by lazy {
         stroked(

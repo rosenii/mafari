@@ -12,6 +12,9 @@ val coreKtxVersion = "1.19.1"
 val webkitVersion = "1.18.0"
 val credentialsVersion = "1.6.0"
 val browserVersion = "1.10.0"
+// 扫一扫：CameraX 取景 + ML Kit 内置版条码识别（模型打进 APK，不依赖 Google Play 服务）
+val cameraxVersion = "1.4.2"
+val mlkitBarcodeVersion = "17.3.0"
 // 历史 / 书签 / 脚本的加密库：SQLCipher（AES-256 整库加密）及其接口依赖 androidx.sqlite
 val sqlcipherVersion = "4.14.1"
 val sqliteVersion = "2.4.0"
@@ -50,6 +53,8 @@ fun dependencyVersionsOf(withGecko: Boolean, withSync: Boolean): String = listOf
     Triple("androidx", "WebKit", webkitVersion),
     Triple("androidx", "Credentials", credentialsVersion),
     Triple("androidx", "Browser", browserVersion),
+    Triple("androidx", "CameraX", cameraxVersion),
+    Triple("engine", "ML Kit Barcode Scanning", mlkitBarcodeVersion),
     Triple("androidx", "NavigationEvent", navigationEventVersion),
     Triple("androidx", "SQLite", sqliteVersion),
     Triple("storage", "SQLCipher", sqlcipherVersion),
@@ -90,8 +95,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20036
-        versionName = "v2.1.36"
+        versionCode = 20037
+        versionName = "v2.1.37"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -216,6 +221,12 @@ dependencies {
     implementation("androidx.credentials:credentials:$credentialsVersion")
     implementation("androidx.credentials:credentials-play-services-auth:$credentialsVersion")
     implementation("androidx.browser:browser:$browserVersion")
+    // 扫一扫（ScanActivity）
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+    implementation("com.google.mlkit:barcode-scanning:$mlkitBarcodeVersion")
     implementation("androidx.navigationevent:navigationevent-compose:$navigationEventVersion")
     // 后量子混合加密引擎（CryptoEngine.kt）
     implementation("org.bouncycastle:bcprov-jdk18on:$bouncyCastleVersion")

@@ -57,6 +57,54 @@ class DownloadService : Service() {
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
+        // 完成 / 失败走单独的渠道：进度渠道是 IMPORTANCE_LOW 不会提醒，结果通知需要能弹出、有提示音
+        val resultChannel = NotificationChannel(
+            RESULT_CHANNEL_ID,
+            "下载结果",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "下载完成 / 失败的提醒"
+            setShowBadge(false)
+        }
+        manager.createNotificationChannel(resultChannel)
+    }
+
+    /** 下载完成 / 失败的独立通知：不带进度条、不常驻、不申请实时更新，点击进入下载页 */
+    private fun buildResult(title: String, text: String, success: Boolean): Notification {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra(MainActivity.EXTRA_OPEN_DOWNLOADS, true)
+        }
+        val pending = android.app.PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return Notification.Builder(this, RESULT_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(
+                if (success) android.R.drawable.stat_sys_download_done else android.R.drawable.stat_notify_error,
+            )
+            .setContentIntent(pending)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
+            .build()
+    }
+
+    /** 先发独立的结果通知，再把进度通知（前台通知）移除，避免同一个通知被原地改写而不提醒 */
+    private fun postResult(title: String, text: String, success: Boolean) {
+        runCatching {
+            getSystemService(NotificationManager::class.java)
+                .notify(nextResultId(), buildResult(title, text, success))
+        }
+        runCatching {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     /** OS3（超岛协议）才注入岛参数；更低版本走普通焦点通知 */
@@ -263,33 +311,22 @@ class DownloadService : Service() {
         )
 
     fun finish(text: String) {
-        runCatching {
-            getSystemService(NotificationManager::class.java)
-                .notify(
-                    NOTIFICATION_ID,
-                    build("下载完成", 100, false, text, null, -1L, ongoing = false),
-                )
-        }
-        runCatching {
-            stopForeground(STOP_FOREGROUND_DETACH)
-            stopSelf()
-        }
+        postResult("下载完成", text, success = true)
     }
 
     fun fail(text: String) {
-        runCatching {
-            getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, build("下载失败", 0, false, text, null, -1L, ongoing = false))
-        }
-        runCatching {
-            stopForeground(STOP_FOREGROUND_DETACH)
-            stopSelf()
-        }
+        postResult("下载失败", text, success = false)
     }
 
     companion object {
         const val CHANNEL_ID = "mafari_download"
+        const val RESULT_CHANNEL_ID = "mafari_download_result"
         const val NOTIFICATION_ID = 4201
+        private const val RESULT_ID_BASE = 4300
+        private val resultSeq = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** 每次完成 / 失败用不同的通知 ID，多个任务的结果互不覆盖（循环使用 100 个 ID） */
+        private fun nextResultId(): Int = RESULT_ID_BASE + (resultSeq.getAndIncrement() % 100)
         @Volatile
         var instance: DownloadService? = null
 

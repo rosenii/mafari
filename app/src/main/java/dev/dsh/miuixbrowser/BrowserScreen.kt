@@ -690,6 +690,29 @@ fun BrowserScreen(
         }
     }
 
+    // 扫一扫：应用内扫码页回传结果
+    val scanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val text = ScanHelper.extractText(result.data) ?: return@rememberLauncherForActivityResult
+        when (val target = ScanHelper.resolve(text, settings.searchTemplate)) {
+            is ScanHelper.Target.Open -> state.newTab(target.url)
+            is ScanHelper.Target.CopyOnly -> {
+                clipboard.setText(AnnotatedString(target.text))
+                android.widget.Toast.makeText(context, "已复制扫描内容", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** 打开应用内扫码页 */
+    fun launchScan() {
+        val started = runCatching { scanLauncher.launch(ScanHelper.intent(context)) }.isSuccess
+        if (!started) {
+            android.widget.Toast.makeText(context, "无法打开扫一扫", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     /** 拉起系统文件选择器（按 acceptTypes / 多选） */
     fun launchFilePicker(choice: FileChooserChoice) {
         val params = choice.params
@@ -2029,6 +2052,7 @@ fun BrowserScreen(
                             MenuAction.AddToDesktop -> ShortcutHelper.addToDesktop(context, scope, tab)
                             MenuAction.Home -> state.goHome(tab)
                             MenuAction.Downloads -> pushPage(AppRoute.Downloads)
+                            MenuAction.Scan -> launchScan()
                             // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
                             MenuAction.GeckoExtensions -> geckoExtSheetShow = true
                             MenuAction.ScriptMenu -> {

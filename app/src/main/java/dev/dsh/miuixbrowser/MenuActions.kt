@@ -40,6 +40,7 @@ enum class MenuAction(
     Settings("settings", "设置", MiuixIcons.Glass.Settings),
     Home("home", "主页", MiuixIcons.Home),
     Downloads("downloads", "下载", MiuixIcons.Glass.Download),
+    Scan("scan", "扫一扫", AppIcons.Scan),
     GeckoExtensions("gecko_extensions", "拓展", AppIcons.Puzzle),
     ScriptMenu("script_menu", "脚本", AppIcons.Script),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
@@ -115,7 +116,7 @@ class MenuOrderStore(context: Context) {
         val DEFAULT_ORDER = listOf(
             MenuAction.Favorite, MenuAction.History, MenuAction.Desktop, MenuAction.Settings,
             MenuAction.Account, MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
-            MenuAction.Home, MenuAction.ScriptMenu, MenuAction.GeckoExtensions, MenuAction.Refresh,
+            MenuAction.Scan, MenuAction.Home, MenuAction.ScriptMenu, MenuAction.GeckoExtensions, MenuAction.Refresh,
             MenuAction.Bookmarks,
         )
 
