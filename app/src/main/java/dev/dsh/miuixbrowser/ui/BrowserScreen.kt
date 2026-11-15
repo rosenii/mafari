@@ -1870,6 +1870,11 @@ fun BrowserScreen(
                 refreshScriptSheet()
             }
             MenuAction.History -> pushPage(AppRoute.Library(1))
+            MenuAction.Requests -> if (tab.isGecko) {
+                android.widget.Toast.makeText(context, "请求面板仅 WebView 内核可用", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                pushPage(AppRoute.RequestLogPage)
+            }
             MenuAction.Settings -> pushPage(AppRoute.Settings)
             MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)
             MenuAction.CloseTab -> state.closeTab(state.activeIndex)
@@ -2149,6 +2154,8 @@ fun BrowserScreen(
                         when (action) {
                             // 拓展只在 Gecko 内核可用：WebView 下置灰，点击提示不可用
                             MenuAction.GeckoExtensions -> !settings.geckoMode
+                            // 请求面板靠 WebView 的 shouldInterceptRequest，Gecko 下没有
+                            MenuAction.Requests -> settings.geckoMode
                             else -> false
                         }
                     },
@@ -2966,6 +2973,13 @@ fun BrowserScreen(
     }
     entry<AppRoute.GeckoProtectionPage> {
         GeckoProtectionScreen(
+            onBack = { popPage() },
+            blurEnabled = settings.blurEnabled,
+        )
+    }
+    entry<AppRoute.RequestLogPage> {
+        RequestLogScreen(
+            log = state.activeTab.requestLog,
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )

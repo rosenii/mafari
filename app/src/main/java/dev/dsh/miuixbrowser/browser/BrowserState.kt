@@ -39,6 +39,7 @@ import dev.dsh.miuixbrowser.script.UserscriptEngine
 import dev.dsh.miuixbrowser.sync.fxa.FxaSync
 import dev.dsh.miuixbrowser.util.Diag
 import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
+import dev.dsh.miuixbrowser.adblock.RequestLog
 import dev.dsh.miuixbrowser.util.isSameSite
 import dev.dsh.miuixbrowser.util.isUserScriptUrl
 import dev.dsh.miuixbrowser.util.looksLikeUrl
@@ -291,6 +292,9 @@ class BrowserTab(
 
     /** 记录历史 */
     var onVisited: ((url: String, title: String) -> Unit)? = null
+
+    /** 本页的请求域名汇总（WebView 内核，「请求」面板用）；只放内存，换页 / 关标签清空，无痕标签不记录 */
+    val requestLog = RequestLog()
 
     /** 只有 WebView 内核的标签才有 WebView；Gecko 标签不创建（省内存） */
     private val webViewOrNull: WebView? = if (engineKind == EngineKind.WEBVIEW) WebView(appContext) else null
@@ -803,6 +807,7 @@ class BrowserTab(
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
                 WebViewDebug.logPage("start", pageUrl)
+                requestLog.clear() // 换页：本页请求重新统计
                 if (!parked) pageUrl?.let { url = it }
                 pageHost = runCatching { Uri.parse(pageUrl).host }.getOrNull().orEmpty()
                 resetReaderState()
@@ -860,7 +865,8 @@ class BrowserTab(
             }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                if (incognito && !adblockInIncognito) null else AdBlock.intercept(request, pageHost, blockTrackers)
+                if (incognito && !adblockInIncognito) null
+                else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito) null else requestLog)
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) errorText = error.description?.toString()

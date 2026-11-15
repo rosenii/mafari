@@ -47,6 +47,9 @@ enum class MenuAction(
     GeckoExtensions("gecko_extensions", "拓展", AppIcons.Puzzle),
     ScriptMenu("script_menu", "脚本", AppIcons.Script),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
+
+    /** 本页请求（仅 WebView 内核）：按域名列出本页发出的请求，一键屏蔽 / 放行 */
+    Requests("requests", "请求", MiuixIcons.Glass.Link),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
 
     /** Firefox 账户（仅带 Firefox 同步的版本）：点开进入「Firefox账户同步」，登录后图标换成账号头像 */
@@ -135,7 +138,7 @@ const val HOME_QUICK_ROWS_MAX = 2
 /** 依赖当前网页的功能：首页上没有网页，放进快捷菜单点了也没有效果，所以不提供 */
 private val QUICK_MENU_NEEDS_PAGE = setOf(
     MenuAction.Find, MenuAction.Translate, MenuAction.Favorite, MenuAction.Share, MenuAction.Refresh,
-    MenuAction.CopyLink, MenuAction.External, MenuAction.AddToDesktop, MenuAction.Home,
+    MenuAction.CopyLink, MenuAction.External, MenuAction.AddToDesktop, MenuAction.Home, MenuAction.Requests,
 )
 
 /** 快捷菜单里可以添加的功能（与底部「更多」菜单同一套，去掉依赖网页的和本安装包没有的） */

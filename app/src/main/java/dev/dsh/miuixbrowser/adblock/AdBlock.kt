@@ -176,6 +176,8 @@ object AdBlock {
     @Volatile private var fastEnabled = false
     @Volatile private var fastCosmetic = true
     @Volatile private var fastAllow: Set<String> = emptySet()
+    @Volatile private var fastUserBlock: Set<String> = emptySet()
+    @Volatile private var fastUserAllow: Set<String> = emptySet()
     @Volatile private var fpMask = 0
     @Volatile private var fastFpExempt: Set<String> = emptySet()
 
@@ -233,6 +235,10 @@ object AdBlock {
         subsShadow = subs.toList()
         allowHosts.addAll(loadAllow())
         fastAllow = allowHosts.toSet()
+        userBlocked.addAll(loadHostSet("user_block"))
+        userAllowed.addAll(loadHostSet("user_allow"))
+        fastUserBlock = userBlocked.toSet()
+        fastUserAllow = userAllowed.toSet()
         loadFpExempt()
 
         migrateUserAdRules()
@@ -517,26 +523,46 @@ object AdBlock {
     /* WebView 接入                                                        */
     /* ------------------------------------------------------------------ */
 
-    /** shouldInterceptRequest 里调用：命中返回空响应，否则返回 null 放行。 */
-    fun intercept(request: WebResourceRequest, pageHost: String, trackers: Boolean): WebResourceResponse? {
-        if (!fastEnabled || request.isForMainFrame) return null
+    /** 拦截原因（[RequestLog] 里展示用）：订阅 / 自定义规则、跟踪域名列表、用户手动屏蔽 */
+    const val R_RULE = 1
+    const val R_TRACKER = 2
+    const val R_USER = 3
+
+    /**
+     * shouldInterceptRequest 里调用：命中返回空响应，否则返回 null 放行。
+     * [log] 非空时按域名记一笔（本页请求面板用，无痕标签传 null）。
+     *
+     * 优先级：用户手动屏蔽 > 用户手动放行 > 站点白名单 > 订阅规则 / 跟踪域名。
+     * 手动屏蔽连站点白名单也压得过（是用户明确下的指令）；去广告总开关关闭时一律不拦。
+     */
+    fun intercept(request: WebResourceRequest, pageHost: String, trackers: Boolean, log: RequestLog? = null): WebResourceResponse? {
+        if (request.isForMainFrame) return null
         val uri = request.url
         val scheme = uri.scheme
         if (scheme != "http" && scheme != "https") return null
         val host = uri.host?.lowercase() ?: return null
+        if (!fastEnabled) { log?.record(host, 0); return null }
         // pageHost 来自 Uri.host，不保证小写；绝大多数情况已是小写，只在含大写时才复制字符串
         val page = if (pageHost.any { it in 'A'..'Z' }) pageHost.lowercase() else pageHost
-        if (hostAllowed(page)) return null
         val accept = request.requestHeaders?.get("Accept")
-        val url = uri.toString().lowercase()
 
-        var hit = false
-        if (trackers && TrackerList.matches(host) && AdMatch.isThirdParty(host, page)) hit = true
-        if (!hit) {
-            val eng = engine
-            if (eng != null && eng.shouldBlock(url, page, accept)) hit = true
+        var reason = 0
+        if (hostIn(fastUserBlock, host)) {
+            reason = R_USER
+        } else if (hostIn(fastUserAllow, host) || hostAllowed(page)) {
+            log?.record(host, 0); return null
+        } else {
+            val url0 = uri.toString().lowercase()
+            if (trackers && TrackerList.matches(host) && AdMatch.isThirdParty(host, page)) {
+                reason = R_TRACKER
+            } else {
+                val eng = engine
+                if (eng != null && eng.shouldBlock(url0, page, accept)) reason = R_RULE
+            }
         }
-        if (!hit) return null
+        if (reason == 0) { log?.record(host, 0); return null }
+        log?.record(host, reason)
+        val url = uri.toString().lowercase()
 
         val n = blockedSession.incrementAndGet()
         publishBlocked(baseTotal + n)
@@ -953,6 +979,83 @@ object AdBlock {
                     error = o.optString("error"),
                 )
             }
+        }.getOrDefault(emptyList())
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 手动屏蔽 / 放行请求域名（本页请求面板）                                   */
+    /* ------------------------------------------------------------------ */
+
+    /** 用户手动屏蔽的请求域名（含子域名）。不走规则编译：改动立即对之后的请求生效 */
+    val userBlocked = mutableStateListOf<String>()
+
+    /** 用户手动放行的请求域名（含子域名）：压过订阅规则与跟踪域名列表，不压手动屏蔽（两者互斥） */
+    val userAllowed = mutableStateListOf<String>()
+
+    private fun normHost(raw: String): String = raw.trim().lowercase().trimEnd('.')
+
+    /** 在 [set] 里匹配 host 或其某个父域名，返回命中的那一条；没有返回 null */
+    private fun matchEntry(set: Collection<String>, host: String): String? {
+        var h = normHost(host)
+        while (h.isNotEmpty()) {
+            if (h in set) return h
+            val dot = h.indexOf('.')
+            if (dot < 0) return null
+            h = h.substring(dot + 1)
+        }
+        return null
+    }
+
+    /** host 被手动屏蔽时命中的条目（可能是它的父域名） */
+    fun userBlockEntry(host: String): String? = matchEntry(userBlocked, host)
+
+    /** host 被手动放行时命中的条目 */
+    fun userAllowEntry(host: String): String? = matchEntry(userAllowed, host)
+
+    @Synchronized
+    fun blockHost(host: String) {
+        val h = normHost(host)
+        if (h.isEmpty()) return
+        userAllowed.remove(h)
+        if (h !in userBlocked) userBlocked.add(h)
+        persistUserHosts()
+    }
+
+    @Synchronized
+    fun allowRequestHost(host: String) {
+        val h = normHost(host)
+        if (h.isEmpty()) return
+        userBlocked.remove(h)
+        if (h !in userAllowed) userAllowed.add(h)
+        persistUserHosts()
+    }
+
+    @Synchronized
+    fun removeUserBlock(entry: String) {
+        userBlocked.remove(entry)
+        persistUserHosts()
+    }
+
+    @Synchronized
+    fun removeUserAllow(entry: String) {
+        userAllowed.remove(entry)
+        persistUserHosts()
+    }
+
+    private fun persistUserHosts() {
+        fastUserBlock = userBlocked.toSet()
+        fastUserAllow = userAllowed.toSet()
+        prefs.edit()
+            .putString("user_block", JSONArray(userBlocked.toList()).toString())
+            .putString("user_allow", JSONArray(userAllowed.toList()).toString())
+            .apply()
+    }
+
+    private fun loadHostSet(key: String): List<String> {
+        val raw = prefs.getString(key, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }.filter { it.isNotBlank() }
         }.getOrDefault(emptyList())
     }
 
