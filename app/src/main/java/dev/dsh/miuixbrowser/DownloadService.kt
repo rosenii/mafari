@@ -12,7 +12,12 @@ import android.os.IBinder
 import android.provider.Settings
 import org.json.JSONObject
 
-/** 下载前台服务：常驻进度通知（HyperOS 会把它显示在通知栏/超级岛区域） */
+/**
+ * 下载前台服务：常驻进度通知。
+ * - Android 16+：用 Notification.ProgressStyle 并申请「实时更新」（Live Updates），
+ *   进度会显示在状态栏胶囊 / 锁屏 / 息屏显示上；下载完成、失败后不再申请，恢复为普通通知。
+ * - HyperOS：同时附带超级岛参数（见 [islandJson]）。
+ */
 class DownloadService : Service() {
 
     private var islandShown = false
@@ -155,6 +160,21 @@ class DownloadService : Service() {
             .setAutoCancel(!ongoing)
             .setOnlyAlertOnce(true)
             .setProgress(100, progress, indeterminate)
+
+        // Android 16 实时更新：只在进行中（含暂停）申请；完成 / 失败的通知是普通通知
+        if (Build.VERSION.SDK_INT >= 36 && ongoing) {
+            runCatching {
+                builder.setStyle(
+                    Notification.ProgressStyle()
+                        .setProgressIndeterminate(indeterminate)
+                        .setProgress(progress.coerceIn(0, 100))
+                        .setProgressSegments(listOf(Notification.ProgressStyle.Segment(100))),
+                )
+                builder.setRequestPromotedOngoing(true)
+                // 状态栏胶囊里显示的短文本（最多约 7 个字符）
+                builder.setShortCriticalText(if (paused) "已暂停" else if (indeterminate) "…" else "$progress%")
+            }
+        }
 
         if (taskId > 0L) {
             val action = if (paused) {

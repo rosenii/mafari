@@ -1799,27 +1799,32 @@ fun BrowserScreen(
             startAction = if (lastActiveSheet == Sheet.Tabs) {
                 {
                     val pageCount = state.tabs.count { it.incognito == (tabsPage == 1) }
-                    Box(modifier = Modifier.fillMaxWidth()) {
+                    // Row 而不是叠放的 Box：中间的分段切换占两侧按钮之外的剩余宽度（最宽 236dp 并居中），
+                    // 窄屏上只会收缩，不会再和两侧按钮重叠
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
                         val liquid = if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null
                         TabAddButton(
                             canAdd = state.tabs.size < 99,
                             backdrop = liquid,
-                            modifier = Modifier.align(Alignment.CenterStart),
                             onClick = {
                                 state.newTab(incognito = tabsPage == 1)
                                 sheet = Sheet.None
                             },
                         )
-                        TabsSegmented(
-                            labels = listOf("标签页", "无痕浏览页"),
-                            selected = tabsPage,
-                            onSelect = { tabsPage = it },
-                            modifier = Modifier.align(Alignment.Center),
-                        )
+                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                            TabsSegmented(
+                                labels = listOf("标签页", "无痕浏览页"),
+                                selected = tabsPage,
+                                onSelect = { tabsPage = it },
+                            )
+                        }
                         LiquidGlassButton(
                             onClick = { showClearTabsConfirm = true },
                             backdrop = liquid,
-                            modifier = Modifier.align(Alignment.CenterEnd),
                             enabled = pageCount > 0,
                         ) {
                             Icon(

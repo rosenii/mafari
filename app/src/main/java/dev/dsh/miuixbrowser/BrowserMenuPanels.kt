@@ -657,8 +657,10 @@ internal fun TabsSegmented(
     val container = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     val thumb = MiuixTheme.colorScheme.surface
     Row(
+        // 最宽 236dp，窄屏时随可用宽度收缩，不再把两侧按钮挤得重叠
         modifier = modifier
-            .width(236.dp)
+            .widthIn(max = 236.dp)
+            .fillMaxWidth()
             .height(40.dp)
             .clip(CircleShape)
             .background(container)
