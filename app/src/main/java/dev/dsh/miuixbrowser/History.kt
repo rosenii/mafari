@@ -88,13 +88,28 @@ internal object HistoryDb {
         }
     }
 
+    /**
+     * 表结构版本（存在库的 PRAGMA user_version 里）。库里已经是这个版本就跳过下面十几条建表 / 迁移语句。
+     * 以后任何表、索引、列的新增或改动（包括各 *Db 对象里的 CREATE_* 常量和 TabDb.migrate）都必须把它加 1，否则老用户的库不会升级。
+     */
+    private const val SCHEMA_VERSION = 1
+
     private fun open(context: Context): SQLiteDatabase {
+        // 启动耗时分段记录（设置 → 高级 → Gecko 调试 里打开诊断日志后写入 diag.txt），用来判断哪一段最慢
+        var t = android.os.SystemClock.elapsedRealtime()
+        fun lap(name: String) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            Diag.log("history db open: $name ${now - t}ms")
+            t = now
+        }
         System.loadLibrary("sqlcipher")
+        lap("loadLibrary")
         val file = context.getDatabasePath(DB_NAME)
         file.parentFile?.mkdirs()
         val prefs = context.getSharedPreferences(KEY_PREFS, Context.MODE_PRIVATE)
         var pass: String? = prefs.getString(KEY_NAME, null)
             ?.let { SecureStore.read(context, it, SecureStore.PURPOSE_HISTORY_DB) }
+        lap("unwrap db key (keystore + ML-KEM)")
         if (pass == null) {
             // 首次使用，或旧密钥已丢：旧库打不开，清掉后用新密钥重建
             deleteFiles(file)
@@ -112,9 +127,15 @@ internal object HistoryDb {
             deleteFiles(file)
             SQLiteDatabase.openOrCreateDatabase(file, pass, null, null)
         }
+        lap("openOrCreateDatabase (SQLCipher key derivation)")
         db.enableWriteAheadLogging()
         // WAL + NORMAL：提交不再逐次 fsync（断电最多丢最后几笔，不会损坏库），脚本频繁 GM_setValue 也不卡
         db.execSQL("PRAGMA synchronous=NORMAL")
+        lap("WAL + pragma")
+        if (schemaVersionOf(db) >= SCHEMA_VERSION) {
+            Diag.log("history db open: schema v$SCHEMA_VERSION up to date, DDL skipped")
+            return db
+        }
         db.execSQL("CREATE TABLE IF NOT EXISTS history(url TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, time INTEGER NOT NULL)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_time ON history(time DESC)")
         // 油猴脚本的 GM_setValue 数据（见 GmStore）
@@ -139,8 +160,15 @@ internal object HistoryDb {
         db.execSQL(TabDb.CREATE_TABS)
         TabDb.migrate(db) // 旧库补 Gecko 会话状态列
         db.execSQL(TabDb.CREATE_INDEX)
+        db.execSQL("PRAGMA user_version=$SCHEMA_VERSION")
+        lap("DDL + migrate")
         return db
     }
+
+    private fun schemaVersionOf(db: SQLiteDatabase): Int =
+        runCatching {
+            db.rawQuery("PRAGMA user_version", emptyArray<String>()).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+        }.getOrDefault(0)
 
     private fun deleteFiles(file: File) {
         for (suffix in listOf("", "-wal", "-shm", "-journal")) File(file.path + suffix).delete()
