@@ -192,7 +192,8 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 6. 数据库访问一律经 `HistoryDb.get()` / `HistoryDb.io`；拿到 null 要降级，不要抛。
 7. Gecko Nightly 的 Java API 偶尔变化：建议在 `gradle.properties` 锁定 `geckoViewVersion`。
 8. 改动原则（项目作者的要求）：**最小改动、最小资源占用、最大代码复用**；先复用已有组件 / 抽象（如 `AppMaterial`、`AppDropdownPreference`），不要另起一套。
-9. 文档漂移提示：`GeckoGm.kt` 文件头注释仍写「GM 值在 SharedPreferences `userscript_gm`」，实际已迁到 `GmStore`（`gm_values` 表）；`BackupManager.PREFS` 里的 `userscript_gm` 仅为兼容旧数据。
+9. Firefox 同步（`FxaSync.init` → `FxaApi.start`）的初始化很重（Rust 组件 / NSS、Storage、账号管理器），**一律在后台协程里做**（`FxaSync.initJob`），不要挪回 `MainActivity.onCreate` 的主线程；只有 `ProcessLifecycleOwner` 的观察者注册必须在主线程（`FxaApi.start` 末尾已 `withContext(Dispatchers.Main)`）。`FxaApi` 的各接口在 `start` 完成前会因 `lateinit` 未初始化而抛异常，调用方都已在 `runCatching` / 已登录状态之后调用；新增调用点要么先 `initJob.join()`，要么同样包 `runCatching`。
+10. 文档漂移提示：`GeckoGm.kt` 文件头注释仍写「GM 值在 SharedPreferences `userscript_gm`」，实际已迁到 `GmStore`（`gm_values` 表）；`BackupManager.PREFS` 里的 `userscript_gm` 仅为兼容旧数据。
 
 ## 12. 想改 X，先看 Y
 

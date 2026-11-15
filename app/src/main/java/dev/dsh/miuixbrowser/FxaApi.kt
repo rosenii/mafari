@@ -179,8 +179,12 @@ internal object FxaApi {
             .onFailure { httpInitError = it.cause?.message ?: it.message ?: it.javaClass.simpleName }
     }
 
-    @Synchronized
-    fun start(context: Context, l: Listener) {
+    /**
+     * 全部初始化（Rust 组件 / NSS、各 Storage、账号管理器）都很重，由 [FxaSync.init] 放到后台协程里调用，
+     * 绝不能在主线程跑，否则会拖慢冷启动。只有 Lifecycle 观察者必须在主线程注册（见末尾）。
+     * 只会被调用一次（[FxaSync.init] 已保证），所以不用 @Synchronized（不能跨挂起点持锁）。
+     */
+    suspend fun start(context: Context, l: Listener) {
         if (started) return
         started = true
         ctx = context.applicationContext
@@ -222,19 +226,22 @@ internal object FxaApi {
             override fun onAuthenticationProblems() = l.onProblem()
             override fun onReady(authenticatedAccount: OAuthAccount?) = l.onReady(authenticatedAccount != null)
         })
-        val owner = ProcessLifecycleOwner.get()
-        manager.registerForSyncEvents(object : SyncStatusObserver {
-            override fun onStarted() = l.onSyncStarted()
-            override fun onIdle() = l.onSyncIdle()
-            override fun onError(error: Exception?) = l.onSyncError(error?.message)
-        }, owner, false)
-        manager.registerForAccountEvents(object : AccountEventsObserver {
-            override fun onEvents(events: List<AccountEvent>) {
-                events.filterIsInstance<AccountEvent.DeviceCommandIncoming>()
-                    .map { it.command }.filterIsInstance<DeviceCommandIncoming.TabReceived>()
-                    .forEach { cmd -> cmd.entries.forEach { l.onTabReceived(cmd.from?.displayName ?: "其他设备", it.title, it.url) } }
-            }
-        }, owner, false)
+        // ProcessLifecycleOwner 的 LifecycleRegistry 只允许在主线程 addObserver：这一步（很轻）切回主线程
+        withContext(Dispatchers.Main) {
+            val owner = ProcessLifecycleOwner.get()
+            manager.registerForSyncEvents(object : SyncStatusObserver {
+                override fun onStarted() = l.onSyncStarted()
+                override fun onIdle() = l.onSyncIdle()
+                override fun onError(error: Exception?) = l.onSyncError(error?.message)
+            }, owner, false)
+            manager.registerForAccountEvents(object : AccountEventsObserver {
+                override fun onEvents(events: List<AccountEvent>) {
+                    events.filterIsInstance<AccountEvent.DeviceCommandIncoming>()
+                        .map { it.command }.filterIsInstance<DeviceCommandIncoming.TabReceived>()
+                        .forEach { cmd -> cmd.entries.forEach { l.onTabReceived(cmd.from?.displayName ?: "其他设备", it.title, it.url) } }
+                }
+            }, owner, false)
+        }
     }
 
     suspend fun init() { manager.start() }

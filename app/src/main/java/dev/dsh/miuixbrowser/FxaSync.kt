@@ -112,9 +112,8 @@ internal object FxaSync {
         if (inited) return
         inited = true
         appContext = context.applicationContext
-        autoMode = prefs().getInt(K_AUTO, 0).coerceIn(0, AUTO_LABELS.lastIndex)
-        lastSuccess = prefs().getLong(K_LAST_OK, 0L)
-        FxaApi.start(appContext, listener)
+        // 冷启动：主线程这里只做赋值。读偏好、Rust 组件 / NSS 初始化、各 Storage 与账号管理器的构造都放到下面的后台协程，
+        // 此前它们同步跑在 MainActivity.onCreate 里，是 Firefox 同步拖慢冷启动的原因。
         // 自动同步：每分钟看一眼是否到点（登录状态、同步中、失败后 10 分钟内都不会重复触发）
         scope.launch {
             kotlinx.coroutines.delay(5_000)
@@ -127,7 +126,14 @@ internal object FxaSync {
             }
         }
         initJob = scope.launch {
-            runCatching { FxaApi.init() }.onFailure { initError = it.message ?: it.javaClass.simpleName; ui = FxaUi.SignedOut }
+            // 偏好先读（很快），界面上的「自动同步」/「上次同步」随即就位
+            runCatching {
+                autoMode = prefs().getInt(K_AUTO, 0).coerceIn(0, AUTO_LABELS.lastIndex)
+                lastSuccess = prefs().getLong(K_LAST_OK, 0L)
+            }
+            // start 失败（原来会直接让 onCreate 崩）现在落到 SignedOut 并记下原因；ui 在 onReady 前保持 Loading
+            runCatching { FxaApi.start(appContext, listener); FxaApi.init() }
+                .onFailure { initError = it.message ?: it.javaClass.simpleName; ui = FxaUi.SignedOut }
         }
     }
 
