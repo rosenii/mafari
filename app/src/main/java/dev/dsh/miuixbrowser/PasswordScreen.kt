@@ -298,12 +298,10 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                         }
                     }
 
-                    // ③ 已保存的密码：收成一行，点开底部 sheet（搜索 + 分页）
+                    // ③ 管理：已保存的密码（点开底部 sheet，搜索 + 分页）+ 清空
                     item {
-                        Card(
-                            Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 12.dp),
-                            insideMargin = PaddingValues(0.dp),
-                        ) {
+                        SmallTitle(text = "管理")
+                        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                             ArrowPreference(
                                 title = "已保存的密码",
                                 summary = when {
@@ -314,14 +312,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                                 enabled = total > 0,
                                 onClick = { listState.reset(); listOpen = true },
                             )
-                        }
-                    }
-
-                    // ④ 清空 + 说明
-                    if (total > 0) {
-                        item {
-                            SmallTitle(text = "管理")
-                            Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
+                            if (total > 0) {
                                 ArrowPreference(
                                     title = "清除所有密码",
                                     summary = "删除本机保存的全部 $total 条密码，不可恢复",
@@ -518,7 +509,7 @@ private fun ConfirmButtons(confirmText: String, onCancel: () -> Unit, onConfirm:
         AppDialogButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
             Text(text = "取消", style = MiuixTheme.textStyles.button)
         }
-        AppDialogButton(onClick = onConfirm, modifier = Modifier.weight(1f), role = GlassDialogButtonRole.Primary) {
+        AppDialogButton(onClick = onConfirm, modifier = Modifier.weight(1f), role = GlassDialogButtonRole.Destructive) {
             Text(text = confirmText, style = MiuixTheme.textStyles.button)
         }
     }

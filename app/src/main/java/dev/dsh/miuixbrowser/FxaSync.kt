@@ -3,6 +3,8 @@ package dev.dsh.miuixbrowser
 import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +43,35 @@ internal object FxaSync {
         private set
     var lastMessage: String? by mutableStateOf(null)
         private set
+
+    /** 自动同步间隔（帐户页「自动同步」）。0 = 手动。应用在前台 / 进程存活期间按间隔检查，到点就同步。 */
+    val AUTO_LABELS = listOf("手动", "1 小时", "6 小时", "12 小时", "每天", "每周")
+    private val AUTO_HOURS = longArrayOf(0, 1, 6, 12, 24, 168)
+    private const val PREFS = "mafari_fxa_sync"
+    private const val K_AUTO = "auto_mode"
+    private const val K_LAST_OK = "last_success"
+    private const val AUTO_RETRY_GAP_MS = 10 * 60_000L
+
+    var autoMode: Int by mutableIntStateOf(0)
+        private set
+    /** 上次成功同步的时间（毫秒）；从未成功 = 0。 */
+    var lastSuccess: Long by mutableLongStateOf(0L)
+        private set
+    @Volatile private var lastAutoAttempt = 0L
+
+    private fun prefs() = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun setAutoMode(index: Int) {
+        autoMode = index.coerceIn(0, AUTO_LABELS.lastIndex)
+        prefs().edit().putInt(K_AUTO, autoMode).apply()
+    }
+
+    private fun autoDue(): Boolean {
+        val hours = AUTO_HOURS.getOrElse(autoMode) { 0 }
+        if (hours <= 0 || ui !is FxaUi.SignedIn || syncing) return false
+        val now = System.currentTimeMillis()
+        return now - lastSuccess >= hours * 3_600_000L && now - lastAutoAttempt >= AUTO_RETRY_GAP_MS
+    }
 
     class Incoming(val from: String, val title: String, val url: String)
     var receivedTabs by mutableStateOf<List<Incoming>>(emptyList())
@@ -81,7 +112,20 @@ internal object FxaSync {
         if (inited) return
         inited = true
         appContext = context.applicationContext
+        autoMode = prefs().getInt(K_AUTO, 0).coerceIn(0, AUTO_LABELS.lastIndex)
+        lastSuccess = prefs().getLong(K_LAST_OK, 0L)
         FxaApi.start(appContext, listener)
+        // 自动同步：每分钟看一眼是否到点（登录状态、同步中、失败后 10 分钟内都不会重复触发）
+        scope.launch {
+            kotlinx.coroutines.delay(5_000)
+            while (true) {
+                if (autoDue()) {
+                    lastAutoAttempt = System.currentTimeMillis()
+                    syncNow()
+                }
+                kotlinx.coroutines.delay(60_000)
+            }
+        }
         initJob = scope.launch {
             runCatching { FxaApi.init() }.onFailure { initError = it.message ?: it.javaClass.simpleName; ui = FxaUi.SignedOut }
         }
@@ -249,6 +293,8 @@ internal object FxaSync {
         override fun onLoggedOut() {
             ui = FxaUi.SignedOut
             synced = emptyMap()
+            lastSuccess = 0L
+            runCatching { prefs().edit().remove(K_LAST_OK).apply() }
             scope.launch { runCatching { FxaPasswordBridge.onLoggedOut(appContext) } }
         }
         override fun onProblem() { ui = FxaUi.NeedsReauth((ui as? FxaUi.SignedIn)?.email) }
@@ -256,6 +302,8 @@ internal object FxaSync {
         override fun onSyncIdle() {
             syncing = false
             lastMessage = "同步完成"
+            lastSuccess = System.currentTimeMillis()
+            runCatching { prefs().edit().putLong(K_LAST_OK, lastSuccess).apply() }
             scope.launch {
                 // 合并失败不再静默：同步完成但本地合并出错时，如实告诉用户
                 val pw = runCatching { FxaPasswordBridge.reconcile(appContext) }

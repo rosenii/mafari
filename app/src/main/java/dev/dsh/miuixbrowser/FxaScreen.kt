@@ -12,7 +12,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -182,31 +193,81 @@ fun FxaScreen(
                     bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                 ),
             ) {
-                item { SmallTitle(text = "账号") }
+                item { SmallTitle(text = "帐户") }
                 item {
                     Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                         when (ui) {
-                            is FxaUi.Loading -> ArrowPreference(title = "正在读取账号状态…", onClick = {})
+                            is FxaUi.Loading -> ArrowPreference(title = "正在读取帐户状态…", onClick = {})
                             is FxaUi.SignedOut, is FxaUi.NeedsReauth, is FxaUi.Authenticating -> ArrowPreference(
-                                title = if (ui is FxaUi.NeedsReauth) "登录已失效，重新登录" else "登录 Mozilla 账号",
+                                title = if (ui is FxaUi.NeedsReauth) "登录已失效，重新登录" else "登录 Mozilla 帐户",
                                 summary = if (ui is FxaUi.Authenticating) "正在等待登录完成…" else "同步您的Firefox数据",
                                 onClick = { startLogin() },
                             )
                             is FxaUi.SignedIn -> {
+                                // ① 帐户信息：左侧头像（自定义头像异步加载，没有则用主色头像图标）
                                 ArrowPreference(
                                     title = ui.displayName?.takeIf { it.isNotBlank() } ?: ui.email.ifBlank { "已登录" },
                                     summary = ui.email.takeIf { it.isNotBlank() && ui.displayName != null },
+                                    startAction = { FxaAvatar(ui.avatarUrl) },
                                     onClick = {},
                                 )
-                                ArrowPreference(
-                                    title = "立即同步",
-                                    summary = if (FxaSync.syncing) "同步中…" else FxaSync.lastMessage ?: "书签 · 历史 · 标签页 · 密码",
-                                    enabled = !FxaSync.syncing,
-                                    onClick = { FxaSync.syncNow() },
+                                // ② 立即同步（蓝底）/ 退出登录（红字，底色随高级材质）左右并排
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    AppDialogButton(
+                                        onClick = { FxaSync.syncNow() },
+                                        enabled = !FxaSync.syncing,
+                                        modifier = Modifier.weight(1f),
+                                        role = GlassDialogButtonRole.Primary,
+                                        inPage = true,
+                                    ) {
+                                        Text(
+                                            text = if (FxaSync.syncing) "同步中…" else "立即同步",
+                                            style = MiuixTheme.textStyles.button,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                    AppDialogButton(
+                                        onClick = { FxaSync.logout() },
+                                        modifier = Modifier.weight(1f),
+                                        inPage = true,
+                                    ) {
+                                        Text(
+                                            text = "退出登录",
+                                            style = MiuixTheme.textStyles.button,
+                                            color = MiuixTheme.colorScheme.error,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+                                // ③ 自动同步
+                                AppDropdownPreference(
+                                    backdrop = bd,
+                                    title = "自动同步",
+                                    items = FxaSync.AUTO_LABELS,
+                                    selectedIndex = FxaSync.autoMode.coerceIn(0, FxaSync.AUTO_LABELS.lastIndex),
+                                    onSelectedIndexChange = { FxaSync.setAutoMode(it) },
                                 )
-                                ArrowPreference(title = "退出登录", onClick = { FxaSync.logout() })
                             }
                         }
+                    }
+                }
+                // ④ 帐户栏 summary：同步状态 + 上次成功同步时间
+                if (ui is FxaUi.SignedIn) {
+                    item {
+                        val status = when {
+                            FxaSync.syncing -> "同步中…"
+                            FxaSync.lastMessage != null -> FxaSync.lastMessage!!
+                            FxaSync.lastSuccess > 0 -> "已同步"
+                            else -> "尚未同步"
+                        }
+                        val last = if (FxaSync.lastSuccess > 0) {
+                            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date(FxaSync.lastSuccess))
+                        } else "暂无"
+                        FxaHintText("同步状态：$status\n上次成功同步：$last")
                     }
                 }
                 if (ui is FxaUi.SignedIn) {
@@ -307,6 +368,30 @@ fun FxaScreen(
                     },
                 )
             }
+        }
+    }
+}
+
+/** 帐户行左侧的头像：设置过自定义头像（https）则圆形显示，加载完成前 / 默认头像时用主色头像图标。 */
+@Composable
+private fun FxaAvatar(avatarUrl: String?) {
+    val url = avatarUrl?.takeIf { it.startsWith("https://") }.orEmpty()
+    val bitmap = rememberRemoteIcon(url)
+    Box(Modifier.padding(end = 12.dp).size(40.dp), contentAlignment = Alignment.Center) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = "Firefox 帐户头像",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(40.dp).clip(CircleShape),
+            )
+        } else {
+            Icon(
+                imageVector = AppIcons.Account,
+                contentDescription = "Firefox 帐户头像",
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp),
+            )
         }
     }
 }

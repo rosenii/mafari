@@ -486,26 +486,29 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    // ———— Firefox帐户同步（置顶）————
-                    if (EngineSupport.SYNC_BUNDLED) item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp, bottom = 6.dp),
-                            insideMargin = PaddingValues(0.dp),
-                        ) {
-                            val fxa = FxaSync.ui
-                            ArrowPreference(
-                                title = "Firefox帐户同步",
-                                summary = when (fxa) {
-                                    is FxaUi.SignedIn -> "已登录" + fxa.email.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                                    is FxaUi.NeedsReauth -> "登录已失效，点击重新登录"
-                                    else -> "登录Mozilla账号，同步您的Firefox数据"
-                                },
-                                onClick = onOpenFxa,
-                            )
+                    // ———— Firefox同步（置顶）————
+                    if (EngineSupport.SYNC_BUNDLED) {
+                        item { SmallTitle(text = "Firefox同步") }
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                insideMargin = PaddingValues(0.dp),
+                            ) {
+                                val fxa = FxaSync.ui
+                                ArrowPreference(
+                                    title = "Firefox帐户同步",
+                                    summary = when (fxa) {
+                                        is FxaUi.SignedIn -> "已登录" + fxa.email.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                                        is FxaUi.NeedsReauth -> "登录已失效，点击重新登录"
+                                        else -> "登录Mozilla账号，同步您的Firefox数据"
+                                    },
+                                    onClick = onOpenFxa,
+                                )
+                            }
                         }
                     }
-                    // ———— 默认加密口令 + 自动推送 ————
-                    item { SmallTitle(text = "口令与自动备份") }
+                    // ———— 口令与备份配置：默认加密口令 + 自动推送同步 + 备份内容 ————
+                    item { SmallTitle(text = "口令与备份配置") }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -534,16 +537,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                                 },
                                 enabled = autoPushReady,
                             )
-                        }
-                    }
-                    item { Note("启动应用时按间隔执行，备份「备份内容」里选中的类别，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
-
-                    // ———— 备份内容：一行入口，点开弹窗启停各类内容（所有备份方式共用） ————
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 12.dp),
-                            insideMargin = PaddingValues(0.dp),
-                        ) {
+                            // 备份内容：一行入口，点开弹窗启停各类内容（所有备份方式共用）
                             ArrowPreference(
                                 title = "备份内容",
                                 summary = if (hasContent) {
@@ -556,9 +550,10 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             )
                         }
                     }
+                    item { Note("启动应用时按间隔执行，备份「备份内容」里选中的类别，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
 
                     // ———— 云同步：WebDAV / Git 左右切换 ————
-                    item { SmallTitle(text = "云同步") }
+                    item { SmallTitle(text = "WebDAV/Git同步") }
                     // WebDAV / Git 分栏：在卡片外、标题正下方
                     item {
                         GlassTabRow(
@@ -668,7 +663,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                     }
 
                     // ———— 本地备份与恢复 ————
-                    item { SmallTitle(text = "本地文件") }
+                    item { SmallTitle(text = "本地备份与恢复") }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
