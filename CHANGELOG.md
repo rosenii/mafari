@@ -3,6 +3,7 @@
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
 ## [2.1.43]
+- 修复：Gecko 下网页播放视频时，切换标签页 / 切到标签列表 / 应用退到后台没有暂停——原来只靠 MediaSession（无声视频、未激活媒体会话、iframe 里的播放器会漏掉），现在内置扩展额外注入 pause-hidden.js（所有 frame），页面变为不可见就暂停全部 video / audio，不可见期间才开始的播放也立即暂停；切回后由用户自己点播放
 - 调整：定制主页默认全部显示且取最多行——快捷菜单 2 行、个人收藏 6 行、书签分组 5 行，LOGO / 隐私报告 / 最近浏览 / 下载项均显示（只影响未手动设置过的用户）
 - 调整：默认书签 / 收藏只保留 GitHub（指向项目主页），移除百度、知乎、B站、微博、淘宝
 - 修复：lite 版长按菜单里的「收藏 / 书签 / 脚本」闪退（NoSuchMethodError: Job.cancel$default）——lite 里 compileOnly 的同步库 / GeckoView 把较新的 kotlinx-coroutines 带进编译 classpath，运行时却是较旧版本；构建上从根上排除 compileOnly 库传递的 kotlinx-coroutines，使 lite 编译期与运行期版本一致；同时所有 Job.cancel() 改为显式传参（cancelCompat）作为双保险
