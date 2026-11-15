@@ -494,20 +494,56 @@ private const val RELEASES_MAX_PAGES = 6
  * - gecko：正式发布版里带 `-gecko` 后缀的安装包
  * - canary-lite：最新构建预发布（gecko-N）或正式发布（dual 分支直接发布的也算，取发布时间最新的）里带 `-lite`、匹配架构的安装包
  * - canary-gecko：同上，取 `-gecko` 安装包
+ * - sync-lite：正式发布版里的 `sync_lite` 安装包（无内核 + Firefox 同步，仅 arm64）；与 lite 严格区分，lite 通道绝不会选到它
+ * - canary-sync-lite：同 canary-lite 的取法，取 `sync_lite` 安装包
  */
 object UpdateChannel {
     const val LITE = 0
     const val GECKO = 1
     const val CANARY_LITE = 2
     const val CANARY_GECKO = 3
-    val NAMES = listOf("lite", "gecko", "canary-lite", "canary-gecko")
+    const val SYNC_LITE = 4
+    const val CANARY_SYNC_LITE = 5
+    val NAMES = listOf("lite", "gecko", "canary-lite", "canary-gecko", "sync-lite", "canary-sync-lite")
 
-    fun isCanary(channel: Int) = channel == CANARY_LITE || channel == CANARY_GECKO
-    fun flavorOf(channel: Int) = if (channel == GECKO || channel == CANARY_GECKO) "gecko" else "lite"
+    fun isCanary(channel: Int) =
+        channel == CANARY_LITE || channel == CANARY_GECKO || channel == CANARY_SYNC_LITE
 
-    /** 没有选择记录（含从旧版本升级）时的默认通道：gecko；设备没有 arm64-v8a（跑不了 GeckoView）时退到 lite */
-    fun default(): Int =
-        if (android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) GECKO else LITE
+    /** 通道对应的安装包变体："lite" / "gecko" / "sync_lite" */
+    fun flavorOf(channel: Int) = when (channel) {
+        GECKO, CANARY_GECKO -> "gecko"
+        SYNC_LITE, CANARY_SYNC_LITE -> "sync_lite"
+        else -> "lite"
+    }
+
+    /** 当前安装包的变体，与 [flavorOf] 取值一致 */
+    fun installedFlavor() = when {
+        EngineSupport.GECKO_BUNDLED -> "gecko"
+        EngineSupport.SYNC_LITE -> "sync_lite"
+        else -> "lite"
+    }
+
+    /**
+     * 没有选择记录（含从旧版本升级）时的默认通道：
+     * 已装 sync_lite 包 → sync-lite；否则 gecko，设备没有 arm64-v8a（跑不了 GeckoView）时退到 lite
+     */
+    fun default(): Int = when {
+        EngineSupport.SYNC_LITE -> SYNC_LITE
+        android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" } -> GECKO
+        else -> LITE
+    }
+
+    /**
+     * 兼容旧版本：以前 sync_lite 包只有 lite / canary-lite 两个通道（靠已装变体自动选 sync 包）。
+     * 已装 sync_lite 包而存的是 lite 系通道时，迁移到对应的 sync-lite 通道，避免升级后被提示"切换变体"。
+     */
+    fun migrate(channel: Int): Int = if (EngineSupport.SYNC_LITE) {
+        when (channel) {
+            LITE -> SYNC_LITE
+            CANARY_LITE -> CANARY_SYNC_LITE
+            else -> channel
+        }
+    } else channel
 }
 
 /** gecko 分支 CI 构建预发布的 tag：gecko-<构建号> */
@@ -579,9 +615,14 @@ private fun fetchReleasePage(url: String): org.json.JSONArray? = runCatching {
     }
 }.getOrNull()
 
-/** APK 文件名里的变体标记：`Mafari-<版本>-gecko.apk` / `Mafari-<版本>-lite-<架构>.apk`（见 release.yml）；`sync_lite-arm64` 也算 lite */
-private fun apkFlavorOf(name: String): String? =
-    Regex("[-_.](gecko|lite)(?=[-_.])", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.lowercase()
+/**
+ * APK 文件名里的变体标记：`Mafari-<版本>-gecko.apk` / `Mafari-<版本>-lite-<架构>.apk` / `Mafari-<版本>-sync_lite-arm64.apk`
+ * （见 release.yml）。sync_lite 单独成一类（"sync_lite"），不再被当成 lite；要先判断，否则会被 `_lite` 匹配成 lite。
+ */
+private fun apkFlavorOf(name: String): String? {
+    if (isSyncApk(name)) return "sync_lite"
+    return Regex("[-_.](gecko|lite)(?=[-_.])", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.lowercase()
+}
 
 /** 带 Firefox 同步的 lite 包：`Mafari-<版本>-sync_lite-arm64.apk`（只有 arm64，文件名里架构写 arm64 而不是 arm64-v8a） */
 private fun isSyncApk(name: String): Boolean = name.contains("sync_lite", ignoreCase = true)
@@ -590,9 +631,10 @@ private fun isSyncApk(name: String): Boolean = name.contains("sync_lite", ignore
 private val KNOWN_ABIS = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 
 /**
- * 按通道变体（"lite" / "gecko"）和本机架构挑安装包：
+ * 按通道变体（"lite" / "gecko" / "sync_lite"）和本机架构挑安装包：
  * - gecko：只有 arm64-v8a 设备能用（GeckoView 只发布 arm64），否则返回 null；
- * - lite：已装的是 liteSync（带同步）时只挑 `sync_lite` 包（仅 arm64 设备）；否则排除 `sync_lite` 包；
+ * - sync_lite：只挑 `sync_lite` 包，仅 arm64 设备可用，否则返回 null；
+ * - lite：只挑普通 lite 包，永远不会选到 `sync_lite` 包；
  *   按本机支持的 ABI 优先级（Build.SUPPORTED_ABIS）挑文件名带该架构的；
  *   文件名完全不带架构标记的 lite 包视为通用包，作为兜底；不会退回到架构不匹配的包。
  * 没有匹配的返回 null（该 release 不参与本通道）。
@@ -605,11 +647,9 @@ internal fun pickApkUrl(assets: org.json.JSONArray?, flavor: String): String? {
         val link = a.optString("browser_download_url", "")
         if (link.endsWith(".apk", ignoreCase = true)) apks.add(a.optString("name", link.substringAfterLast('/')) to link)
     }
-    // 已装 liteSync 且通道是 lite：升级到 sync_lite 包，不让同步功能在升级后消失
-    val wantSync = flavor == "lite" && EngineSupport.SYNC_LITE
-    val same = apks.filter { apkFlavorOf(it.first) == flavor && isSyncApk(it.first) == wantSync }
+    val same = apks.filter { apkFlavorOf(it.first) == flavor }
     val abis = android.os.Build.SUPPORTED_ABIS
-    if (flavor == "gecko" || wantSync) {
+    if (flavor == "gecko" || flavor == "sync_lite") {
         return if (abis.any { it == "arm64-v8a" }) same.firstOrNull()?.second else null
     }
     val byAbi = abis.firstNotNullOfOrNull { abi ->

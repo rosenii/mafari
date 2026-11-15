@@ -135,6 +135,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installCrashLogger()
+        prewarmEncryptedDb()
         // 系统重建 Activity（savedInstanceState != null）时 intent 还是当初那条，不能再重复打开一次链接
         if (savedInstanceState == null) {
             consumeOpenDownloads(intent)
@@ -152,9 +153,13 @@ class MainActivity : ComponentActivity() {
         // Firefox 同步不占冷启动：onCreate 里什么都不做，首帧画出后再延迟几秒在后台预热（仅「上次已知已登录」才初始化，
         // 没登录过的用户零开销）；打开「Firefox帐户同步」页（FxaScreen）/ 系统分享面板发标签页（SendTabActivity）时仍会按需 init
         CacheCleaner.runOnColdStart(this)
-        // 从磁盘恢复下载任务列表（临时数据在 filesDir/downloads，不受清缓存影响）
-        Downloader.init(this)
         CookieControl.runOnColdStart(this, AppSettings(this))
+        // Gecko 运行时提前创建：必须在上面的缓存清理 / Cookie 清理之后（顺序与原来一致），但不必等到 BrowserState 组合时才建，
+        // 这样 Gecko 自己的启动线程能和后面的 setContent / 标签恢复 / 加密库预热并行跑
+        if (EngineSupport.GECKO_BUNDLED && EngineSupport.defaultIsGecko(this)) runCatching { GeckoRuntimeHolder.get(this) }
+        // 下载列表（读库 + 清理已完成任务的临时目录）不是首屏必需：首帧之后再从磁盘恢复。
+        // Downloader.start / 下载通知广播都会自己 init（幂等），不会因为晚一点而漏掉。
+        window.decorView.postDelayed({ Downloader.init(applicationContext) }, 300L)
 
         // 全屏沉浸：内容画到状态栏和手势小白条下面，小白条保留可见。
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -210,6 +215,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 冷启动预热加密库：打开它要经过 Keystore 解包密钥、SQLCipher 派生密钥（PBKDF2）和十几张表的建表 / 迁移，
+     * 以前第一次是在主线程（Downloader.init → HistoryDb.get）里同步做完，setContent 之前整个界面都是白屏。
+     * 现在放到后台线程，与 onCreate 其余初始化并行；主线程之后真正要用库（标签恢复 / 书签 / 脚本）时，
+     * HistoryDb.get 内部有锁，最多等剩下的那一小段。打开失败由 HistoryDb 自己降级处理。
+     */
+    private fun prewarmEncryptedDb() {
+        val app = applicationContext
+        Thread({
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            runCatching { HistoryDb.get(app) }
+            Diag.log("prewarm: encrypted db ready in ${android.os.SystemClock.elapsedRealtime() - t0}ms")
+        }, "mafari-prewarm-db").apply { isDaemon = true }.start()
     }
 
     /**

@@ -276,13 +276,15 @@ class AppSettings(context: Context) {
     }
 
     /**
-     * 更新通道：0=lite 1=gecko 2=canary-lite 3=canary-gecko（见 [UpdateChannel]）。
+     * 更新通道：0=lite 1=gecko 2=canary-lite 3=canary-gecko 4=sync-lite 5=canary-sync-lite（见 [UpdateChannel]）。
      * 用新 key 存储：旧版本的 update_channel（0=stable 1=dev 2=gecko）含义不同，不沿用，
      * 所以从旧版本升级上来的用户一律走默认通道 gecko（设备没有 arm64 时退到 lite）。
      */
     var updateChannel by mutableStateOf(
         if (prefs.contains(KEY_UPDATE_CHANNEL)) {
-            prefs.getInt(KEY_UPDATE_CHANNEL, UpdateChannel.GECKO).coerceIn(0, UpdateChannel.NAMES.lastIndex)
+            UpdateChannel.migrate(
+                prefs.getInt(KEY_UPDATE_CHANNEL, UpdateChannel.GECKO).coerceIn(0, UpdateChannel.NAMES.lastIndex),
+            )
         } else {
             UpdateChannel.default()
         },

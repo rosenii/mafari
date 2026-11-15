@@ -75,15 +75,14 @@ object UpdateChecker {
 
 /**
  * 是否有可更新的版本（启动自动检查与「检查更新」按钮共用）：
- * - 通道变体与已装变体不同：一律视为有更新（切换变体）；
+ * - 通道变体与已装变体不同（含 lite ⇄ sync_lite）：一律视为有更新（切换变体）；
  * - 正式发布（lite / gecko 通道，以及 canary 里选到的正式 release）：按版本号逐段比较；
  * - CI 构建预发布（tag 是 gecko-123，不能和 v99.x 的版本号比）：
  *   本机有构建号（BuildConfig.GECKO_BUILD）时比构建号；老包没有构建号时，看安装时间是否晚于该预发布的发布时间。
  */
 fun isUpdateAvailable(context: Context, rel: AppRelease, channel: Int): Boolean {
-    // 通道变体与已装变体不同（lite ⇄ gecko）：版本号相同也推送，用于切换变体
-    val installedFlavor = if (EngineSupport.GECKO_BUNDLED) "gecko" else "lite"
-    if (UpdateChannel.flavorOf(channel) != installedFlavor) return true
+    // 通道变体与已装变体不同（lite / sync_lite / gecko 互相切换）：版本号相同也推送，用于切换变体
+    if (UpdateChannel.flavorOf(channel) != UpdateChannel.installedFlavor()) return true
     val remote = ciBuildOf(rel.version)
     if (remote == 0) return isNewerVersion(rel.version, BuildConfig.VERSION_NAME)
     if (BuildConfig.GECKO_BUILD > 0) return remote > BuildConfig.GECKO_BUILD

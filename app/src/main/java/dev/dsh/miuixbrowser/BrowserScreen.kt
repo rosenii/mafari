@@ -1472,6 +1472,22 @@ fun BrowserScreen(
             }
         }
 
+        // ---- 地址栏输入中：底栏以外的区域是「收键盘」热区 ----
+        // 透明遮罩盖在网页之上、底栏之下：点击只退出编辑并收起键盘，不会落到网页上
+        // （避免误触链接 / 按钮）；同时吞掉拖动，输入时不让网页跟着滚动。
+        if (editing && tab.url.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {
+                            editing = false
+                            focus.clearFocus()
+                        })
+                    },
+            )
+        }
+
         // ---- 底部：地址栏 + 工具栏 ----
         // 根据地址文本长度动态调整宽度，并使用弹簧动画平滑过渡。
         BoxWithConstraints(
