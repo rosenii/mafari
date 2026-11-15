@@ -151,7 +151,7 @@ internal object FxaSync {
         }
         if (url == null) {
             ui = FxaUi.SignedOut
-            val reason = error ?: FxaApi.httpInitError?.let { "网络组件初始化失败：$it" } ?: initError
+            val reason = initError ?: error ?: FxaApi.httpInitError?.let { "网络组件初始化失败：$it" } ?: initError
             lastMessage = "无法获取登录地址" + (reason?.let { "：$it" } ?: "，请检查网络后重试")
         }
         return url

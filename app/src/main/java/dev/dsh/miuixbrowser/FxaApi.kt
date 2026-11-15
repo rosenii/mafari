@@ -180,8 +180,9 @@ internal object FxaApi {
     }
 
     /**
-     * 全部初始化（Rust 组件 / NSS、各 Storage、账号管理器）都很重，由 [FxaSync.init] 放到后台协程里调用，
-     * 绝不能在主线程跑，否则会拖慢冷启动。只有 Lifecycle 观察者必须在主线程注册（见末尾）。
+     * 由 [FxaSync.init] 在后台协程里调用。真正耗时的 Rust 组件 / NSS 加载与 HTTP 后端注册在后台做，不占主线程；
+     * 各 Storage、账号管理器的构造与 Lifecycle 观察者注册必须在主线程（Looper / LifecycleRegistry 的要求，
+     * 实测放后台会构造失败），它们本身是惰性的、很轻。
      * 只会被调用一次（[FxaSync.init] 已保证），所以不用 @Synchronized（不能跨挂起点持锁）。
      */
     suspend fun start(context: Context, l: Listener) {
@@ -190,44 +191,44 @@ internal object FxaApi {
         ctx = context.applicationContext
         initRustComponentsEarly()
         installHttpClient()
-        bookmarks = PlacesBookmarksStorage(ctx)
-        history = PlacesHistoryStorage(ctx)
-        tabs = RemoteTabsStorage(ctx, noCrashReporter)
-        // 登录库（Rust）的加密密钥放在 Keystore 保护的偏好里；这里只是 Firefox 同步的中转镜像，
-        // 本机真正的密码仍在 PasswordDb（SQLCipher + 逐条加密），见 FxaPasswordBridge
-        logins = SyncableLoginsStorage(ctx, lazy { SecureAbove22Preferences(ctx, "mafari_fxa_logins", false) })
-
-        GlobalSyncableStoreProvider.configureStore(SyncEngine.Bookmarks to lazy { bookmarks })
-        GlobalSyncableStoreProvider.configureStore(SyncEngine.History to lazy { history })
-        GlobalSyncableStoreProvider.configureStore(SyncEngine.Tabs to lazy { tabs })
-        GlobalSyncableStoreProvider.configureStore(SyncEngine.Passwords to lazy { logins })
-
-        manager = FxaAccountManager(
-            context = ctx,
-            serverConfig = ServerConfig(FxaServer.Release, FxaSync.CLIENT_ID, FxaSync.REDIRECT_URL),
-            deviceConfig = DeviceConfig(
-                name = "Mafari (${android.os.Build.MODEL})",
-                type = DeviceType.MOBILE,
-                capabilities = setOf(DeviceCapability.SEND_TAB),
-            ),
-            syncConfig = SyncConfig(setOf(SyncEngine.Bookmarks, SyncEngine.History, SyncEngine.Tabs, SyncEngine.Passwords), periodicSyncConfig = null),
-            applicationScopes = emptySet(),
-            crashReporter = null,
-        )
-        manager.register(object : AccountObserver {
-            override fun onAuthenticated(account: OAuthAccount, authType: AuthType) = l.onAuthenticated()
-            override fun onProfileUpdated(profile: Profile) = l.onProfile(
-                profile.email.orEmpty(),
-                profile.displayName,
-                // 默认头像不取：界面用自带的灰色头像图标；自定义头像是 Mozilla 头像服务器上的 https 地址
-                profile.avatar?.takeIf { !it.isDefault }?.url,
-            )
-            override fun onLoggedOut() = l.onLoggedOut()
-            override fun onAuthenticationProblems() = l.onProblem()
-            override fun onReady(authenticatedAccount: OAuthAccount?) = l.onReady(authenticatedAccount != null)
-        })
-        // ProcessLifecycleOwner 的 LifecycleRegistry 只允许在主线程 addObserver：这一步（很轻）切回主线程
         withContext(Dispatchers.Main) {
+            bookmarks = PlacesBookmarksStorage(ctx)
+            history = PlacesHistoryStorage(ctx)
+            tabs = RemoteTabsStorage(ctx, noCrashReporter)
+            // 登录库（Rust）的加密密钥放在 Keystore 保护的偏好里；这里只是 Firefox 同步的中转镜像，
+            // 本机真正的密码仍在 PasswordDb（SQLCipher + 逐条加密），见 FxaPasswordBridge
+            logins = SyncableLoginsStorage(ctx, lazy { SecureAbove22Preferences(ctx, "mafari_fxa_logins", false) })
+
+            GlobalSyncableStoreProvider.configureStore(SyncEngine.Bookmarks to lazy { bookmarks })
+            GlobalSyncableStoreProvider.configureStore(SyncEngine.History to lazy { history })
+            GlobalSyncableStoreProvider.configureStore(SyncEngine.Tabs to lazy { tabs })
+            GlobalSyncableStoreProvider.configureStore(SyncEngine.Passwords to lazy { logins })
+
+            manager = FxaAccountManager(
+                context = ctx,
+                serverConfig = ServerConfig(FxaServer.Release, FxaSync.CLIENT_ID, FxaSync.REDIRECT_URL),
+                deviceConfig = DeviceConfig(
+                    name = "Mafari (${android.os.Build.MODEL})",
+                    type = DeviceType.MOBILE,
+                    capabilities = setOf(DeviceCapability.SEND_TAB),
+                ),
+                syncConfig = SyncConfig(setOf(SyncEngine.Bookmarks, SyncEngine.History, SyncEngine.Tabs, SyncEngine.Passwords), periodicSyncConfig = null),
+                applicationScopes = emptySet(),
+                crashReporter = null,
+            )
+            manager.register(object : AccountObserver {
+                override fun onAuthenticated(account: OAuthAccount, authType: AuthType) = l.onAuthenticated()
+                override fun onProfileUpdated(profile: Profile) = l.onProfile(
+                    profile.email.orEmpty(),
+                    profile.displayName,
+                    // 默认头像不取：界面用自带的灰色头像图标；自定义头像是 Mozilla 头像服务器上的 https 地址
+                    profile.avatar?.takeIf { !it.isDefault }?.url,
+                )
+                override fun onLoggedOut() = l.onLoggedOut()
+                override fun onAuthenticationProblems() = l.onProblem()
+                override fun onReady(authenticatedAccount: OAuthAccount?) = l.onReady(authenticatedAccount != null)
+            })
+            // ProcessLifecycleOwner 的 LifecycleRegistry 只允许在主线程 addObserver
             val owner = ProcessLifecycleOwner.get()
             manager.registerForSyncEvents(object : SyncStatusObserver {
                 override fun onStarted() = l.onSyncStarted()
