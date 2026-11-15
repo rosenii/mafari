@@ -1,19 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 系统自动填充下拉里的一行（RemoteViews：只能用 LinearLayout / TextView 这类系统允许的控件）。
-     宽度 wrap_content：下拉宽度随最长一行的内容自适应。文字颜色取下拉自己的主题色，深浅色都跟随。 -->
+     宽度 wrap_content：下拉宽度随最长一行的内容自适应；maxWidth 防止超长用户名 / 域名把下拉撑满屏（超出省略）。
+     includeFontPadding=false + 小的上下内边距：压紧行与行之间的间距。文字颜色取下拉自己的主题色，深浅色都跟随。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
+    android:minWidth="140dp"
     android:orientation="vertical"
     android:paddingHorizontal="12dp"
-    android:paddingVertical="4dp">
+    android:paddingVertical="3dp">
+
+    <!-- 顶部固定文案（仅第一行显示，见 MafariAutofillService.presentation）：很多厂商 ROM 的自定义下拉不显示 FillResponse.setHeader，
+         所以把「钥匙图标 + 密码」直接放进第一行里，保证各机型都能看到 -->
+    <LinearLayout
+        android:id="@+id/af_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:layout_marginEnd="6dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_autofill_key" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:includeFontPadding="false"
+            android:text="密码"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/af_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:ellipsize="end"
+        android:includeFontPadding="false"
         android:maxLines="1"
+        android:maxWidth="260dp"
         android:textColor="?android:attr/textColorPrimary"
         android:textSize="14sp" />
 
@@ -21,8 +53,11 @@
         android:id="@+id/af_subtitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
         android:ellipsize="end"
+        android:includeFontPadding="false"
         android:maxLines="1"
+        android:maxWidth="260dp"
         android:textColor="?android:attr/textColorSecondary"
         android:textSize="11sp" />
 </LinearLayout>

@@ -127,6 +127,9 @@ class MafariAutofillService : AutofillService() {
         val passId = form.password?.let { snap.ids[it.index] }
         val response = FillResponse.Builder()
         var any = false
+        // 只有第一个数据集的那一行带顶部文案
+        fun rowView(username: String, site: String): RemoteViews =
+            presentation(ctx, username, site, withHeader = !any)
 
         if (PasswordPrefs.fillEnabled(ctx) && !form.newPassword) {
             val items = PasswordDb.list(db)
@@ -138,7 +141,7 @@ class MafariAutofillService : AutofillService() {
                 if (userId != null) {
                     for (item in items.filter { it.username.isNotEmpty() }.distinctBy { it.username }) {
                         response.addDataset(
-                            Dataset.Builder(presentation(ctx, item.username, PasswordCsv.displayHost(item.origin)))
+                            Dataset.Builder(rowView(item.username, PasswordCsv.displayHost(item.origin)))
                                 .setValue(userId, AutofillValue.forText(item.username)).build(),
                         )
                         any = true
@@ -146,13 +149,13 @@ class MafariAutofillService : AutofillService() {
                 }
             } else if (PasswordPrefs.verifyBeforeFill(ctx)) {
                 for (item in items) {
-                    response.addDataset(lockedDataset(ctx, item, userId, passId))
+                    response.addDataset(lockedDataset(ctx, item, userId, passId, withHeader = !any))
                     any = true
                 }
             } else {
                 for (item in items) {
                     val e = PasswordDb.reveal(ctx, db, item.guid) ?: continue
-                    val b = Dataset.Builder(presentation(ctx, e.username, PasswordCsv.displayHost(e.origin)))
+                    val b = Dataset.Builder(rowView(e.username, PasswordCsv.displayHost(e.origin)))
                     if (userId != null) b.setValue(userId, AutofillValue.forText(e.username))
                     b.setValue(passId, AutofillValue.forText(e.password))
                     response.addDataset(b.build())
@@ -161,8 +164,7 @@ class MafariAutofillService : AutofillService() {
             }
         }
 
-        // 下拉顶部固定文案：钥匙图标 + 加粗「密码」（仅在有候选行时显示）
-        if (any) response.setHeader(RemoteViews(ctx.packageName, R.layout.autofill_header))
+        // 顶部「钥匙 + 密码」已放进第一行（rowView），不再用 setHeader：不少厂商 ROM 的自定义下拉会忽略它，支持的机型则会重复显示
 
         // 保存提示：Gecko 标签有自己的（GeckoLogins），无痕标签不保存，取不到标签状态时不冒险
         val saveAllowed = passId != null && PasswordPrefs.saveEnabled(ctx) && (!own || (tab != null && !tab.gecko && !tab.incognito))
@@ -179,7 +181,7 @@ class MafariAutofillService : AutofillService() {
     }
 
     /** 需要验证身份的数据集：值留空，选中后系统启动 [AutofillAuthActivity]，验证通过才解密这一条。 */
-    private fun lockedDataset(ctx: Context, item: PasswordDb.Item, userId: AutofillId?, passId: AutofillId): Dataset {
+    private fun lockedDataset(ctx: Context, item: PasswordDb.Item, userId: AutofillId?, passId: AutofillId, withHeader: Boolean = false): Dataset {
         val intent = Intent(ctx, AutofillAuthActivity::class.java)
             .putExtra(AutofillAuthActivity.EXTRA_GUID, item.guid)
             .putExtra(AutofillAuthActivity.EXTRA_PASS_ID, passId)
@@ -190,7 +192,7 @@ class MafariAutofillService : AutofillService() {
             ctx, requestCodes.incrementAndGet(), intent,
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE,
         ).intentSender
-        val b = Dataset.Builder(presentation(ctx, item.username, PasswordCsv.displayHost(item.origin)))
+        val b = Dataset.Builder(presentation(ctx, item.username, PasswordCsv.displayHost(item.origin), withHeader))
         if (userId != null) b.setValue(userId, null)
         b.setValue(passId, null)
         return b.setAuthentication(sender).build()
@@ -284,10 +286,12 @@ class MafariAutofillService : AutofillService() {
         )
 
         /** 下拉里一行：主标题用户名，副标题站点。 */
-        internal fun presentation(ctx: Context, username: String, site: String): RemoteViews =
+        internal fun presentation(ctx: Context, username: String, site: String, withHeader: Boolean = false): RemoteViews =
             RemoteViews(ctx.packageName, R.layout.autofill_item).apply {
                 setTextViewText(R.id.af_title, username.ifEmpty { "（无用户名）" })
                 setTextViewText(R.id.af_subtitle, site)
+                // 第一行顶部带「钥匙 + 密码」
+                if (withHeader) setViewVisibility(R.id.af_header, android.view.View.VISIBLE)
             }
     }
 }

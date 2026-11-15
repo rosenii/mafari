@@ -274,7 +274,7 @@ object LiquidGlassMaterial : AppMaterial {
         show: Boolean, onDismissRequest: () -> Unit, anchorBounds: androidx.compose.ui.geometry.Rect,
         backdrop: Backdrop?, modifier: Modifier, alignStart: Boolean,
         content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
-        preBlurred: Boolean,
+        preBlurred: Boolean, sizing: GlassPopupSizing, contentPadding: PaddingValues,
     ) {
         val liquid = activeLiquidBackdrop(backdrop)
         GlassPopup(
@@ -284,6 +284,8 @@ object LiquidGlassMaterial : AppMaterial {
             backdrop = backdrop,
             modifier = modifier,
             alignStart = alignStart,
+            sizing = sizing,
+            contentPadding = contentPadding,
             surface = liquid?.let { liquidPopupSurface(it) },
             content = content,
         )

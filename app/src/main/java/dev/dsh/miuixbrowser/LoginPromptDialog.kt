@@ -3,6 +3,15 @@ package dev.dsh.miuixbrowser
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
+import top.yukonga.miuix.kmp.glass.GlassPopupDefaults
+import top.yukonga.miuix.kmp.glass.GlassPopupSizing
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -34,7 +43,6 @@ import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
-import top.yukonga.miuix.kmp.glass.GlassPopupItem
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -154,10 +162,15 @@ private fun BoxScope.SelectPopup(
             backdrop = backdrop,
             alignStart = true,
             preBlurred = LocalWallpaperPreBlurred.current,
+            // 宽度随内容自适应：下限放低到 112dp（默认 200dp 会让短用户名也撑出一大块空白），上限 280dp，再长的省略
+            sizing = GlassPopupSizing(minWidth = 112.dp, maxWidth = 280.dp),
+            contentPadding = PaddingValues(vertical = 6.dp),
         ) {
+            // 顶部固定文案：钥匙图标 + 加粗「密码」
+            SelectHeader()
             p?.items?.forEachIndexed { index, item ->
-                GlassPopupItem(
-                    text = item.username.ifEmpty { "（无用户名）" },
+                CompactAccountRow(
+                    title = item.username.ifEmpty { "（无用户名）" },
                     summary = PasswordCsv.displayHost(item.origin),
                     onClick = {
                         onClear()
@@ -166,6 +179,67 @@ private fun BoxScope.SelectPopup(
                 )
             }
         }
+    }
+}
+
+/** 弹窗顶部固定文案：钥匙图标 + 「密码」。 */
+@Composable
+private fun SelectHeader() {
+    val color = MiuixTheme.colorScheme.onSurfaceContainer
+    Row(
+        modifier = Modifier.padding(start = 18.dp, end = 18.dp, top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_key_plain),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(color),
+            modifier = Modifier.size(16.dp),
+        )
+        Text(
+            text = "密码",
+            modifier = Modifier.padding(start = 6.dp),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * 紧凑的一行账号：用户名 + 站点。比 [GlassPopupItem] 的 44dp 最小高度 / 10dp 上下内边距更紧，
+ * 行与行之间只留 5dp 上下内边距；按下底色与 GlassPopupItem 一致。
+ */
+@Composable
+private fun CompactAccountRow(title: String, summary: String, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressedColor = GlassPopupDefaults.itemPressedColor()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = GlassPopupDefaults.ItemPressInset)
+            .clip(RoundedCornerShape(GlassPopupDefaults.ItemPressRadius))
+            .background(if (pressed) pressedColor else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 18.dp - GlassPopupDefaults.ItemPressInset, vertical = 5.dp),
+    ) {
+        Text(
+            text = title,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.onSurfaceContainer,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = summary,
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

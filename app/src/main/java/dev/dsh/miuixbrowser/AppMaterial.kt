@@ -89,6 +89,10 @@ interface AppMaterial {
         content: @Composable ColumnScope.() -> Unit,
         /** backdrop 已是预模糊的壁纸层时为 true：材质不再叠加实时模糊。 */
         preBlurred: Boolean = false,
+        /** 弹窗宽度上下限（默认 200–288dp）；内容窄时想让弹窗更窄就调小 minWidth。 */
+        sizing: top.yukonga.miuix.kmp.glass.GlassPopupSizing = top.yukonga.miuix.kmp.glass.GlassPopupSizing(),
+        /** 内容四周的内边距；默认上下 8dp。 */
+        contentPadding: PaddingValues = PaddingValues(vertical = GlassPopupDefaults.ContentPaddingVertical),
     )
 
     @Composable
@@ -295,7 +299,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
     override fun BoxScope.PopupHost(
         show: Boolean, onDismissRequest: () -> Unit, anchorBounds: Rect, backdrop: Backdrop?,
         modifier: Modifier, alignStart: Boolean, content: @Composable ColumnScope.() -> Unit,
-        preBlurred: Boolean,
+        preBlurred: Boolean, sizing: top.yukonga.miuix.kmp.glass.GlassPopupSizing, contentPadding: PaddingValues,
     ) {
         // 同 DialogHost：预模糊取样源上不再叠加 20dp 实时模糊
         val base = GlassPopupDefaults.visuals()
@@ -310,6 +314,8 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
             modifier = modifier,
             alignStart = alignStart,
             visuals = visuals,
+            sizing = sizing,
+            contentPadding = contentPadding,
             content = content,
         )
     }
@@ -534,6 +540,9 @@ fun BoxScope.AppGlassPopup(
     alignStart: Boolean = false,
     /** backdrop 是预模糊的壁纸层时传 true（miuix 材质据此跳过实时模糊；液态材质不受影响）。 */
     preBlurred: Boolean = false,
+    /** 弹窗宽度上下限；默认 200–288dp。 */
+    sizing: top.yukonga.miuix.kmp.glass.GlassPopupSizing = top.yukonga.miuix.kmp.glass.GlassPopupSizing(),
+    contentPadding: PaddingValues = PaddingValues(vertical = GlassPopupDefaults.ContentPaddingVertical),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val m = currentMaterial()
@@ -548,6 +557,8 @@ fun BoxScope.AppGlassPopup(
                 }
             },
             preBlurred = preBlurred,
+            sizing = sizing,
+            contentPadding = contentPadding,
         )
     }
 }
