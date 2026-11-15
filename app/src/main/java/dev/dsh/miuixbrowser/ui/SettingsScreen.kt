@@ -1,5 +1,13 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.net.WebViewProxy
+import dev.dsh.miuixbrowser.browser.HOME_QUICK_ROWS_MAX
+import dev.dsh.miuixbrowser.data.HOME_FAV_ROWS_MAX
+import dev.dsh.miuixbrowser.data.HOME_GROUP_ROWS_MAX
+import dev.dsh.miuixbrowser.data.HOME_PRIVACY
+import dev.dsh.miuixbrowser.data.HOME_RECENT
+import dev.dsh.miuixbrowser.data.HOME_DOWNLOADS
+import dev.dsh.miuixbrowser.util.looksLikeUrl
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.browser.CacheCleaner

@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.script.UserscriptMeta
 import dev.dsh.miuixbrowser.GmNotifications
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.crypto.SecureStore

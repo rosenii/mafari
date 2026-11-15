@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.browser
 
+import java.net.URL
 import dev.dsh.miuixbrowser.data.IconStore
 import dev.dsh.miuixbrowser.data.IconStores
 import dev.dsh.miuixbrowser.net.GitHubAccelerate

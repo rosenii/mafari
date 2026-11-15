@@ -1,5 +1,8 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.browser.UpdateSheet
+import dev.dsh.miuixbrowser.browser.HOME_QUICK_COLS
+import dev.dsh.miuixbrowser.browser.quickMenuCandidates
 import dev.dsh.miuixbrowser.RefreshSpinnerView
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.appContainer

@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.script.BuiltinScript
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdParser
 import dev.dsh.miuixbrowser.browser.rememberRemoteIcon

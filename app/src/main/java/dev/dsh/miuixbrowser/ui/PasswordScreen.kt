@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.sync.fxa.FxaUi
 import dev.dsh.miuixbrowser.browser.PasswordCsv
 import dev.dsh.miuixbrowser.browser.PasswordEntry
 import dev.dsh.miuixbrowser.crypto.BiometricGate
