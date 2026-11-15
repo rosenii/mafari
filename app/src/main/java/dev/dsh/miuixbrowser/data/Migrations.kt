@@ -2,6 +2,7 @@ package dev.dsh.miuixbrowser.data
 
 import dev.dsh.miuixbrowser.util.Diag
 import net.zetetic.database.sqlcipher.SQLiteDatabase
+import dev.dsh.miuixbrowser.download.DownloadDb
 
 /**
  * 表结构迁移注册表。版本号存在库的 PRAGMA user_version 里。

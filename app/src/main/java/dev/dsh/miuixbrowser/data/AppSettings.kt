@@ -1,7 +1,8 @@
 package dev.dsh.miuixbrowser.data
 
 import dev.dsh.miuixbrowser.adblock.AdBlock
-import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.download.Downloader
+import dev.dsh.miuixbrowser.download.ExternalDownloader
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_COLS
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_ROWS_MAX
 import dev.dsh.miuixbrowser.browser.MenuAction
@@ -379,7 +380,18 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_DL_MIN_MB, downloadMultiThreadMinMb).apply()
     }
 
+    /** 外部下载器：空 = 内置；"chooser" = 每次询问；其余为包名 */
+    var externalDownloader by mutableStateOf(prefs.getString(KEY_DL_EXTERNAL, "") ?: "")
+        private set
+
+    fun updateExternalDownloader(value: String) {
+        externalDownloader = value
+        ExternalDownloader.target = value
+        prefs.edit().putString(KEY_DL_EXTERNAL, value).apply()
+    }
+
     init {
+        ExternalDownloader.target = externalDownloader
         // 启动时把已保存的下载配置推给下载器
         Downloader.segments = downloadThreads
         Downloader.multiThreadEnabled = downloadMultiThread
@@ -777,6 +789,7 @@ class AppSettings(context: Context) {
         const val KEY_DL_THREADS = "download_threads"
         const val KEY_DL_MIN_MB = "download_multithread_min_mb"
         const val KEY_DL_MULTI = "download_multithread_enabled"
+        const val KEY_DL_EXTERNAL = "download_external_app"
         const val KEY_UA = "ua"
         const val KEY_THEME = "theme_mode"
         const val KEY_SEARCH = "search_index"

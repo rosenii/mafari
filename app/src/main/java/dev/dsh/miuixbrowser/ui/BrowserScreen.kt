@@ -11,8 +11,8 @@ import dev.dsh.miuixbrowser.browser.AppRoute
 import dev.dsh.miuixbrowser.browser.BrowserState
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.DefaultBrowser
-import dev.dsh.miuixbrowser.browser.DownloadState
-import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.download.DownloadState
+import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.browser.EngineKind
 import dev.dsh.miuixbrowser.browser.LoginPrompt
 import dev.dsh.miuixbrowser.browser.MenuAction
@@ -260,6 +260,7 @@ import top.yukonga.miuix.kmp.glass.GlassShape
 import top.yukonga.miuix.kmp.glass.GlassStrokes
 import top.yukonga.miuix.kmp.glass.glassPanel
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import dev.dsh.miuixbrowser.download.DownloadsScreen
 
 internal enum class Sheet { None, Tabs, Menu, Link, Image, Element }
 
@@ -2922,6 +2923,8 @@ fun BrowserScreen(
             onThreadsChange = { settings.updateDownloadThreads(it) },
             multiThreadMinMb = settings.downloadMultiThreadMinMb,
             onMultiThreadMinMbChange = { settings.updateDownloadMultiThreadMinMb(it) },
+            externalDownloader = settings.externalDownloader,
+            onExternalDownloaderChange = { settings.updateExternalDownloader(it) },
         )
     }
     entry<AppRoute.AdBlockPage> {

@@ -2,7 +2,7 @@ package dev.dsh.miuixbrowser.engine.gecko
 
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.CookieControl
-import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.sync.FloccusPatcher
 import dev.dsh.miuixbrowser.sync.fxa.FxaSync

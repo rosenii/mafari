@@ -33,6 +33,7 @@ import top.yukonga.miuix.kmp.glass.GlassBottomSheet
 import top.yukonga.miuix.kmp.glass.GlassDialogButton
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import dev.dsh.miuixbrowser.download.Downloader
 
 /** 启动时自动检查更新的进程级状态：同一进程只检查一次（旋转屏幕等重组不会重复请求）。 */
 object UpdateChecker {

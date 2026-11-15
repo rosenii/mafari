@@ -2,7 +2,7 @@ package dev.dsh.miuixbrowser.ui
 
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.R
-import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.browser.currentVersionLabel
 import dev.dsh.miuixbrowser.browser.isNewerVersion
 import dev.dsh.miuixbrowser.browser.isUpdateAvailable

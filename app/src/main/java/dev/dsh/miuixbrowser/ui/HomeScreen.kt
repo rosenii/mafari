@@ -1,8 +1,8 @@
 package dev.dsh.miuixbrowser.ui
 
 import dev.dsh.miuixbrowser.adblock.AdBlock
-import dev.dsh.miuixbrowser.browser.DownloadState
-import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.download.DownloadState
+import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_COLS
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_ROWS_MAX
 import dev.dsh.miuixbrowser.browser.MenuAction

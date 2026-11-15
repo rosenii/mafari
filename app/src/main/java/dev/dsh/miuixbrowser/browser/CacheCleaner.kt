@@ -4,6 +4,7 @@ import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
 import android.webkit.WebView
 import java.io.File
+import dev.dsh.miuixbrowser.download.Downloader
 
 /**
  * 清理应用缓存，范围与系统「应用详情 → 清除缓存」一致：内部缓存目录 + 外部缓存目录

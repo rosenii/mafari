@@ -212,7 +212,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | 去广告规则语法 / 性能 | `AdBlockEngine`、`AdBlock` |
 | 备份格式 / 加密 | `Backup.kt`、`CipherSuite.kt`、`CryptoEngine.kt` |
 | 云同步 | `WebDav.kt`、`GitSync.kt`、`BackupAuto.kt` |
-| 下载 | `Downloader`、`DownloadService`、`DownloadDb` |
+| 下载 | `download/` 目录：`Downloader`、`ExternalDownloader`、`DownloadService`、`DownloadDb` |
 | 玻璃 / 液态玻璃材质 | `AppMaterial`、`GlassKit`、`LiquidGlass*`、`miuix/miuix-glass` |
 | 发版 / 更新选包 | `release.yml`、`app/build.gradle.kts`、`AboutScreen.pickApkUrl`、`CHANGELOG.md` |
 
@@ -244,10 +244,11 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 
 | 子包 | 内容 |
 |---|---|
-| （根包） | 清单里按类名引用的入口：`MafariApp`、各 `*Activity` / `*Service` / `*Receiver`，以及 `AppContainer`、`StartupCoordinator`、`StartupWarmup` |
-| `data/` | 加密库（`AppDatabase`、`Migrations`、`LegacyImports`）、各表 DAO（`HistoryDao`、`BookmarkDb`、`TabDb`、`DownloadDb`、`ScriptDb`、`PasswordDb`）、`*Store`、`AppSettings`、`WriteBehind`、图标存储 |
+| （根包） | 清单里按类名引用的入口：`MafariApp`、各 `*Activity` / `*Service` / `*Receiver`（下载相关的 `DownloadService` / `DownloadActionReceiver` 在 `download/`，清单里写 `.download.xxx`），以及 `AppContainer`、`StartupCoordinator`、`StartupWarmup` |
+| `download/` | 下载全部集中在这里：`Downloader`（下载引擎）、`ExternalDownloader`（第三方下载器交接）、`DownloadService`（前台服务）、`DownloadActionReceiver`（通知按钮）、`DownloadDb`（任务表）、`DownloadsScreen`（下载页） |
+| `data/` | 加密库（`AppDatabase`、`Migrations`、`LegacyImports`）、各表 DAO（`HistoryDao`、`BookmarkDb`、`TabDb`、`ScriptDb`、`PasswordDb`）、`*Store`、`AppSettings`、`WriteBehind`、图标存储 |
 | `backup/` | 备份 / 恢复、自动备份 |
-| `browser/` | 与内核无关的浏览核心：`BrowserState` / `BrowserTab`、下载、Cookie、快捷方式、密码导入导出等 |
+| `browser/` | 与内核无关的浏览核心：`BrowserState` / `BrowserTab`、Cookie、快捷方式、密码导入导出等 |
 | `engine/`、`engine/gecko`、`engine/webview` | `EngineSupport`、`TabEngineOps`；Gecko 相关实现；WebView 相关（Cookie、指纹注入） |
 | `sync/`、`sync/fxa` | Git / WebDAV / Floccus 同步；Firefox 帐户同步 |
 | `adblock/` | 去广告规则与引擎、跟踪器列表 |

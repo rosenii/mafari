@@ -1,7 +1,5 @@
-package dev.dsh.miuixbrowser.data
+package dev.dsh.miuixbrowser.download
 
-import dev.dsh.miuixbrowser.browser.DownloadState
-import dev.dsh.miuixbrowser.browser.DownloadTask
 import android.net.Uri
 import net.zetetic.database.sqlcipher.SQLiteDatabase
 

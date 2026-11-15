@@ -1,6 +1,5 @@
-package dev.dsh.miuixbrowser
+package dev.dsh.miuixbrowser.download
 
-import dev.dsh.miuixbrowser.browser.Downloader
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent

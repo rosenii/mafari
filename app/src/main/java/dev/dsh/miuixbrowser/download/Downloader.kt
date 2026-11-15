@@ -1,8 +1,6 @@
-package dev.dsh.miuixbrowser.browser
+package dev.dsh.miuixbrowser.download
 
-import dev.dsh.miuixbrowser.DownloadService
 import dev.dsh.miuixbrowser.data.AppDatabase
-import dev.dsh.miuixbrowser.data.DownloadDb
 import dev.dsh.miuixbrowser.engine.gecko.GeckoGm
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.ContentValues
@@ -291,6 +289,42 @@ object Downloader {
         referer: String? = null,
         withCookies: Boolean = false,
         geckoCookies: Boolean = false,
+    ) {
+        // 第三方下载器：带 onComplete 的调用（如应用自更新，要等下载完成后安装）必须走内置下载器。
+        // Gecko 的 Cookie 只能在后台线程取，所以先在 IO 取好，再回主线程拉起外部应用；失败回退内置。
+        if (onComplete == null && ExternalDownloader.active(context)) {
+            val appCtx = context.applicationContext
+            scope.launch {
+                val cookie = if (withCookies) {
+                    if (geckoCookies) runCatching { GeckoGm.cookieHeader(url) }.getOrNull()
+                    else runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()?.takeIf { it.isNotBlank() }
+                } else null
+                val ua = userAgent ?: (if (geckoCookies) GeckoGm.userAgent else null)
+                val handed = kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    ExternalDownloader.hand(appCtx, url, ua, fileName, mimeType, referer, cookie)
+                }
+                if (handed) {
+                    toast(appCtx, "已交给 ${ExternalDownloader.labelOf(ExternalDownloader.target)} 下载")
+                } else {
+                    toast(appCtx, "无法调用第三方下载器，已改用内置下载器")
+                    startInternal(appCtx, url, userAgent, fileName, mimeType, onComplete, referer, withCookies, geckoCookies)
+                }
+            }
+            return
+        }
+        startInternal(context, url, userAgent, fileName, mimeType, onComplete, referer, withCookies, geckoCookies)
+    }
+
+    private fun startInternal(
+        context: Context,
+        url: String,
+        userAgent: String?,
+        fileName: String,
+        mimeType: String?,
+        onComplete: ((ok: Boolean, error: String?) -> Unit)?,
+        referer: String?,
+        withCookies: Boolean,
+        geckoCookies: Boolean,
     ) {
         init(context)
         val task = DownloadTask(

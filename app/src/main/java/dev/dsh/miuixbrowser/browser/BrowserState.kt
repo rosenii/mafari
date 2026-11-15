@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.setValue
+import dev.dsh.miuixbrowser.download.Downloader
 
 /**
  * assets 里的注入脚本只读一次：applyPrivacy 在每次切换标签 / 改设置时都会跑，

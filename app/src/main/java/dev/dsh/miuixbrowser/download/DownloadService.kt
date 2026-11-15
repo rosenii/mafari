@@ -1,4 +1,4 @@
-package dev.dsh.miuixbrowser
+package dev.dsh.miuixbrowser.download
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import org.json.JSONObject
+import dev.dsh.miuixbrowser.MainActivity
 
 /**
  * 下载前台服务：常驻进度通知。

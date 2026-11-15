@@ -4,7 +4,7 @@ import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
 import dev.dsh.miuixbrowser.browser.CacheCleaner
 import dev.dsh.miuixbrowser.browser.CookieControl
-import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.browser.FaviconLoader
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.engine.gecko.GeckoDebug

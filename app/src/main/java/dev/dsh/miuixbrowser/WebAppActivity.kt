@@ -2,7 +2,7 @@ package dev.dsh.miuixbrowser
 
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdBlockBridge
-import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.browser.ShortcutHelper
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.engine.gecko.GeckoSitePerms

@@ -1,9 +1,6 @@
-package dev.dsh.miuixbrowser.ui
+package dev.dsh.miuixbrowser.download
 
 import dev.dsh.miuixbrowser.R
-import dev.dsh.miuixbrowser.browser.DownloadState
-import dev.dsh.miuixbrowser.browser.DownloadTask
-import dev.dsh.miuixbrowser.browser.Downloader
 import dev.dsh.miuixbrowser.data.DOWNLOAD_MIN_MB_DEFAULT
 import dev.dsh.miuixbrowser.data.DOWNLOAD_MIN_MB_OPTIONS
 import dev.dsh.miuixbrowser.data.DOWNLOAD_THREAD_OPTIONS
@@ -91,6 +88,15 @@ import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import dev.dsh.miuixbrowser.ui.AppDialogButton
+import dev.dsh.miuixbrowser.ui.AppDropdownPreference
+import dev.dsh.miuixbrowser.ui.AppGlassDialog
+import dev.dsh.miuixbrowser.ui.AppSwitchPreference
+import dev.dsh.miuixbrowser.ui.LiquidGlassBackButton
+import dev.dsh.miuixbrowser.ui.LocalLiquidBackdrop
+import dev.dsh.miuixbrowser.ui.PageGlassTopBar
+import dev.dsh.miuixbrowser.ui.rememberGlassActive
+import dev.dsh.miuixbrowser.ui.rememberTopBarScrolled
 
 private enum class FileKind(val iconRes: Int, val accent: Color) {
     IMAGE(R.drawable.ic_file_image, Color(0xFF26A69A)),
@@ -200,6 +206,8 @@ fun DownloadsScreen(
     onThreadsChange: (Int) -> Unit = {},
     multiThreadMinMb: Int = DOWNLOAD_MIN_MB_DEFAULT,
     onMultiThreadMinMbChange: (Int) -> Unit = {},
+    externalDownloader: String = "",
+    onExternalDownloaderChange: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val tasks = Downloader.tasks
@@ -269,7 +277,19 @@ fun DownloadsScreen(
                                 checked = multiThread,
                                 onCheckedChange = onMultiThreadChange,
                             )
-                            if (multiThread) {
+                            // 外部下载器：只列出设备上已安装的，加上「内置」「每次询问」
+                            val extApps = remember { ExternalDownloader.installed(context) }
+                            val extValues = listOf("", ExternalDownloader.CHOOSER) + extApps.map { it.pkg }
+                            val extLabels = listOf("内置下载器", "每次询问") + extApps.map { it.label }
+                            AppDropdownPreference(
+                                backdrop = if (glass) backdrop else null,
+                                title = "下载器",
+                                summary = "选择第三方下载器后，网页下载确认后直接交给它（应用自更新仍用内置）",
+                                items = extLabels,
+                                selectedIndex = extValues.indexOf(externalDownloader).coerceAtLeast(0),
+                                onSelectedIndexChange = { onExternalDownloaderChange(extValues[it]) },
+                            )
+                            if (multiThread && externalDownloader.isEmpty()) {
                                 AppDropdownPreference(
                                     backdrop = if (glass) backdrop else null,
                                     title = "线程数",
