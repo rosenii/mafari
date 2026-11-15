@@ -473,6 +473,7 @@ fun BrowserScreen(
     // 弹层从打开到离场动画结束的整段时间为 true：期间把（主页）整页冻结成一张纹理
     var sheetHostActive by remember { mutableStateOf(false) }
     var showClearTabsConfirm by remember { mutableStateOf(false) }
+    var showShareDialog by remember { mutableStateOf(false) }
     // 标签列表当前栏：0 = 标签页，1 = 无痕浏览页
     var tabsPage by remember { mutableIntStateOf(0) }
     // 文件选择 + 视频全屏 + 网页权限询问
@@ -1984,17 +1985,7 @@ fun BrowserScreen(
                             }
                             MenuAction.Bookmarks -> pushPage(AppRoute.Library(0))
                             MenuAction.Share -> if (tab.url.isNotBlank()) {
-                                runCatching {
-                                    context.startActivity(
-                                        Intent.createChooser(
-                                            Intent(Intent.ACTION_SEND).apply {
-                                                type = "text/plain"
-                                                putExtra(Intent.EXTRA_TEXT, tab.url)
-                                            },
-                                            "分享链接",
-                                        ),
-                                    )
-                                }
+                                if (canSendTab()) showShareDialog = true else shareUrlSystem(context, tab.url)
                             }
                             MenuAction.Refresh -> tab.reload()
                             MenuAction.CopyLink -> if (tab.url.isNotBlank()) {
@@ -2620,6 +2611,14 @@ fun BrowserScreen(
                 }
             }
         }
+
+        ShareDialog(
+            show = showShareDialog,
+            title = tab.title,
+            url = tab.url,
+            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            onDismiss = { showShareDialog = false },
+        )
 
         FindDialog(
             show = showFind,

@@ -61,7 +61,7 @@ internal object FxaSync {
 
     private fun prefs() = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun setAutoMode(index: Int) {
+    fun updateAutoMode(index: Int) {
         autoMode = index.coerceIn(0, AUTO_LABELS.lastIndex)
         prefs().edit().putInt(K_AUTO, autoMode).apply()
     }
@@ -275,6 +275,13 @@ internal object FxaSync {
                 .map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { "（无用户名）" }, null) },
             PasswordDb.count(db, query, syncedOnly = true),
         )
+    }
+
+    /** 发送标签页并返回是否成功（供分享对话框 toast）。 */
+    suspend fun sendTabResult(device: PDevice, title: String, url: String): Boolean {
+        val ok = runCatching { FxaApi.sendTab(device.id, title, url) }.getOrDefault(false)
+        lastMessage = if (ok) "已发送到 ${device.name}" else "发送失败"
+        return ok
     }
 
     fun sendTab(device: PDevice, title: String, url: String) {

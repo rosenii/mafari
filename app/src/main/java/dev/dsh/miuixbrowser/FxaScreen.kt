@@ -248,7 +248,7 @@ fun FxaScreen(
                                     title = "自动同步",
                                     items = FxaSync.AUTO_LABELS,
                                     selectedIndex = FxaSync.autoMode.coerceIn(0, FxaSync.AUTO_LABELS.lastIndex),
-                                    onSelectedIndexChange = { FxaSync.setAutoMode(it) },
+                                    onSelectedIndexChange = { FxaSync.updateAutoMode(it) },
                                 )
                             }
                         }
