@@ -63,6 +63,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
@@ -653,9 +655,22 @@ internal fun AddressField(
     val color = MiuixTheme.colorScheme.onSurface
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     var hadFocus by remember { mutableStateOf(false) }
-    // 进入编辑态时主动拿焦点（圆形搜索钮 / 点击地址栏），失焦时通知外部退出编辑态
+    // 用 TextFieldValue 才能控制选区：外部（String）是文字的唯一来源，这里只额外记住光标 / 选区
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    // 外部文字变了（切换显示标题 / 网址、页面跳转）而选区还是旧文字的：光标放到末尾
+    val shown = if (field.text == value) field else TextFieldValue(value, TextRange(value.length))
+    LaunchedEffect(value) {
+        if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
+    }
+    // 进入编辑态（点击地址栏 / 圆形搜索钮）：先全选当前网址，再拿焦点，用户可以直接输入替换或粘贴；
+    // 退出编辑态时选区收起。失焦时通知外部退出编辑态。
     LaunchedEffect(editing) {
-        if (editing) runCatching { focusRequester.requestFocus() }
+        if (editing) {
+            field = TextFieldValue(value, TextRange(0, value.length))
+            runCatching { focusRequester.requestFocus() }
+        } else {
+            field = TextFieldValue(value, TextRange(value.length))
+        }
     }
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
         if (value.isEmpty()) {
@@ -670,8 +685,12 @@ internal fun AddressField(
             )
         }
         BasicTextField(
-            value = value,
-            onValueChange = onChange,
+            value = shown,
+            onValueChange = { v ->
+                field = v
+                // 只有文字真的变了才通知外部：光标 / 选区移动不算输入（外部据此判断「用户是否改过地址」）
+                if (v.text != value) onChange(v.text)
+            },
             singleLine = true,
             textStyle = TextStyle(fontSize = 15.sp, color = color),
             cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),

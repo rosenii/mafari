@@ -50,6 +50,8 @@ internal object FxaSync {
     private const val PREFS = "mafari_fxa_sync"
     private const val K_AUTO = "auto_mode"
     private const val K_LAST_OK = "last_success"
+    /** 上次已知是登录状态（账号管理器 onReady / 登录成功时写入，退出时清除）：冷启动后台预热据此判断要不要初始化，没登录过的用户零开销 */
+    private const val K_SIGNED_IN = "signed_in"
     private const val AUTO_RETRY_GAP_MS = 10 * 60_000L
 
     var autoMode: Int by mutableIntStateOf(0)
@@ -135,6 +137,32 @@ internal object FxaSync {
             runCatching { FxaApi.start(appContext, listener); FxaApi.init() }
                 .onFailure { initError = it.message ?: it.javaClass.simpleName; ui = FxaUi.SignedOut }
         }
+    }
+
+    /**
+     * 冷启动后的后台预热：只在「上次已知登录」时才初始化，没登录过 Firefox 帐户的用户不付出任何代价。
+     * 整个过程在 IO 线程：读偏好 → 需要时 [init]（Rust 组件 / NSS 加载也在后台）。可重复调用（init 幂等）。
+     * 调用时机见 MainActivity（首帧之后再延迟一会儿），以及分享 / 备份 / 密码页等需要登录状态的界面。
+     */
+    fun warmUp(context: Context) {
+        val app = context.applicationContext
+        scope.launch { initIfSignedIn(app) }
+    }
+
+    /** 同步版（调用方自己保证不在主线程）：上次是登录状态就 [init]。 */
+    fun initIfSignedIn(context: Context) {
+        if (inited) return
+        val app = context.applicationContext
+        // 老版本升级上来的用户还没有这个标记：有过成功同步记录（退出登录时会清掉）就当作已登录，初始化后 onReady 会把标记写准
+        val wasSignedIn = runCatching {
+            val sp = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            sp.getBoolean(K_SIGNED_IN, sp.contains(K_LAST_OK))
+        }.getOrDefault(false)
+        if (wasSignedIn) init(app)
+    }
+
+    private fun rememberSignedIn(value: Boolean) {
+        runCatching { prefs().edit().putBoolean(K_SIGNED_IN, value).apply() }
     }
 
     /** 开始登录：返回登录页地址（在内嵌 WebView 里打开）。 */
@@ -224,6 +252,8 @@ internal object FxaSync {
     /** 刷新设备列表、拉取收到的标签、读取其他设备的标签。 */
     fun refreshDevices() {
         scope.launch {
+            // 刚由 warmUp / init 触发时账号管理器可能还没就绪：先等（最多 8 秒），免得 lateinit 未初始化被吞成空列表
+            withTimeoutOrNull(8_000) { initJob?.join() }
             runCatching { devices = FxaApi.devices() }
             runCatching { remoteDevices = FxaApi.remoteTabs() }
         }
@@ -309,11 +339,13 @@ internal object FxaSync {
 
     private val listener = object : FxaApi.Listener {
         override fun onReady(signedIn: Boolean) {
+            rememberSignedIn(signedIn)
             if (!signedIn) ui = FxaUi.SignedOut else if (ui is FxaUi.Loading) ui = FxaUi.SignedIn("", null)
         }
-        override fun onAuthenticated() { ui = FxaUi.SignedIn("", null); syncNow() }
+        override fun onAuthenticated() { rememberSignedIn(true); ui = FxaUi.SignedIn("", null); syncNow() }
         override fun onProfile(email: String, name: String?, avatarUrl: String?) { ui = FxaUi.SignedIn(email, name, avatarUrl) }
         override fun onLoggedOut() {
+            rememberSignedIn(false)
             ui = FxaUi.SignedOut
             synced = emptyMap()
             lastSuccess = 0L

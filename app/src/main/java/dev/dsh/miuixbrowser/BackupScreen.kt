@@ -132,6 +132,8 @@ private data class ProfileRow(val id: String, val title: String, val subtitle: S
 fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Boolean = true) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 本页要显示 / 使用 Firefox 登录状态：冷启动不初始化同步，这里按需后台预热（已预热则无操作；没登录过的用户不会初始化）
+    LaunchedEffect(Unit) { if (EngineSupport.SYNC_BUNDLED) FxaSync.warmUp(context) }
 
     val backdrop = rememberLayerBackdrop()
     val liquidBackdrop = rememberKyantBackdrop()

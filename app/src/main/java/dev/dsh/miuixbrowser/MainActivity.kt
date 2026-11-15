@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_DOWNLOADS = "open_downloads"
+        private const val SYNC_WARMUP_DELAY_MS = 3_000L
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -142,7 +143,8 @@ class MainActivity : ComponentActivity() {
         }
         dev.dsh.miuixbrowser.Diag.log("MainActivity.onCreate")
         AdBlock.init(this)
-        // Firefox 同步不在启动时初始化：打开「Firefox帐户同步」页（FxaScreen）或从系统分享面板发送标签页（SendTabActivity）时才 FxaSync.init
+        // Firefox 同步不占冷启动：onCreate 里什么都不做，首帧画出后再延迟几秒在后台预热（仅「上次已知已登录」才初始化，
+        // 没登录过的用户零开销）；打开「Firefox帐户同步」页（FxaScreen）/ 系统分享面板发标签页（SendTabActivity）时仍会按需 init
         CacheCleaner.runOnColdStart(this)
         // 从磁盘恢复下载任务列表（临时数据在 filesDir/downloads，不受清缓存影响）
         Downloader.init(this)
@@ -166,6 +168,8 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
+
+        scheduleSyncWarmUp()
 
         setContent {
             val context = LocalContext.current
@@ -199,6 +203,21 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * 首帧之后再等 [SYNC_WARMUP_DELAY_MS]，然后在后台线程预热 Firefox 同步（登录状态、自动同步、发送标签页都依赖它就绪）。
+     * decorView.post 保证排在首次布局 / 绘制之后；延迟让页面加载、标签恢复先跑完。init 幂等，Activity 重建不会重复初始化。
+     */
+    private fun scheduleSyncWarmUp() {
+        if (!EngineSupport.SYNC_BUNDLED) return
+        val app = applicationContext
+        window.decorView.post {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                { FxaSync.warmUp(app) },
+                SYNC_WARMUP_DELAY_MS,
+            )
         }
     }
 
