@@ -2850,18 +2850,25 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
         if (EngineSupport.GECKO_BUNDLED) GeckoExtensionStore.tabHost = this
         current = this
-        // 上次的普通标签（tabs 表）一律先恢复回来（页面不加载，见 restoreSavedTabs）；没有就开一个空白标签。
-        // 「重启恢复标签页」关闭时，只在进程冷启动（本进程里第一个实例）改成「落在一个空白标签上」：
-        // 之前打开的标签页仍然保留在标签列表里，只是启动后当前显示的是空白标签（已有空白标签就直接用它，不重复新建）。
+        // 冷启动按「重启恢复标签页」的三种方式处理（见 AppSettings.restoreTabsMode）：
+        //  0 恢复为退出前的状态：标签列表原样回来，回到最近用的那个标签（页面只加载它，其余切到前台才加载）
+        //  1 恢复标签并打开新标签页：标签列表回来但不跳转，落在一个空白标签上（已有空白标签就直接用它，不重复新建）
+        //  2 不恢复：不读之前的标签，直接一个新标签页（tabs 表随后被新的标签列表覆盖）
         // 界面重建（同一进程里再建实例）不受影响，仍回到最近用的标签。
         val coldStart = !instanceCreated
         instanceCreated = true
-        val landOnBlank = coldStart && !AppSettings(context).restoreTabs
-        if (!restoreSavedTabs(activateLast = !landOnBlank)) {
-            newTab()
-        } else if (landOnBlank) {
-            val blank = tabs.indexOfFirst { !it.incognito && it.persistedPageUrl.isBlank() }
-            if (blank >= 0) activate(blank) else newTab(opener = null)
+        val mode = if (coldStart) AppSettings(context).restoreTabsMode else RestoreMode.ALL
+        when (mode) {
+            RestoreMode.NONE -> newTab()
+            RestoreMode.KEEP_NEW -> {
+                if (!restoreSavedTabs(activateLast = false)) {
+                    newTab()
+                } else {
+                    val blank = tabs.indexOfFirst { !it.incognito && it.persistedPageUrl.isBlank() }
+                    if (blank >= 0) activate(blank) else newTab(opener = null)
+                }
+            }
+            else -> if (!restoreSavedTabs(activateLast = true)) newTab()
         }
         if (EngineSupport.GECKO_BUNDLED) mainHandler.postDelayed(reclaimTick, RECLAIM_INTERVAL_MS)
     }

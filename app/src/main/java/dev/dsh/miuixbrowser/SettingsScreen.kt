@@ -295,11 +295,17 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
-                    AppSwitchPreference(
+                    AppDropdownPreference(
+                        backdrop = if (glass) backdrop else null,
                         title = "重启恢复标签页",
-                        summary = "重新打开应用时直接回到上次浏览的标签页；关闭后启动停在一个空白标签页，之前打开的标签页仍保留在标签列表里",
-                        checked = settings.restoreTabs,
-                        onCheckedChange = { settings.updateRestoreTabs(it) },
+                        summary = when (settings.restoreTabsMode) {
+                            RestoreMode.KEEP_NEW -> "恢复之前的标签页，但不跳转，直接新建一个新标签页"
+                            RestoreMode.NONE -> "不恢复，直接打开新标签页"
+                            else -> "恢复到退出前的状态，冷启动会回到当时浏览的页面"
+                        },
+                        items = listOf("恢复为退出前的标签列表状态", "恢复标签并打开新标签页", "不恢复，直接打开新标签页"),
+                        selectedIndex = settings.restoreTabsMode.coerceIn(0, 2),
+                        onSelectedIndexChange = { settings.updateRestoreTabsMode(it) },
                     )
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,

@@ -2,6 +2,7 @@ package dev.dsh.miuixbrowser
 
 import android.content.Context
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
@@ -82,6 +83,13 @@ fun parseHomeGroupIds(raw: String?): List<String> =
 fun readBrowserEngine(context: Context): Int =
     context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
         .getInt("browser_engine", ENGINE_GECKO)
+
+/** 「重启恢复标签页」的三种方式（[AppSettings.restoreTabsMode]） */
+object RestoreMode {
+    const val ALL = 0
+    const val KEEP_NEW = 1
+    const val NONE = 2
+}
 
 class AppSettings(context: Context) {
 
@@ -448,15 +456,24 @@ class AppSettings(context: Context) {
     }
 
     /** 网页 window.open / target=_blank 打开的同站链接是否新开标签页（默认关：在当前标签打开） */
-    /** 重启应用后恢复上次未关闭的标签页（默认开）；关闭后冷启动只开一个空白标签 */
-    var restoreTabs by mutableStateOf(prefs.getBoolean(KEY_RESTORE_TABS, true))
+    /**
+     * 重启（冷启动）时标签页怎么处理：
+     *  0 = 恢复为退出前的状态：标签列表原样回来，并回到当时正在看的那个标签页（默认）
+     *  1 = 恢复标签并打开新标签页：标签列表回来，但不跳转，落在一个新的空白标签页上
+     *  2 = 不恢复：丢掉之前的标签，直接打开一个新标签页
+     * 老版本是一个开关（restore_tabs_on_launch）：开 → 0，关 → 1（关闭时就是「标签保留、落在空白页」）。
+     */
+    var restoreTabsMode by mutableIntStateOf(
+        prefs.getInt(KEY_RESTORE_MODE, if (prefs.getBoolean(KEY_RESTORE_TABS, true)) RestoreMode.ALL else RestoreMode.KEEP_NEW),
+    )
         private set
 
-    fun updateRestoreTabs(enabled: Boolean) {
-        restoreTabs = enabled
-        prefs.edit().putBoolean(KEY_RESTORE_TABS, enabled).apply()
+    fun updateRestoreTabsMode(mode: Int) {
+        restoreTabsMode = mode.coerceIn(RestoreMode.ALL, RestoreMode.NONE)
+        prefs.edit().putInt(KEY_RESTORE_MODE, restoreTabsMode).apply()
     }
 
+    /** 网页 window.open / target=_blank 打开的同站链接是否新开标签页（默认关：在当前标签打开） */
     var sameSiteNewTab by mutableStateOf(prefs.getBoolean(KEY_SAME_SITE_TAB, false))
         private set
 
@@ -707,6 +724,7 @@ class AppSettings(context: Context) {
         const val KEY_HOME_PIN_BOTTOM = "home_pin_bottom"
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"
         const val KEY_RESTORE_TABS = "restore_tabs_on_launch"
+        const val KEY_RESTORE_MODE = "restore_tabs_mode"
         const val KEY_APP_ICON = "app_icon"
         const val KEY_IGNORED_UPDATE = "ignored_update"
         const val KEY_UPDATE_CHANNEL = "update_channel_v2" // 旧 "update_channel" 含义不同（stable/dev/gecko），已弃用
