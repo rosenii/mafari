@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
         }
         dev.dsh.miuixbrowser.Diag.log("MainActivity.onCreate")
         AdBlock.init(this)
-        if (EngineSupport.SYNC_BUNDLED) FxaSync.init(this)
+        // Firefox 同步不在启动时初始化：打开「Firefox帐户同步」页（FxaScreen）或从系统分享面板发送标签页（SendTabActivity）时才 FxaSync.init
         CacheCleaner.runOnColdStart(this)
         // 从磁盘恢复下载任务列表（临时数据在 filesDir/downloads，不受清缓存影响）
         Downloader.init(this)

@@ -192,7 +192,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 6. 数据库访问一律经 `HistoryDb.get()` / `HistoryDb.io`；拿到 null 要降级，不要抛。
 7. Gecko Nightly 的 Java API 偶尔变化：建议在 `gradle.properties` 锁定 `geckoViewVersion`。
 8. 改动原则（项目作者的要求）：**最小改动、最小资源占用、最大代码复用**；先复用已有组件 / 抽象（如 `AppMaterial`、`AppDropdownPreference`），不要另起一套。
-9. Firefox 同步（`FxaSync.init` → `FxaApi.start`）的初始化里真正重的是 Rust 组件 / NSS 加载，放在后台协程（`FxaSync.initJob`），不要挪回 `MainActivity.onCreate`；而 Storage / `FxaAccountManager` 的**构造必须在主线程**（放后台会构造失败，表现为 `lateinit property manager has not been initialized`），`FxaApi.start` 里已用 `withContext(Dispatchers.Main)` 包住。`FxaApi` 的各接口在 `start` 完成前会因 `lateinit` 未初始化而抛异常，调用方都已在 `runCatching` / 已登录状态之后调用；新增调用点要么先 `initJob.join()`，要么同样包 `runCatching`。
+9. Firefox 同步**不在启动时初始化**，只在打开同步页（`FxaScreen`）或 `SendTabActivity` 时才 `FxaSync.init`；因此未打开过同步页时 `FxaSync.ui` 一直是 Loading，不会自动同步。Firefox 同步（`FxaSync.init` → `FxaApi.start`）的初始化里真正重的是 Rust 组件 / NSS 加载，放在后台协程（`FxaSync.initJob`），不要挪回 `MainActivity.onCreate`；而 Storage / `FxaAccountManager` 的**构造必须在主线程**（放后台会构造失败，表现为 `lateinit property manager has not been initialized`），`FxaApi.start` 里已用 `withContext(Dispatchers.Main)` 包住。`FxaApi` 的各接口在 `start` 完成前会因 `lateinit` 未初始化而抛异常，调用方都已在 `runCatching` / 已登录状态之后调用；新增调用点要么先 `initJob.join()`，要么同样包 `runCatching`。
 10. 文档漂移提示：`GeckoGm.kt` 文件头注释仍写「GM 值在 SharedPreferences `userscript_gm`」，实际已迁到 `GmStore`（`gm_values` 表）；`BackupManager.PREFS` 里的 `userscript_gm` 仅为兼容旧数据。
 
 ## 12. 想改 X，先看 Y

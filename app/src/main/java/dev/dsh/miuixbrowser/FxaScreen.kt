@@ -71,6 +71,8 @@ fun FxaScreen(
     val bd = if (glass) backdrop else null
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
+    // Firefox 同步只在打开本页时才初始化（幂等）
+    remember { FxaSync.init(context.applicationContext) }
     val ui = FxaSync.ui
     var loginUrl by remember { mutableStateOf<String?>(null) }
     var webView by remember { mutableStateOf<WebView?>(null) }
