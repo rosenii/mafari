@@ -14,6 +14,7 @@ class MafariApp : Application() {
             Diag.init(this) // 先开诊断日志，预热线程里的分段耗时才记得下来
             Diag.log("MafariApp.onCreate")
             StartupWarmup.start(this)
+            FaviconLoader.init(this) // 只定磁盘目录，修剪在后台
         }
     }
 }

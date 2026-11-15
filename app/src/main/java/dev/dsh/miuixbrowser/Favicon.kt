@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.runtime.Composable
@@ -10,44 +11,140 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
-/** 抓网站 favicon，带内存缓存。 */
+/**
+ * 抓网站 favicon。
+ *  - 按规整后的域名（小写、去 www.）合并：同一域名正在请求时，后续调用共享同一个任务（调用方滚走取消也不会打断下载）；
+ *  - 三级缓存：内存 → 磁盘（filesDir/favicons，文件名是域名的哈希）→ 网络；磁盘图标 14 天内直接用，过期后联网刷新，刷新失败仍用旧图；
+ *  - 全局最多 4 个并发下载，冷启动时一百多个收藏不会同时抢网络；
+ *  - 失败按次数退避（1 分钟 → 5 分钟 → 30 分钟 → 2 小时封顶），成功后清零。
+ * 磁盘缓存放 filesDir 而不是 cacheDir：冷启动清缓存（[CacheCleaner]）会把 cacheDir 清掉，图标就白存了。
+ */
 object FaviconLoader {
 
-    private val cache = ConcurrentHashMap<String, ImageBitmap?>()
+    private val cache = ConcurrentHashMap<String, ImageBitmap>()
 
-    /** 抓取失败的主机 → 失败时间；一段时间内不再重试（历史 / 书签长列表里没有图标的站点会反复触发加载） */
-    private val failedAt = ConcurrentHashMap<String, Long>()
-    private const val FAIL_TTL_MS = 5 * 60 * 1000L
+    private class Failure(val count: Int, val at: Long)
+    private val failures = ConcurrentHashMap<String, Failure>()
+    private val backoffMs = longArrayOf(60_000L, 5 * 60_000L, 30 * 60_000L, 2 * 60 * 60_000L)
+
+    private val inflight = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val gate = Semaphore(4)
+
+    private const val DISK_TTL_MS = 14L * 24 * 60 * 60 * 1000
+    private const val DISK_MAX_FILES = 600
+
+    @Volatile
+    private var dir: File? = null
+
+    /** 在 Application.onCreate 里调用一次：确定磁盘缓存目录，并在后台修剪过多的旧文件。幂等。 */
+    fun init(context: Context) {
+        if (dir != null) return
+        val d = File(context.applicationContext.filesDir, "favicons").also { it.mkdirs() }
+        dir = d
+        scope.launch {
+            runCatching {
+                val files = d.listFiles() ?: return@runCatching
+                if (files.size > DISK_MAX_FILES) {
+                    files.sortedBy { it.lastModified() }.take(files.size - DISK_MAX_FILES).forEach { it.delete() }
+                }
+            }
+        }
+    }
+
+    /** 清掉全部图标缓存（内存 + 磁盘 + 失败记录）；清除浏览数据时可调用。 */
+    fun clearAll() {
+        cache.clear()
+        failures.clear()
+        runCatching { dir?.listFiles()?.forEach { it.delete() } }
+    }
+
+    fun normalize(host: String): String = host.trim().lowercase().trimEnd('.').removePrefix("www.")
+
+    /** 只查内存，不会触发任何 IO：首帧就有图标可画，不闪默认图标。 */
+    fun peek(host: String): ImageBitmap? = cache[normalize(host)]
 
     suspend fun load(host: String): ImageBitmap? {
-        if (host.isBlank()) return null
-        cache[host]?.let { return it }
-        failedAt[host]?.let { t ->
-            if (System.currentTimeMillis() - t < FAIL_TTL_MS) return null
-            failedAt.remove(host)
+        val key = normalize(host)
+        if (key.isEmpty()) return null
+        cache[key]?.let { return it }
+        failures[key]?.let { f ->
+            if (System.currentTimeMillis() - f.at < backoffMs[minOf(f.count - 1, backoffMs.size - 1)]) return null
+        }
+        // 合并：同一域名同时只跑一个任务
+        val fresh = scope.async(start = CoroutineStart.LAZY) { produce(key, host.trim()) }
+        val existing = inflight.putIfAbsent(key, fresh)
+        val task = if (existing != null) {
+            fresh.cancel()
+            existing
+        } else {
+            fresh.invokeOnCompletion { inflight.remove(key, fresh) }
+            fresh.also { it.start() }
+        }
+        return task.await()
+    }
+
+    private fun fileOf(key: String): File? {
+        val d = dir ?: return null
+        val hash = MessageDigest.getInstance("SHA-256").digest(key.toByteArray()).take(12)
+            .joinToString("") { "%02x".format(it) }
+        return File(d, "$hash.png")
+    }
+
+    private fun readDisk(file: File?, allowStale: Boolean): Bitmap? {
+        if (file == null || !file.exists()) return null
+        if (!allowStale && System.currentTimeMillis() - file.lastModified() > DISK_TTL_MS) return null
+        return runCatching { BitmapFactory.decodeFile(file.path) }.getOrNull()
+    }
+
+    private suspend fun produce(key: String, host: String): ImageBitmap? {
+        val file = fileOf(key)
+        readDisk(file, allowStale = false)?.let { b ->
+            return b.asImageBitmap().also { cache[key] = it; failures.remove(key) }
         }
         Diag.log("favicon start $host")
-        val bitmap = runCatching {
-            val urls = listOf(
-                "https://$host/favicon.ico",
-                "https://www.google.com/s2/favicons?sz=64&domain=$host",
-            )
-            var result: Bitmap? = null
-            for (url in urls) {
-                result = fetch(url)
-                if (result != null) break
-            }
-            result
-        }.getOrNull()
+        val bitmap = gate.withPermit {
+            runCatching {
+                var result: Bitmap? = null
+                for (url in listOf(
+                    "https://$host/favicon.ico",
+                    "https://www.google.com/s2/favicons?sz=64&domain=$host",
+                )) {
+                    result = fetch(url)
+                    if (result != null) break
+                }
+                result
+            }.getOrNull()
+        }
         Diag.log("favicon done $host -> ${bitmap != null}")
-        val image = bitmap?.asImageBitmap()
-        // ConcurrentHashMap 不收 null，之前这里直接 NPE
-        if (image != null) cache[host] = image else failedAt[host] = System.currentTimeMillis()
-        return image
+        if (bitmap != null) {
+            runCatching {
+                file?.outputStream()?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            return bitmap.asImageBitmap().also { cache[key] = it; failures.remove(key) }
+        }
+        // 联网失败：磁盘上有过期的旧图就继续用它，不要退回默认图标
+        readDisk(file, allowStale = true)?.let { b ->
+            return b.asImageBitmap().also { cache[key] = it }
+        }
+        val prev = failures[key]?.count ?: 0
+        failures[key] = Failure(prev + 1, System.currentTimeMillis())
+        return null
     }
 
     private fun fetch(url: String): Bitmap? {
@@ -74,10 +171,13 @@ object FaviconLoader {
 @Composable
 fun rememberFavicon(url: String): ImageBitmap? {
     val host = remember(url) { hostOf(url) }
-    var icon by remember(host) { mutableStateOf<ImageBitmap?>(null) }
+    // 内存里已有就第一帧直接用，不经过「默认图标 → 真图标」的闪换
+    var icon by remember(host) { mutableStateOf(FaviconLoader.peek(host)) }
     LaunchedEffect(host) {
-        icon = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            FaviconLoader.load(host)
+        if (icon == null) {
+            icon = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                FaviconLoader.load(host)
+            }
         }
     }
     return icon

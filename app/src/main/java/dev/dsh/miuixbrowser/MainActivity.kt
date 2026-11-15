@@ -8,9 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
@@ -224,7 +222,7 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         remember { Diag.log("placeholder composed (db not ready yet)") }
-                        Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background))
+                        StartupSkeleton()
                     }
                     LaunchedEffect(Unit) {
                         if (!contentReady.value) {

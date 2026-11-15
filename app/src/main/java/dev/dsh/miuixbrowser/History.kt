@@ -11,7 +11,6 @@ import net.zetetic.database.sqlcipher.SQLiteDatabase
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.security.SecureRandom
 
 data class HistoryEntry(val url: String, val title: String, val time: Long)
 
@@ -112,22 +111,23 @@ internal object HistoryDb {
         lap("unwrap db key (keystore + ML-KEM)")
         if (pass == null) {
             // 首次使用，或旧密钥已丢：旧库打不开，清掉后用新密钥重建
-            deleteFiles(file)
-            val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
-            val hex = bytes.joinToString("") { "%02x".format(it) }
+            HistoryDbKey.discard(file)
+            val hex = HistoryDbKey.newKeyHex()
             val sealed = SecureStore.write(context, hex, SecureStore.PURPOSE_HISTORY_DB)
                 ?: error("无法保存数据库密钥")
             check(prefs.edit().putString(KEY_NAME, sealed).commit()) { "写入数据库密钥失败" }
             pass = hex
         }
         val db = try {
-            SQLiteDatabase.openOrCreateDatabase(file, pass, null, null)
+            HistoryDbKey.open(file, pass)
+        } catch (e: HistoryDbKey.MigrationException) {
+            throw e // 迁移没做成但库完好：绝不能删库，向上抛，本次启动按「打不开」降级，下次启动自动重试
         } catch (e: Exception) {
             Diag.log("history db: unreadable, recreate: ${e.message}")
-            deleteFiles(file)
-            SQLiteDatabase.openOrCreateDatabase(file, pass, null, null)
+            HistoryDbKey.discard(file)
+            HistoryDbKey.open(file, pass)
         }
-        lap("openOrCreateDatabase (SQLCipher key derivation)")
+        lap("open (raw key, no KDF)")
         db.enableWriteAheadLogging()
         // WAL + NORMAL：提交不再逐次 fsync（断电最多丢最后几笔，不会损坏库），脚本频繁 GM_setValue 也不卡
         db.execSQL("PRAGMA synchronous=NORMAL")
@@ -170,9 +170,6 @@ internal object HistoryDb {
             db.rawQuery("PRAGMA user_version", emptyArray<String>()).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
         }.getOrDefault(0)
 
-    private fun deleteFiles(file: File) {
-        for (suffix in listOf("", "-wal", "-shm", "-journal")) File(file.path + suffix).delete()
-    }
 
     private fun migrateLegacy(context: Context, db: SQLiteDatabase) {
         val prefs = context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
