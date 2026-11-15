@@ -2926,9 +2926,10 @@ class BrowserTab(
     fun destroyNow() {
         if (destroyed) return
         destroyed = true
-        cancelFileChooser()
-        exitCustomView()
-        discardAllBlobSessions()
+        // 这几步任何一步抛异常都不能挡住后面的引擎销毁，否则会话没关，媒体停不下来
+        runCatching { cancelFileChooser() }
+        runCatching { exitCustomView() }
+        runCatching { discardAllBlobSessions() }
         runCatching { fpInjector?.clear() }
         if (isGecko) {
             // 引擎从没建过（延迟创建的后台标签）就没有东西要销毁
@@ -2948,19 +2949,35 @@ class BrowserTab(
         }
     }
 
-    /** 关闭标签：等界面把 WebView 从视图树摘下来后再销毁。 */
+    /**
+     * 关闭标签：销毁引擎。
+     * 当前标签的视图还挂在界面上，等它被摘下来再销毁；后台标签的视图早就不在界面里，立即销毁。
+     * 不能用 View.post：没挂在窗口上的 View 会把任务攒着，等它重新挂上去才执行，
+     * 后台标签（例如正在播放媒体的）就永远不会被销毁，声音停不下来。
+     */
     fun close() {
         closed = true
         TabThumbs.forget(this)
-        // 没有引擎的 Gecko 标签（延迟创建 / 已回收）直接收尾；不能读 contentView，否则为了关它还得先建一个引擎
-        if (isGecko && geckoEngine == null) {
+        destroyWhenDetached(0)
+    }
+
+    private fun destroyWhenDetached(attempt: Int) {
+        if (destroyed) return
+        // 不能读 contentView：没有引擎的 Gecko 标签（延迟创建 / 已回收）会为了关它先建一个引擎
+        val v: View? = if (isGecko) geckoEngine?.view else webView
+        // 没有引擎 / 视图已不在窗口里 → 直接销毁；等了约 250ms 还没摘下来也强制销毁（destroyNow 会先把视图摘掉）。
+        // 判断用 isAttachedToWindow 而不是 parent：切走的标签，Compose 的 AndroidView 容器被释放后，视图仍是容器的子视图（parent 非空），
+        // 但已经不在窗口里了
+        if (v == null || !v.isAttachedToWindow || attempt >= CLOSE_WAIT_TRIES) {
             destroyNow()
             return
         }
-        contentView.post { if (contentView.parent == null) destroyNow() }
+        mainHandler.postDelayed({ destroyWhenDetached(attempt + 1) }, CLOSE_WAIT_MS)
     }
 
     private companion object {
+        private const val CLOSE_WAIT_TRIES = 5
+        private const val CLOSE_WAIT_MS = 50L
         private var counter = 0
 
         fun nextId(): Int {

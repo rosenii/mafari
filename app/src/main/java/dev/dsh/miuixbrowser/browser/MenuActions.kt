@@ -48,8 +48,8 @@ enum class MenuAction(
     ScriptMenu("script_menu", "脚本", AppIcons.Script),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
 
-    /** 本页请求（两个内核）：按域名列出本页发出的请求，一键屏蔽 / 放行 */
-    Requests("requests", "请求", MiuixIcons.Glass.Link),
+    /** 网络请求（两个内核）：以弹窗列出本页发出的请求域名，一键屏蔽 / 放行 */
+    Requests("requests", "网络请求", AppIcons.Globe),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
 
     /** Firefox 账户（仅带 Firefox 同步的版本）：点开进入「Firefox账户同步」，登录后图标换成账号头像 */

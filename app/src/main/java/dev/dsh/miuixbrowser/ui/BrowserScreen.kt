@@ -509,6 +509,7 @@ fun BrowserScreen(
     var pendingScript by remember { mutableStateOf<String?>(null) }
     var scriptSheetShow by remember { mutableStateOf(false) }
     var geckoExtSheetShow by remember { mutableStateOf(false) }
+    var requestSheetShow by remember { mutableStateOf(false) }
     var scriptMenuItems by remember { mutableStateOf<List<ScriptMenuCommand>>(emptyList()) }
     var runningScripts by remember { mutableStateOf<List<RunningScript>>(emptyList()) }
     // 菜单面板右上角蓝标：当前页面运行的脚本数
@@ -1871,7 +1872,7 @@ fun BrowserScreen(
                 refreshScriptSheet()
             }
             MenuAction.History -> pushPage(AppRoute.Library(1))
-            MenuAction.Requests -> pushPage(AppRoute.RequestLogPage)
+            MenuAction.Requests -> requestSheetShow = true
             MenuAction.Settings -> pushPage(AppRoute.Settings)
             MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)
             MenuAction.CloseTab -> state.closeTab(state.activeIndex)
@@ -2622,6 +2623,16 @@ fun BrowserScreen(
             onDismiss = { scriptSheetShow = false },
         )
 
+        // 网络请求（Sheet）：WebView 用标签自己的统计；Gecko 用内置扩展按页面 URL 上报的统计
+        val reqTab = state.activeTab
+        RequestLogSheet(
+            show = requestSheetShow,
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            log = if (reqTab.isGecko) remember(reqTab, reqTab.url) { GeckoNetLog.logFor(reqTab.url) } else reqTab.requestLog,
+            isGecko = reqTab.isGecko,
+            onDismiss = { requestSheetShow = false },
+        )
+
         val permPrompt = webPermPrompt
         // 「记住此网站的选择」：只有 Gecko 的网站权限带 permKey，选了之后写进例外网站
         var rememberChoice by remember(permPrompt) { mutableStateOf(false) }
@@ -2968,16 +2979,6 @@ fun BrowserScreen(
     }
     entry<AppRoute.GeckoProtectionPage> {
         GeckoProtectionScreen(
-            onBack = { popPage() },
-            blurEnabled = settings.blurEnabled,
-        )
-    }
-    entry<AppRoute.RequestLogPage> {
-        val reqTab = state.activeTab
-        RequestLogScreen(
-            // WebView：标签自己的统计；Gecko：内置扩展按页面 URL 上报的统计
-            log = if (reqTab.isGecko) remember(reqTab, reqTab.url) { GeckoNetLog.logFor(reqTab.url) } else reqTab.requestLog,
-            isGecko = reqTab.isGecko,
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )
