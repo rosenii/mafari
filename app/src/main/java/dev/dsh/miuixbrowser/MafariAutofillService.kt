@@ -161,6 +161,9 @@ class MafariAutofillService : AutofillService() {
             }
         }
 
+        // 下拉顶部固定文案：钥匙图标 + 加粗「密码」（仅在有候选行时显示）
+        if (any) response.setHeader(RemoteViews(ctx.packageName, R.layout.autofill_header))
+
         // 保存提示：Gecko 标签有自己的（GeckoLogins），无痕标签不保存，取不到标签状态时不冒险
         val saveAllowed = passId != null && PasswordPrefs.saveEnabled(ctx) && (!own || (tab != null && !tab.gecko && !tab.incognito))
         if (saveAllowed && passId != null) {

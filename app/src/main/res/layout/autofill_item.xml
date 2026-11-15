@@ -1,28 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 系统自动填充下拉里的一行（RemoteViews：只能用 LinearLayout / TextView 这类系统允许的控件）。
-     文字颜色取下拉自己的主题色，深浅色都跟随。 -->
+     宽度 wrap_content：下拉宽度随最长一行的内容自适应。文字颜色取下拉自己的主题色，深浅色都跟随。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
+    android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingHorizontal="16dp"
-    android:paddingVertical="8dp">
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="4dp">
 
     <TextView
         android:id="@+id/af_title"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="?android:attr/textColorPrimary"
-        android:textSize="15sp" />
+        android:textSize="14sp" />
 
     <TextView
         android:id="@+id/af_subtitle"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:ellipsize="end"
         android:maxLines="1"
         android:textColor="?android:attr/textColorSecondary"
-        android:textSize="12sp" />
+        android:textSize="11sp" />
 </LinearLayout>
