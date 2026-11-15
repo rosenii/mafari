@@ -40,3 +40,12 @@
 -keep class * implements com.sun.jna.** { *; }
 -dontwarn com.sun.jna.**
 -dontwarn java.awt.**
+# 扫一扫：ML Kit（内置版条码识别）靠 manifest 里的组件注册表 + 反射初始化，CameraX 内部也有反射；保留避免 release 里被裁掉 / 改名
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_vision_barcode.** { *; }
+-keep class com.google.android.gms.internal.mlkit_vision_common.** { *; }
+-keep class com.google.android.gms.internal.mlkit_common.** { *; }
+-dontwarn com.google.mlkit.**
+-dontwarn com.google.android.gms.internal.mlkit_**
+-keep class androidx.camera.** { *; }
+-dontwarn androidx.camera.**

@@ -76,7 +76,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -128,20 +127,27 @@ private fun ScanScreen(onResult: (String) -> Unit, onClose: () -> Unit) {
     }
     LaunchedEffect(Unit) { if (!granted) permissionLauncher.launch(Manifest.permission.CAMERA) }
 
-    // 相册里选图识别：相机权限被拒时也能用
-    val galleryScanner = remember { BarcodeScanning.getClient() }
-    DisposableEffect(Unit) { onDispose { galleryScanner.close() } }
+    // 相册里选图识别：相机权限被拒时也能用；识别器用到时才创建，打开页面本身不初始化 ML Kit
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
+        val scanner = createScanner()
+        if (scanner == null) {
+            toast(context, "扫码组件初始化失败")
+            return@rememberLauncherForActivityResult
+        }
         runCatching {
             val image = InputImage.fromFilePath(context, uri)
-            galleryScanner.process(image)
+            scanner.process(image)
                 .addOnSuccessListener { codes ->
                     val text = codes.firstNotNullOfOrNull { it.rawValue?.takeIf { v -> v.isNotBlank() } }
                     if (text != null) onResult(text) else toast(context, "未识别到二维码")
                 }
                 .addOnFailureListener { toast(context, "识别失败") }
-        }.onFailure { toast(context, "无法读取这张图片") }
+                .addOnCompleteListener { runCatching { scanner.close() } }
+        }.onFailure {
+            runCatching { scanner.close() }
+            toast(context, "无法读取这张图片")
+        }
     }
 
     var torchOn by remember { mutableStateOf(false) }
@@ -245,39 +251,46 @@ private fun CameraLayer(torchOn: Boolean, onCameraBound: (hasTorch: Boolean) -> 
         PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
     }
     var camera by remember { mutableStateOf<Camera?>(null) }
-    val executor: ExecutorService = remember { Executors.newSingleThreadExecutor() }
-    val scanner: BarcodeScanner = remember { BarcodeScanning.getClient() }
+    val executor = remember { Executors.newSingleThreadExecutor() }
     val main = remember { Handler(Looper.getMainLooper()) }
     val latestOnCode by androidx.compose.runtime.rememberUpdatedState(onCode)
 
     DisposableEffect(lifecycleOwner) {
-        val future = ProcessCameraProvider.getInstance(context)
+        val scanner = createScanner()
         var provider: ProcessCameraProvider? = null
-        future.addListener({
-            runCatching {
-                val p = future.get()
-                provider = p
-                val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
-                val analysis = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                    .also { it.setAnalyzer(executor) { proxy -> analyze(scanner, proxy) { text -> main.post { latestOnCode(text) } } } }
-                p.unbindAll()
-                val bound = p.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
-                camera = bound
-                onCameraBound(bound.cameraInfo.hasFlashUnit())
-            }.onFailure { toast(context, "相机启动失败") }
-        }, ContextCompat.getMainExecutor(context))
+        if (scanner == null) {
+            toast(context, "扫码组件初始化失败")
+        } else {
+            val future = ProcessCameraProvider.getInstance(context)
+            future.addListener({
+                runCatching {
+                    val p = future.get()
+                    provider = p
+                    val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+                    val analysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+                        .also { it.setAnalyzer(executor) { proxy -> analyze(scanner, proxy) { text -> main.post { latestOnCode(text) } } } }
+                    p.unbindAll()
+                    val bound = p.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                    camera = bound
+                    onCameraBound(bound.cameraInfo.hasFlashUnit())
+                }.onFailure { toast(context, "相机启动失败") }
+            }, ContextCompat.getMainExecutor(context))
+        }
         onDispose {
             runCatching { provider?.unbindAll() }
             executor.shutdown()
-            scanner.close()
+            runCatching { scanner?.close() }
         }
     }
     LaunchedEffect(camera, torchOn) { runCatching { camera?.cameraControl?.enableTorch(torchOn) } }
 
     AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 }
+
+/** 创建 ML Kit 识别器；初始化失败返回 null，由调用方提示（不要让扫码页因此崩溃） */
+private fun createScanner(): BarcodeScanner? = runCatching { BarcodeScanning.getClient() }.getOrNull()
 
 @OptIn(ExperimentalGetImage::class)
 private fun analyze(scanner: BarcodeScanner, proxy: ImageProxy, onText: (String) -> Unit) {
