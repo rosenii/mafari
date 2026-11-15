@@ -28,7 +28,7 @@ sealed interface AppRoute : NavKey {
     /** 设置 → 高级 → Gecko 调试 */
     data object GeckoDebugPage : AppRoute
 
-    /** 菜单 → 请求：本页请求域名列表（WebView 内核），一键屏蔽 / 放行 */
+    /** 菜单 → 请求：本页请求域名列表（两个内核），一键屏蔽 / 放行 */
     data object RequestLogPage : AppRoute
 
     /** 设置 → 高级 → WebView 调试 */

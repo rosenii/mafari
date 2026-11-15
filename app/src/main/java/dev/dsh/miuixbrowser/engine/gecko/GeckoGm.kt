@@ -11,6 +11,7 @@ import dev.dsh.miuixbrowser.script.UserScript
 import dev.dsh.miuixbrowser.script.UserscriptEngine
 import dev.dsh.miuixbrowser.sync.BookmarksBridge
 import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.adblock.AdBlock
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Handler
@@ -148,6 +149,7 @@ internal object GeckoGm {
     fun ensureInstalled(context: Context, scripts: List<UserScript>, enabled: Boolean) {
         val app = context.applicationContext
         initPrefs(app)
+        AdBlock.userHostsListener = { sendNetRules() }
         update(app, scripts, enabled)
         if (ext != null || installing) return
         installing = true
@@ -325,7 +327,8 @@ internal object GeckoGm {
                 override fun onPortMessage(message: Any, port: WebExtension.Port) {
                     val o = message as? JSONObject ?: return
                     when (o.optString("t")) {
-                        "hello" -> { resetSent(); push(); importPendingCookies() }
+                        "hello" -> { resetSent(); push(); importPendingCookies(); sendNetRules() }
+                        "net" -> GeckoNetLog.ingest(o)
                         "synced" -> {
                             val r = o.optInt("rev", -1)
                             // 后台确认注册成功的 sig 集合：之后源码没变的脚本不再重复发送 code
@@ -496,6 +499,16 @@ internal object GeckoGm {
         pushedByRev[rev] = sigs
         runCatching { p.postMessage(JSONObject().put("t", "sync").put("rev", rev).put("scripts", arr)) }
             .onFailure { Diag.log("gm: push failed $it") }
+    }
+
+    /** 把「手动屏蔽域名」名单和「记录请求」开关推给后台页（hello 时、变化时）；后台页据此取消命中的请求 */
+    private fun sendNetRules() {
+        val p = bgPort ?: return
+        main.post {
+            runCatching {
+                p.postMessage(JSONObject().put("t", "netRules").put("block", JSONArray(AdBlock.userBlocked.toList())).put("record", AdBlock.requestLogOn))
+            }.onFailure { Diag.log("gm: netRules push failed $it") }
+        }
     }
 
     private fun broadcast(id: String, k: String, raw: String?, src: String) {

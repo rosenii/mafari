@@ -148,6 +148,13 @@ object AdBlock {
         private set
 
     /** 自动更新：0 手动 1 每天 2 每 3 天 3 每周 */
+    /** 「请求」面板的统计开关：默认关闭（每个子资源请求都要多一次记账，页面多时有开销）；手动屏蔽不受它影响 */
+    var requestLogEnabled by mutableStateOf(false)
+        private set
+
+    @Volatile var requestLogOn = false
+        private set
+
     var autoUpdate by mutableIntStateOf(2)
         private set
 
@@ -219,6 +226,8 @@ object AdBlock {
         cosmetic = prefs.getBoolean("cosmetic", true)
         autoUpdate = prefs.getInt("auto_update", 2).coerceIn(0, 3)
         baseTotal = prefs.getLong("blocked_total", 0L)
+        requestLogEnabled = prefs.getBoolean("request_log", false)
+        requestLogOn = requestLogEnabled
         _blockedFlow.value = baseTotal + blockedSession.get()
         fastEnabled = enabled
         fastCosmetic = cosmetic
@@ -527,6 +536,12 @@ object AdBlock {
     const val R_RULE = 1
     const val R_TRACKER = 2
     const val R_USER = 3
+
+    /** 浏览器自带防护拦截（仅 Gecko，只用于展示：不是本应用的规则，放行不了） */
+    const val R_BROWSER = 4
+
+    /** 手动屏蔽 / 放行名单变化时回调（Gecko 把名单推给内置扩展）；在调用线程执行 */
+    @Volatile var userHostsListener: (() -> Unit)? = null
 
     /**
      * shouldInterceptRequest 里调用：命中返回空响应，否则返回 null 放行。
@@ -1012,6 +1027,13 @@ object AdBlock {
     /** host 被手动放行时命中的条目 */
     fun userAllowEntry(host: String): String? = matchEntry(userAllowed, host)
 
+    fun updateRequestLog(value: Boolean) {
+        requestLogEnabled = value
+        requestLogOn = value
+        prefs.edit().putBoolean("request_log", value).apply()
+        userHostsListener?.invoke() // Gecko：把开关推给内置扩展，关闭时它不再监听
+    }
+
     @Synchronized
     fun blockHost(host: String) {
         val h = normHost(host)
@@ -1049,6 +1071,7 @@ object AdBlock {
             .putString("user_block", JSONArray(userBlocked.toList()).toString())
             .putString("user_allow", JSONArray(userAllowed.toList()).toString())
             .apply()
+        userHostsListener?.invoke()
     }
 
     private fun loadHostSet(key: String): List<String> {

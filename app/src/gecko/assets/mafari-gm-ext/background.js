@@ -45,6 +45,8 @@ function onNative(m) {
     cookieImport(m);
   } else if (m.t === 'val') {
     broadcastVal(m);
+  } else if (m.t === 'netRules') {
+    netSetRules(m);
   }
 }
 
@@ -535,5 +537,106 @@ browser.runtime.onMessageExternal.addListener((m, sender) => {
     (e) => { bmLog(m.op + ': sendNativeMessage rejected ' + String((e && e.message) || e)); return { ok: false, error: 'Mafari bookmarks bridge: ' + String((e && e.message) || e) }; }
   );
 });
+
+// ------------------------------------------------------------------ 本页请求（网络日志 + 域名屏蔽）
+// 按「请求域名」汇总：记次数，不记完整 URL；每 600ms 批量上报一次（页面顶层 URL → 域名 → 次数 / 拦截数）。
+// 屏蔽名单（含子域名）由原生推送（与 WebView 共用同一份），命中的请求在 onBeforeRequest 里直接取消。
+// 只有名单非空时才以 blocking 方式注册监听（非阻塞观察者对页面加载几乎没有开销）。
+// 无痕窗口的请求不记录；浏览器自带防护（跟踪保护等）拦掉的请求从 onErrorOccurred 里识别，仅作展示（放行不了）。
+const net = { block: new Set(), record: false, pages: new Map(), timer: null, ours: new Set() };
+const NET_FILTER = { urls: ['http://*/*', 'https://*/*'] };
+const NET_MAX_PAGES = 40;
+const NET_MAX_HOSTS = 300;
+const NET_BLOCKED_ERR = /^NS_ERROR_(TRACKING|FINGERPRINTING|CRYPTOMINING|SOCIALTRACKING|BLOCKED|HARMFUL|MALWARE|PHISHING|UNWANTED)/;
+
+function netHostIn(set, h) {
+  while (h) {
+    if (set.has(h)) return true;
+    const i = h.indexOf('.');
+    if (i < 0) return false;
+    h = h.slice(i + 1);
+  }
+  return false;
+}
+
+/** 发起请求的页面顶层 URL：子框架取最外层祖先，顶层框架取 documentUrl */
+function netTopOf(d) {
+  if (d.frameAncestors && d.frameAncestors.length) return d.frameAncestors[d.frameAncestors.length - 1].url;
+  return d.documentUrl || d.originUrl || '';
+}
+
+function netRecord(d, host, n, b, r) {
+  if (!net.record || d.incognito) return;
+  let top = netTopOf(d);
+  if (!/^https?:/i.test(top)) return;
+  const hash = top.indexOf('#');
+  if (hash >= 0) top = top.slice(0, hash);
+  let page = net.pages.get(top);
+  if (!page) { if (net.pages.size >= NET_MAX_PAGES) return; page = new Map(); net.pages.set(top, page); }
+  let e = page.get(host);
+  if (!e) { if (page.size >= NET_MAX_HOSTS) return; e = { n: 0, b: 0, r: 0 }; page.set(host, e); }
+  e.n += n;
+  if (b) { e.b += b; e.r = r; }
+  if (!net.timer) net.timer = setTimeout(netFlush, 600);
+}
+
+function netFlush() {
+  net.timer = null;
+  const pages = [];
+  for (const [top, page] of net.pages) {
+    const hosts = [];
+    for (const [h, e] of page) hosts.push({ h, n: e.n, b: e.b, r: e.r });
+    pages.push({ top, hosts });
+  }
+  net.pages.clear();
+  if (pages.length) post({ t: 'net', pages });
+}
+
+function netOnRequest(d) {
+  if (d.type === 'main_frame' || d.tabId < 0) return undefined;
+  let host;
+  try { host = new URL(d.url).hostname.toLowerCase(); } catch (e) { return undefined; }
+  if (!host) return undefined;
+  if (net.block.size && netHostIn(net.block, host)) {
+    if (net.record) { // 只有装了错误监听（记录开启）才会收到取消事件把它清掉
+      if (net.ours.size > 2000) net.ours.clear();
+      net.ours.add(d.requestId);
+    }
+    netRecord(d, host, 1, 1, 3); // 3 = 用户手动屏蔽（与原生 AdBlock.R_USER 一致）
+    return { cancel: true };
+  }
+  netRecord(d, host, 1, 0, 0);
+  return undefined;
+}
+
+/** 按当前状态装 / 卸监听：不记录且没有屏蔽名单时一个监听都不装（对页面加载零开销） */
+function netApply() {
+  try { browser.webRequest.onBeforeRequest.removeListener(netOnRequest); } catch (e) {}
+  try { browser.webRequest.onErrorOccurred.removeListener(netOnError); } catch (e) {}
+  try {
+    if (net.record || net.block.size) {
+      browser.webRequest.onBeforeRequest.addListener(netOnRequest, NET_FILTER, net.block.size ? ['blocking'] : []);
+    }
+    if (net.record) browser.webRequest.onErrorOccurred.addListener(netOnError, NET_FILTER);
+  } catch (e) { post({ t: 'error', where: 'netApply', msg: String(e) }); }
+}
+
+function netSetRules(m) {
+  net.block = new Set(Array.isArray(m.block) ? m.block.map((s) => String(s).toLowerCase()) : []);
+  net.record = !!m.record;
+  if (!net.record) {
+    net.pages.clear();
+    if (net.timer) { clearTimeout(net.timer); net.timer = null; }
+  }
+  netApply();
+}
+
+function netOnError(d) {
+  if (net.ours.delete(d.requestId)) return; // 自己取消的：已在上面记过
+  if (d.tabId < 0 || !NET_BLOCKED_ERR.test(d.error || '')) return;
+  let host;
+  try { host = new URL(d.url).hostname.toLowerCase(); } catch (e) { return; }
+  if (host) netRecord(d, host, 0, 1, 4); // 4 = 浏览器自带防护拦截（原生 AdBlock.R_BROWSER）
+}
 
 connect();

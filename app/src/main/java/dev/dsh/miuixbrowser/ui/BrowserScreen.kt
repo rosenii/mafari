@@ -32,6 +32,7 @@ import dev.dsh.miuixbrowser.data.UA_PRESETS
 import dev.dsh.miuixbrowser.data.rememberFirstIcon
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.engine.gecko.GeckoDebug
+import dev.dsh.miuixbrowser.engine.gecko.GeckoNetLog
 import dev.dsh.miuixbrowser.engine.gecko.GeckoExtensionStore
 import dev.dsh.miuixbrowser.engine.gecko.GeckoSitePerms
 import dev.dsh.miuixbrowser.engine.gecko.showWebViewUnsupportedToast
@@ -1870,11 +1871,7 @@ fun BrowserScreen(
                 refreshScriptSheet()
             }
             MenuAction.History -> pushPage(AppRoute.Library(1))
-            MenuAction.Requests -> if (tab.isGecko) {
-                android.widget.Toast.makeText(context, "请求面板仅 WebView 内核可用", android.widget.Toast.LENGTH_SHORT).show()
-            } else {
-                pushPage(AppRoute.RequestLogPage)
-            }
+            MenuAction.Requests -> pushPage(AppRoute.RequestLogPage)
             MenuAction.Settings -> pushPage(AppRoute.Settings)
             MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)
             MenuAction.CloseTab -> state.closeTab(state.activeIndex)
@@ -2154,8 +2151,6 @@ fun BrowserScreen(
                         when (action) {
                             // 拓展只在 Gecko 内核可用：WebView 下置灰，点击提示不可用
                             MenuAction.GeckoExtensions -> !settings.geckoMode
-                            // 请求面板靠 WebView 的 shouldInterceptRequest，Gecko 下没有
-                            MenuAction.Requests -> settings.geckoMode
                             else -> false
                         }
                     },
@@ -2978,8 +2973,11 @@ fun BrowserScreen(
         )
     }
     entry<AppRoute.RequestLogPage> {
+        val reqTab = state.activeTab
         RequestLogScreen(
-            log = state.activeTab.requestLog,
+            // WebView：标签自己的统计；Gecko：内置扩展按页面 URL 上报的统计
+            log = if (reqTab.isGecko) remember(reqTab, reqTab.url) { GeckoNetLog.logFor(reqTab.url) } else reqTab.requestLog,
+            isGecko = reqTab.isGecko,
             onBack = { popPage() },
             blurEnabled = settings.blurEnabled,
         )

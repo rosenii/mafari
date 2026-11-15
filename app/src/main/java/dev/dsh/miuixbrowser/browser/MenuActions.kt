@@ -48,7 +48,7 @@ enum class MenuAction(
     ScriptMenu("script_menu", "脚本", AppIcons.Script),
     History("history", "历史", MiuixIcons.Glass.WorldClock),
 
-    /** 本页请求（仅 WebView 内核）：按域名列出本页发出的请求，一键屏蔽 / 放行 */
+    /** 本页请求（两个内核）：按域名列出本页发出的请求，一键屏蔽 / 放行 */
     Requests("requests", "请求", MiuixIcons.Glass.Link),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
 

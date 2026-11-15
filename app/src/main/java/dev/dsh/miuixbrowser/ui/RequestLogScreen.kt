@@ -49,7 +49,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 只记内存里的域名和次数，不记完整 URL；换页 / 关标签清空，无痕标签不记录。
  */
 @Composable
-fun RequestLogScreen(log: RequestLog, onBack: () -> Unit, blurEnabled: Boolean = true) {
+fun RequestLogScreen(log: RequestLog, onBack: () -> Unit, blurEnabled: Boolean = true, isGecko: Boolean = false) {
     val context = LocalContext.current
 
     val backdrop = rememberLayerBackdrop()
@@ -103,18 +103,38 @@ fun RequestLogScreen(log: RequestLog, onBack: () -> Unit, blurEnabled: Boolean =
                     ),
                 ) {
                     item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                            insideMargin = PaddingValues(0.dp),
+                        ) {
+                            AppSwitchPreference(
+                                title = "记录请求",
+                                summary = "开启后统计页面请求的域名与次数；关闭时不统计，对页面加载没有额外开销（手动屏蔽的域名仍然生效）。开启后刷新页面才有数据",
+                                checked = AdBlock.requestLogEnabled,
+                                onCheckedChange = {
+                                    AdBlock.updateRequestLog(it)
+                                    if (!it) log.clear()
+                                },
+                            )
+                        }
+                    }
+                    item {
                         Text(
-                            text = if (!AdBlock.enabled) "去广告总开关已关闭：只统计，不会拦截任何请求"
+                            text = if (!AdBlock.requestLogEnabled) "统计已关闭，下方是你手动屏蔽 / 放行的域名"
+                            else if (!isGecko && !AdBlock.enabled) "去广告总开关已关闭：只统计，不会拦截任何请求"
+                            else if (isGecko) "共 ${rows.size} 个域名，${rows.sumOf { it.total }} 次请求。屏蔽立即对之后的请求生效；标「Gecko 防护」的是浏览器自带保护拦的，在「Gecko 高级保护」里调整"
                             else "共 ${rows.size} 个域名，${rows.sumOf { it.total }} 次请求。屏蔽 / 放行对之后的请求立即生效，已加载的内容刷新页面后才会变化",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
                         )
                     }
-                    if (rows.isEmpty()) {
+                    if (!AdBlock.requestLogEnabled) {
+                        // 关着时不展示数据（也没有数据）：下面只剩「我屏蔽 / 放行的域名」
+                    } else if (rows.isEmpty()) {
                         item {
                             Text(
-                                text = "暂无请求。打开一个网页后再来看（无痕标签不记录）",
+                                text = "暂无请求。刷新页面或打开一个网页后再来看（无痕标签不记录）",
                                 fontSize = 14.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -129,7 +149,7 @@ fun RequestLogScreen(log: RequestLog, onBack: () -> Unit, blurEnabled: Boolean =
                             ) {
                                 Column {
                                     rows.forEach { row ->
-                                        RequestRow(row) { msg -> toast(msg) }
+                                        RequestRow(row, isGecko) { msg -> toast(msg) }
                                     }
                                 }
                             }
@@ -175,14 +195,17 @@ fun RequestLogScreen(log: RequestLog, onBack: () -> Unit, blurEnabled: Boolean =
 }
 
 @Composable
-private fun RequestRow(row: RequestLog.Row, toast: (String) -> Unit) {
+private fun RequestRow(row: RequestLog.Row, isGecko: Boolean, toast: (String) -> Unit) {
     // 状态以当前设置为准（手动屏蔽 / 放行可能命中它的父域名），再看本页是否被规则拦过
     val userBlock = AdBlock.userBlockEntry(row.host)
     val userAllow = AdBlock.userAllowEntry(row.host)
     val (status, actionText) = when {
         userBlock != null -> "已屏蔽（手动" + (if (userBlock != row.host) "：$userBlock" else "") + "）" to "取消屏蔽"
         userAllow != null -> "已放行（手动" + (if (userAllow != row.host) "：$userAllow" else "") + "）" to "取消放行"
-        row.blocked > 0 -> "已拦截（" + (if (row.reason == AdBlock.R_TRACKER) "跟踪域名" else "规则") + "）" to "放行"
+        // Gecko 自带防护拦的：只展示，本应用无法放行
+        row.blocked > 0 && row.reason == AdBlock.R_BROWSER -> "已拦截（Gecko 防护）" to ""
+        // 手动屏蔽已被移除后，这一行留着的旧拦截记录不再算「已拦截」
+        row.blocked > 0 && row.reason != AdBlock.R_USER -> "已拦截（" + (if (row.reason == AdBlock.R_TRACKER) "跟踪域名" else "规则") + "）" to "放行"
         else -> "已放行" to "屏蔽"
     }
     val statusColor = if (userBlock != null || (userAllow == null && row.blocked > 0)) {
@@ -210,8 +233,8 @@ private fun RequestRow(row: RequestLog.Row, toast: (String) -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(Modifier.width(8.dp))
-        AppTextButton(
+        if (actionText.isNotEmpty()) Spacer(Modifier.width(8.dp))
+        if (actionText.isNotEmpty()) AppTextButton(
             text = actionText,
             onClick = {
                 when {

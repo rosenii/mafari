@@ -866,7 +866,7 @@ class BrowserTab(
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                 if (incognito && !adblockInIncognito) null
-                else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito) null else requestLog)
+                else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) errorText = error.description?.toString()
