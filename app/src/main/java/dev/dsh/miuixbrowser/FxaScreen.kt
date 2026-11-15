@@ -57,6 +57,7 @@ fun FxaScreen(
     val liquidBackdrop = rememberKyantBackdrop()
     val glass = rememberGlassActive(blurEnabled)
     val liquid = if (glass) liquidBackdrop else null
+    val bd = if (glass) backdrop else null
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
     val ui = FxaSync.ui
@@ -93,11 +94,14 @@ fun FxaScreen(
         if (FxaSync.ui is FxaUi.SignedOut || FxaSync.ui is FxaUi.NeedsReauth) startLogin()
     }
     LaunchedEffect(FxaSync.ui) { if (FxaSync.ui is FxaUi.SignedIn) { FxaSync.refreshDevices(); FxaSync.refreshSynced() } }
-    // 展开的「已同步内容」分类（点一下展开 / 收起条目）
-    var expanded by remember { mutableStateOf<FxaSync.Category?>(null) }
-    // 展开密码列表（站点 + 用户名）期间禁止截屏 / 录屏，与「密码」页一致
-    DisposableEffect(expanded == FxaSync.Category.Passwords) {
-        val window = if (expanded == FxaSync.Category.Passwords) context.findActivity()?.window else null
+    // 列表 sheet 是否打开、打开的是哪一类「已同步内容」；搜索词 / 已加载行数放在页面层，切分类时重置
+    var sheetOpen by remember { mutableStateOf(false) }
+    var sheetCat by remember { mutableStateOf(FxaSync.Category.Bookmarks) }
+    val listState = rememberListSheetState()
+    // 打开密码列表（站点 + 用户名）期间禁止截屏 / 录屏，与「密码」页一致
+    val secure = sheetOpen && sheetCat == FxaSync.Category.Passwords
+    DisposableEffect(secure) {
+        val window = if (secure) context.findActivity()?.window else null
         window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
     }
@@ -211,38 +215,17 @@ fun FxaScreen(
                         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                             FxaSync.Category.entries.forEach { cat ->
                                 val g = FxaSync.synced[cat]
-                                val canExpand = cat != FxaSync.Category.Tabs && g != null && g.count > 0
+                                val canOpen = g != null && g.count > 0
                                 ArrowPreference(
                                     title = cat.label,
                                     summary = when {
                                         g == null -> "读取中…"
                                         g.count == 0 -> "暂无"
-                                        cat == FxaSync.Category.Tabs -> "${g.count} 个，见下方「其他设备的标签页」"
-                                        expanded == cat -> "${g.count} 条 · 点击收起"
-                                        else -> "${g.count} 条 · 点击查看"
+                                        else -> "共 ${g.count} 项，点击查看"
                                     },
-                                    onClick = { if (canExpand) expanded = if (expanded == cat) null else cat },
+                                    enabled = canOpen,
+                                    onClick = { listState.reset(); sheetCat = cat; sheetOpen = true },
                                 )
-                            }
-                        }
-                    }
-                    expanded?.let { cat ->
-                        val g = FxaSync.synced[cat]
-                        if (g != null && g.items.isNotEmpty()) {
-                            item { SmallTitle(text = cat.label) }
-                            item {
-                                Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
-                                    g.items.forEach { entry ->
-                                        ArrowPreference(
-                                            title = entry.title,
-                                            summary = entry.summary,
-                                            onClick = { entry.url?.let(onOpenUrl) },
-                                        )
-                                    }
-                                }
-                            }
-                            if (g.count > g.items.size) {
-                                item { FxaHintText("仅显示最近 ${g.items.size} 条，共 ${g.count} 条。") }
                             }
                         }
                     }
@@ -277,16 +260,6 @@ fun FxaScreen(
                             }
                         }
                     }
-                    FxaSync.remoteDevices.filter { it.tabs.isNotEmpty() }.forEach { dev ->
-                        item { SmallTitle(text = "其他设备的标签页") }
-                        item {
-                            Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
-                                dev.tabs.take(30).forEach { t ->
-                                    ArrowPreference(title = t.title, summary = t.url, onClick = { onOpenUrl(t.url) })
-                                }
-                            }
-                        }
-                    }
                 }
                 item {
                     FxaHintText(
@@ -297,6 +270,34 @@ fun FxaScreen(
                             "这里只列出站点和用户名，不显示密码；备注仅保存在本机，不会同步。退出登录会清空同步用的中转库，本机密码不受影响。",
                     )
                 }
+            }
+
+            // 已同步内容列表：搜索 + 每页 50 条，点底部「更多」继续加载
+            val cat = sheetCat
+            val group = FxaSync.synced[cat]
+            SearchableListSheet(
+                show = sheetOpen,
+                title = cat.label,
+                data = group?.items.orEmpty(),
+                state = listState,
+                backdrop = bd,
+                onDismiss = { sheetOpen = false },
+                searchHint = "搜索" + cat.label,
+                emptyText = "暂无",
+                matches = { it, q ->
+                    it.title.lowercase().contains(q) || (it.summary?.lowercase()?.contains(q) == true)
+                },
+            ) { entry ->
+                ListSheetRow(
+                    title = entry.title,
+                    summary = entry.summary,
+                    onClick = {
+                        entry.url?.let {
+                            sheetOpen = false
+                            onOpenUrl(it)
+                        }
+                    },
+                )
             }
         }
     }

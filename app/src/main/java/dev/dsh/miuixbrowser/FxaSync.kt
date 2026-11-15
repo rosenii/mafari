@@ -57,10 +57,14 @@ internal object FxaSync {
     /** [title] 主文字；[summary] 次级文字（密码只给用户名，绝不含密码）；[url] 非 null 时可点开。 */
     class SyncedItem(val title: String, val summary: String?, val url: String?)
 
-    /** 某一类已同步内容：[count] 是总条数，[items] 只放前 [MAX_SHOWN] 条用于展示。 */
+    /** 某一类已同步内容：[count] 是总条数，[items] 放前 [MAX_STORED] 条；界面按 [MAX_SHOWN] 一页分页展示、可搜索。 */
     class SyncedGroup(val count: Int, val items: List<SyncedItem>)
 
+    /** 列表 sheet 每页显示的条数。 */
     const val MAX_SHOWN = 50
+
+    /** 每类最多保留多少条用于搜索 / 分页（防止历史记录特别多时占内存）。 */
+    const val MAX_STORED = 5000
 
     var synced by mutableStateOf<Map<Category, SyncedGroup>>(emptyMap())
         private set
@@ -190,7 +194,7 @@ internal object FxaSync {
                 }
                 out[Category.Bookmarks] = SyncedGroup(
                     pulled.size,
-                    pulled.take(MAX_SHOWN).map { SyncedItem(it.name.ifBlank { it.url }, it.group.removePrefix(FxaBookmarkBridge.PULL_ROOT).trim('/').ifEmpty { null }, it.url) },
+                    pulled.take(MAX_STORED).map { SyncedItem(it.name.ifBlank { it.url }, it.group.removePrefix(FxaBookmarkBridge.PULL_ROOT).trim('/').ifEmpty { null }, it.url) },
                 )
             }
             runCatching {
@@ -199,18 +203,18 @@ internal object FxaSync {
                     .filter { it.url.startsWith("http://") || it.url.startsWith("https://") }
                     .groupBy { it.url }.map { (_, v) -> v.maxByOrNull { it.time }!! }
                     .sortedByDescending { it.time }
-                out[Category.History] = SyncedGroup(visits.size, visits.take(MAX_SHOWN).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
+                out[Category.History] = SyncedGroup(visits.size, visits.take(MAX_STORED).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
             }
             runCatching {
                 val tabs = FxaApi.remoteTabs().flatMap { it.tabs }
-                out[Category.Tabs] = SyncedGroup(tabs.size, tabs.take(MAX_SHOWN).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
+                out[Category.Tabs] = SyncedGroup(tabs.size, tabs.take(MAX_STORED).map { SyncedItem(it.title.ifBlank { it.url }, it.url, it.url) })
             }
             runCatching {
                 // 只列站点和用户名，不解密任何密码
                 val rows = HistoryDb.get(appContext)?.let { PasswordDb.list(it, syncedOnly = true) }.orEmpty()
                 out[Category.Passwords] = SyncedGroup(
                     rows.size,
-                    rows.take(MAX_SHOWN).map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { "（无用户名）" }, null) },
+                    rows.take(MAX_STORED).map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { "（无用户名）" }, null) },
                 )
             }
             synced = out

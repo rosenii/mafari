@@ -108,7 +108,8 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
 
     var loaded by remember { mutableStateOf<List<PasswordDb.Item>?>(null) } // null = 还在加载
     var refresh by remember { mutableIntStateOf(0) }
-    var query by remember { mutableStateOf("") }
+    var listOpen by remember { mutableStateOf(false) }
+    val listState = rememberListSheetState()
     var showLockInfo by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var report by remember { mutableStateOf<ImportReport?>(null) }
@@ -177,8 +178,6 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
     }
 
     val all = loaded.orEmpty()
-    val q = query.trim().lowercase()
-    val shown = if (q.isEmpty()) all else all.filter { it.origin.lowercase().contains(q) || it.username.lowercase().contains(q) }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides liquid) {
         Scaffold(
@@ -299,69 +298,22 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                         }
                     }
 
-                    // ③ 已保存的密码
+                    // ③ 已保存的密码：收成一行，点开底部 sheet（搜索 + 分页）
                     item {
-                        SmallTitle(text = if (loaded == null) "已保存的密码" else "已保存的密码（${all.size}）")
-                        if (all.size > 5) {
-                            TextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                                label = "搜索网站或用户名",
-                                singleLine = true,
-                            )
-                            Spacer(Modifier.height(6.dp))
-                        }
-                    }
-                    if (loaded != null && all.isEmpty()) {
-                        item {
-                            Text(
-                                text = "还没有保存的密码。可以从其他浏览器或密码管理器导出 CSV 后导入。",
-                                fontSize = 13.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                            )
-                        }
-                    } else if (loaded != null && shown.isEmpty()) {
-                        item {
-                            Text(
-                                text = "没有匹配的密码",
-                                fontSize = 13.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                            )
-                        }
-                    }
-                    items(shown, key = { it.guid }) { item ->
                         Card(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        shownPassword = null
-                                        detail = item
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                            ) {
-                                Text(
-                                    text = PasswordCsv.displayHost(item.origin) + (item.httpRealm?.let { " · $it" } ?: ""),
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MiuixTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = item.username.ifEmpty { "（无用户名）" },
-                                    fontSize = 13.sp,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                            ArrowPreference(
+                                title = "已保存的密码",
+                                summary = when {
+                                    loaded == null -> "读取中…"
+                                    all.isEmpty() -> "还没有保存的密码，可从其他浏览器或密码管理器导出 CSV 后导入"
+                                    else -> "共 ${all.size} 项，点击查看"
+                                },
+                                enabled = all.isNotEmpty(),
+                                onClick = { listState.reset(); listOpen = true },
+                            )
                         }
                     }
 
@@ -387,6 +339,29 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
                         )
                     }
+                }
+
+                // ---- 已保存的密码列表（弹出单条详情 / 删除确认时先收起，避免 sheet 与对话框叠在一起；关掉后自动回到列表）
+                SearchableListSheet(
+                    show = listOpen && detail == null && confirmDelete == null,
+                    title = "已保存的密码",
+                    data = all,
+                    state = listState,
+                    backdrop = bd,
+                    onDismiss = { listOpen = false },
+                    searchHint = "搜索网站或用户名",
+                    emptyText = "还没有保存的密码",
+                    matches = { it, q -> it.origin.lowercase().contains(q) || it.username.lowercase().contains(q) },
+                    key = { it.guid },
+                ) { item ->
+                    ListSheetRow(
+                        title = PasswordCsv.displayHost(item.origin) + (item.httpRealm?.let { " · $it" } ?: ""),
+                        summary = item.username.ifEmpty { "（无用户名）" },
+                        onClick = {
+                            shownPassword = null
+                            detail = item
+                        },
+                    )
                 }
 
                 // ---- 导入结果
