@@ -8,14 +8,21 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
@@ -135,7 +142,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installCrashLogger()
-        prewarmEncryptedDb()
+        StartupWarmup.start(this) // MafariApp 已在进程创建时启动过；幂等，这里兜底
         // 系统重建 Activity（savedInstanceState != null）时 intent 还是当初那条，不能再重复打开一次链接
         if (savedInstanceState == null) {
             consumeOpenDownloads(intent)
@@ -180,8 +187,6 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
 
-        scheduleSyncWarmUp()
-
         setContent {
             val context = LocalContext.current
             val settings = remember { AppSettings(context) }
@@ -205,31 +210,32 @@ class MainActivity : ComponentActivity() {
             val themeController = remember(mode) { ThemeController(mode) }
             MiuixTheme(controller = themeController) {
                 CompositionLocalProvider(LocalBlurMode provides settings.blurMode) {
-                    BrowserScreen(
-                        settings = settings,
-                        initialUrl = incomingUrl.value,
-                        onInitialUrlConsumed = { incomingUrl.value = null },
-                        openDownloads = openDownloads.value,
-                        onOpenDownloadsConsumed = { openDownloads.value = false },
-                    )
+                    // 首帧先画一个与主题底色一致的占位面：BrowserScreen 首次组合要同步读加密库（标签 / 书签 / 脚本），
+                    // 库还没打开时直接组合会把主线程卡住 1~2 秒，系统启动画面（白屏）也就一直收不起来。
+                    // 库在后台线程等好之后再组合 BrowserScreen；库早已就绪（如界面重建）则直接组合，不闪占位。
+                    val contentReady = remember { mutableStateOf(StartupWarmup.isDbReady()) }
+                    if (contentReady.value) {
+                        BrowserScreen(
+                            settings = settings,
+                            initialUrl = incomingUrl.value,
+                            onInitialUrlConsumed = { incomingUrl.value = null },
+                            openDownloads = openDownloads.value,
+                            onOpenDownloadsConsumed = { openDownloads.value = false },
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background))
+                    }
+                    LaunchedEffect(Unit) {
+                        if (!contentReady.value) {
+                            withContext(Dispatchers.IO) { StartupWarmup.awaitDb(context) }
+                            contentReady.value = true
+                        }
+                        // Firefox 同步预热排在界面真正出来之后（此前是首帧后 3 秒，现在首帧提前了，不能再和加密库打开抢资源）
+                        scheduleSyncWarmUp()
+                    }
                 }
             }
         }
-    }
-
-    /**
-     * 冷启动预热加密库：打开它要经过 Keystore 解包密钥、SQLCipher 派生密钥（PBKDF2）和十几张表的建表 / 迁移，
-     * 以前第一次是在主线程（Downloader.init → HistoryDb.get）里同步做完，setContent 之前整个界面都是白屏。
-     * 现在放到后台线程，与 onCreate 其余初始化并行；主线程之后真正要用库（标签恢复 / 书签 / 脚本）时，
-     * HistoryDb.get 内部有锁，最多等剩下的那一小段。打开失败由 HistoryDb 自己降级处理。
-     */
-    private fun prewarmEncryptedDb() {
-        val app = applicationContext
-        Thread({
-            val t0 = android.os.SystemClock.elapsedRealtime()
-            runCatching { HistoryDb.get(app) }
-            Diag.log("prewarm: encrypted db ready in ${android.os.SystemClock.elapsedRealtime() - t0}ms")
-        }, "mafari-prewarm-db").apply { isDaemon = true }.start()
     }
 
     /**

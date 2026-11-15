@@ -39,7 +39,23 @@ internal object HistoryDb {
 
     @Volatile
     private var instance: SQLiteDatabase? = null
+
+    @Volatile
     private var failed = false
+
+    /** [get] 首次完整走完（打开 + 建表 + 旧数据迁移，或确定打不开）后置位。 */
+    @Volatile
+    private var settled = false
+
+    /** 库已完全就绪（含迁移），或已确定打不开（降级）：此时 [get] 立即返回，不会阻塞调用线程。 */
+    fun isReady(): Boolean = settled
+
+    /** 阻塞到 [get] 的首次打开 / 迁移全部结束。必须在非主线程调用。 */
+    fun awaitReady(context: Context) {
+        get(context)
+        // instance 在迁移之前就已赋值，别的线程的 get 会提前返回；这里借打开者持有的锁等它迁移完
+        synchronized(this) { }
+    }
 
     /** 所有写入共用的单线程执行器（历史、隐私统计）：按提交顺序执行 */
     val io: java.util.concurrent.ExecutorService =
@@ -59,6 +75,7 @@ internal object HistoryDb {
                 .getOrNull()
             if (db == null) {
                 failed = true
+                settled = true
                 return null
             }
             instance = db
@@ -66,6 +83,7 @@ internal object HistoryDb {
                 .onFailure { Diag.log("history db: migrate failed: ${it.message}") }
             runCatching { migrateGm(app, db) }
                 .onFailure { Diag.log("history db: gm migrate failed: ${it.message}") }
+            settled = true
             return db
         }
     }
