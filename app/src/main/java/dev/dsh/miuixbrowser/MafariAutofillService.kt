@@ -1,5 +1,16 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.browser.AfNode
+import dev.dsh.miuixbrowser.browser.AutofillParser
+import dev.dsh.miuixbrowser.browser.BrowserState
+import dev.dsh.miuixbrowser.browser.PasswordAutofill
+import dev.dsh.miuixbrowser.browser.PasswordCsv
+import dev.dsh.miuixbrowser.browser.PasswordEntry
+import dev.dsh.miuixbrowser.data.AppDatabase
+import dev.dsh.miuixbrowser.data.PasswordDb
+import dev.dsh.miuixbrowser.data.PasswordPrefs
+import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.util.hostOf
 import android.app.PendingIntent
 import android.app.assist.AssistStructure
 import android.content.Context
@@ -92,7 +103,7 @@ class MafariAutofillService : AutofillService() {
                         timeCreated = now, timeLastUsed = now, timePasswordChanged = now, timesUsed = 1,
                     )
                     // 和 Gecko 保存、CSV 导入同一条合并路径：同站点同用户名，密码不同则更新，相同则不动
-                    HistoryDb.get(ctx)?.let { PasswordDb.importEntries(ctx, it, listOf(entry)) }
+                    AppDatabase.get(ctx)?.let { PasswordDb.importEntries(ctx, it, listOf(entry)) }
                     break
                 }
             }.onFailure { Diag.log("autofill: save failed: $it") }
@@ -122,7 +133,7 @@ class MafariAutofillService : AutofillService() {
         }
         val pageHost: String = host
         val pageScheme: String? = scheme
-        val db = HistoryDb.get(ctx) ?: return null
+        val db = AppDatabase.get(ctx) ?: return null
         val userId = form.username?.let { snap.ids[it.index] }
         val passId = form.password?.let { snap.ids[it.index] }
         val response = FillResponse.Builder()

@@ -1,12 +1,15 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.crypto.CipherSuites
+import dev.dsh.miuixbrowser.data.AppDatabase
+import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
 import android.os.SystemClock
 
 /**
  * 冷启动预热：把「首帧之前主线程必然要等」的加密库打开，提前到进程一创建就在后台开始。
  *
- * 为什么需要：BrowserState / FavoritesStore / ExtensionStore 在首次组合时都会同步调用 [HistoryDb.get]。
+ * 为什么需要：BrowserState / FavoritesStore / ExtensionStore 在首次组合时都会同步调用 [AppDatabase.get]。
  * 打开加密库要依次经过：Keystore 解包私钥 → BouncyCastle ML-KEM 解封装库密钥 → SQLCipher 派生密钥（PBKDF2）
  * → 十几张表的建表 / 迁移（密码库、Firefox 同步引入后表更多）。这一串耗时 1~2 秒，
  * 而首帧要等 setContent 的首次组合完成才会画出，期间系统启动画面（纯色、无图标）一直停着，就是「白屏」。
@@ -39,17 +42,17 @@ internal object StartupWarmup {
 
         Thread({
             val t0 = SystemClock.elapsedRealtime()
-            runCatching { HistoryDb.get(app) }
+            runCatching { AppDatabase.get(app) }
             Diag.log("prewarm: encrypted db ready in ${SystemClock.elapsedRealtime() - t0}ms")
         }, "mafari-prewarm-db").apply { isDaemon = true }.start()
     }
 
-    /** 加密库已经完全就绪（含迁移，或已确定打不开、降级处理）：此时再调用 [HistoryDb.get] 不会阻塞。 */
-    fun isDbReady(): Boolean = HistoryDb.isReady()
+    /** 加密库已经完全就绪（含迁移，或已确定打不开、降级处理）：此时再调用 [AppDatabase.get] 不会阻塞。 */
+    fun isDbReady(): Boolean = AppDatabase.isReady()
 
     /** 阻塞直到加密库就绪。必须在非主线程调用。 */
     fun awaitDb(context: Context) {
         start(context)
-        HistoryDb.awaitReady(context.applicationContext)
+        AppDatabase.awaitReady(context.applicationContext)
     }
 }

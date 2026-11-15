@@ -1,5 +1,21 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.adblock.AdBlock
+import dev.dsh.miuixbrowser.adblock.AdBlockBridge
+import dev.dsh.miuixbrowser.browser.Downloader
+import dev.dsh.miuixbrowser.browser.ShortcutHelper
+import dev.dsh.miuixbrowser.data.AppSettings
+import dev.dsh.miuixbrowser.engine.gecko.GeckoSitePerms
+import dev.dsh.miuixbrowser.engine.webview.FingerprintInjector
+import dev.dsh.miuixbrowser.engine.webview.FpFallbackBridge
+import dev.dsh.miuixbrowser.net.WebViewProxy
+import dev.dsh.miuixbrowser.script.ExtensionStore
+import dev.dsh.miuixbrowser.script.GmBridge
+import dev.dsh.miuixbrowser.script.ScriptResources
+import dev.dsh.miuixbrowser.script.UserScript
+import dev.dsh.miuixbrowser.script.UserscriptEngine
+import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.util.isSameSite
 import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.animation.ValueAnimator
@@ -127,7 +143,7 @@ class WebAppActivity : ComponentActivity() {
         appTitle = intent.getStringExtra(ShortcutHelper.EXTRA_TITLE).orEmpty().ifBlank { startHost }
         updateTaskDescription(appTitle)
 
-        settings = AppSettings(this)
+        settings = appContainer.settings
         GeckoSitePerms.load(this) // 例外网站（与浏览器共用）
         AdBlock.init(this)
         WebViewProxy.applyFrom(settings)
@@ -494,7 +510,7 @@ class WebAppActivity : ComponentActivity() {
      * 脚本列表与浏览器共用同一份存储；必须在首次加载网页之前调用。
      */
     private fun setupUserScripts() {
-        extensions = ExtensionStore(this)
+        extensions = appContainer.extensions
         runCatching {
             webView.addJavascriptInterface(
                 GmBridge(

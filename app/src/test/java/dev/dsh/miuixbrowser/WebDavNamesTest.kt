@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.sync.WebDavNames
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

@@ -104,11 +104,11 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 
 ## 5. 数据与存储
 
-**加密库 `history.db`（SQLCipher 整库 AES-256，`HistoryDb`）**——绝大多数结构化数据都在这一个库里：
+**加密库 `history.db`（SQLCipher 整库 AES-256，`AppDatabase`）**——绝大多数结构化数据都在这一个库里：
 
 | 表 | 负责文件 | 内容 |
 | --- | --- | --- |
-| `history` | `History.kt`（`HistoryStore`） | 浏览历史 |
+| `history` | `HistoryDao.kt` / `HistoryStore.kt` | 浏览历史 |
 | `bookmarks` / `bookmark_folders` / meta | `BookmarkDb`、`Favorites.kt`（`FavoritesStore`） | 书签；id 稳定不变，Floccus 同步靠它做增量对账 |
 | `scripts` | `ScriptDb`、`Extensions.kt`（`ExtensionStore`） | 油猴脚本，主键为脚本 id（GM 值也按它存，所以必须稳定） |
 | `gm_values` | `GmStore` | GM_setValue 数据（取代旧的 SharedPreferences `userscript_gm`），WebView 与 Gecko 共用 |
@@ -117,8 +117,9 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | `tabs` | `TabDb` | 见 §4 |
 
 - 库密钥：随机 32 字节，经 `SecureStore`（Android Keystore 保护的 `EncryptionEngine`）封装后存 SharedPreferences `mafari_history_db`；密钥取不回来则删库重建。
-- 所有写入走 **`HistoryDb.io`（单线程执行器 `mafari-db-writer`）**，按提交顺序执行；`HistoryDb.get()` 返回 null 表示库不可用，各功能降级为「不记录」而不是崩溃。
-- 新增表：在 `HistoryDb.open()` 里 `CREATE TABLE IF NOT EXISTS`；旧库补列写 `migrate()`（参考 `TabDb.migrate`）。
+- 所有写入走 **`AppDatabase.io`（单线程执行器 `mafari-db-writer`）**，按提交顺序执行；`AppDatabase.get()` 返回 null 表示库不可用，各功能降级为「不记录」而不是崩溃。
+- 新增 / 修改表、索引、列：在 `Migrations.kt` 的 `STEPS` 末尾追加一个版本号 +1 的 `Step`（别改已发布的旧步骤）；每步一个事务，成功后写 `PRAGMA user_version`。旧库补列写 `migrate()`（参考 `TabDb.migrate`）并在新 Step 里调用。
+- 连接 / 就绪 / 写线程在 `AppDatabase.kt`；旧 SharedPreferences 数据导入在 `LegacyImports.kt`；`history` 表 SQL 在 `HistoryDao.kt`。
 - 其余设置在 SharedPreferences：`mafari_settings`（`AppSettings`）、`mafari`（杂项）、`mafari_ad_rules`、`mafari_cookies`、`mafari_menu`、`mafari_gecko_protect` 等。
 - 诊断：`Diag`（默认关，写 `/sdcard/Android/media/<pkg>/diag.txt`）；未捕获异常写 `crash.txt`（`MainActivity.installCrashLogger`）。
 
@@ -137,7 +138,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | `BackupScreen.kt` | 备份页 UI（约 1800 行） |
 | `WebViewCookies.kt` / `CookieControl.kt` | Cookie 导出导入（WebView 读 Chromium Cookie 库副本；Gecko 经内置拓展）与清理 |
 
-- 标签列表（`tabs/list` 单元）：`TabDb.exportJson` 导出（含缩略图 base64 + Gecko 会话状态），`prepareRestore` 里先 `parseBackup` 校验，`applyRestore` 调 `TabDb.restoreAll` 在 `HistoryDb.io` 上单事务整表替换，并置 `TabDb.frozen` 让 `sync / saveThumb / saveState` 停写（否则界面里还活着的旧标签会把恢复的列表覆盖回去；进程随后重启）。
+- 标签列表（`tabs/list` 单元）：`TabDb.exportJson` 导出（含缩略图 base64 + Gecko 会话状态），`prepareRestore` 里先 `parseBackup` 校验，`applyRestore` 调 `TabDb.restoreAll` 在 `AppDatabase.io` 上单事务整表替换，并置 `TabDb.frozen` 让 `sync / saveThumb / saveState` 停写（否则界面里还活着的旧标签会把恢复的列表覆盖回去；进程随后重启）。
 - 恢复**只覆盖备份里有数据的类别**，没选 / 为空的类别保持原样。
 - 备份里设备上是密文的键必须存**明文**（再由备份信封加密），否则换机无法恢复（`BackupManager.DEVICE_ENCRYPTED`）；已迁到 DB 的数据走 DB 导出（`DB_BACKED`）。
 - 新增要进备份的设置：加入 `BackupManager.PREFS` 并在 `categoryOf` 里归类。
@@ -189,7 +190,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 3. 热路径（请求拦截、滚动、主线程）禁止：遍历大集合拼字符串、读 asset / 文件、同步序列化大 JSON。
 4. `BrowserTab.contentView` 读取会触发 `ensureGecko()`——后台标签要做的事（关闭 / 延迟投递）不要碰它。
 5. 无痕标签：不落盘、不回收、不记隐私统计、Gecko 私有会话必须在创建时指定。
-6. 数据库访问一律经 `HistoryDb.get()` / `HistoryDb.io`；拿到 null 要降级，不要抛。
+6. 数据库访问一律经 `AppDatabase.get()` / `AppDatabase.io`；拿到 null 要降级，不要抛。
 7. Gecko Nightly 的 Java API 偶尔变化：建议在 `gradle.properties` 锁定 `geckoViewVersion`。
 8. 改动原则（项目作者的要求）：**最小改动、最小资源占用、最大代码复用**；先复用已有组件 / 抽象（如 `AppMaterial`、`AppDropdownPreference`），不要另起一套。
 9. Firefox 同步**不在启动时初始化**，只在打开同步页（`FxaScreen`）或 `SendTabActivity` 时才 `FxaSync.init`；因此未打开过同步页时 `FxaSync.ui` 一直是 Loading，不会自动同步。Firefox 同步（`FxaSync.init` → `FxaApi.start`）的初始化里真正重的是 Rust 组件 / NSS 加载，放在后台协程（`FxaSync.initJob`），不要挪回 `MainActivity.onCreate`；而 Storage / `FxaAccountManager` 的**构造必须在主线程**（放后台会构造失败，表现为 `lateinit property manager has not been initialized`），`FxaApi.start` 里已用 `withContext(Dispatchers.Main)` 包住。`FxaApi` 的各接口在 `start` 完成前会因 `lateinit` 未初始化而抛异常，调用方都已在 `runCatching` / 已登录状态之后调用；新增调用点要么先 `initJob.join()`，要么同样包 `runCatching`。
@@ -228,3 +229,32 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | `CHANGELOG.md` | 变更历史（发版小节同时是 Release 正文） |
 
 > 后续建议（未做）：抽出 `EngineAdapter` 接口统一 WebView / Gecko；订阅等小数据继续往加密库迁移。
+
+
+## 进程级容器与启动编排
+
+- `MafariApp.container`（`AppContainer`）持有进程内唯一的 `AppSettings` / `FavoritesStore` / `HistoryStore` / `ExtensionStore`，任何 `Context` 用 `context.appContainer.xxx` 取；不要再自己 `new`。
+- 冷启动步骤集中在 `StartupCoordinator`：`onProcessCreate` → `onActivityCreate` → 库就绪闸门（`isContentReady` / `awaitContentReady`）→ `onContentShown`。加启动任务先想清楚属于哪个阶段。
+
+## 标签内核操作
+
+`BrowserTab` 里两个内核共有的基础操作（前进后退 / 刷新 / 加载 / 查找 / 滚动 / 标题 / 历史下标）经 `TabEngineOps`（`TabEngineOps.kt`）调用，`WebViewTabOps` 与 `GeckoTabOps` 各一份实现。截图、UA、脚本注入、权限、阅读模式等仍在 `BrowserTab` 里按 `isGecko` 分支。
+
+## 包结构（`dev.dsh.miuixbrowser`）
+
+| 子包 | 内容 |
+|---|---|
+| （根包） | 清单里按类名引用的入口：`MafariApp`、各 `*Activity` / `*Service` / `*Receiver`，以及 `AppContainer`、`StartupCoordinator`、`StartupWarmup` |
+| `data/` | 加密库（`AppDatabase`、`Migrations`、`LegacyImports`）、各表 DAO（`HistoryDao`、`BookmarkDb`、`TabDb`、`DownloadDb`、`ScriptDb`、`PasswordDb`）、`*Store`、`AppSettings`、`WriteBehind`、图标存储 |
+| `backup/` | 备份 / 恢复、自动备份 |
+| `browser/` | 与内核无关的浏览核心：`BrowserState` / `BrowserTab`、下载、Cookie、快捷方式、密码导入导出等 |
+| `engine/`、`engine/gecko`、`engine/webview` | `EngineSupport`、`TabEngineOps`；Gecko 相关实现；WebView 相关（Cookie、指纹注入） |
+| `sync/`、`sync/fxa` | Git / WebDAV / Floccus 同步；Firefox 帐户同步 |
+| `adblock/` | 去广告规则与引擎、跟踪器列表 |
+| `crypto/` | 加密引擎、加密套件、生物识别、加密锁 |
+| `script/` | 油猴脚本引擎、GM 桥、拓展（脚本）存储 |
+| `net/` | `HttpFetcher`、代理、SOCKS5、GitHub 加速 |
+| `ui/` | 所有 `*Screen` / `*Sheet` / 对话框、玻璃与模糊效果等界面组件 |
+| `util/` | `Diag`、`UrlUtils` |
+
+新增文件按职责放进对应子包；跨包引用用显式 import。清单里新增组件类请放在根包，否则要在 AndroidManifest 里写全限定名。

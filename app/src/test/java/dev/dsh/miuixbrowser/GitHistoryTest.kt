@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.sync.GitHistory
 import java.io.File
 import java.nio.file.Files
 import org.eclipse.jgit.api.Git

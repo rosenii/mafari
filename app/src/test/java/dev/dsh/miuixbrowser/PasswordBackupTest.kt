@@ -1,5 +1,8 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.backup.BackupCategory
+import dev.dsh.miuixbrowser.backup.BackupManager
+import dev.dsh.miuixbrowser.browser.PasswordEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

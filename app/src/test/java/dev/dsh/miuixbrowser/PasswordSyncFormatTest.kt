@@ -1,5 +1,8 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.browser.PasswordEntry
+import dev.dsh.miuixbrowser.sync.PasswordSyncFormat
+import dev.dsh.miuixbrowser.sync.fxa.PLogin
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

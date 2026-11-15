@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.sync.GitNames
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

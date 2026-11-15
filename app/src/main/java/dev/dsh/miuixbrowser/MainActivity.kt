@@ -1,5 +1,17 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.browser.BrowserState
+import dev.dsh.miuixbrowser.browser.ShortcutHelper
+import dev.dsh.miuixbrowser.data.FavoritesStore
+import dev.dsh.miuixbrowser.engine.EngineSupport
+import dev.dsh.miuixbrowser.engine.gecko.GeckoDebug
+import dev.dsh.miuixbrowser.engine.gecko.GeckoViewLifecycle
+import dev.dsh.miuixbrowser.script.ExtensionStore
+import dev.dsh.miuixbrowser.ui.AppIconManager
+import dev.dsh.miuixbrowser.ui.BrowserScreen
+import dev.dsh.miuixbrowser.ui.LocalBlurMode
+import dev.dsh.miuixbrowser.ui.StartupSkeleton
+import dev.dsh.miuixbrowser.util.Diag
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -19,8 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
@@ -35,7 +45,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_DOWNLOADS = "open_downloads"
-        private const val SYNC_WARMUP_DELAY_MS = 3_000L
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -64,7 +73,7 @@ class MainActivity : ComponentActivity() {
             incomingUrl.value = data.toString()
             return
         }
-        val settings = AppSettings(this)
+        val settings = appContainer.settings
         when (settings.linkOpenMode) {
             1 -> openWithCustomTab(data)
             2 -> forwardToOtherBrowser(data)
@@ -140,31 +149,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         installCrashLogger()
-        StartupWarmup.start(this) // MafariApp 已在进程创建时启动过；幂等，这里兜底
         // 系统重建 Activity（savedInstanceState != null）时 intent 还是当初那条，不能再重复打开一次链接
         if (savedInstanceState == null) {
             consumeOpenDownloads(intent)
             consumeViewIntent(intent)
         }
-        if (EngineSupport.GECKO_BUNDLED) GeckoDebug.load(this)
-        dev.dsh.miuixbrowser.Diag.init(this)
-        // 拓展安装确认框需要 Activity；弱引用，避免静态持有 Activity
-        if (EngineSupport.GECKO_BUNDLED) {
-            val self = java.lang.ref.WeakReference(this)
-            GeckoExtensionStore.activityProvider = { self.get() }
-        }
-        dev.dsh.miuixbrowser.Diag.log("MainActivity.onCreate")
-        AdBlock.init(this)
-        // Firefox 同步不占冷启动：onCreate 里什么都不做，首帧画出后再延迟几秒在后台预热（仅「上次已知已登录」才初始化，
-        // 没登录过的用户零开销）；打开「Firefox帐户同步」页（FxaScreen）/ 系统分享面板发标签页（SendTabActivity）时仍会按需 init
-        CacheCleaner.runOnColdStart(this)
-        CookieControl.runOnColdStart(this, AppSettings(this))
-        // Gecko 运行时提前创建：必须在上面的缓存清理 / Cookie 清理之后（顺序与原来一致），但不必等到 BrowserState 组合时才建，
-        // 这样 Gecko 自己的启动线程能和后面的 setContent / 标签恢复 / 加密库预热并行跑
-        if (EngineSupport.GECKO_BUNDLED && EngineSupport.defaultIsGecko(this)) runCatching { GeckoRuntimeHolder.get(this) }
-        // 下载列表（读库 + 清理已完成任务的临时目录）不是首屏必需：首帧之后再从磁盘恢复。
-        // Downloader.start / 下载通知广播都会自己 init（幂等），不会因为晚一点而漏掉。
-        window.decorView.postDelayed({ Downloader.init(applicationContext) }, 300L)
+        StartupCoordinator.onActivityCreate(this)
 
         // 全屏沉浸：内容画到状态栏和手势小白条下面，小白条保留可见。
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -187,7 +177,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
-            val settings = remember { AppSettings(context) }
+            val settings = remember { context.appContainer.settings }
             val systemDark = isSystemInDarkTheme()
             val dark = when (settings.themeMode) {
                 1 -> false
@@ -211,7 +201,7 @@ class MainActivity : ComponentActivity() {
                     // 首帧先画一个与主题底色一致的占位面：BrowserScreen 首次组合要同步读加密库（标签 / 书签 / 脚本），
                     // 库还没打开时直接组合会把主线程卡住 1~2 秒，系统启动画面（白屏）也就一直收不起来。
                     // 库在后台线程等好之后再组合 BrowserScreen；库早已就绪（如界面重建）则直接组合，不闪占位。
-                    val contentReady = remember { mutableStateOf(StartupWarmup.isDbReady()) }
+                    val contentReady = remember { mutableStateOf(StartupCoordinator.isContentReady()) }
                     if (contentReady.value) {
                         BrowserScreen(
                             settings = settings,
@@ -226,30 +216,15 @@ class MainActivity : ComponentActivity() {
                     }
                     LaunchedEffect(Unit) {
                         if (!contentReady.value) {
-                            withContext(Dispatchers.IO) { StartupWarmup.awaitDb(context) }
+                            StartupCoordinator.awaitContentReady(context)
                             contentReady.value = true
                             Diag.log("gate open: db ready, composing BrowserScreen")
                         }
                         // Firefox 同步预热排在界面真正出来之后（此前是首帧后 3 秒，现在首帧提前了，不能再和加密库打开抢资源）
-                        scheduleSyncWarmUp()
+                        StartupCoordinator.onContentShown(this@MainActivity)
                     }
                 }
             }
-        }
-    }
-
-    /**
-     * 首帧之后再等 [SYNC_WARMUP_DELAY_MS]，然后在后台线程预热 Firefox 同步（登录状态、自动同步、发送标签页都依赖它就绪）。
-     * decorView.post 保证排在首次布局 / 绘制之后；延迟让页面加载、标签恢复先跑完。init 幂等，Activity 重建不会重复初始化。
-     */
-    private fun scheduleSyncWarmUp() {
-        if (!EngineSupport.SYNC_BUNDLED) return
-        val app = applicationContext
-        window.decorView.post {
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                { FxaSync.warmUp(app) },
-                SYNC_WARMUP_DELAY_MS,
-            )
         }
     }
 

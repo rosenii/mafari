@@ -1,5 +1,9 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.browser.PasswordCsv
+import dev.dsh.miuixbrowser.crypto.BiometricGate
+import dev.dsh.miuixbrowser.data.AppDatabase
+import dev.dsh.miuixbrowser.data.PasswordDb
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
@@ -36,7 +40,7 @@ class AutofillAuthActivity : Activity() {
         val app = applicationContext
         Thread {
             val entry = runCatching {
-                HistoryDb.get(app)?.let { db ->
+                AppDatabase.get(app)?.let { db ->
                     PasswordDb.reveal(app, db, guid)?.also { PasswordDb.markUsed(db, guid) }
                 }
             }.getOrNull()
