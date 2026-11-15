@@ -27,7 +27,10 @@ import java.io.File
 import kotlin.coroutines.resume
 
 /**
- * 「添加到桌面」：把当前网页做成桌面图标（固定快捷方式），点开进入无底栏的轻应用 [WebAppActivity]。
+ * 「添加到桌面」：把当前网页做成桌面图标（固定快捷方式，ShortcutManager.requestPinShortcut）。
+ * - Gecko 标签：快捷方式直接指向浏览器自己（MainActivity，ACTION_VIEW + [EXTRA_FROM_SHORTCUT]），
+ *   点开在 Gecko 内核里打开网址，不再走 WebView 的轻应用。
+ * - WebView 标签：保持原样，进入无底栏的轻应用 [WebAppActivity]。
  *
  * 流程：
  * 1. 小米 / 红米 / POCO 上有单独的「桌面快捷方式」权限（AppOps 10017），首次点击先引导到权限页开启，
@@ -41,6 +44,9 @@ object ShortcutHelper {
     const val ACTION_OPEN_WEBAPP = "dev.dsh.miuixbrowser.action.OPEN_WEBAPP"
     const val EXTRA_TITLE = "webapp_title"
     const val EXTRA_ICON = "webapp_icon"
+
+    /** Gecko 快捷方式的 ACTION_VIEW 带上它：MainActivity 无视「链接打开方式」（自定义标签页 / 交给其他浏览器），直接在应用内打开 */
+    const val EXTRA_FROM_SHORTCUT = "from_shortcut"
 
     private const val PREFS = "mafari_shortcut"
     private const val KEY_ASKED = "perm_asked"
@@ -129,19 +135,27 @@ object ShortcutHelper {
 
         val title = tab.title.ifBlank { hostOf(url) }
         // Gecko 标签没有 WebView：取不到页面图标，退回按域名抓取
-        val webView = runCatching { tab.webView }.getOrNull()
+        val gecko = tab.isGecko
+        val webView = if (gecko) null else runCatching { tab.webView }.getOrNull()
         scope.launch {
             val iconHref = queryPageIcon(webView)
             val raw = loadIcon(url, iconHref)
-            val id = "webapp_" + Integer.toHexString(url.hashCode())
+            val id = (if (gecko) "gecko_" else "webapp_") + Integer.toHexString(url.hashCode())
             val bitmap = withContext(Dispatchers.Default) { composeIcon(raw, hostOf(url)) }
-            withContext(Dispatchers.IO) { saveIcon(context, id, bitmap) }
-
-            val launch = Intent(context, WebAppActivity::class.java).apply {
-                action = ACTION_OPEN_WEBAPP
-                data = Uri.parse(url)
-                putExtra(EXTRA_TITLE, title)
-                putExtra(EXTRA_ICON, id)
+            val launch = if (gecko) {
+                Intent(context, MainActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    data = Uri.parse(url)
+                    putExtra(EXTRA_FROM_SHORTCUT, true)
+                }
+            } else {
+                withContext(Dispatchers.IO) { saveIcon(context, id, bitmap) }
+                Intent(context, WebAppActivity::class.java).apply {
+                    action = ACTION_OPEN_WEBAPP
+                    data = Uri.parse(url)
+                    putExtra(EXTRA_TITLE, title)
+                    putExtra(EXTRA_ICON, id)
+                }
             }
             val info = ShortcutInfoCompat.Builder(context, id)
                 .setShortLabel(shortLabel(title, url))

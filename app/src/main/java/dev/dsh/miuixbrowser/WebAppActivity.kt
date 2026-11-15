@@ -128,6 +128,7 @@ class WebAppActivity : ComponentActivity() {
         updateTaskDescription(appTitle)
 
         settings = AppSettings(this)
+        GeckoSitePerms.load(this) // 例外网站（与浏览器共用）
         AdBlock.init(this)
         WebViewProxy.applyFrom(settings)
 
@@ -397,7 +398,10 @@ class WebAppActivity : ComponentActivity() {
             override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
                 runOnUiThread {
                     val host = runCatching { Uri.parse(origin).host }.getOrNull().orEmpty()
-                    if (!isSameSite(host, startHost)) {
+                    // 例外网站优先于全局设置：拒绝 → 直接拒；允许 → 不受「只放行本站」限制
+                    val exc = GeckoSitePerms.override(host, GeckoSitePerms.LOCATION)
+                    val mode = exc ?: settings.locationPermission
+                    if (mode == 2 || (exc != 1 && !isSameSite(host, startHost))) {
                         callback.invoke(origin, false, false)
                     } else {
                         ensurePermissions(
@@ -690,13 +694,24 @@ class WebAppActivity : ComponentActivity() {
 
     private fun handleWebPermission(request: PermissionRequest) {
         val host = request.origin?.host.orEmpty()
-        if (!isSameSite(host, startHost)) {
+        val camExc = GeckoSitePerms.override(host, GeckoSitePerms.CAMERA)
+        val micExc = GeckoSitePerms.override(host, GeckoSitePerms.MIC)
+        // 例外网站有「允许」时不受「只放行本站」限制
+        if (!isSameSite(host, startHost) && camExc != 1 && micExc != 1) {
             request.deny()
             return
         }
+        val camMode = camExc ?: settings.cameraPermission
+        val micMode = micExc ?: settings.micPermission
         val needs = mutableListOf<String>()
-        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE in request.resources) needs += android.Manifest.permission.CAMERA
-        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE in request.resources) needs += android.Manifest.permission.RECORD_AUDIO
+        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE in request.resources) {
+            if (camMode == 2) { request.deny(); return }
+            needs += android.Manifest.permission.CAMERA
+        }
+        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE in request.resources) {
+            if (micMode == 2) { request.deny(); return }
+            needs += android.Manifest.permission.RECORD_AUDIO
+        }
         val supported = setOf(
             PermissionRequest.RESOURCE_VIDEO_CAPTURE,
             PermissionRequest.RESOURCE_AUDIO_CAPTURE,

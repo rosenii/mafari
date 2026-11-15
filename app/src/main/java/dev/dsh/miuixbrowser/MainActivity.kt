@@ -53,6 +53,12 @@ class MainActivity : ComponentActivity() {
         val data = intent.data ?: return
         val scheme = data.scheme?.lowercase() ?: return
         if (scheme != "http" && scheme != "https") return
+        // 桌面快捷方式（Gecko）：固定在应用内打开，不受「链接打开方式」影响
+        if (intent.getBooleanExtra(ShortcutHelper.EXTRA_FROM_SHORTCUT, false)) {
+            intent.removeExtra(ShortcutHelper.EXTRA_FROM_SHORTCUT)
+            incomingUrl.value = data.toString()
+            return
+        }
         val settings = AppSettings(this)
         when (settings.linkOpenMode) {
             1 -> openWithCustomTab(data)
