@@ -1473,6 +1473,22 @@ class BrowserTab(
         if (active || engineActiveFlag) lastActiveUptime = android.os.SystemClock.uptimeMillis()
         engineActiveFlag = active
         gecko?.setActive(active)
+        // 切到别的标签：暂停这个标签里正在播放的媒体
+        if (!active) pauseMedia()
+    }
+
+    /**
+     * 暂停本标签正在播放的音视频：切走标签 / 应用退到后台时调用。
+     * Gecko 走 MediaSession；WebView 没有对应接口，用脚本暂停页面（含同源 iframe）里的 video / audio。
+     */
+    fun pauseMedia() {
+        val g = geckoEngine
+        if (g != null) {
+            g.pauseMedia()
+            return
+        }
+        if (isGecko) return
+        runCatching { webViewOrNull?.evaluateJavascript(PAUSE_MEDIA_JS, null) }
     }
 
     /** 最近一次作为当前标签（或被创建）的时间，uptime 毫秒；闲置时长 = now - 它 */
@@ -2976,6 +2992,10 @@ class BrowserTab(
     }
 
     private companion object {
+        private const val PAUSE_MEDIA_JS =
+            "(function(){try{var p=function(d){d.querySelectorAll('video,audio').forEach(function(m){" +
+                "try{if(!m.paused)m.pause()}catch(e){}})};p(document);" +
+                "for(var i=0;i<window.frames.length;i++){try{p(window.frames[i].document)}catch(e){}}}catch(e){}})()"
         private const val CLOSE_WAIT_TRIES = 5
         private const val CLOSE_WAIT_MS = 50L
         private var counter = 0
@@ -3550,6 +3570,11 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
             state.saveTabs()
             state.persistSessionStates()
             state.reclaimEngines()
+        }
+
+        /** 应用退到后台：暂停所有标签里正在播放的媒体。主线程。 */
+        fun pauseMediaCurrent() {
+            current?.tabs?.forEach { it.pauseMedia() }
         }
 
         /** 系统内存吃紧：收紧后台引擎数量。主线程。 */

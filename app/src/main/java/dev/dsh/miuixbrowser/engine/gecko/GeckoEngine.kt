@@ -358,6 +358,29 @@ class GeckoTabEngine(
         runCatching { session.setActive(active) }
     }
 
+    // ---------------------------------------------------------------- 媒体暂停
+    //
+    // setActive(false) 只停渲染，不停声音：切到别的标签 / 应用退到后台后，音视频会继续播放。
+    // 这里通过 Gecko 的 MediaSession 拿到正在播放的媒体，在这两种时机主动暂停（回前台 / 切回来后由用户自己点播放）。
+
+    @Volatile
+    private var mediaSession: GeckoSession.MediaSession? = null
+
+    /** 应用已退到后台（Activity.onStop）到切回前台之间为 true */
+    @Volatile
+    private var appStopped = false
+
+    /** 暂停本标签正在播放的媒体；没有媒体会话时什么都不做 */
+    fun pauseMedia() {
+        runCatching { mediaSession?.pause() }
+    }
+
+    /** Activity.onStop：应用退到后台，暂停媒体 */
+    fun onAppStopped() {
+        appStopped = true
+        pauseMedia()
+    }
+
     // ---------------------------------------------------------------- 前后台切换：防止切回应用时网页黑屏
     //
     // 现在是 SurfaceView 后端：下面的截图 / 盖图逻辑只对 TextureView 生效，SurfaceView 下 findTextureView 为 null 自然跳过；
@@ -410,6 +433,7 @@ class GeckoTabEngine(
 
     /** Activity.onResume：切回前台 */
     fun onAppForeground() {
+        appStopped = false
         if (freezeOverlay == null) {
             // 只是失焦又回来（没经过 onStop）：不需要盖图，丢掉抓到的图
             frozenBitmap?.let { runCatching { it.recycle() } }
@@ -563,6 +587,22 @@ class GeckoTabEngine(
     private fun installDelegates() {
         // 网页弹层：JS 对话框 / <select> / 认证 / 日期 / 文件选择
         session.promptDelegate = GeckoPromptHandler(tab)
+
+        // 媒体会话：记下当前的媒体，供切走标签 / 退到后台时暂停
+        session.setMediaSessionDelegate(object : GeckoSession.MediaSession.Delegate {
+            override fun onActivated(session: GeckoSession, mediaSession: GeckoSession.MediaSession) {
+                this@GeckoTabEngine.mediaSession = mediaSession
+            }
+
+            override fun onDeactivated(session: GeckoSession, mediaSession: GeckoSession.MediaSession) {
+                if (this@GeckoTabEngine.mediaSession === mediaSession) this@GeckoTabEngine.mediaSession = null
+            }
+
+            override fun onPlay(session: GeckoSession, mediaSession: GeckoSession.MediaSession) {
+                // 切走 / 退到后台之后才开始播的（缓冲完成后自动播放、定时脚本等）：补一次暂停
+                if (!sessionActive || appStopped) runCatching { mediaSession.pause() }
+            }
+        })
 
         session.progressDelegate = object : GeckoSession.ProgressDelegate {
             override fun onPageStart(session: GeckoSession, url: String) {
@@ -932,7 +972,10 @@ object GeckoViewLifecycle {
 
     fun onPause() = snapshot().forEach { it.captureFrameForBackground() }
 
-    fun onStop() = snapshot().forEach { it.showFrozenFrame() }
+    fun onStop() = snapshot().forEach {
+        it.showFrozenFrame()
+        it.onAppStopped()
+    }
 
     fun onResume() = snapshot().forEach { it.onAppForeground() }
 }

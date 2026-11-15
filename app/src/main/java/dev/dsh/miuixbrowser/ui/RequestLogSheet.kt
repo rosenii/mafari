@@ -6,7 +6,10 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -26,7 +29,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
@@ -73,38 +75,38 @@ fun RequestLogSheet(
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    insideMargin = PaddingValues(0.dp),
-                ) {
-                    AppSwitchPreference(
-                        title = "记录请求",
-                        summary = "开启后统计页面请求的域名与次数；关闭时不统计，对页面加载没有额外开销（手动屏蔽的域名仍然生效）。开启后刷新页面才有数据",
-                        checked = AdBlock.requestLogEnabled,
-                        onCheckedChange = {
-                            AdBlock.updateRequestLog(it)
-                            if (!it) log.clear()
-                        },
+                AppSwitchPreference(
+                    title = "记录请求",
+                    summary = "统计页面请求的域名与次数，开启后刷新页面生效",
+                    checked = AdBlock.requestLogEnabled,
+                    onCheckedChange = {
+                        AdBlock.updateRequestLog(it)
+                        if (!it) log.clear()
+                    },
+                )
+            }
+            val hint = when {
+                !AdBlock.requestLogEnabled -> "统计已关闭"
+                !isGecko && !AdBlock.enabled -> "去广告已关闭，仅统计不拦截"
+                rows.isNotEmpty() -> "${rows.size} 个域名 · ${rows.sumOf { it.total }} 次请求"
+                else -> null
+            }
+            if (hint != null) {
+                item {
+                    Text(
+                        text = hint,
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
                     )
                 }
-            }
-            item {
-                Text(
-                    text = if (!AdBlock.requestLogEnabled) "统计已关闭，下方是你手动屏蔽 / 放行的域名"
-                    else if (!isGecko && !AdBlock.enabled) "去广告总开关已关闭：只统计，不会拦截任何请求"
-                    else if (isGecko) "共 ${rows.size} 个域名，${rows.sumOf { it.total }} 次请求。屏蔽立即对之后的请求生效；标「Gecko 防护」的是浏览器自带保护拦的，在「Gecko 高级保护」里调整"
-                    else "共 ${rows.size} 个域名，${rows.sumOf { it.total }} 次请求。屏蔽 / 放行对之后的请求立即生效，已加载的内容刷新页面后才会变化",
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-                )
             }
             if (!AdBlock.requestLogEnabled) {
                 // 关着时不展示数据（也没有数据）：下面只剩「我屏蔽 / 放行的域名」
             } else if (rows.isEmpty()) {
                 item {
                     Text(
-                        text = "暂无请求。刷新页面或打开一个网页后再来看（无痕标签不记录）",
+                        text = "暂无请求，刷新页面后再看",
                         fontSize = 14.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -113,12 +115,10 @@ fun RequestLogSheet(
             } else {
                 item { SmallTitle(text = "本页域名") }
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                        insideMargin = PaddingValues(0.dp),
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Column {
-                            rows.forEach { row ->
+                            rows.forEachIndexed { i, row ->
+                                if (i > 0) RowDivider()
                                 RequestRow(row) { msg -> toast(msg) }
                             }
                         }
@@ -131,12 +131,10 @@ fun RequestLogSheet(
             if (blocked.isNotEmpty()) {
                 item { SmallTitle(text = "我屏蔽的域名（含子域名）") }
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                        insideMargin = PaddingValues(0.dp),
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Column {
-                            blocked.forEach { h ->
+                            blocked.forEachIndexed { i, h ->
+                                if (i > 0) RowDivider()
                                 ManagedHostRow(h, "移除") { AdBlock.removeUserBlock(h); toast("已移除屏蔽") }
                             }
                         }
@@ -146,12 +144,10 @@ fun RequestLogSheet(
             if (allowed.isNotEmpty()) {
                 item { SmallTitle(text = "我放行的域名（含子域名）") }
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                        insideMargin = PaddingValues(0.dp),
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Column {
-                            allowed.forEach { h ->
+                            allowed.forEachIndexed { i, h ->
+                                if (i > 0) RowDivider()
                                 ManagedHostRow(h, "移除") { AdBlock.removeUserAllow(h); toast("已移除放行") }
                             }
                         }
@@ -235,4 +231,16 @@ private fun ManagedHostRow(host: String, actionText: String, onClick: () -> Unit
         )
         AppTextButton(text = actionText, onClick = onClick, inPage = true, minHeight = 30.dp)
     }
+}
+
+/** 列表行之间的细分隔线（Sheet 里没有卡片底色，靠它分行） */
+@Composable
+private fun RowDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(0.5.dp)
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+    )
 }

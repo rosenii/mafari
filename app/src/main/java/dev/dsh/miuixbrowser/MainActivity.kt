@@ -129,6 +129,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         if (EngineSupport.GECKO_BUNDLED) GeckoViewLifecycle.onStop()
+        // 退到后台：所有标签的媒体都暂停（两种内核）
+        BrowserState.pauseMediaCurrent()
         super.onStop()
         FavoritesStore.flushCurrent()
         ExtensionStore.flushCurrent()
