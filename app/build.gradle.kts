@@ -96,7 +96,7 @@ android {
         minSdk = 33
         targetSdk = 37
         versionCode = 20043
-        versionName = "v2.1.43-canary"
+        versionName = "v2.1.43"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -251,8 +251,14 @@ dependencies {
     // 第二内核：GeckoView nightly（arm64-v8a）
     // gecko 变体：正常打包；lite 变体：仅 compileOnly（让共用源码里的 Gecko 引用能通过编译），不进 APK
     "geckoImplementation"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
-    "liteCompileOnly"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
-    "liteSyncCompileOnly"("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion")
+    // 同样排除其传递的 kotlinx-coroutines，保证 lite 编译期与运行期的 coroutines 版本一致（原因见下方 syncLibs 处的注释）
+    listOf("liteCompileOnly", "liteSyncCompileOnly").forEach { conf ->
+        conf("org.mozilla.geckoview:geckoview-nightly-arm64-v8a:$geckoViewVersion") {
+            exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+            exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core-jvm")
+            exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-android")
+        }
+    }
 
     // Firefox 账号登录 + Sync（Rust application-services，含各 ABI 的 libmegazord；APK 会增大约 10–15 MB）
     // gecko / liteSync：正常打包；普通 lite：仅 compileOnly（让共用源码里的 Fxa* 能通过编译），不进 APK
@@ -281,7 +287,16 @@ dependencies {
     syncLibs.forEach {
         "geckoImplementation"(it)
         "liteSyncImplementation"(it)
-        "liteCompileOnly"(it)
+        // lite 里这些库只参与编译、不进 APK：必须把它们传递依赖的 kotlinx-coroutines 排除掉，
+        // 否则编译 classpath 会解析出比运行时（APK 里实际打包的）更新的 coroutines，
+        // Kotlin 会按新版二进制布局生成 Job.cancel$default 之类的调用，运行时 NoSuchMethodError 闪退。
+        // 排除后 lite 的编译 classpath 里 coroutines 只来自 implementation，与运行时同一个版本。
+        // 依赖级别的 exclude 只影响这条依赖自己的子图，不会波及 Compose 等其它依赖。
+        "liteCompileOnly"(it) {
+            exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+            exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core-jvm")
+            exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-android")
+        }
     }
 }
 

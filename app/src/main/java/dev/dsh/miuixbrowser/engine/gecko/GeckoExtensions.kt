@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.util.cancelCompat
 import dev.dsh.miuixbrowser.net.HttpFetcher
 import dev.dsh.miuixbrowser.sync.BookmarksBridge
 import dev.dsh.miuixbrowser.sync.FloccusPatcher
@@ -255,19 +256,19 @@ object GeckoExtensionStore {
                         job.onAwait { 2 }
                     }
                 } ?: run {
-                    job.cancel()
+                    job.cancelCompat()
                     error("安装超时，请重试")
                 }
                 when (first) {
                     // 用户点了取消：立刻结束，不依赖内核是否回包
                     1 -> {
-                        job.cancel()
+                        job.cancelCompat()
                         error("已取消安装")
                     }
                     0 -> {
                         val done = withTimeoutOrNull(POST_ALLOW_TIMEOUT_MS) { job.await() }
                         if (done == null) {
-                            job.cancel()
+                            job.cancelCompat()
                             null   // 内核迟迟没回包：下面按列表对比兜底
                         } else {
                             done.getOrThrow() ?: error("安装失败")

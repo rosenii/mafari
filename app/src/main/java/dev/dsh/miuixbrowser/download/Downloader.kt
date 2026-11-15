@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.download
 
+import dev.dsh.miuixbrowser.util.cancelCompat
 import dev.dsh.miuixbrowser.data.AppDatabase
 import dev.dsh.miuixbrowser.engine.gecko.GeckoGm
 import dev.dsh.miuixbrowser.util.Diag
@@ -345,7 +346,7 @@ object Downloader {
     }
 
     fun pause(id: Long) {
-        jobs.remove(id)?.cancel()
+        jobs.remove(id)?.cancelCompat()
         updateAndPersist(id) { it.copy(state = DownloadState.PAUSED) }
         val task = tasks.firstOrNull { it.id == id }
         if (task != null) {
@@ -367,7 +368,7 @@ object Downloader {
     /** 唯一会清掉分段 / 临时数据的入口；[deleteFile] 为 true 时连同系统里已保存的文件一起删 */
     fun delete(context: Context, id: Long, deleteFile: Boolean = false) {
         init(context)
-        jobs.remove(id)?.cancel()
+        jobs.remove(id)?.cancelCompat()
         val task = tasks.firstOrNull { it.id == id }
         // 已完成的文件默认保留，只有勾选「同时删除本地文件」才删；未完成的任务留下的是残缺文件，一律清掉
         if (deleteFile || task?.state != DownloadState.DONE) {
@@ -388,7 +389,7 @@ object Downloader {
     }
 
     private fun launch(id: Long) {
-        jobs.remove(id)?.cancel()
+        jobs.remove(id)?.cancelCompat()
         jobs[id] = scope.launch {
             var attempt = 0
             var restarts = 0
@@ -505,7 +506,7 @@ object Downloader {
         try {
             block()
         } finally {
-            watcher.cancel()
+            watcher.cancelCompat()
         }
     }
 
@@ -763,7 +764,7 @@ object Downloader {
                         }
                     }
                     workers.joinAll()
-                    ticker.cancel()
+                    ticker.cancelCompat()
                 }
             } finally {
                 checkpoint()

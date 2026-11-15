@@ -266,13 +266,9 @@ class FavoritesStore(context: Context) {
         prefs.edit().putString(KEY_FOLDERS, sealed).apply()
     }
 
+    // 默认收藏只保留项目主页（与「关于」页的项目地址一致）
     private fun defaults(): List<Favorite> = listOf(
-        Favorite("百度", "https://www.baidu.com"),
-        Favorite("知乎", "https://www.zhihu.com"),
-        Favorite("B站", "https://www.bilibili.com"),
-        Favorite("GitHub", "https://github.com"),
-        Favorite("微博", "https://weibo.com"),
-        Favorite("淘宝", "https://www.taobao.com"),
+        Favorite("GitHub", "https://github.com/rosenii/mafari"),
     )
 
     /** 按出现顺序返回全部分组名。 */

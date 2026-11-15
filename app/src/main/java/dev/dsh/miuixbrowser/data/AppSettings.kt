@@ -40,7 +40,7 @@ const val BLUR_OFF = 2
 
 /** 首页个人收藏可选行数上限 / 默认行数 */
 const val HOME_FAV_ROWS_MAX = 6
-const val HOME_FAV_ROWS_DEFAULT = 4
+const val HOME_FAV_ROWS_DEFAULT = HOME_FAV_ROWS_MAX
 
 /** 首页内容块 */
 const val HOME_FAVORITES = 0
@@ -51,7 +51,7 @@ const val HOME_GROUPS = 4
 const val HOME_QUICK = 5
 
 /** 首页「快捷菜单」默认显示行数（0=不显示，1..2 行，每行 6 个；见 [HOME_QUICK_COLS]） */
-const val HOME_QUICK_ROWS_DEFAULT = 1
+const val HOME_QUICK_ROWS_DEFAULT = HOME_QUICK_ROWS_MAX
 
 /** 首页「书签分组」卡片：每行格数 / 最多行数 */
 const val HOME_GROUP_COLS = 5
@@ -137,7 +137,7 @@ class AppSettings(context: Context) {
     val liquidGlass: Boolean get() = blurMode == BLUR_LIQUID
 
     /** 首页内容显示：LOGO / 收藏 / 隐私报告 / 最近浏览 / 下载项默认全部显示。 */
-    /** 个人收藏在首页显示的行数：0=不显示，1..6=显示对应行数（每行 3 个）。默认 4 行（等同旧版上限 12 个）。 */
+    /** 个人收藏在首页显示的行数：0=不显示，1..6=显示对应行数（每行 3 个）。默认最多 6 行。 */
     var homeFavRows by mutableStateOf(
         if (prefs.contains(KEY_HOME_FAV_ROWS)) {
             prefs.getInt(KEY_HOME_FAV_ROWS, HOME_FAV_ROWS_DEFAULT).coerceIn(0, HOME_FAV_ROWS_MAX)

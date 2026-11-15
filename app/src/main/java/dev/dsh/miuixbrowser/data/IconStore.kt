@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.util.cancelCompat
 import dev.dsh.miuixbrowser.crypto.digest
 import dev.dsh.miuixbrowser.engine.gecko.await
 import android.content.Context
@@ -92,7 +93,7 @@ internal class IconStore(
         val fresh = scope.async(start = CoroutineStart.LAZY) { produce(key, fetch) }
         val existing = inflight.putIfAbsent(key, fresh)
         val task = if (existing != null) {
-            fresh.cancel()
+            fresh.cancelCompat()
             existing
         } else {
             fresh.invokeOnCompletion { inflight.remove(key, fresh) }

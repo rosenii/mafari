@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.util.cancelCompat
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.browser.rememberRemoteIcon
@@ -331,7 +332,7 @@ internal fun MenuGrid(
                             onDragStart = {
                                 // 长按不进编辑；等 onDrag 出现真实位移再展开隐藏区。
                                 // 系统长按（约 0.4s）后进入这里，再补足到 [MENU_LONG_PRESS_MS]（0.65s）
-                                holdJob?.cancel()
+                                holdJob?.cancelCompat()
                                 if (action in longPressActions && !editing) {
                                     holdJob = gridScope.launch {
                                         kotlinx.coroutines.delay((MENU_LONG_PRESS_MS - systemLongPressMs).coerceAtLeast(0L))
@@ -362,7 +363,7 @@ internal fun MenuGrid(
                                 }
                             },
                             onDragEnd = {
-                                holdJob?.cancel()
+                                holdJob?.cancelCompat()
                                 if (editing && dragAction == action) {
                                     finishDrag(action, inHidden, row, col)
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -372,7 +373,7 @@ internal fun MenuGrid(
                                 pendingDrag = Offset.Zero
                             },
                             onDragCancel = {
-                                holdJob?.cancel()
+                                holdJob?.cancelCompat()
                                 dragAction = null
                                 dragOffset = Offset.Zero
                                 pendingDrag = Offset.Zero
