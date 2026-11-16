@@ -53,7 +53,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.positionInRoot
@@ -113,6 +113,7 @@ import top.yukonga.miuix.kmp.icon.glass.Delete
 import top.yukonga.miuix.kmp.icon.glass.Add
 import top.yukonga.miuix.kmp.icon.glass.Search
 import top.yukonga.miuix.kmp.icon.glass.ChevronBackward
+import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1145,7 +1146,7 @@ private fun BookmarkRow(
 
 /**
  * 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；长按管理分组）。
- * 「自定义」排序下，顶层分组（个人收藏除外）左侧多一个始终显示的排序手柄（淡色圆角底 + 六点），按住上下拖动即可排序；
+ * 「自定义」排序下，顶层分组（个人收藏除外）左侧多一个始终显示的排序手柄（miuix ListView 图标，无底框），按住上下拖动即可排序；
  * 个人收藏左侧是同样大小的置顶图标（固定在最上面，不可点击 / 拖动）。
  */
 @Composable
@@ -1191,19 +1192,16 @@ private fun BookmarkGroupHeader(
     ) {
         if (dragHandle) {
             var handleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-            val primary = MiuixTheme.colorScheme.primary
-            val dotColor = if (isDragged) primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
+            // 无底色的排序图标（miuix ListView · Regular）；36dp 是触控区，拖动中图标变主色
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    // 淡色圆角底（与分组 / 书签行的图标底同款），拖动中加深
-                    .background(primary.copy(alpha = if (isDragged) 0.22f else 0.10f))
                     .onGloballyPositioned { handleCoords = it }
-                    // 点按 / 长按手柄不触发整行的展开与重命名
-                    .pointerInput(Unit) { detectTapGestures(onTap = {}, onLongPress = {}) }
+                    // 点按手柄不触发整行的展开
+                    .pointerInput(Unit) { detectTapGestures(onTap = {}) }
+                    // 长按手柄才开始拖动排序（长按时有触感反馈），松手结束；没长按就上下滑仍是滚动列表
                     .pointerInput(Unit) {
-                        detectVerticalDragGestures(
+                        detectDragGesturesAfterLongPress(
                             onDragStart = { off ->
                                 val h = handleCoords?.positionInRoot()?.y ?: 0f
                                 val r = rowCoords?.positionInRoot()?.y ?: 0f
@@ -1211,31 +1209,26 @@ private fun BookmarkGroupHeader(
                             },
                             onDragEnd = { endCb() },
                             onDragCancel = { endCb() },
-                            onVerticalDrag = { change, dy ->
+                            onDrag = { change, drag ->
                                 change.consume()
-                                dragCb(dy)
+                                dragCb(drag.y)
                             },
                         )
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                // 两列三行的圆点（经典「抓取」手柄）
-                androidx.compose.foundation.Canvas(modifier = Modifier.size(width = 12.dp, height = 18.dp)) {
-                    val r = 1.8.dp.toPx()
-                    val xs = floatArrayOf(r, size.width - r)
-                    val ys = floatArrayOf(r, size.height / 2f, size.height - r)
-                    for (x in xs) for (y in ys) {
-                        drawCircle(color = dotColor, radius = r, center = androidx.compose.ui.geometry.Offset(x, y))
-                    }
-                }
+                Icon(
+                    imageVector = MiuixIcons.Regular.ListView,
+                    contentDescription = "拖动排序",
+                    tint = if (isDragged) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.size(24.dp),
+                )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
         } else if (pinMark) {
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f))
                     // 不可点击：吞掉点按 / 长按，既不触发整行展开，也没有任何可操作的反馈
                     .pointerInput(Unit) { detectTapGestures(onTap = {}, onLongPress = {}) },
                 contentAlignment = Alignment.Center,
@@ -1244,10 +1237,10 @@ private fun BookmarkGroupHeader(
                     imageVector = AppIcons.Pin,
                     contentDescription = "固定在最上面",
                     tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 45f },
+                    modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = 45f },
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
         }
         Row(
             modifier = Modifier.weight(1f),
@@ -1643,6 +1636,45 @@ private fun GroupSelectRow(
     }
 }
 
+/**
+ * 「同层置顶」的勾选圆。自绘而不用 miuix 的 Checkbox：后者的底色是半透明的，在柔光 / 液态玻璃的弹窗里会和背景糊在一起看不见。
+ * 这里用不透明的底 + 实线描边，未勾选是空心圆，勾选是主色实心圆 + 白色对勾，任何背景下都看得清。
+ */
+@Composable
+private fun PinCheckCircle(checked: Boolean) {
+    val primary = MiuixTheme.colorScheme.primary
+    val ring = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val tick = MiuixTheme.colorScheme.onPrimary
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(if (checked) primary else MiuixTheme.colorScheme.surface)
+            .border(2.dp, if (checked) primary else ring, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (checked) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.size(24.dp)) {
+                val w = size.width
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(w * 0.28f, w * 0.52f)
+                    lineTo(w * 0.44f, w * 0.67f)
+                    lineTo(w * 0.73f, w * 0.35f)
+                }
+                drawPath(
+                    path = path,
+                    color = tick,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 2.2.dp.toPx(),
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                        join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                    ),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 internal fun FavoriteEditorDialog(
     show: Boolean,
@@ -1775,10 +1807,7 @@ internal fun FavoriteEditorDialog(
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                top.yukonga.miuix.kmp.basic.Checkbox(
-                    state = if (pinned) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off,
-                    onClick = { pinned = !pinned },
-                )
+                PinCheckCircle(checked = pinned)
             }
             Spacer(Modifier.height(10.dp))
             Row(
