@@ -1370,6 +1370,18 @@ fun BrowserScreen(
                                 android.view.View.VISIBLE
                             }
                             if (view.visibility != wantedVisibility) view.visibility = wantedVisibility
+                            // 系统 WebView：开着「高级材质」（柔光 / 液态玻璃）时显式使用硬件层。
+                            // 网页上方叠着的玻璃底栏 / 弹层与 WebView 同帧合成，WebView 作为独立的硬件图层，
+                            // 合成时不会随 Compose 重绘被反复重录，减少页面闪烁；纯色模式不叠玻璃，保持默认（不额外占显存）。
+                            // 这里读取了 settings.blurEnabled，切换材质时会立即生效。GeckoView 自己管理渲染，不动。
+                            if (view is android.webkit.WebView) {
+                                val wantedLayer = if (settings.blurEnabled) {
+                                    android.view.View.LAYER_TYPE_HARDWARE
+                                } else {
+                                    android.view.View.LAYER_TYPE_NONE
+                                }
+                                if (view.layerType != wantedLayer) view.setLayerType(wantedLayer, null)
+                            }
                             // AndroidView 自己负责尺寸/布局同步。这里仅同步可见性，禁止每次
                             // Compose 重组都 post requestApplyInsets + requestLayout。
                         },
