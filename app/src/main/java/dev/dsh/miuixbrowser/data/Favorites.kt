@@ -498,6 +498,19 @@ class FavoritesStore(context: Context) {
         persist()
     }
 
+    /**
+     * 书签页「自定义」排序：把书签 [id] 挪到书签 [targetId] 的位置（拖过谁就占谁的位置，其余顺次让位）。
+     * 只改总列表里的相对顺序，同一分组内的先后随之改变，不影响其他分组。
+     */
+    fun reorderBookmark(id: String, targetId: String) {
+        if (id == targetId) return
+        val from = items.indexOfFirst { it.id == id }
+        val to = items.indexOfFirst { it.id == targetId }
+        if (from < 0 || to < 0) return
+        items.add(to, items.removeAt(from))
+        persist()
+    }
+
     fun remove(index: Int) {
         if (index in items.indices) {
             items.removeAt(index)

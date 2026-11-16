@@ -737,6 +737,17 @@ private fun sortBookmarkTree(roots: MutableList<BmNode>, favorites: FavoritesSto
     roots.addAll(others)
 }
 
+/** 书签（单条）拖动排序的控制器：「自定义」排序下长按书签图标拖动，只在同一文件夹内换位。 */
+private class BmDragCtl(
+    val enabled: Boolean = false,
+    val draggingId: String? = null,
+    /** 被拖书签行相对它布局位置的 y 偏移（px） */
+    val offsetY: (String) -> Float = { 0f },
+    val onStart: (String, Float) -> Unit = { _, _ -> },
+    val onDrag: (Float) -> Unit = {},
+    val onEnd: () -> Unit = {},
+)
+
 @Composable
 private fun BookmarksPage(
     favorites: FavoritesStore,
@@ -760,6 +771,10 @@ private fun BookmarksPage(
     var dragPath by remember { mutableStateOf<String?>(null) }
     var dragPointer by remember { mutableFloatStateOf(0f) }
     var dragGrab by remember { mutableFloatStateOf(0f) }
+    // 单条书签的拖动排序状态（含义同上；只在「自定义」排序且没有搜索词时启用）
+    var dragBm by remember { mutableStateOf<String?>(null) }
+    var bmPointer by remember { mutableFloatStateOf(0f) }
+    var bmGrab by remember { mutableFloatStateOf(0f) }
     val groupHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val groupTick = { groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
     // 顶层分组默认折叠（只有一个时默认展开），次级文件夹默认折叠；搜索时全部自动展开
@@ -820,6 +835,74 @@ private fun BookmarksPage(
             if (d != 0f) listState.scrollBy(d)
         }
     }
+    // 书签拖动期间：自动滚动 + 越过同文件夹里相邻（未置顶）书签就交换顺序；被拖的行滑出屏幕则终止
+    LaunchedEffect(dragBm) {
+        val id = dragBm ?: return@LaunchedEffect
+        val key = "b-$id"
+        val edge = with(density) { 48.dp.toPx() }
+        val step = with(density) { 12.dp.toPx() }
+        var missing = 0
+        var waitOffset: Int? = null
+        var waitFrames = 0
+        fun groupOf(f: Favorite) = f.group.ifBlank { Favorite.GROUP_PERSONAL }
+        while (true) {
+            withFrameNanos { }
+            val info = listState.layoutInfo
+            val me = info.visibleItemsInfo.firstOrNull { it.key == key }
+            if (me == null) {
+                if (++missing > 3) { dragBm = null; return@LaunchedEffect }
+                continue
+            }
+            missing = 0
+            if (waitOffset == me.offset && waitFrames++ < 10) {
+                // 刚交换过，等布局更新后再判断，避免来回抖动
+            } else {
+                waitOffset = null
+                waitFrames = 0
+                val mine = favorites.items.firstOrNull { it.id == id }
+                if (mine == null) { dragBm = null; return@LaunchedEffect }
+                val top = bmPointer - bmGrab
+                val center = top + me.size / 2f
+                val target = info.visibleItemsInfo.firstOrNull {
+                    val k = it.key as? String
+                    k != null && k != key && k.startsWith("b-") && center >= it.offset && center < it.offset + it.size
+                }
+                val other = (target?.key as? String)?.removePrefix("b-")?.let { tid -> favorites.items.firstOrNull { it.id == tid } }
+                if (other != null && !other.pinned && groupOf(other) == groupOf(mine)) {
+                    favorites.reorderBookmark(id, other.id)
+                    waitOffset = me.offset
+                    groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                }
+            }
+            val top = bmPointer - bmGrab
+            val d = when {
+                top < info.viewportStartOffset + edge -> -step
+                top + me.size > info.viewportEndOffset - edge -> step
+                else -> 0f
+            }
+            if (d != 0f) listState.scrollBy(d)
+        }
+    }
+    // 搜索时不允许拖书签（过滤后的列表顺序不完整）；切换排序方式同样终止拖动
+    val bmCtl = BmDragCtl(
+        enabled = sortMode == BookmarkSortMode.Custom && q.isEmpty(),
+        draggingId = dragBm,
+        offsetY = { id ->
+            val off = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "b-$id" }?.offset ?: 0
+            (bmPointer - bmGrab) - off
+        },
+        onStart = { id, grab ->
+            val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "b-$id" }
+            if (info != null) {
+                bmGrab = grab
+                bmPointer = info.offset + grab
+                dragBm = id
+                groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            }
+        },
+        onDrag = { dy -> bmPointer += dy },
+        onEnd = { dragBm = null },
+    )
     Column(modifier = Modifier.fillMaxSize()) {
     // 排序方式固定在顶部（与历史页的分组同款），放在列表外面，滑动时不随列表滚走
     if (favorites.items.isNotEmpty()) {
@@ -830,6 +913,7 @@ private fun BookmarksPage(
             onSelect = { m ->
                 sortMode = m
                 dragPath = null
+                dragBm = null
                 sp.edit().putString("bookmark_sort_mode", m.id).apply()
             },
         )
@@ -916,6 +1000,7 @@ private fun BookmarksPage(
                     onEdit = onEdit,
                     onGroupLongClick = onGroupLongClick,
                     onTick = groupTick,
+                    dragCtl = bmCtl,
                 )
             }
         }
@@ -936,6 +1021,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent
     onEdit: (Favorite) -> Unit,
     onGroupLongClick: (String) -> Unit,
     onTick: () -> Unit,
+    dragCtl: BmDragCtl = BmDragCtl(),
 ) {
     node.children.forEach { child ->
         if (child.total == 0) return@forEach
@@ -955,11 +1041,27 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bookmarkFolderContent
             )
         }
         if (open) {
-            bookmarkFolderContent(child, level + 1, searching, expanded, onOpen, onEdit, onGroupLongClick, onTick)
+            bookmarkFolderContent(child, level + 1, searching, expanded, onOpen, onEdit, onGroupLongClick, onTick, dragCtl)
         }
     }
-    items(node.items.size, key = { i -> "b-${node.path}-${node.items[i].url}-$i" }) { i ->
-        BookmarkRow(fav = node.items[i], level = level, onOpen = onOpen, onEdit = onEdit)
+    // key 用书签 id（稳定）：拖动换位时行跟着走，不会因下标变化被当成新行
+    items(node.items.size, key = { i -> "b-${node.items[i].id}" }) { i ->
+        val fav = node.items[i]
+        val dragged = dragCtl.draggingId == fav.id
+        BookmarkRow(
+            modifier = if (dragCtl.enabled && !dragged) Modifier.animateItem() else Modifier,
+            fav = fav,
+            level = level,
+            onOpen = onOpen,
+            onEdit = onEdit,
+            // 置顶书签的先后由置顶时间决定，不参与拖动
+            dragHandle = dragCtl.enabled && !fav.pinned,
+            isDragged = dragged,
+            dragOffsetY = { dragCtl.offsetY(fav.id) },
+            onDragStart = { grab -> dragCtl.onStart(fav.id, grab) },
+            onDrag = dragCtl.onDrag,
+            onDragEnd = dragCtl.onEnd,
+        )
     }
 }
 
@@ -1050,10 +1152,54 @@ private fun BookmarkRow(
     level: Int,
     onOpen: (String) -> Unit,
     onEdit: (Favorite) -> Unit,
+    modifier: Modifier = Modifier,
+    /** 「自定义」排序下：长按左侧书签图标可拖动排序（点一下图标仍是打开书签） */
+    dragHandle: Boolean = false,
+    isDragged: Boolean = false,
+    dragOffsetY: () -> Float = { 0f },
+    /** 参数：手指按下点距本行顶部的距离（px） */
+    onDragStart: (Float) -> Unit = {},
+    onDrag: (Float) -> Unit = {},
+    onDragEnd: () -> Unit = {},
 ) {
+    var rowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var iconCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val startCb by rememberUpdatedState(onDragStart)
+    val dragCb by rememberUpdatedState(onDrag)
+    val endCb by rememberUpdatedState(onDragEnd)
+    val openCb by rememberUpdatedState(onOpen)
+    val dragMod = if (dragHandle) {
+        Modifier
+            // 点按图标照旧打开书签；长按没拖动就松手也不会误触发打开
+            .pointerInput(fav.url) { detectTapGestures(onTap = { openCb(fav.url) }, onLongPress = {}) }
+            // 长按图标才开始拖动（有触感反馈），松手结束；没长按就上下滑仍是滚动列表
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { off ->
+                        val h = iconCoords?.positionInRoot()?.y ?: 0f
+                        val r = rowCoords?.positionInRoot()?.y ?: 0f
+                        startCb(h + off.y - r)
+                    },
+                    onDragEnd = { endCb() },
+                    onDragCancel = { endCb() },
+                    onDrag = { change, drag ->
+                        change.consume()
+                        dragCb(drag.y)
+                    },
+                )
+            }
+    } else Modifier
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (isDragged) Modifier
+                    .zIndex(1f)
+                    .graphicsLayer { translationY = dragOffsetY() }
+                    .shadow(8.dp, RoundedCornerShape(16.dp))
+                else Modifier,
+            )
+            .onGloballyPositioned { rowCoords = it }
             .padding(start = (12 + level * 14).dp, end = 12.dp)
             .padding(bottom = 8.dp),
         insideMargin = PaddingValues(14.dp),
@@ -1065,7 +1211,12 @@ private fun BookmarkRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 外层不裁剪：置顶角标要探出图标底的右上角
-            Box(modifier = Modifier.size(36.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .onGloballyPositioned { iconCoords = it }
+                    .then(dragMod),
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
