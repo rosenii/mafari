@@ -2709,6 +2709,12 @@ fun BrowserScreen(
             }
         }
 
+        // 脚本悬浮播放器的「投屏到」面板（状态在 MediaHost.pickerUi）
+        CastPickerDialog(
+            ui = dev.dsh.miuixbrowser.script.MediaHost.pickerUi,
+            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+        )
+
         LoginPromptDialog(
             prompt = loginPrompt,
             backdrop = if (homeBlurAvailable) homeBackdrop else null,

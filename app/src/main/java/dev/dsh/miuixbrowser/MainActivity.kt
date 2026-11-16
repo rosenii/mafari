@@ -18,6 +18,8 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
+import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -36,6 +38,25 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.ThemeController
 
 class MainActivity : ComponentActivity() {
+
+    /** 局域网访问权限（Android 17 / targetSdk 37 起必需）：DLNA 投屏搜索前调用，结果回调在主线程 */
+    private var localNetCallback: ((Boolean) -> Unit)? = null
+    private val localNetLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val cb = localNetCallback
+        localNetCallback = null
+        cb?.invoke(ok)
+    }
+
+    fun withLocalNetworkPermission(onResult: (Boolean) -> Unit) {
+        val perm = "android.permission.ACCESS_LOCAL_NETWORK"
+        // 低于 Android 17 没有这个权限，也不拦截局域网访问
+        if (Build.VERSION.SDK_INT < 37 || checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED) {
+            onResult(true)
+            return
+        }
+        localNetCallback = onResult
+        localNetLauncher.launch(perm)
+    }
 
     /** 从其他应用点链接进来时要打开的地址 */
     private val incomingUrl = mutableStateOf<String?>(null)

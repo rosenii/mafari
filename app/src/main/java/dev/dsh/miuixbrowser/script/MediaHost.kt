@@ -1,7 +1,6 @@
 package dev.dsh.miuixbrowser.script
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
@@ -22,9 +21,11 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Rational
-import android.widget.ArrayAdapter
-import android.widget.ListView
 import android.widget.Toast
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import dev.dsh.miuixbrowser.MainActivity
 import dev.dsh.miuixbrowser.util.Diag
 import org.json.JSONObject
@@ -32,6 +33,25 @@ import java.net.HttpURLConnection
 import java.net.Proxy
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * 「投屏到」面板的界面状态：原生侧（[MediaHost]）写，BrowserScreen 里的 CastPickerDialog 读并用 miuix 材质抽象层绘制。
+ * 只能在主线程修改。
+ */
+class CastPickerUi {
+    var show by mutableStateOf(false)
+    var status by mutableStateOf("")
+    val devices = mutableStateListOf<DlnaDevice>()
+    internal var onDevice: (DlnaDevice) -> Unit = {}
+    internal var onMirror: () -> Unit = {}
+    internal var onExternal: () -> Unit = {}
+    internal var onCancel: () -> Unit = {}
+
+    fun pickDevice(d: DlnaDevice) = onDevice(d)
+    fun pickMirror() = onMirror()
+    fun pickExternal() = onExternal()
+    fun cancel() = onCancel()
+}
 
 /**
  * 用户脚本的「宿主能力」：GM_mafariHost(op, args, onEvent) 的原生实现。
@@ -75,7 +95,10 @@ object MediaHost {
     // ---- 投屏 / 节流 ----
     private var lastHeavyAt = 0L
     private var cast: CastSession? = null
-    private var picker: AlertDialog? = null
+    private var pickerCancel: AtomicBoolean? = null
+
+    /** 投屏选择面板的界面状态（由 BrowserScreen 里的 CastPickerDialog 绘制） */
+    val pickerUi = CastPickerUi()
 
     // ------------------------------------------------------------------ 入口
 
@@ -160,7 +183,7 @@ object MediaHost {
                         playing = false
                         cast?.let { stopCast(it, null) }
                         sink = null
-                        runCatching { picker?.dismiss() }
+                        closePicker()
                         if (a != null) {
                             applyParams(a)
                             // 页面已经关掉播放器 / 跳走了，画中画里没有东西可看：把应用拉回前台，小窗自然展开
@@ -337,39 +360,42 @@ object MediaHost {
         )
     }
 
-    private fun showCastPicker(a: Activity, req: JSONObject) {
-        runCatching { picker?.dismiss() }
-        val devices = ArrayList<DlnaDevice>()
-        val labels = ArrayList<String>()
-        var status = "正在搜索局域网设备…"
-        val listAdapter = ArrayAdapter(a, android.R.layout.simple_list_item_1, labels)
-        fun rebuild() {
-            labels.clear()
-            for (d in devices) labels.add("📺  " + d.name)
-            if (devices.isEmpty()) labels.add(status)
-            labels.add("🖥  屏幕镜像（系统投屏）")
-            labels.add("▶  外部播放器 / 投屏 App")
-            listAdapter.notifyDataSetChanged()
-        }
-        rebuild()
+    private fun closePicker() {
+        pickerCancel?.set(true)
+        pickerCancel = null
+        pickerUi.show = false
+    }
+
+    private fun showCastPicker(a: MainActivity, req: JSONObject) {
+        closePicker()
+        val ui = pickerUi
         val cancelled = AtomicBoolean(false)
-        val lv = ListView(a).apply { adapter = listAdapter }
-        val dlg = AlertDialog.Builder(a).setTitle("投屏到").setView(lv).setNegativeButton("取消", null).create()
-        dlg.setOnDismissListener { cancelled.set(true); if (picker === dlg) picker = null }
-        lv.setOnItemClickListener { _, _, pos, _ ->
-            when {
-                devices.isNotEmpty() && pos < devices.size -> { dlg.dismiss(); startCast(a, devices[pos], req) }
-                devices.isEmpty() && pos == 0 -> Unit // 状态行
-                else -> {
-                    dlg.dismiss()
-                    if (pos - maxOf(devices.size, 1) == 0) openSystemCast(a)
-                    else if (!launchExternal(a, req)) emit(JSONObject().put("ev", "cast").put("state", "error").put("msg", "没有找到可用的播放器"))
-                }
+        pickerCancel = cancelled
+        ui.devices.clear()
+        ui.status = "正在搜索局域网设备…"
+        ui.onDevice = { d -> closePicker(); startCast(a, d, req) }
+        ui.onMirror = { closePicker(); openSystemCast(a) }
+        ui.onExternal = {
+            closePicker()
+            if (!launchExternal(a, req)) {
+                emit(JSONObject().put("ev", "cast").put("state", "error").put("msg", "没有找到可用的播放器"))
             }
         }
-        picker = dlg
-        dlg.show()
+        ui.onCancel = { closePicker() }
+        ui.show = true
 
+        // Android 17 起访问局域网要先有「附近设备」权限：没授权先弹系统授权框，授权后再开始搜索
+        a.withLocalNetworkPermission { granted ->
+            if (cancelled.get()) return@withLocalNetworkPermission
+            if (granted) {
+                discoverDevices(a, ui, cancelled)
+            } else {
+                ui.status = "没有「附近设备」权限，无法搜索局域网设备。请在 系统设置 → 应用 → Mafari → 权限 里允许后重试"
+            }
+        }
+    }
+
+    private fun discoverDevices(a: Activity, ui: CastPickerUi, cancelled: AtomicBoolean) {
         io.execute {
             val wm = a.applicationContext.getSystemService(WifiManager::class.java)
             // 部分机型不持有组播锁会丢掉 SSDP 的应答
@@ -377,7 +403,7 @@ object MediaHost {
             try {
                 newDlna(a).discover(7000, { cancelled.get() }) { dev ->
                     main.post {
-                        if (!cancelled.get() && devices.none { it.location == dev.location }) { devices.add(dev); rebuild() }
+                        if (!cancelled.get() && ui.devices.none { it.location == dev.location }) ui.devices.add(dev)
                     }
                 }
             } catch (e: Exception) {
@@ -386,7 +412,7 @@ object MediaHost {
                 runCatching { lock?.release() }
             }
             main.post {
-                if (!cancelled.get() && devices.isEmpty()) { status = "没有发现设备，请确认手机和电视在同一 Wi-Fi"; rebuild() }
+                if (!cancelled.get() && ui.devices.isEmpty()) ui.status = "没有发现设备，请确认手机和电视在同一 Wi-Fi"
             }
         }
     }
