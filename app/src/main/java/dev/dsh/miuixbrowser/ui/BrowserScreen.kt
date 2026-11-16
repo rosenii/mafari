@@ -2803,8 +2803,8 @@ fun BrowserScreen(
             prefillName = bookmarkPrefillName,
             prefillUrl = bookmarkPrefillUrl,
             onDismiss = { showBookmarkCreate = false },
-            onConfirm = { name, url, group ->
-                favorites.add(name, url, group)
+            onConfirm = { name, url, group, pinned ->
+                favorites.add(name, url, group, pinned)
                 showBookmarkCreate = false
                 android.widget.Toast.makeText(context, "添加书签成功", android.widget.Toast.LENGTH_SHORT).show()
             },

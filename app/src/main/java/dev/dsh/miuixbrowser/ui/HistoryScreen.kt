@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -573,18 +575,18 @@ fun LibraryScreen(
                     editingFav = null
                 }
             },
-            onConfirm = { name, url, group ->
+            onConfirm = { name, url, group, pinned ->
                 if (editingFav != null) {
                     val idx = favorites.items.indexOfFirst {
                         it.url == editingFav!!.url && it.name == editingFav!!.name
                     }
                     if (idx >= 0) {
-                        favorites.update(idx, name, url, group)
+                        favorites.update(idx, name, url, group, pinned)
                     } else {
-                        favorites.add(name, url, group)
+                        favorites.add(name, url, group, pinned)
                     }
                 } else {
-                    favorites.add(name, url, group)
+                    favorites.add(name, url, group, pinned)
                 }
                 creatingFav = false
                 editingFav = null
@@ -693,6 +695,7 @@ private fun buildBookmarkTree(favorites: FavoritesStore, q: String, mode: Bookma
 /**
  * 按 [mode] 排序：每个文件夹里的子文件夹和书签，以及顶层分组。
  * 「个人收藏」始终固定在最上面；「自定义」只影响顶层分组（用拖动手柄排），其余保持添加顺序。
+ * 每一层里置顶的书签（[Favorite.pinned]）无论哪种排序都排在本层书签最前。
  */
 private fun sortBookmarkTree(roots: MutableList<BmNode>, favorites: FavoritesStore, mode: BookmarkSortMode) {
     val collator = java.text.Collator.getInstance(Locale.getDefault())
@@ -704,9 +707,19 @@ private fun sortBookmarkTree(roots: MutableList<BmNode>, favorites: FavoritesSto
             BookmarkSortMode.ZA -> list.sortWith(Comparator { a, b -> collator.compare(name(b), name(a)) })
         }
     }
+    // 「同层置顶」：本层书签里置顶的排最前（后置顶的在上面），其余按所选排序；分组文件夹始终在书签上面，不受影响
+    fun pinFirst(list: MutableList<Favorite>) {
+        if (list.none { it.pinned }) return
+        val pinned = list.filter { it.pinned }.sortedByDescending { it.pinnedAt }
+        val rest = list.filter { !it.pinned }
+        list.clear()
+        list.addAll(pinned)
+        list.addAll(rest)
+    }
     fun walk(n: BmNode) {
         sortList(n.children) { it.name }
         sortList(n.items) { it.name }
+        pinFirst(n.items)
         n.children.forEach { walk(it) }
     }
     roots.forEach { walk(it) }
@@ -863,6 +876,8 @@ private fun BookmarksPage(
                     count = root.total,
                     open = open,
                     dragHandle = draggable,
+                    // 「自定义」排序下，个人收藏固定在最上面：左侧显示同样大小的置顶图标，不可点击 / 拖动 / 取消
+                    pinMark = sortMode == BookmarkSortMode.Custom && favorites.isProtectedGroup(root.path),
                     isDragged = isDragged,
                     dragOffsetY = {
                         val off = listState.layoutInfo.visibleItemsInfo
@@ -1048,9 +1063,11 @@ private fun BookmarkRow(
                 .clickable { onOpen(fav.url) },
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 外层不裁剪：置顶角标要探出图标底的右上角
+            Box(modifier = Modifier.size(36.dp)) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .fillMaxSize()
                     .clip(RoundedCornerShape(10.dp))
                     .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
@@ -1073,6 +1090,27 @@ private fun BookmarkRow(
                         modifier = Modifier.size(18.dp),
                     )
                 }
+            }
+            if (fav.pinned) {
+                // 置顶角标：主色小圆 + 斜插的白色图钉，压在图标右上角
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 5.dp, y = (-5).dp)
+                        .size(16.dp)
+                        .border(1.5.dp, MiuixTheme.colorScheme.surface, CircleShape)
+                        .clip(CircleShape)
+                        .background(MiuixTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Pin,
+                        contentDescription = "已置顶",
+                        tint = MiuixTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(9.dp).graphicsLayer { rotationZ = 45f },
+                    )
+                }
+            }
             }
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -1107,7 +1145,8 @@ private fun BookmarkRow(
 
 /**
  * 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；长按管理分组）。
- * 「自定义」排序下，顶层分组（个人收藏除外）左侧多一个始终显示的排序手柄（三条横线），按住上下拖动即可排序。
+ * 「自定义」排序下，顶层分组（个人收藏除外）左侧多一个始终显示的排序手柄（淡色圆角底 + 六点），按住上下拖动即可排序；
+ * 个人收藏左侧是同样大小的置顶图标（固定在最上面，不可点击 / 拖动）。
  */
 @Composable
 private fun BookmarkGroupHeader(
@@ -1119,6 +1158,8 @@ private fun BookmarkGroupHeader(
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     dragHandle: Boolean = false,
+    /** true = 左侧显示固定的置顶图标（与排序手柄同大小，不响应任何手势）；与 [dragHandle] 互斥 */
+    pinMark: Boolean = false,
     isDragged: Boolean = false,
     dragOffsetY: () -> Float = { 0f },
     /** 参数：手指按下点距本行顶部的距离（px） */
@@ -1145,15 +1186,19 @@ private fun BookmarkGroupHeader(
             )
             .onGloballyPositioned { rowCoords = it }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = if (dragHandle) 12.dp else 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = if (dragHandle || pinMark) 12.dp else 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (dragHandle) {
             var handleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-            val lineColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            val primary = MiuixTheme.colorScheme.primary
+            val dotColor = if (isDragged) primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
             Box(
                 modifier = Modifier
                     .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    // 淡色圆角底（与分组 / 书签行的图标底同款），拖动中加深
+                    .background(primary.copy(alpha = if (isDragged) 0.22f else 0.10f))
                     .onGloballyPositioned { handleCoords = it }
                     // 点按 / 长按手柄不触发整行的展开与重命名
                     .pointerInput(Unit) { detectTapGestures(onTap = {}, onLongPress = {}) }
@@ -1174,20 +1219,35 @@ private fun BookmarkGroupHeader(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                androidx.compose.foundation.Canvas(modifier = Modifier.size(width = 18.dp, height = 14.dp)) {
-                    val sw = 2.dp.toPx()
-                    val gap = (size.height - sw) / 2f
-                    repeat(3) { i ->
-                        drawRoundRect(
-                            color = lineColor,
-                            topLeft = androidx.compose.ui.geometry.Offset(0f, i * gap),
-                            size = androidx.compose.ui.geometry.Size(size.width, sw),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(sw / 2f),
-                        )
+                // 两列三行的圆点（经典「抓取」手柄）
+                androidx.compose.foundation.Canvas(modifier = Modifier.size(width = 12.dp, height = 18.dp)) {
+                    val r = 1.8.dp.toPx()
+                    val xs = floatArrayOf(r, size.width - r)
+                    val ys = floatArrayOf(r, size.height / 2f, size.height - r)
+                    for (x in xs) for (y in ys) {
+                        drawCircle(color = dotColor, radius = r, center = androidx.compose.ui.geometry.Offset(x, y))
                     }
                 }
             }
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(8.dp))
+        } else if (pinMark) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f))
+                    // 不可点击：吞掉点按 / 长按，既不触发整行展开，也没有任何可操作的反馈
+                    .pointerInput(Unit) { detectTapGestures(onTap = {}, onLongPress = {}) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = AppIcons.Pin,
+                    contentDescription = "固定在最上面",
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 45f },
+                )
+            }
+            Spacer(Modifier.width(8.dp))
         }
         Row(
             modifier = Modifier.weight(1f),
@@ -1591,7 +1651,7 @@ internal fun FavoriteEditorDialog(
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     liquidBackdrop: com.kyant.backdrop.Backdrop?,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, url: String, group: String) -> Unit,
+    onConfirm: (name: String, url: String, group: String, pinned: Boolean) -> Unit,
     onDelete: (() -> Unit)? = null,
     /** 新建时预填的名称 / 网址（initial 为空才生效） */
     prefillName: String = "",
@@ -1603,6 +1663,8 @@ internal fun FavoriteEditorDialog(
     var group by remember(initial, show) { mutableStateOf(initial?.group ?: Favorite.GROUP_PERSONAL) }
     // 输入框自己的文本：不能由 group 反推，否则打到与已有分组同名（如 a/b/c）时输入框会被清空，没法继续往后写 /d
     var typedGroup by remember(initial, show) { mutableStateOf("") }
+    // 「同层置顶」：编辑时沿用书签当前的置顶状态
+    var pinned by remember(initial, show) { mutableStateOf(initial?.pinned ?: false) }
     // 分组弹窗：是否打开、分组行的窗口坐标、宿主 Box 的窗口位置与尺寸（弹窗在宿主 Box 的坐标里定位）
     var groupPopup by remember(initial, show) { mutableStateOf(false) }
     var groupAnchor by remember { mutableStateOf(Rect.Zero) }
@@ -1624,23 +1686,42 @@ internal fun FavoriteEditorDialog(
                 },
         ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            top.yukonga.miuix.kmp.basic.TextField(
-                value = name,
-                onValueChange = { name = it },
+            // 「名称」「网址」的标题放在输入框外面（左侧），字号 / 颜色与下面的「分组」行一致
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                label = "名称",
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-            )
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "名称",
+                    fontSize = 15.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(12.dp))
+                top.yukonga.miuix.kmp.basic.TextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                )
+            }
             Spacer(Modifier.height(10.dp))
-            top.yukonga.miuix.kmp.basic.TextField(
-                value = url,
-                onValueChange = { url = it },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                label = "网址",
-                useLabelAsPlaceholder = true,
-                singleLine = true,
-            )
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "网址",
+                    fontSize = 15.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.width(12.dp))
+                top.yukonga.miuix.kmp.basic.TextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                )
+            }
             Spacer(Modifier.height(10.dp))
             // 分组按 / 分层：一行显示当前分组，点开在正下方弹出分组弹窗，可逐层选到最内层
             val current = group.trim().ifBlank { Favorite.GROUP_PERSONAL }
@@ -1667,7 +1748,39 @@ internal fun FavoriteEditorDialog(
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(6.dp))
+            // 同层置顶：只把这条书签排到所在分组的书签最前（分组文件夹仍在书签上面）；后勾选的排在先勾选的上面
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        chipHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        pinned = !pinned
+                    }
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "同层置顶",
+                        fontSize = 15.sp,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "排到所在分组的书签最前，分组文件夹仍在书签上面",
+                        fontSize = 11.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                top.yukonga.miuix.kmp.basic.Checkbox(
+                    state = if (pinned) androidx.compose.ui.state.ToggleableState.On else androidx.compose.ui.state.ToggleableState.Off,
+                    onClick = { pinned = !pinned },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1693,7 +1806,7 @@ internal fun FavoriteEditorDialog(
                     onClick = {
                         // 规整路径：去掉各段首尾空格和多余的 /（如 "a/b/ " → "a/b"）
                         val path = group.split('/').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("/")
-                        if (url.isNotBlank()) onConfirm(name, url, path)
+                        if (url.isNotBlank()) onConfirm(name, url, path, pinned)
                     },
                     backdrop = liquidBackdrop,
                     modifier = Modifier.weight(1f),

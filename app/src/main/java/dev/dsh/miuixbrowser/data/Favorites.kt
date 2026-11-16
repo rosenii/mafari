@@ -23,7 +23,14 @@ data class Favorite(
     val group: String = GROUP_PERSONAL,
     /** 稳定 id：供 Floccus 书签同步识别同一条书签（旧数据首次读取时补上并落盘）。 */
     val id: String = java.util.UUID.randomUUID().toString(),
+    /**
+     * 「同层置顶」的时间戳（毫秒）；0 = 未置顶。只在书签页里生效：同一分组内，置顶的书签排在本层书签最前
+     * （分组文件夹仍在书签上面），后置顶的在先置顶的上面。仅本机保存，不参与 Floccus 同步。
+     */
+    val pinnedAt: Long = 0L,
 ) {
+    val pinned: Boolean get() = pinnedAt > 0L
+
     companion object {
         const val GROUP_PERSONAL = "个人收藏"
     }
@@ -145,6 +152,7 @@ class FavoritesStore(context: Context) {
                             url = obj.optString("url"),
                             group = obj.optString("group").ifBlank { Favorite.GROUP_PERSONAL },
                             id = storedId.ifBlank { java.util.UUID.randomUUID().toString() },
+                            pinnedAt = obj.optLong("pinnedAt", 0L),
                         ),
                     )
                 }
@@ -437,7 +445,7 @@ class FavoritesStore(context: Context) {
         return items.any { (n.isNotEmpty() && it.name.trim() == n) || norm(it.url) == u }
     }
 
-    fun add(name: String, url: String, group: String = Favorite.GROUP_PERSONAL) {
+    fun add(name: String, url: String, group: String = Favorite.GROUP_PERSONAL, pinned: Boolean = false) {
         if (url.isBlank()) return
         val fixed = toUrl(url)
         items.add(
@@ -445,22 +453,43 @@ class FavoritesStore(context: Context) {
                 name = name.ifBlank { hostOf(fixed) },
                 url = fixed,
                 group = group.ifBlank { Favorite.GROUP_PERSONAL },
+                pinnedAt = if (pinned) nextPinStamp() else 0L,
             ),
         )
         persist()
     }
 
-    fun update(index: Int, name: String, url: String, group: String = items.getOrNull(index)?.group ?: Favorite.GROUP_PERSONAL) {
+    /**
+     * 改一条书签。[pinned] = null 表示不动置顶状态；true 且原来没置顶 → 现在置顶（排在同层已置顶书签的最上面）；
+     * true 且原来就置顶 → 保持原来的先后；false → 取消置顶。
+     */
+    fun update(
+        index: Int,
+        name: String,
+        url: String,
+        group: String = items.getOrNull(index)?.group ?: Favorite.GROUP_PERSONAL,
+        pinned: Boolean? = null,
+    ) {
         if (index !in items.indices || url.isBlank()) return
         val fixed = toUrl(url)
+        val old = items[index]
+        val stamp = when (pinned) {
+            null -> old.pinnedAt
+            true -> if (old.pinned) old.pinnedAt else nextPinStamp()
+            false -> 0L
+        }
         items[index] = Favorite(
             name = name.ifBlank { hostOf(fixed) },
             url = fixed,
             group = group.ifBlank { Favorite.GROUP_PERSONAL },
-            id = items[index].id,
+            id = old.id,
+            pinnedAt = stamp,
         )
         persist()
     }
+
+    /** 新的置顶时间戳：取当前时间，并保证比现有任何一条都大（同一毫秒连续置顶也分得出先后）。 */
+    private fun nextPinStamp(): Long = maxOf(System.currentTimeMillis(), (items.maxOfOrNull { it.pinnedAt } ?: 0L) + 1L)
 
     /** 拖动排序：把 from 位置的项移到 to 位置（首页只显示靠前的若干项，下标与总列表一致）。 */
     fun move(from: Int, to: Int) {
@@ -694,7 +723,8 @@ class FavoritesStore(context: Context) {
                     .put("name", it.name)
                     .put("url", it.url)
                     .put("group", it.group)
-                    .put("id", it.id),
+                    .put("id", it.id)
+                    .put("pinnedAt", it.pinnedAt),
             )
         }
         val sealed = SecureStore.write(appContext, array.toString(), PURPOSE) ?: return

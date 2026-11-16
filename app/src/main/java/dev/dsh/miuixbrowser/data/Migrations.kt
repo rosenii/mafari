@@ -45,6 +45,8 @@ internal object Migrations {
             TabDb.migrate(db) // 旧库补 Gecko 会话状态列
             db.execSQL(TabDb.CREATE_INDEX)
         },
+        // 书签「同层置顶」：bookmarks 表加 pinned 列
+        Step(2, "bookmark pinned column") { db -> BookmarkDb.addPinnedColumn(db) },
     )
 
     /** 当前代码期望的结构版本。 */

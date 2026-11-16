@@ -36,6 +36,16 @@ internal object BookmarkDb {
     const val CREATE_META =
         "CREATE TABLE IF NOT EXISTS bookmark_meta(k TEXT PRIMARY KEY NOT NULL, v TEXT NOT NULL) WITHOUT ROWID"
 
+    /** 迁移 v2：书签表加「置顶」列（0 = 未置顶，否则为置顶时间戳）。已有该列时跳过，可重复执行。 */
+    fun addPinnedColumn(db: SQLiteDatabase) {
+        val has = db.rawQuery("PRAGMA table_info(bookmarks)", emptyArray<String>()).use { c ->
+            var found = false
+            while (c.moveToNext()) if (c.getString(1) == "pinned") found = true
+            found
+        }
+        if (!has) db.execSQL("ALTER TABLE bookmarks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+    }
+
     class Loaded(val items: List<Favorite>, val changed: Boolean)
 
     /**
@@ -108,7 +118,7 @@ internal object BookmarkDb {
     /** 按总列表顺序读出全部书签；id 为空 / 重复的补发新 id（[Loaded.changed] = true，调用方应重新落盘）。 */
     fun loadBookmarks(db: SQLiteDatabase): Loaded {
         val rows = ArrayList<Favorite>()
-        db.rawQuery("SELECT id,name,url,grp FROM bookmarks ORDER BY pos", emptyArray<String>()).use { c ->
+        db.rawQuery("SELECT id,name,url,grp,pinned FROM bookmarks ORDER BY pos", emptyArray<String>()).use { c ->
             while (c.moveToNext()) {
                 rows.add(
                     Favorite(
@@ -116,6 +126,7 @@ internal object BookmarkDb {
                         url = c.getString(2),
                         group = c.getString(3).ifBlank { Favorite.GROUP_PERSONAL },
                         id = c.getString(0),
+                        pinnedAt = c.getLong(4),
                     ),
                 )
             }
@@ -173,7 +184,10 @@ internal object BookmarkDb {
     fun itemsToJson(items: List<Favorite>): String {
         val array = JSONArray()
         items.forEach {
-            array.put(JSONObject().put("name", it.name).put("url", it.url).put("group", it.group).put("id", it.id))
+            array.put(
+                JSONObject().put("name", it.name).put("url", it.url).put("group", it.group).put("id", it.id)
+                    .also { o -> if (it.pinned) o.put("pinnedAt", it.pinnedAt) },
+            )
         }
         return array.toString()
     }
@@ -196,6 +210,7 @@ internal object BookmarkDb {
                     url = o.optString("url"),
                     group = o.optString("group").ifBlank { Favorite.GROUP_PERSONAL },
                     id = o.optString("id"),
+                    pinnedAt = o.optLong("pinnedAt", 0L),
                 ),
             )
         }
@@ -239,8 +254,8 @@ internal object BookmarkDb {
         db.execSQL("DELETE FROM bookmarks")
         items.forEachIndexed { i, f ->
             db.execSQL(
-                "INSERT INTO bookmarks(pos,id,name,url,grp) VALUES(?,?,?,?,?)",
-                arrayOf<Any?>(i.toLong(), f.id, f.name, f.url, f.group),
+                "INSERT INTO bookmarks(pos,id,name,url,grp,pinned) VALUES(?,?,?,?,?,?)",
+                arrayOf<Any?>(i.toLong(), f.id, f.name, f.url, f.group, f.pinnedAt),
             )
         }
         db.execSQL("INSERT OR REPLACE INTO bookmark_meta(k,v) VALUES('initialized','1')")
