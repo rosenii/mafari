@@ -67,6 +67,9 @@ const val HOME_MODE_CUSTOM = 2
 /** 首次安装 / 升级后的「用户引导页」版本：引导内容有重大变化、需要让老用户再看一遍时 +1 */
 const val ONBOARDING_VERSION = 1
 
+/** 引导完成标记所在的 SharedPreferences（独立文件，不参与备份 / 恢复） */
+const val ONBOARDING_PREFS = "mafari_onboarding"
+
 /** 「布局 → 导航栏位置」：数值写进 SharedPreferences，不要改 */
 const val BAR_POS_TOP = 0
 const val BAR_POS_BOTTOM = 1
@@ -487,10 +490,17 @@ class AppSettings(context: Context) {
     }
 
     /**
-     * 已看完（或跳过）的引导页版本。新安装和从旧版本升级上来的用户都没有这个键，读出来是 0，
-     * 小于 [ONBOARDING_VERSION] 就会在启动后弹出引导（见 OnboardingScreen）。
+     * 已看完（或跳过）的引导页版本。
+     *
+     * 标记存在独立的 SharedPreferences（[ONBOARDING_PREFS]）里，而不是 mafari_settings：备份恢复会按「除书签外全部覆盖」
+     * 重写 mafari_settings，标记随之丢失，已经看过引导的人就会被再弹一次。独立文件不在备份范围内，恢复不会动它。
+     * 旧版本写在 mafari_settings 里的标记（只要看过就 >= 1）仍然认，并迁移过来。
      */
-    var onboardingVersion by mutableIntStateOf(prefs.getInt(KEY_ONBOARDING, 0))
+    private val onboardingPrefs = context.getSharedPreferences(ONBOARDING_PREFS, Context.MODE_PRIVATE)
+
+    var onboardingVersion by mutableIntStateOf(
+        maxOf(onboardingPrefs.getInt(KEY_ONBOARDING, 0), prefs.getInt(KEY_ONBOARDING, 0)),
+    )
         private set
 
     val onboardingPending: Boolean get() = onboardingVersion < ONBOARDING_VERSION
@@ -498,7 +508,8 @@ class AppSettings(context: Context) {
     /** 完成或跳过引导。引导里已经带了「设为默认浏览器」这一步，旧的首次询问弹窗不必再弹。 */
     fun markOnboardingDone() {
         onboardingVersion = ONBOARDING_VERSION
-        prefs.edit().putInt(KEY_ONBOARDING, ONBOARDING_VERSION).apply()
+        // commit：进程马上被杀时 apply 可能来不及落盘，下次启动又会弹
+        onboardingPrefs.edit().putInt(KEY_ONBOARDING, ONBOARDING_VERSION).commit()
         markDefaultBrowserPrompted()
     }
 

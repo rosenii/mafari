@@ -2892,6 +2892,10 @@ fun BrowserScreen(
             },
         )
     }
+    // 引导进行中进入二级页面（备份 / Firefox 同步）：浏览主页被推到下面，转场里不能露出首页，用纯色盖住
+    if (settings.onboardingPending) {
+        Box(modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface))
+    }
     }
     }
     }
@@ -3045,9 +3049,11 @@ fun BrowserScreen(
         )
     }
     }
-    // 用户引导：盖在最上层；进入二级页面（备份 / Firefox 同步）时撤掉，返回后继续
-    if (settings.onboardingPending && backStack.size <= 1) {
+    // 用户引导：盖在最上层。进入二级页面（备份 / Firefox 同步）时只是「不摆放」（visible = false），并不撤出组合：
+    // 当前步骤、滚动位置和背景动画都留着，返回时第一帧就是完整的引导页，不会再闪出下面的浏览器首页
+    if (settings.onboardingPending) {
         OnboardingScreen(
+            visible = backStack.size <= 1,
             settings = settings,
             menuOrder = menuOrder,
             step = onboardingStep,

@@ -6,6 +6,9 @@ import dev.dsh.miuixbrowser.browser.DefaultBrowser
 import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.browser.MenuOrderStore
 import dev.dsh.miuixbrowser.data.AppSettings
+import dev.dsh.miuixbrowser.data.BLUR_LIQUID
+import dev.dsh.miuixbrowser.data.BLUR_MIUIX
+import dev.dsh.miuixbrowser.data.BLUR_OFF
 import dev.dsh.miuixbrowser.data.HOME_DOWNLOADS
 import dev.dsh.miuixbrowser.data.HOME_FAVORITES
 import dev.dsh.miuixbrowser.data.HOME_GROUPS
@@ -33,6 +36,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +74,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.layer.CompositingStrategy as LayerCompositingStrategy
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -80,6 +88,7 @@ import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.blur.Backdrop
@@ -100,29 +109,35 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *       右上角永远有「跳过」。按钮 / 弹窗 / 下拉 / 开关全部走 AppMaterial 的 App* 门面，
  *       所以「高级材质」的三种（柔光玻璃 / 液态玻璃 / 纯色）在引导页里都生效。
  *
- * 步骤：壁纸 → 首页 → 菜单栏 → 备份与同步 → 口令 → 隐私保护 → 默认浏览器 → 隐私政策（须读到底才能完成）。
+ * 步骤：欢迎 → 高级材质 → 壁纸 → 首页 → 菜单栏 → 备份与同步 → 口令 → 隐私保护 → 默认浏览器 → 隐私政策（须读到底才能完成）。
+ * 「高级材质」选定后立即写入设置，之后所有步骤（卡片 / 按钮 / 下拉 / 弹窗）都按所选材质显示。
+ * 右上角「跳过」只会跳到最后一步「隐私政策」，政策必须读完才能结束引导。
  *
  * 引导页是盖在 BrowserScreen 之上的一层，不是路由：当前步骤存在 BrowserScreen 里，
  * 从引导里点进「备份与同步 / Firefox 帐户同步」这类二级页面时，本层暂时撤掉，回来后还停在原来的步骤。
  * 完成与跳过都调用 [AppSettings.markOnboardingDone]（由调用方处理）。
  */
 
-internal const val ONBOARDING_STEP_COUNT = 8
+internal const val ONBOARDING_STEP_COUNT = 10
 
-private const val STEP_WALLPAPER = 0
-private const val STEP_HOME = 1
-private const val STEP_MENU = 2
-private const val STEP_BACKUP = 3
-private const val STEP_PASSWORD = 4
-private const val STEP_PRIVACY = 5
-private const val STEP_DEFAULT = 6
-private const val STEP_POLICY = 7
+private const val STEP_WELCOME = 0
+private const val STEP_MATERIAL = 1
+private const val STEP_WALLPAPER = 2
+private const val STEP_HOME = 3
+private const val STEP_MENU = 4
+private const val STEP_BACKUP = 5
+private const val STEP_PASSWORD = 6
+private const val STEP_PRIVACY = 7
+private const val STEP_DEFAULT = 8
+private const val STEP_POLICY = 9
 
 private val STEP_TITLES = listOf(
-    "设置壁纸", "布置首页", "整理菜单栏", "备份与同步", "设置口令", "隐私保护", "默认浏览器", "隐私政策",
+    "欢迎使用", "高级材质", "设置壁纸", "布置首页", "整理菜单栏", "备份与同步", "设置口令", "隐私保护", "默认浏览器", "隐私政策",
 )
 
 private val STEP_SUBTITLES = listOf(
+    "Mafari 浏览器，接下来用几步帮你完成基础设置",
+    "先挑一种界面材质，后面的所有设置页都会按它显示，之后可在 设置 → 外观 里更换",
     "给主页挑一张喜欢的图片，也可以先跳过，之后在 设置 → 外观 里更换",
     "选好起始页、导航栏位置和地址栏显示，再决定首页放哪些内容",
     "长按图标拖动即可排序，拖到分割线下方就隐藏；部分按钮长按还有更多功能",
@@ -135,6 +150,7 @@ private val STEP_SUBTITLES = listOf(
 
 @Composable
 internal fun OnboardingScreen(
+    visible: Boolean,
     settings: AppSettings,
     menuOrder: MenuOrderStore,
     step: Int,
@@ -151,17 +167,17 @@ internal fun OnboardingScreen(
     SideEffect { backdrop.graphicsLayer.compositingStrategy = LayerCompositingStrategy.Offscreen }
     val bd: Backdrop? = if (glass) backdrop else null
 
-    // 返回键：回到上一步；第一步不退出（要离开请点右上角「跳过」）
-    BackHandler { if (step > 0) onStepChange(step - 1) }
+    // 返回键：回到上一步；第一步不退出（要离开请点右上角「跳过」）。
+    // 引导被二级页面（备份 / Firefox 同步）盖住时不拦截，返回键交给那个页面
+    BackHandler(enabled = visible) { if (step > 0) onStepChange(step - 1) }
 
-    // 壁纸选择：选好后自动进入下一步
+    // 壁纸选择：选好后留在本步，让人先看预览，再自己点「继续」
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             settings.updateWallpaper(uri.toString())
-            onStepChange(STEP_HOME)
         }
     }
 
@@ -181,115 +197,155 @@ internal fun OnboardingScreen(
     }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides if (glass) liquidBackdrop else null) {
-        Box(
+        // 引导层盖在根 Scaffold 之外，下拉菜单 / 对话框（口令、指定页面）注册的弹窗宿主在根 Scaffold 里，
+        // 会被引导层整个盖住：点下拉只看到行变灰，点「设置口令」毫无反应。
+        // 这里自带一个 Scaffold 当弹窗宿主（它此时是根，弹窗就渲染在引导层自己里面，并盖在引导内容之上）。
+        Scaffold(
             modifier = Modifier
                 .fillMaxSize()
-                // 整层盖在浏览页上：吞掉触摸，免得点穿到下面的页面
-                .pointerInput(Unit) { detectTapGestures { } },
-        ) {
-            OnboardingBackground(
+                // 被二级页面盖住时只是不摆放：既不画、也不接收触摸，但组合状态（步骤 / 滚动 / 动画）全部保留
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    // 隐藏时布局尺寸为 0×0 且不摆放：不画、命中检测范围为空，不会拦截下面页面的触摸
+                    layout(if (visible) placeable.width else 0, if (visible) placeable.height else 0) {
+                        if (visible) placeable.place(0, 0)
+                    }
+                },
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        ) { _ ->
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .layerBackdrop(backdrop)
-                    .kyantLayerBackdrop(liquidBackdrop),
-            )
+                    // 整层盖在浏览页上：吞掉触摸，免得点穿到下面的页面
+                    .pointerInput(Unit) { detectTapGestures { } },
+            ) {
+                OnboardingBackground(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(backdrop)
+                        .kyantLayerBackdrop(liquidBackdrop),
+                )
 
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-                // 顶部：步骤指示 + 始终可见的「跳过」
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 12.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StepDots(step = step)
-                    Spacer(Modifier.weight(1f))
-                    AppDialogButton(
-                        onClick = onFinish,
-                        modifier = Modifier.width(76.dp),
-                        cornerRadius = 18.dp,
-                        minHeight = 36.dp,
+                Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                    // 顶部：步骤指示 + 「跳过」（只跳到最后一步隐私政策；已经在政策页就不再显示）
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 12.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(text = "跳过", fontSize = 14.sp, style = MiuixTheme.textStyles.button)
-                    }
-                }
-
-                AnimatedContent(
-                    targetState = step,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    transitionSpec = {
-                        val forward = targetState > initialState
-                        (
-                            slideInHorizontally(tween(320)) { if (forward) it / 3 else -it / 3 } +
-                                fadeIn(tween(280))
-                            ) togetherWith (
-                            slideOutHorizontally(tween(320)) { if (forward) -it / 3 else it / 3 } +
-                                fadeOut(tween(180))
-                            )
-                    },
-                    label = "onboardingStep",
-                ) { s ->
-                    StepFrame(
-                        title = STEP_TITLES[s],
-                        subtitle = STEP_SUBTITLES[s],
-                        scroll = if (s == STEP_POLICY) policyScroll else rememberScrollState(),
-                    ) {
-                        when (s) {
-                            STEP_WALLPAPER -> WallpaperStep(settings, bd)
-                            STEP_HOME -> HomeStep(settings, bd)
-                            STEP_MENU -> MenuStep(settings, menuOrder, bd)
-                            STEP_BACKUP -> BackupStep(bd, onOpenBackup, onOpenFxa)
-                            STEP_PASSWORD -> PasswordStep(bd)
-                            STEP_PRIVACY -> PrivacyStep(settings, bd)
-                            STEP_DEFAULT -> DefaultBrowserStep(bd)
-                            else -> Column { PolicySections() }
+                        StepDots(step = step)
+                        Spacer(Modifier.weight(1f))
+                        if (step < STEP_POLICY) {
+                            AppDialogButton(
+                                onClick = { onStepChange(STEP_POLICY) },
+                                modifier = Modifier.width(76.dp),
+                                cornerRadius = 18.dp,
+                                minHeight = 36.dp,
+                            ) {
+                                Text(text = "跳过", fontSize = 14.sp, style = MiuixTheme.textStyles.button)
+                            }
+                        } else {
+                            Spacer(Modifier.height(36.dp))
                         }
                     }
-                }
 
-                // 底部操作区
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 24.dp)
-                        .padding(top = 8.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    val last = step == ONBOARDING_STEP_COUNT - 1
-                    if (step == STEP_WALLPAPER) {
-                        val hasWallpaper = settings.wallpaper.isNotBlank()
-                        BigButton(
-                            text = if (hasWallpaper) "继续" else "选择壁纸",
-                            primary = true,
-                            onClick = {
-                                if (hasWallpaper) onStepChange(STEP_HOME) else picker.launch(arrayOf("image/*"))
-                            },
-                        )
-                        BigButton(
-                            text = if (hasWallpaper) "重新选择" else "跳过此步",
-                            primary = false,
-                            onClick = {
-                                if (hasWallpaper) picker.launch(arrayOf("image/*")) else onStepChange(STEP_HOME)
-                            },
-                        )
-                    } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            BigButton(
-                                text = "上一步",
-                                primary = false,
-                                onClick = { onStepChange(step - 1) },
-                                modifier = Modifier.weight(1f),
-                            )
-                            BigButton(
-                                text = when {
-                                    !last -> "继续"
-                                    policyReached -> "完成"
-                                    else -> "请先读到底部"
-                                },
-                                primary = true,
-                                enabled = !last || policyReached,
-                                onClick = { if (last) onFinish() else onStepChange(step + 1) },
-                                modifier = Modifier.weight(2f),
-                            )
+                    AnimatedContent(
+                        targetState = step,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        transitionSpec = {
+                            val forward = targetState > initialState
+                            (
+                                slideInHorizontally(tween(320)) { if (forward) it / 3 else -it / 3 } +
+                                    fadeIn(tween(280))
+                                ) togetherWith (
+                                slideOutHorizontally(tween(320)) { if (forward) -it / 3 else it / 3 } +
+                                    fadeOut(tween(180))
+                                )
+                        },
+                        label = "onboardingStep",
+                    ) { s ->
+                        StepFrame(
+                            title = STEP_TITLES[s],
+                            subtitle = STEP_SUBTITLES[s],
+                            scroll = if (s == STEP_POLICY) policyScroll else rememberScrollState(),
+                            big = s == STEP_WELCOME,
+                        ) {
+                            when (s) {
+                                STEP_WELCOME -> WelcomeStep()
+                                STEP_MATERIAL -> MaterialStep(settings, bd)
+                                STEP_WALLPAPER -> WallpaperStep(settings, bd)
+                                STEP_HOME -> HomeStep(settings, bd)
+                                STEP_MENU -> MenuStep(settings, menuOrder, bd)
+                                STEP_BACKUP -> BackupStep(bd, onOpenBackup, onOpenFxa)
+                                STEP_PASSWORD -> PasswordStep(bd)
+                                STEP_PRIVACY -> PrivacyStep(settings, bd)
+                                STEP_DEFAULT -> DefaultBrowserStep(bd)
+                                else -> Column { PolicySections() }
+                            }
+                        }
+                    }
+
+                    // 底部操作区
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(horizontal = 24.dp)
+                            .padding(top = 8.dp, bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        val last = step == ONBOARDING_STEP_COUNT - 1
+                        when (step) {
+                            STEP_WELCOME -> {
+                                BigButton(text = "开始设置", primary = true, onClick = { onStepChange(STEP_MATERIAL) })
+                            }
+                            STEP_WALLPAPER -> {
+                                val hasWallpaper = settings.wallpaper.isNotBlank()
+                                BigButton(
+                                    text = if (hasWallpaper) "继续" else "选择壁纸",
+                                    primary = true,
+                                    onClick = {
+                                        if (hasWallpaper) onStepChange(STEP_HOME) else picker.launch(arrayOf("image/*"))
+                                    },
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    BigButton(
+                                        text = "上一步",
+                                        primary = false,
+                                        onClick = { onStepChange(step - 1) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    BigButton(
+                                        text = if (hasWallpaper) "重新选择" else "跳过此步",
+                                        primary = false,
+                                        onClick = {
+                                            if (hasWallpaper) picker.launch(arrayOf("image/*")) else onStepChange(STEP_HOME)
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            else -> {
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    BigButton(
+                                        text = "上一步",
+                                        primary = false,
+                                        onClick = { onStepChange(step - 1) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    BigButton(
+                                        text = when {
+                                            !last -> "继续"
+                                            policyReached -> "完成"
+                                            else -> "请先读到底部"
+                                        },
+                                        primary = true,
+                                        enabled = !last || policyReached,
+                                        onClick = { if (last) onFinish() else onStepChange(step + 1) },
+                                        modifier = Modifier.weight(2f),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -337,40 +393,46 @@ private fun StepDots(step: Int) {
     }
 }
 
-/** 每一步的外框：大标题 + 副标题固定在上，内容区可滚动。 */
+/** 每一步的外框：大标题 + 副标题固定在上，内容区可滚动。[big] 用于欢迎页：标题更大，整体垂直居中偏上。 */
 @Composable
 private fun StepFrame(
     title: String,
     subtitle: String,
     scroll: androidx.compose.foundation.ScrollState,
+    big: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
+        if (big) Spacer(Modifier.weight(0.8f))
         Column(modifier = Modifier.padding(horizontal = 28.dp).padding(top = 10.dp, bottom = 16.dp)) {
             Text(
                 text = title,
-                fontSize = 32.sp,
+                fontSize = if (big) 44.sp else 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = MiuixTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = subtitle,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
+                fontSize = if (big) 16.sp else 14.sp,
+                lineHeight = if (big) 24.sp else 20.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(scroll)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            content = content,
-        )
+        if (big) {
+            Spacer(Modifier.weight(1.2f))
+        } else {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(scroll)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                content = content,
+            )
+        }
     }
 }
 
@@ -492,7 +554,66 @@ private fun CardButton(text: String, onClick: () -> Unit, primary: Boolean = tru
     }
 }
 
-/* ------------------------------ 1. 壁纸 ------------------------------ */
+/* ------------------------------ 0. 欢迎 / 1. 高级材质 ------------------------------ */
+
+/** 欢迎页：只有大标题和副标题（在 StepFrame 的 big 版式里），没有内容区。 */
+@Composable
+private fun ColumnScope.WelcomeStep() {}
+
+/** 高级材质三选一：点选立即生效（写入 settings.blurMode），后面所有步骤都按它显示。 */
+@Composable
+private fun MaterialStep(settings: AppSettings, bd: Backdrop?) {
+    val options = listOf(
+        Triple(BLUR_MIUIX, "柔光玻璃", "半透明磨砂质感，柔和通透"),
+        Triple(BLUR_LIQUID, "液态玻璃", "带折射的液态质感，效果最华丽，更耗性能"),
+        Triple(BLUR_OFF, "纯色", "不做模糊与玻璃效果，最省电、最流畅"),
+    )
+    GuideCard(bd) {
+        options.forEachIndexed { index, (mode, title, summary) ->
+            if (index > 0) RowDivider()
+            val selected = settings.blurMode == mode
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { settings.updateBlurMode(mode) }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = title, fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = summary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (selected) {
+                                Modifier.background(MiuixTheme.colorScheme.primary)
+                            } else {
+                                Modifier.border(1.5.dp, MiuixTheme.colorScheme.onSurface.copy(alpha = 0.3f), CircleShape)
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) {
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.White))
+                    }
+                }
+            }
+        }
+    }
+    HintText("选择后下方的卡片、按钮和弹窗会立刻换成对应材质，可以先试一试。")
+}
+
+/* ------------------------------ 2. 壁纸 ------------------------------ */
 
 @Composable
 private fun ColumnScope.WallpaperStep(settings: AppSettings, bd: Backdrop?) {
