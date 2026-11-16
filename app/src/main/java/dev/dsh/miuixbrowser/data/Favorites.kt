@@ -374,6 +374,26 @@ class FavoritesStore(context: Context) {
         persistFolders()
     }
 
+    /**
+     * 书签页「自定义」排序用：顶层分组的显示顺序（按文件夹注册表里的先后；还没登记的接在后面）。
+     * 只读，不改任何状态，可在组合里调用；Floccus 同步用的也是同一份注册表顺序。
+     */
+    fun rootGroupOrder(): List<String> {
+        val out = LinkedHashSet<String>()
+        folderOrder.forEach { if ('/' !in it) out.add(it) }
+        groups().forEach { out.add(it.substringBefore('/')) }
+        return out.toList()
+    }
+
+    /** 拖动排序：把顶层分组 [path] 挪到顶层分组 [target] 的位置（先保证注册表完整）。 */
+    fun reorderRootGroup(path: String, target: String) {
+        if (path == target) return
+        knownFolders()
+        val to = folderOrder.indexOf(target)
+        if (to < 0 || path !in folderIdByPath) return
+        reorderFolder(path, to)
+    }
+
     /** 文件夹改名 / 搬家：[old] 及其全部子路径换成 [new] 前缀，id 不变，其中的书签跟着走。 */
     fun renameFolderPath(old: String, new: String) {
         if (old == new) return

@@ -45,6 +45,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.zIndex
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -583,6 +593,66 @@ fun LibraryScreen(
     }
 }
 
+/** 历史页「分组」与书签页「排序」共用的一行胶囊选项：放在列表外面，滑动时固定在上层；放不下时可横向滑动。 */
+@Composable
+private fun <T> OptionPillRow(
+    label: String,
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp)
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(end = 4.dp),
+        )
+        options.forEach { (value, text) ->
+            val isSelected = value == selected
+            Text(
+                text = text,
+                fontSize = 13.sp,
+                maxLines = 1,
+                color = if (isSelected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (isSelected) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                    )
+                    .clickable {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        if (!isSelected) onSelect(value)
+                    }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+        }
+    }
+}
+
+/** 书签排序方式。书签没有单独的创建时间，「新 / 旧」按添加顺序（新建、导入、同步进来的先后）。 */
+private enum class BookmarkSortMode(val id: String, val label: String) {
+    NewOld("new_old", "新-旧"),
+    OldNew("old_new", "旧-新"),
+    AZ("az", "A-Z"),
+    ZA("za", "Z-A"),
+    Custom("custom", "自定义");
+
+    companion object {
+        fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: OldNew
+    }
+}
+
 /** 书签树节点：[path] 是完整分组路径（以 / 分层）；[items] 是直接放在该文件夹里的书签。 */
 private class BmNode(val path: String) {
     val name: String = path.substringAfterLast('/').ifBlank { "未命名" }
@@ -593,7 +663,7 @@ private class BmNode(val path: String) {
 }
 
 /** 按分组路径里的 / 建出层级；文件夹顺序沿用 [FavoritesStore.groups]，缺失的祖先自动补齐。 */
-private fun buildBookmarkTree(favorites: FavoritesStore, q: String): List<BmNode> {
+private fun buildBookmarkTree(favorites: FavoritesStore, q: String, mode: BookmarkSortMode): List<BmNode> {
     val nodes = HashMap<String, BmNode>()
     val roots = ArrayList<BmNode>()
     fun ensure(path: String): BmNode {
@@ -615,7 +685,41 @@ private fun buildBookmarkTree(favorites: FavoritesStore, q: String): List<BmNode
         return n.total
     }
     roots.forEach { count(it) }
+    sortBookmarkTree(roots, favorites, mode)
     return roots
+}
+
+/**
+ * 按 [mode] 排序：每个文件夹里的子文件夹和书签，以及顶层分组。
+ * 「个人收藏」始终固定在最上面；「自定义」只影响顶层分组（用拖动手柄排），其余保持添加顺序。
+ */
+private fun sortBookmarkTree(roots: MutableList<BmNode>, favorites: FavoritesStore, mode: BookmarkSortMode) {
+    val collator = java.text.Collator.getInstance(Locale.getDefault())
+    fun <T> sortList(list: MutableList<T>, name: (T) -> String) {
+        when (mode) {
+            BookmarkSortMode.NewOld -> list.reverse()
+            BookmarkSortMode.OldNew, BookmarkSortMode.Custom -> Unit
+            BookmarkSortMode.AZ -> list.sortWith(Comparator { a, b -> collator.compare(name(a), name(b)) })
+            BookmarkSortMode.ZA -> list.sortWith(Comparator { a, b -> collator.compare(name(b), name(a)) })
+        }
+    }
+    fun walk(n: BmNode) {
+        sortList(n.children) { it.name }
+        sortList(n.items) { it.name }
+        n.children.forEach { walk(it) }
+    }
+    roots.forEach { walk(it) }
+    val personal = roots.firstOrNull { favorites.isProtectedGroup(it.path) }
+    val others = roots.filter { it !== personal }.toMutableList()
+    if (mode == BookmarkSortMode.Custom) {
+        val order = favorites.rootGroupOrder()
+        others.sortBy { n -> order.indexOf(n.path).let { if (it < 0) Int.MAX_VALUE else it } }
+    } else {
+        sortList(others) { it.name }
+    }
+    roots.clear()
+    personal?.let { roots.add(it) }
+    roots.addAll(others)
 }
 
 @Composable
@@ -630,7 +734,17 @@ private fun BookmarksPage(
     initialGroup: String? = null,
 ) {
     val q = query.trim()
-    val roots = buildBookmarkTree(favorites, q)
+    val ctx = LocalContext.current
+    val sp = remember { ctx.getSharedPreferences("mafari", android.content.Context.MODE_PRIVATE) }
+    var sortMode by remember { mutableStateOf(BookmarkSortMode.fromId(sp.getString("bookmark_sort_mode", null))) }
+    // 订阅文件夹注册表的变化（拖动排序改的是注册表顺序）
+    @Suppress("UNUSED_VARIABLE") val folderRev = favorites.folderRev
+    val roots = buildBookmarkTree(favorites, q, sortMode)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // 拖动排序状态：[dragPointer] 是手指在列表里的 y（与 layoutInfo 的 offset 同一坐标），[dragGrab] 是手指距行顶的距离
+    var dragPath by remember { mutableStateOf<String?>(null) }
+    var dragPointer by remember { mutableFloatStateOf(0f) }
+    var dragGrab by remember { mutableFloatStateOf(0f) }
     val groupHaptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val groupTick = { groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
     // 顶层分组默认折叠（只有一个时默认展开），次级文件夹默认折叠；搜索时全部自动展开
@@ -646,13 +760,73 @@ private fun BookmarksPage(
     }
     val onlyOneGroup = roots.count { it.total > 0 } <= 1
     val noMatch = q.isNotEmpty() && roots.none { it.total > 0 }
+    // 拖动期间：自动滚动 + 检测是否越过相邻分组（越过就交换顺序）；被拖的行滑出屏幕则终止拖动
+    LaunchedEffect(dragPath) {
+        val p = dragPath ?: return@LaunchedEffect
+        val key = "g-$p"
+        val edge = with(density) { 48.dp.toPx() }
+        val step = with(density) { 12.dp.toPx() }
+        var missing = 0
+        var waitOffset: Int? = null
+        var waitFrames = 0
+        while (true) {
+            withFrameNanos { }
+            val info = listState.layoutInfo
+            val me = info.visibleItemsInfo.firstOrNull { it.key == key }
+            if (me == null) {
+                if (++missing > 3) { dragPath = null; return@LaunchedEffect }
+                continue
+            }
+            missing = 0
+            if (waitOffset == me.offset && waitFrames++ < 10) {
+                // 刚交换过，等布局更新后再判断，避免来回抖动
+            } else {
+                waitOffset = null
+                waitFrames = 0
+                val top = dragPointer - dragGrab
+                val center = top + me.size / 2f
+                val target = info.visibleItemsInfo.firstOrNull {
+                    val k = it.key as? String
+                    k != null && k != key && k.startsWith("g-") && center >= it.offset && center < it.offset + it.size
+                }
+                val tp = (target?.key as? String)?.removePrefix("g-")
+                if (tp != null && !favorites.isProtectedGroup(tp)) {
+                    favorites.reorderRootGroup(p, tp)
+                    waitOffset = me.offset
+                    groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                }
+            }
+            val top = dragPointer - dragGrab
+            val d = when {
+                top < info.viewportStartOffset + edge -> -step
+                top + me.size > info.viewportEndOffset - edge -> step
+                else -> 0f
+            }
+            if (d != 0f) listState.scrollBy(d)
+        }
+    }
+    Column(modifier = Modifier.fillMaxSize()) {
+    // 排序方式固定在顶部（与历史页的分组同款），放在列表外面，滑动时不随列表滚走
+    if (favorites.items.isNotEmpty()) {
+        OptionPillRow(
+            label = "排序",
+            options = BookmarkSortMode.entries.map { it to it.label },
+            selected = sortMode,
+            onSelect = { m ->
+                sortMode = m
+                dragPath = null
+                sp.edit().putString("bookmark_sort_mode", m.id).apply()
+            },
+        )
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier
-            .fillMaxSize()
+            .weight(1f)
+            .fillMaxWidth()
             .edgeHaptic()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp),
     ) {
         if (favorites.items.isEmpty()) {
             item {
@@ -677,12 +851,36 @@ private fun BookmarksPage(
         roots.forEach { root ->
             // 「个人收藏」即使为空也保留标题（不能删除的保留分组）；其它空分组 / 搜索无匹配时不显示
             if (root.total == 0 && (q.isNotEmpty() || !favorites.isProtectedGroup(root.path))) return@forEach
-            val open = q.isNotEmpty() || (expanded[root.path] ?: onlyOneGroup)
+            // 拖动排序时所有分组临时收起，只剩一行行分组标题，好拖
+            val open = dragPath == null && (q.isNotEmpty() || (expanded[root.path] ?: onlyOneGroup))
+            val draggable = sortMode == BookmarkSortMode.Custom && !favorites.isProtectedGroup(root.path)
+            val isDragged = dragPath == root.path
             item(key = "g-${root.path}") {
                 BookmarkGroupHeader(
+                    modifier = if (isDragged) Modifier else Modifier.animateItem(),
                     name = root.name,
                     count = root.total,
                     open = open,
+                    dragHandle = draggable,
+                    isDragged = isDragged,
+                    dragOffsetY = {
+                        val off = listState.layoutInfo.visibleItemsInfo
+                            .firstOrNull { it.key == "g-${root.path}" }?.offset ?: 0
+                        (dragPointer - dragGrab) - off
+                    },
+                    onDragStart = { grab ->
+                        // 先把注册表补全，之后按注册表顺序排
+                        favorites.knownFolders()
+                        val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "g-${root.path}" }
+                        if (info != null) {
+                            dragGrab = grab
+                            dragPointer = info.offset + grab
+                            dragPath = root.path
+                            groupHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        }
+                    },
+                    onDrag = { dy -> dragPointer += dy },
+                    onDragEnd = { dragPath = null },
                     onClick = {
                         groupTick()
                         expanded[root.path] = !open
@@ -704,6 +902,7 @@ private fun BookmarksPage(
                 )
             }
         }
+    }
     }
 }
 
@@ -905,7 +1104,10 @@ private fun BookmarkRow(
     }
 }
 
-/** 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；长按管理分组）。 */
+/**
+ * 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；长按管理分组）。
+ * 「自定义」排序下，顶层分组（个人收藏除外）左侧多一个始终显示的排序手柄（三条横线），按住上下拖动即可排序。
+ */
 @Composable
 private fun BookmarkGroupHeader(
     name: String,
@@ -914,16 +1116,78 @@ private fun BookmarkGroupHeader(
     onClick: () -> Unit,
     /** null = 不响应长按 */
     onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    dragHandle: Boolean = false,
+    isDragged: Boolean = false,
+    dragOffsetY: () -> Float = { 0f },
+    /** 参数：手指按下点距本行顶部的距离（px） */
+    onDragStart: (Float) -> Unit = {},
+    onDrag: (Float) -> Unit = {},
+    onDragEnd: () -> Unit = {},
 ) {
     // ChevronBackward 默认朝左：收起时转 180° 朝右（›），展开时转 270° 朝下
     val angle by androidx.compose.animation.core.animateFloatAsState(if (open) 270f else 180f, label = "groupArrow")
+    var rowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val startCb by rememberUpdatedState(onDragStart)
+    val dragCb by rememberUpdatedState(onDrag)
+    val endCb by rememberUpdatedState(onDragEnd)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (isDragged) Modifier
+                    .zIndex(1f)
+                    .graphicsLayer { translationY = dragOffsetY() }
+                    .shadow(8.dp, RoundedCornerShape(16.dp))
+                    .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                else Modifier,
+            )
+            .onGloballyPositioned { rowCoords = it }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = if (dragHandle) 12.dp else 24.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (dragHandle) {
+            var handleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+            val lineColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .onGloballyPositioned { handleCoords = it }
+                    // 点按 / 长按手柄不触发整行的展开与重命名
+                    .pointerInput(Unit) { detectTapGestures(onTap = {}, onLongPress = {}) }
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragStart = { off ->
+                                val h = handleCoords?.positionInRoot()?.y ?: 0f
+                                val r = rowCoords?.positionInRoot()?.y ?: 0f
+                                startCb(h + off.y - r)
+                            },
+                            onDragEnd = { endCb() },
+                            onDragCancel = { endCb() },
+                            onVerticalDrag = { change, dy ->
+                                change.consume()
+                                dragCb(dy)
+                            },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                androidx.compose.foundation.Canvas(modifier = Modifier.size(width = 18.dp, height = 14.dp)) {
+                    val sw = 2.dp.toPx()
+                    val gap = (size.height - sw) / 2f
+                    repeat(3) { i ->
+                        drawRoundRect(
+                            color = lineColor,
+                            topLeft = androidx.compose.ui.geometry.Offset(0f, i * gap),
+                            size = androidx.compose.ui.geometry.Size(size.width, sw),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(sw / 2f),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(4.dp))
+        }
         Row(
             modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
@@ -1014,43 +1278,15 @@ private fun HistoryPage(
     val groups = remember(entries, mode) { groupHistory(entries, mode) }
     // 分组方式固定在顶部：放在列表外面，滑动时不随列表滚走，顶栏折叠后仍吸附在最上方
     Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "分组",
-                        fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(end = 4.dp),
-                    )
-                    HistoryGroupMode.entries.forEach { m ->
-                        val selected = m == mode
-                        Text(
-                            text = m.label,
-                            fontSize = 13.sp,
-                            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (selected) MiuixTheme.colorScheme.primary
-                                    else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                                )
-                                .clickable {
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    if (!selected) {
-                                        mode = m
-                                        sp.edit().putString("history_group_mode", m.id).apply()
-                                    }
-                                }
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
-                        )
-                    }
-                }
+                OptionPillRow(
+                    label = "分组",
+                    options = HistoryGroupMode.entries.map { it to it.label },
+                    selected = mode,
+                    onSelect = { m ->
+                        mode = m
+                        sp.edit().putString("history_group_mode", m.id).apply()
+                    },
+                )
     LazyColumn(
         state = listState,
         modifier = Modifier
