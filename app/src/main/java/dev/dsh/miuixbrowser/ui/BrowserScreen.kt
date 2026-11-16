@@ -920,6 +920,7 @@ fun BrowserScreen(
         settings.locationPermission,
         settings.notificationPermission,
         settings.redirectPermission,
+        settings.externalAppPermission,
         settings.blockTrackingScripts,
         AdBlock.fpCanvas,
         AdBlock.fpWebgl,
@@ -938,6 +939,7 @@ fun BrowserScreen(
             locationMode = settings.locationPermission,
             notificationMode = settings.notificationPermission,
             redirectMode = settings.redirectPermission,
+            externalAppMode = settings.externalAppPermission,
             blockTrackers = settings.blockTrackingScripts,
             fingerprintProtect = AdBlock.fpCanvas || AdBlock.fpWebgl || AdBlock.fpAudio || AdBlock.fpFonts,
         )

@@ -1790,17 +1790,17 @@ class BrowserTab(
         private set
 
     /**
-     * Gecko 版：页面无手势自动唤起其他应用（intent:// weixin:// 等），套用「网页重定向」权限，
+     * Gecko 版：页面无手势自动唤起其他应用（intent:// weixin:// 等），套用独立的「打开其他应用」权限，
      * 规则与 [interceptRedirect]（external = true）一致：空白页 / 首次加载上的唤起不算；总是允许 → 直接唤起；
      * 总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起。当前页面始终原地不动。
      */
     internal fun geckoExternalRequest(uri: Uri) {
         val from = pageHost
-        if (from.isEmpty() || redirectMode == 1) {
+        if (from.isEmpty() || externalAppMode == 1) {
             launchExternalApp(uri)
             return
         }
-        if (redirectMode == 2) {
+        if (externalAppMode == 2) {
             notifyRedirectBlocked(true, "")
             return
         }
@@ -2021,6 +2021,7 @@ class BrowserTab(
         locationMode: Int = 0,
         notificationMode: Int = 0,
         redirectMode: Int = 0,
+        externalAppMode: Int = 0,
         blockTrackers: Boolean = false,
         fingerprintProtect: Boolean = false,
     ) {
@@ -2041,6 +2042,7 @@ class BrowserTab(
         this.locationMode = locationMode
         this.notificationMode = notificationMode
         this.redirectMode = redirectMode
+        this.externalAppMode = externalAppMode
         this.mediaModeGlobal = mediaMode
         this.blockTrackers = blockTrackers
         // 媒体发声：允许=可自动播放；询问/拒绝=需用户手势才能出声
@@ -2135,13 +2137,18 @@ class BrowserTab(
     @Volatile
     private var redirectMode = 0
 
+    /** 打开其他应用 0=每次使用时询问 1=总是允许 2=总是拒绝（与「网页重定向」相互独立） */
+    @Volatile
+    private var externalAppMode = 0
+
     /** 正在等待用户决定的重定向，避免脚本循环跳转时连续弹窗 */
     private var redirectPromptPending = false
     private var lastRedirectToast = 0L
 
     /**
      * 网页重定向权限：只管「页面自己发起、没有用户手势」的主框架跳转——
-     * JS（location / window.open）、meta refresh，以及自动唤起其他应用（intent:// 等）。
+     * JS（location / window.open）、meta refresh。
+     * 自动唤起其他应用（intent:// 等）由独立的「打开其他应用」权限控制（[externalAppMode]），两者互不影响。
      * 用户点击、地址栏输入、前进后退，以及用户发起导航后的服务器 3xx 链都不受影响。
      * 同站跳转（host 去掉 www. 后相同）视为页面内部导航，不拦截。
      * @return true 表示本次导航已被接管（拦截，用户同意后由 [onAllowed] 放行）
@@ -2165,7 +2172,7 @@ class BrowserTab(
         // 同站（含子网站，如 m. / login. / www.）跳转视为页面内部导航，不拦截
         if (!external && targetHost.isNotEmpty() && isSameSite(targetHost, from)) return false
         // 总是允许：外部应用直接唤起；跨站跳转与「允许」一致，在新标签页打开（当前页不动）
-        val mode = effRedirectMode()
+        val mode = if (external) effExternalAppMode() else effRedirectMode()
         if (mode == 1) {
             if (external) return false
             onAllowed()
@@ -2179,7 +2186,7 @@ class BrowserTab(
         if (redirectPromptPending) return true
         // 拒绝只是不执行这次跳转 / 唤起：这次导航在 shouldOverrideUrlLoading 里就已被截下，
         // 当前页面一直没有离开，所以这里什么都不用回退 —— 停留在网页，不能再 goBack 把页面「关掉」
-        askRedirect(from, label, GeckoSitePerms.REDIRECT) { allow ->
+        askRedirect(from, label, if (external) GeckoSitePerms.EXTERNAL_APP else GeckoSitePerms.REDIRECT) { allow ->
             if (allow) onAllowed() else notifyRedirectBlocked(external, targetHost)
         }
         return true
@@ -2228,6 +2235,10 @@ class BrowserTab(
     /** WebView：当前页面生效的「网页重定向」模式（例外网站优先） */
     private fun effRedirectMode(): Int =
         GeckoSitePerms.override(pageHost, GeckoSitePerms.REDIRECT) ?: redirectMode
+
+    /** WebView：当前页面生效的「打开其他应用」模式（例外网站优先） */
+    private fun effExternalAppMode(): Int =
+        GeckoSitePerms.override(pageHost, GeckoSitePerms.EXTERNAL_APP) ?: externalAppMode
 
     /** WebView：当前页面生效的「网站媒体发声」模式（例外网站优先）；1 = 允许自动出声 */
     private fun effMediaMode(): Int =

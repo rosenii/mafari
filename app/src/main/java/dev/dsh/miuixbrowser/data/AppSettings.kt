@@ -722,6 +722,21 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_REDIRECT, redirectPermission).apply()
     }
 
+    /**
+     * 网页权限：打开其他应用 0=每次使用时询问 1=总是允许 2=总是拒绝
+     * 指网页在没有用户操作的情况下自动唤起其他应用（intent:// weixin:// alipays:// 等外部协议）。
+     * 原先与「网页重定向」共用一个开关，现在独立；旧版本升级上来时沿用当时的「网页重定向」取值，行为不变。
+     */
+    var externalAppPermission by mutableStateOf(
+        if (prefs.contains(KEY_EXTERNAL_APP)) prefs.getInt(KEY_EXTERNAL_APP, 0) else prefs.getInt(KEY_REDIRECT, 0),
+    )
+        private set
+
+    fun updateExternalAppPermission(mode: Int) {
+        externalAppPermission = mode.coerceIn(0, 2)
+        prefs.edit().putInt(KEY_EXTERNAL_APP, externalAppPermission).apply()
+    }
+
     /** 启用「请勿追踪」类隐私增强：合并 DNT + 禁第三方跟踪脚本提示 */
     var blockTrackingScripts by mutableStateOf(prefs.getBoolean(KEY_TRACK, true))
         private set
@@ -838,6 +853,7 @@ class AppSettings(context: Context) {
         const val KEY_MEDIA = "perm_media_autoplay"
         const val KEY_NOTIFY = "perm_notification"
         const val KEY_REDIRECT = "perm_redirect"
+        const val KEY_EXTERNAL_APP = "perm_external_app"
         const val KEY_TRACK = "block_tracking"
         const val KEY_PROXY_ON = "proxy_enabled"
         const val KEY_PROXY_TYPE = "proxy_type"

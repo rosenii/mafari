@@ -390,7 +390,7 @@ fun SettingsScreen(
                         summary = if (settings.geckoMode) {
                             "自动播放 · 摄像头 · 位置 · 麦克风 · 通知 · 持久存储 · 跨站 Cookie · DRM · 例外网站"
                         } else {
-                            "摄像头 · 麦克风 · 定位 · 网站通知 · 剪贴板 · 媒体发声 · 网页重定向"
+                            "摄像头 · 麦克风 · 定位 · 网站通知 · 剪贴板 · 媒体发声 · 网页重定向 · 打开其他应用"
                         },
                         onClick = { showPermSheet = true },
                     )
@@ -966,6 +966,7 @@ fun SettingsScreen(
                             )
                         }
                         PermDropdown("网页重定向", settings.redirectPermission, permOptions, settings::updateRedirectPermission, permBackdrop, popupVisuals)
+                        PermDropdown("打开其他应用", settings.externalAppPermission, permOptions, settings::updateExternalAppPermission, permBackdrop, popupVisuals)
                         ArrowPreference(
                             title = "例外网站",
                             summary = GeckoSitePerms.hostsFor(GeckoSitePerms.EXCEPTION_ITEMS).let {
@@ -985,6 +986,7 @@ fun SettingsScreen(
                         PermDropdown("剪贴板读写", settings.clipboardPermission, permOptions, settings::updateClipboardPermission, permBackdrop, popupVisuals)
                         PermDropdown("网站媒体发声", settings.mediaAutoplay, permOptions, settings::updateMediaAutoplay, permBackdrop, popupVisuals)
                         PermDropdown("网页重定向", settings.redirectPermission, permOptions, settings::updateRedirectPermission, permBackdrop, popupVisuals)
+                        PermDropdown("打开其他应用", settings.externalAppPermission, permOptions, settings::updateExternalAppPermission, permBackdrop, popupVisuals)
                         ArrowPreference(
                             title = "例外网站",
                             summary = GeckoSitePerms.hostsFor(GeckoSitePerms.WEBVIEW_ITEMS).let {

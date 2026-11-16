@@ -33,10 +33,11 @@ object GeckoSitePerms {
     const val LOCAL_DEVICE = "local_device"
     const val LOCAL_NETWORK = "local_network"
 
-    /** 以下三项只有 WebView 引擎用到 */
+    /** 以下四项只有 WebView 引擎用到 */
     const val CLIPBOARD = "clipboard"
     const val MEDIA = "media_sound"
     const val REDIRECT = "redirect"
+    const val EXTERNAL_APP = "external_app"
 
     class Item(val key: String, val label: String)
 
@@ -66,6 +67,7 @@ object GeckoSitePerms {
         Item(CLIPBOARD, "剪贴板读写"),
         Item(MEDIA, "网站媒体发声"),
         Item(REDIRECT, "网页重定向"),
+        Item(EXTERNAL_APP, "打开其他应用"),
     )
 
     /** 默认值：持久存储、DRM 保持原来的「直接允许」（浏览所需），其余与 Firefox 一致，询问 */
@@ -176,7 +178,7 @@ object GeckoSitePerms {
         prefs?.edit()?.putString("exceptions", obj.toString())?.apply()
     }
 
-    fun labelOf(key: String): String = EXCEPTION_ITEMS.firstOrNull { it.key == key }?.label ?: key
+    fun labelOf(key: String): String = (EXCEPTION_ITEMS + WEBVIEW_ITEMS).firstOrNull { it.key == key }?.label ?: key
 
     /** 一个站点的例外摘要：「摄像头：允许 · 位置：拒绝」 */
     fun summaryOf(host: String, items: List<Item> = EXCEPTION_ITEMS): String =

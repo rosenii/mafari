@@ -78,6 +78,7 @@ nightly 的 Java API 偶尔会改，**建议在 `gradle.properties` 锁定**：`
 | DNT / Sec-GPC | 请求头 + JS 属性 | ✅ pref `privacy.donottrackheader.enabled` + `privacy.globalprivacycontrol.enabled` |
 | 剪贴板 / 媒体静音 / 通知拒绝（JS 层覆写） | 注入脚本 | ⛔ 不适用；Gecko 走权限系统 |
 | 网页重定向权限（拦截无手势的跨站跳转） | `shouldOverrideUrlLoading` + `hitTestResult` | ✅ `onLoadRequest`（`isDirectNavigation` / `hasUserGesture` / `isRedirect`）；Gecko 取不到触点下是否 `<a>`，有手势一律视为用户点击 |
+| 打开其他应用权限（拦截无手势自动唤起 intent:// weixin:// 等，与网页重定向相互独立） | `shouldOverrideUrlLoading`，`interceptRedirect(external = true)` | ✅ `geckoExternalRequest`（只认全局设置，Gecko 暂无按站点例外） |
 | 代理（HTTP / SOCKS5 / 认证 / Socks5Relay） | `ProxyController` | ✅ `WebViewProxy` 最终采用的规则（含 SOCKS5 认证用的本机中转）同步写入 `network.proxy.*`；HTTP 代理认证在 `onAuthPrompt` 自动提交 |
 | Passkey | WebView WebAuthn + Credential Manager | Gecko 自带 WebAuthn，是否弹系统 Passkey 界面需实测 |
 | 缓存清理 | `WebView.clearCache` | ✅ 同时调用 `StorageController.clearData` |
