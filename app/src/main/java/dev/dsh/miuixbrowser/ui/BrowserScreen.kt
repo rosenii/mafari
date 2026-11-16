@@ -2193,6 +2193,7 @@ fun BrowserScreen(
                         }
                     },
                     incognitoActive = tab.incognito,
+                    requestsActive = AdBlock.requestLogEnabled,
                 )
             }
 

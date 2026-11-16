@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
+import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -198,7 +199,7 @@ private fun RequestRow(row: RequestLog.Row, toast: (String) -> Unit) {
             )
         }
         if (actionText.isNotEmpty()) Spacer(Modifier.width(8.dp))
-        if (actionText.isNotEmpty()) AppTextButton(
+        if (actionText.isNotEmpty()) SheetRowButton(
             text = actionText,
             onClick = {
                 when {
@@ -209,8 +210,6 @@ private fun RequestRow(row: RequestLog.Row, toast: (String) -> Unit) {
                 }
             },
             primary = actionText == "屏蔽",
-            inPage = true,
-            minHeight = 30.dp,
         )
     }
 }
@@ -229,7 +228,24 @@ private fun ManagedHostRow(host: String, actionText: String, onClick: () -> Unit
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        AppTextButton(text = actionText, onClick = onClick, inPage = true, minHeight = 30.dp)
+        SheetRowButton(text = actionText, onClick = onClick)
+    }
+}
+
+/**
+ * 行末的小操作按钮：走材质抽象层的 [AppDialogButton]，miuix-glass / 液态玻璃 / 关闭模糊三种材质各用各的实现。
+ * Sheet 在页面采样层之外，所以不传 inPage（液态材质下是真玻璃）；固定宽度是因为液态按钮自己没有内在宽度。
+ */
+@Composable
+private fun SheetRowButton(text: String, onClick: () -> Unit, primary: Boolean = false) {
+    AppDialogButton(
+        onClick = onClick,
+        modifier = Modifier.width(104.dp),
+        role = if (primary) GlassDialogButtonRole.Primary else GlassDialogButtonRole.Normal,
+        cornerRadius = 12.dp,
+        minHeight = 34.dp,
+    ) {
+        Text(text = text, style = MiuixTheme.textStyles.button, fontSize = 13.sp, maxLines = 1)
     }
 }
 

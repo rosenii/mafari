@@ -1,11 +1,13 @@
 package dev.dsh.miuixbrowser.download
 
+import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 
 /** 一个可交接下载的第三方下载器 */
 data class ExternalApp(val pkg: String, val label: String)
@@ -15,6 +17,7 @@ data class ExternalApp(val pkg: String, val label: String)
  *
  * 目标值 [target]：
  *  - ""         使用内置下载器（默认）
+ *  - [SYSTEM]   交给系统下载器（DownloadManager），保存到 Download/mafari
  *  - [CHOOSER]  每次弹出系统选择器
  *  - 包名       固定交给该应用
  *
@@ -23,6 +26,7 @@ data class ExternalApp(val pkg: String, val label: String)
 object ExternalDownloader {
 
     const val CHOOSER = "chooser"
+    const val SYSTEM = "system"
 
     @Volatile
     var target: String = ""
@@ -51,6 +55,7 @@ object ExternalDownloader {
     /** 目标显示名，用于提示 */
     fun labelOf(value: String): String = when (value) {
         "" -> "内置下载器"
+        SYSTEM -> "系统下载器"
         CHOOSER -> "下载器"
         else -> KNOWN.firstOrNull { it.pkg == value }?.label ?: value
     }
@@ -58,7 +63,7 @@ object ExternalDownloader {
     /** 是否配置了外部下载器，且（固定包名时）仍然安装着 */
     fun active(context: Context): Boolean = when (val t = target) {
         "" -> false
-        CHOOSER -> true
+        SYSTEM, CHOOSER -> true
         else -> isInstalled(context.packageManager, t)
     }
 
@@ -79,6 +84,8 @@ object ExternalDownloader {
         if (!active(context)) return false
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
         if (uri.scheme?.lowercase() !in setOf("http", "https")) return false
+
+        if (target == SYSTEM) return handToSystem(context, uri, userAgent, fileName, mimeType, referer, cookie)
 
         val headers = Bundle().apply {
             if (!userAgent.isNullOrBlank()) putString("User-Agent", userAgent)
@@ -114,4 +121,28 @@ object ExternalDownloader {
             false
         }
     }
+
+    /** 交给系统 DownloadManager：通知栏显示进度，文件保存到 Download/mafari；任何异常都返回 false（调用方回退内置）。 */
+    private fun handToSystem(
+        context: Context,
+        uri: Uri,
+        userAgent: String?,
+        fileName: String,
+        mimeType: String?,
+        referer: String?,
+        cookie: String?,
+    ): Boolean = runCatching {
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val safeName = fileName.replace('/', '_').replace('\\', '_').ifBlank { "download" }
+        val request = DownloadManager.Request(uri)
+            .setTitle(safeName)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "mafari/$safeName")
+        if (!mimeType.isNullOrBlank() && mimeType != "application/octet-stream") request.setMimeType(mimeType)
+        if (!userAgent.isNullOrBlank()) request.addRequestHeader("User-Agent", userAgent)
+        if (!referer.isNullOrBlank() && referer.startsWith("http", ignoreCase = true)) request.addRequestHeader("Referer", referer)
+        if (!cookie.isNullOrBlank()) request.addRequestHeader("Cookie", cookie)
+        dm.enqueue(request)
+        true
+    }.getOrDefault(false)
 }

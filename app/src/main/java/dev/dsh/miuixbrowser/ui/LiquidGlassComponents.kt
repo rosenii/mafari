@@ -370,7 +370,7 @@ object LiquidGlassMaterial : AppMaterial {
             onClick = onClick,
             // 页面内的按钮位于采样层内部，不能采样页面层（递归采样会闪退），改用实色底
             backdrop = if (inPage) null else pageBackdrop,
-            modifier = modifier.height(minHeight.coerceAtLeast(44.dp)),
+            modifier = modifier.height(minHeight.coerceAtLeast(32.dp)),
             tint = tint,
             tintAlpha = 0.35f,
             coloredTint = role != GlassDialogButtonRole.Normal,

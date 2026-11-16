@@ -242,6 +242,8 @@ internal fun MenuGrid(
     onLongPressAction: (MenuAction) -> Unit = {},
     longPressActions: Set<MenuAction> = emptySet(),
     incognitoActive: Boolean = false,
+    /** 「网络请求」记录开着时图标变黄 */
+    requestsActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
     lockedFor: (MenuAction) -> Boolean = { false },
 ) {
@@ -252,6 +254,7 @@ internal fun MenuGrid(
     val dividerHeight = 30.dp
     val columns = 4
     val purple = Color(0xFF9C27B0)
+    val amber = Color(0xFFFFB300)
     val gridScope = rememberCoroutineScope()
     // 长按计时：按下满 [MENU_LONG_PRESS_MS] 且手指没动（没进入拖动排序）才触发长按功能
     val systemLongPressMs = LocalViewConfiguration.current.longPressTimeoutMillis
@@ -310,8 +313,11 @@ internal fun MenuGrid(
                             badge = badgeFor(action),
                             locked = lockedFor(action),
                             cellHeight = cellHeight,
-                            tint = if (action == MenuAction.Incognito && incognitoActive) purple
-                            else MiuixTheme.colorScheme.onSurface,
+                            tint = when {
+                                action == MenuAction.Incognito && incognitoActive -> purple
+                                action == MenuAction.Requests && requestsActive -> amber
+                                else -> MiuixTheme.colorScheme.onSurface
+                            },
                             dragged = dragAction == action,
                             dragOffset = { dragOffset },
                             dimmed = (dragAction != null && dragAction != action) || (inHidden && dragAction == null),

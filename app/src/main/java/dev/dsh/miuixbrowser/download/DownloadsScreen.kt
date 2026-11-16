@@ -272,40 +272,43 @@ fun DownloadsScreen(
                                 .padding(bottom = 8.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
-                            AppSwitchPreference(
-                                title = "多线程下载",
-                                summary = "文件超过阈值时分段并行下载；关闭后一律单线程",
-                                checked = multiThread,
-                                onCheckedChange = onMultiThreadChange,
-                            )
-                            // 外部下载器：只列出设备上已安装的，加上「内置」「每次询问」
+                            // 下载器放第一行；只有「内置下载器」才会用到多线程，选系统 / 每次询问 / 第三方时整组隐藏
                             val extApps = remember { ExternalDownloader.installed(context) }
-                            val extValues = listOf("", ExternalDownloader.CHOOSER) + extApps.map { it.pkg }
-                            val extLabels = listOf("内置下载器", "每次询问") + extApps.map { it.label }
+                            val extValues = listOf("", ExternalDownloader.SYSTEM, ExternalDownloader.CHOOSER) + extApps.map { it.pkg }
+                            val extLabels = listOf("内置下载器", "系统下载器", "每次询问") + extApps.map { it.label }
+                            val extIndex = extValues.indexOf(externalDownloader).coerceAtLeast(0)
                             AppDropdownPreference(
                                 backdrop = if (glass) backdrop else null,
                                 title = "下载器",
-                                summary = "选择第三方下载器后，网页下载确认后直接交给它（应用自更新仍用内置）",
+                                summary = "选择系统或第三方下载器后，网页下载确认后直接交给它（应用自更新仍用内置）",
                                 items = extLabels,
-                                selectedIndex = extValues.indexOf(externalDownloader).coerceAtLeast(0),
+                                selectedIndex = extIndex,
                                 onSelectedIndexChange = { onExternalDownloaderChange(extValues[it]) },
                             )
-                            if (multiThread && externalDownloader.isEmpty()) {
-                                AppDropdownPreference(
-                                    backdrop = if (glass) backdrop else null,
-                                    title = "线程数",
-                                    items = threadOptions.map { it.toString() },
-                                    selectedIndex = threadOptions.indexOf(threads).coerceAtLeast(0),
-                                    onSelectedIndexChange = { onThreadsChange(threadOptions[it]) },
+                            if (extIndex == 0) {
+                                AppSwitchPreference(
+                                    title = "多线程下载",
+                                    summary = "大文件分段并行下载",
+                                    checked = multiThread,
+                                    onCheckedChange = onMultiThreadChange,
                                 )
-                                AppDropdownPreference(
-                                    backdrop = if (glass) backdrop else null,
-                                    title = "多线程阈值",
-                                    summary = "超过该阈值才使用多线程下载",
-                                    items = minMbOptions.map { downloadThresholdLabel(it) },
-                                    selectedIndex = minMbOptions.indexOf(multiThreadMinMb).coerceAtLeast(0),
-                                    onSelectedIndexChange = { onMultiThreadMinMbChange(minMbOptions[it]) },
-                                )
+                                if (multiThread) {
+                                    AppDropdownPreference(
+                                        backdrop = if (glass) backdrop else null,
+                                        title = "线程数",
+                                        items = threadOptions.map { it.toString() },
+                                        selectedIndex = threadOptions.indexOf(threads).coerceAtLeast(0),
+                                        onSelectedIndexChange = { onThreadsChange(threadOptions[it]) },
+                                    )
+                                    AppDropdownPreference(
+                                        backdrop = if (glass) backdrop else null,
+                                        title = "多线程阈值",
+                                        summary = "超过该阈值才使用多线程下载",
+                                        items = minMbOptions.map { downloadThresholdLabel(it) },
+                                        selectedIndex = minMbOptions.indexOf(multiThreadMinMb).coerceAtLeast(0),
+                                        onSelectedIndexChange = { onMultiThreadMinMbChange(minMbOptions[it]) },
+                                    )
+                                }
                             }
                         }
                     }
@@ -325,25 +328,18 @@ fun DownloadsScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 SmallTitle(text = "下载文件", modifier = Modifier.weight(1f))
-                                // 垃圾桶图标 = 所在行标题的字高（subtitle 的字号），触控区保持 32dp
-                                val titleSize = with(LocalDensity.current) {
-                                    MiuixTheme.textStyles.subtitle.fontSize.toDp()
-                                }
-                                IconButton(
-                                    onClick = {
-                                        deleteLocal = false
-                                        showClearAll = true
-                                    },
-                                    minWidth = 32.dp,
-                                    minHeight = 32.dp,
-                                ) {
-                                    Icon(
-                                        imageVector = MiuixIcons.Glass.Delete,
-                                        contentDescription = "清空下载记录",
-                                        tint = Color(0xFFE53935),
-                                        modifier = Modifier.size(titleSize),
-                                    )
-                                }
+                                Text(
+                                    text = "全部清除",
+                                    fontSize = 14.sp,
+                                    color = Color(0xFFE53935),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            deleteLocal = false
+                                            showClearAll = true
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                )
                             }
                         }
                     }
