@@ -686,6 +686,9 @@ class BrowserTab(
     private var adblockDocStart = false
 
     private fun initWebView() {
+        // 显式开启 WebView 的硬件层：WebView 内容进 GPU 离屏层后，被 layerBackdrop 录制并送入 RuntimeShader
+        // 时不再整页闪烁 / 崩溃，底栏、弹窗才能在网页态下采样 WebView 使用高级材质（miuix-glass / 液态玻璃）。
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         // 原生滚动回调（API 23+）：底栏收起 / 展开由滚动事件唤醒，不再靠定时轮询
         webView.setOnScrollChangeListener { _, _, _, _, _ -> scrollSignal.trySend(Unit) }
         runCatching { webView.addJavascriptInterface(AdBlockBridge { !incognito || adblockInIncognito }, "MafariAdblock") }

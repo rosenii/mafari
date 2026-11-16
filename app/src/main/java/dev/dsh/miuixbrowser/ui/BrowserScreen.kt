@@ -454,6 +454,14 @@ fun BrowserScreen(
     // 会把还可见的 WebView 录进 layerBackdrop 并送进 RuntimeShader，导致原生崩溃。
     var webViewHidden by remember(tab.id) { mutableStateOf(false) }
     val homeBlurAvailable = tab.url.isEmpty() && !tab.loading && webViewHidden
+    // WebView 内核：WebView 已显式开启硬件层（见 BrowserTab.initWebView），录进 layerBackdrop 不再闪烁/崩溃，
+    // 所以网页态下底栏 / 弹窗也可以采样整页（含 WebView）使用高级材质。
+    // Gecko 内核（SurfaceView 合成）仍不采样，继续用假玻璃回退。
+    val webGlassAvailable = !tab.isGecko && tab.url.isNotEmpty()
+    // 玻璃能否采样：主页（Compose 内容）或 WebView 网页态
+    val glassAvailable = homeBlurAvailable || webGlassAvailable
+    // 底栏 / 弹窗统一用的 MIUIX 采样层：网页态必须取整页采集层（壁纸层此时没有绘制），主页沿用 homeBackdrop
+    val glassBackdrop = if (webGlassAvailable) browserBackdrop else homeBackdrop
     // 新建标签页（首页）的滚动状态：每个标签独立，供顶部渐进模糊带跟随滚动淡入
     val startScroll = remember(tab.id) { ScrollState(0) }
     val clipboard = LocalClipboardManager.current
@@ -1244,7 +1252,7 @@ fun BrowserScreen(
     ) {
     entry<AppRoute.Browser> {
     CompositionLocalProvider(
-        LocalLiquidBackdrop provides if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null,
+        LocalLiquidBackdrop provides if (glassAvailable && settings.blurEnabled) liquidBackdrop else null,
         // 壁纸模糊开启且模糊图已读出：首页取样源已是预模糊图，卡片不再叠加实时模糊
         LocalWallpaperPreBlurred provides (settings.wallpaperBlur && blurredWallpaper != null && wallpaperBitmap != null),
         LocalWallpaperSource provides wallpaperSource,
@@ -1273,10 +1281,10 @@ fun BrowserScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // MIUIX backdrop 仅在主页采集 Compose 内容；网页状态不采集 WebView，
-                // 避免 AndroidView / SurfaceView 与 RuntimeShader 组合时出现闪烁或崩溃。
+                // MIUIX backdrop 在主页采集 Compose 内容；WebView 内核的网页态也采集（WebView 已显式开启硬件层，
+                // 不会再与 RuntimeShader 组合闪烁 / 崩溃）。Gecko 内核（SurfaceView）不采集，继续用假玻璃。
                 .then(
-                    if (homeBlurAvailable) {
+                    if (glassAvailable) {
                         Modifier.layerBackdrop(browserBackdrop).then(
                             // Kyant 整页层只有液态玻璃模式才有人读（miuix 模式下 activeLiquidBackdrop / 各按钮都忽略它），
                             // 不是该模式就不录制，省掉每帧对整个首页的第二份录制
@@ -1370,18 +1378,6 @@ fun BrowserScreen(
                                 android.view.View.VISIBLE
                             }
                             if (view.visibility != wantedVisibility) view.visibility = wantedVisibility
-                            // 系统 WebView：开着「高级材质」（柔光 / 液态玻璃）时显式使用硬件层。
-                            // 网页上方叠着的玻璃底栏 / 弹层与 WebView 同帧合成，WebView 作为独立的硬件图层，
-                            // 合成时不会随 Compose 重绘被反复重录，减少页面闪烁；纯色模式不叠玻璃，保持默认（不额外占显存）。
-                            // 这里读取了 settings.blurEnabled，切换材质时会立即生效。GeckoView 自己管理渲染，不动。
-                            if (view is android.webkit.WebView) {
-                                val wantedLayer = if (settings.blurEnabled) {
-                                    android.view.View.LAYER_TYPE_HARDWARE
-                                } else {
-                                    android.view.View.LAYER_TYPE_NONE
-                                }
-                                if (view.layerType != wantedLayer) view.setLayerType(wantedLayer, null)
-                            }
                             // AndroidView 自己负责尺寸/布局同步。这里仅同步可见性，禁止每次
                             // Compose 重组都 post requestApplyInsets + requestLayout。
                         },
@@ -1671,10 +1667,10 @@ fun BrowserScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .glassBar(
-                                    backdrop = homeBackdrop,
+                                    backdrop = glassBackdrop,
                                     corner = 24.dp,
                                     blurEnabled = settings.blurEnabled,
-                                    textureBlurEnabled = homeBlurAvailable,
+                                    textureBlurEnabled = glassAvailable,
                                     liquid = if (settings.liquidGlass) barLiquidBackdrop else null,
                                 ),
                         )
@@ -1758,8 +1754,8 @@ fun BrowserScreen(
             BottomBar(
                 blurEnabled = settings.blurEnabled,
                 liquid = if (settings.liquidGlass) barLiquidBackdrop else null,
-                textureBlurEnabled = homeBlurAvailable,
-                backdrop = homeBackdrop,
+                textureBlurEnabled = glassAvailable,
+                backdrop = glassBackdrop,
                 address = displayAddress,
                 loading = tab.loading,
                 // 阅读模式中「后退」= 退出阅读模式，所以即使没有历史也可点
@@ -2009,7 +2005,7 @@ fun BrowserScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        val liquid = if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null
+                        val liquid = if (glassAvailable && settings.blurEnabled) liquidBackdrop else null
                         TabAddButton(
                             canAdd = state.tabs.size < 99,
                             backdrop = liquid,
@@ -2045,10 +2041,10 @@ fun BrowserScreen(
             endAction = null,
             // 所有弹层统一采样页面模糊。卡顿的根因不在弹层自己的模糊，而在页面每帧被重复回放，
             // 已由上方的离屏缓存 / 整页冻结解决，所以更多菜单、标签列表可以恢复模糊。
-            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
-            // 更多菜单 / 标签列表在有模糊采样时不压暗；网页态（无法采样 WebView）没有模糊，必须压暗以区分层次
+            backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
+            // 更多菜单 / 标签列表在有模糊采样时不压暗；Gecko 网页态（无法采样）没有模糊，必须压暗以区分层次
             enableWindowDim = (lastActiveSheet != Sheet.Menu && lastActiveSheet != Sheet.Tabs) ||
-                !(homeBlurAvailable && settings.blurEnabled),
+                !(glassAvailable && settings.blurEnabled),
             onDismissRequest = { sheet = Sheet.None },
             onDismissFinished = { if (sheet == Sheet.None) sheetHostActive = false },
         ) {
@@ -2088,7 +2084,7 @@ fun BrowserScreen(
                                     TabCard(
                                         item = indexed.value,
                                         highlight = indexed.index == state.activeIndex,
-                                        blurBackdrop = if (settings.blurEnabled && homeBlurAvailable) homeBackdrop else null,
+                                        blurBackdrop = if (settings.blurEnabled && glassAvailable) glassBackdrop else null,
                                         modifier = Modifier.weight(1f),
                                         onSelect = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -2371,7 +2367,7 @@ fun BrowserScreen(
             show = showDefaultBrowserPrompt,
             title = "设为默认浏览器",
             summary = "设为系统默认浏览器后，其他应用里的网页链接会直接用 Mafari 打开。之后也可以在 设置 → 高级 里设置。",
-            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
             onDismissRequest = {
                 showDefaultBrowserPrompt = false
                 settings.markDefaultBrowserPrompted()
@@ -2404,7 +2400,7 @@ fun BrowserScreen(
         UpdateSheet(
             show = updateRelease != null,
             release = updateRelease ?: lastUpdateRelease,
-            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
             onDismiss = { updateRelease = null },
             onIgnore = {
                 settings.updateIgnoredUpdate(it.version)
@@ -2428,7 +2424,7 @@ fun BrowserScreen(
                         else -> "保存到 /sdcard/Download/mafari"
                     }
             },
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onDismissRequest = {
                 pendingDownload?.tempPath?.let { p -> runCatching { java.io.File(p).delete() } }
                 pendingDownload?.onResult?.invoke(false, "cancelled")
@@ -2520,7 +2516,7 @@ fun BrowserScreen(
                 },
             title = "选择来源",
             summary = "网页需要图片或视频",
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onDismissRequest = {
                 captureChoice?.callback?.onReceiveValue(null)
                 fileChooserChoice = null
@@ -2628,7 +2624,7 @@ fun BrowserScreen(
         if (EngineSupport.GECKO_BUNDLED) {
             GeckoExtMenuSheet(
                 show = geckoExtSheetShow,
-                backdrop = if (homeBlurAvailable) homeBackdrop else null,
+                backdrop = if (glassAvailable) glassBackdrop else null,
                 activeSession = state.activeTab.geckoSession,
                 onOpenUrl = { url -> state.newTab(url, tab.incognito) },
                 onDismiss = { geckoExtSheetShow = false },
@@ -2637,7 +2633,7 @@ fun BrowserScreen(
 
         ScriptMenuSheet(
             show = scriptSheetShow,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             scripts = runningScripts,
             commands = scriptMenuItems,
             scriptsEnabled = settings.scriptsEnabled,
@@ -2661,7 +2657,7 @@ fun BrowserScreen(
         val reqTab = state.activeTab
         RequestLogSheet(
             show = requestSheetShow,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             log = if (reqTab.isGecko) remember(reqTab, reqTab.url) { GeckoNetLog.logFor(reqTab.url) } else reqTab.requestLog,
             isGecko = reqTab.isGecko,
             onDismiss = { requestSheetShow = false },
@@ -2682,7 +2678,7 @@ fun BrowserScreen(
             show = permPrompt != null,
             title = "允许网站" + (permPrompt?.what ?: "") + "？",
             summary = permPrompt?.origin,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onDismissRequest = {
                 webPermPrompt = null
                 permPrompt?.decide?.invoke(false)
@@ -2724,12 +2720,12 @@ fun BrowserScreen(
         // 脚本悬浮播放器的「投屏到」面板（状态在 MediaHost.pickerUi）
         CastPickerDialog(
             ui = dev.dsh.miuixbrowser.script.MediaHost.pickerUi,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
         )
 
         LoginPromptDialog(
             prompt = loginPrompt,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onClear = { loginPrompt = null },
         )
 
@@ -2738,7 +2734,7 @@ fun BrowserScreen(
             show = scriptImportUrl != null,
             title = "导入脚本？",
             summary = scriptImportUrl,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onDismissRequest = { pendingScript = null },
         ) {
             if (scriptImportUrl != null) {
@@ -2785,7 +2781,7 @@ fun BrowserScreen(
             } else {
                 "将关闭所有标签页，无痕浏览页不受影响，并新建一个空白标签。"
             },
-            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
             onDismissRequest = { showClearTabsConfirm = false },
         ) {
             Row(
@@ -2816,13 +2812,13 @@ fun BrowserScreen(
             show = showShareDialog,
             title = tab.title,
             url = tab.url,
-            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
             onDismiss = { showShareDialog = false },
         )
 
         FindDialog(
             show = showFind,
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onDismiss = {
                 tab.clearFind()
                 showFind = false
@@ -2836,8 +2832,8 @@ fun BrowserScreen(
             show = showBookmarkCreate,
             initial = null,
             groups = favorites.groups(),
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
-            liquidBackdrop = if (homeBlurAvailable && settings.blurEnabled) liquidBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
+            liquidBackdrop = if (glassAvailable && settings.blurEnabled) liquidBackdrop else null,
             prefillName = bookmarkPrefillName,
             prefillUrl = bookmarkPrefillUrl,
             onDismiss = { showBookmarkCreate = false },
@@ -2851,7 +2847,7 @@ fun BrowserScreen(
         FavoriteEditor(
             show = showFavEditor,
             initial = favorites.items.getOrNull(editingFavIndex),
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onDismiss = { showFavEditor = false },
             onConfirm = { name, url ->
                 if (editingFavIndex >= 0) {
@@ -2871,7 +2867,7 @@ fun BrowserScreen(
             // 排列方式存在加密库里：切换后立即落盘，重启后保持
             gridMode = favorites.groupPopupGrid,
             onGridModeChange = { favorites.updateGroupPopupGrid(it) },
-            backdrop = if (homeBlurAvailable && settings.blurEnabled) homeBackdrop else null,
+            backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
             onDismiss = { showGroupPopup = false },
             onOpenUrl = { url ->
                 showGroupPopup = false
@@ -2886,7 +2882,7 @@ fun BrowserScreen(
                 show = showQuickPicker,
                 candidates = quickMenuCandidates(),
                 pickedActions = all.take(cap).toSet(),
-                backdrop = if (homeBlurAvailable) homeBackdrop else null,
+                backdrop = if (glassAvailable) glassBackdrop else null,
                 onDismiss = { showQuickPicker = false },
                 onPick = { action ->
                     // 追加到可见部分的末尾；被行数挡住的旧项排在后面（去重）
@@ -2900,7 +2896,7 @@ fun BrowserScreen(
             show = showGroupPicker,
             favorites = favorites,
             pickedIds = homeGroups.map { it.id },
-            backdrop = if (homeBlurAvailable) homeBackdrop else null,
+            backdrop = if (glassAvailable) glassBackdrop else null,
             onDismiss = { showGroupPicker = false },
             onPick = { path ->
                 // 登记（已登记则返回原 id）拿到稳定 id，追加到末尾
