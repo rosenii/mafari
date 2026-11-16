@@ -159,4 +159,26 @@ class AutofillParserTest {
         // 验证码框紧挨着密码框，但被排除；用户名取前面的手机号/邮箱框
         assertEquals(0, form!!.username!!.index)
     }
+
+    @Test
+    fun nativeFormsParseOnlyInNativeMode() {
+        // 原生 App：没有 HTML 信息、不在 WebView 里，也没有网页域名
+        val nodes = listOf(
+            AfNode(0, labels = listOf("login_username"), inputType = 0x21),
+            AfNode(1, inputType = textPassword),
+        )
+        assertNull(AutofillParser.parse(nodes)) // 网页模式不认原生输入框（地址栏等）
+        val form = AutofillParser.parse(nodes, native = true)
+        assertEquals(1, form!!.password!!.index)
+        assertEquals(0, form.username!!.index)
+        assertNull(form.domain)
+    }
+
+    @Test
+    fun nativeModeIgnoresDeclaredWebDomain() {
+        // 非受信应用自称的网页域名一律不采信：原生路径只认系统给出的包名
+        val form = AutofillParser.parse(listOf(web(0, hints = listOf("username")), web(1, hints = listOf("password"))), native = true)
+        assertNull(form!!.domain)
+        assertNull(form.scheme)
+    }
 }

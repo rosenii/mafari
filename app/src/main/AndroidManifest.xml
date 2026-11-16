@@ -30,6 +30,11 @@
         <package android:name="idm.internet.download.manager" />
         <package android:name="org.freedownloadmanager.fdm" />
         <package android:name="com.gopeed" />
+        <!-- 自动填充下拉里显示原生 App 的名字（见 MafariAutofillService.appLabel）：只需要能看到有桌面图标的应用 -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <package android:name="com.xunlei.downloadprovider" />
     </queries>
 
@@ -216,6 +221,15 @@
             android:taskAffinity=""
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- 原生 App 里「选择账号…」的透明界面：只由自动填充服务通过 PendingIntent 启动 -->
+        <activity
+            android:name=".AutofillPickActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
+            android:theme="@style/Theme.MafariTranslucent" />
 
         <!-- 系统分享面板里的「发送到设备」：由 BrowserScreen 分享时放进 EXTRA_CHOOSER_CUSTOM_ACTIONS 的 PendingIntent 启动 -->
         <activity

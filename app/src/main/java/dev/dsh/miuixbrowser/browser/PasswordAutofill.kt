@@ -11,6 +11,9 @@ import dev.dsh.miuixbrowser.util.hostOf
  */
 internal object PasswordAutofill {
 
+    /** 原生 App 凭据的来源（androidapp://包名）：包名长得像主机名，绝不能参与网页站点匹配。 */
+    private fun isAppOrigin(origin: String) = origin.startsWith("androidapp://")
+
     /** 来源（scheme://host[:port]）里的主机，小写、去端口；IPv6 保留方括号。取不到返回 null。 */
     fun hostOf(origin: String): String? {
         val rest = origin.substringAfter("://", origin).substringBefore('/').substringAfterLast('@')
@@ -23,6 +26,7 @@ internal object PasswordAutofill {
      * 主机相同，或其中一方是另一方的子域（`www.example.com` ↔ `example.com`）。端口、协议不参与（交给 Gecko 精筛）。
      */
     fun hostMatches(origin: String, domain: String): Boolean {
+        if (isAppOrigin(origin)) return false
         val have = hostOf(origin) ?: return false
         val want = hostOf(domain) ?: return false
         return have == want || have.endsWith(".$want") || want.endsWith(".$have")
@@ -43,6 +47,7 @@ internal object PasswordAutofill {
      * 用户可自建内容的子站拿到 `example.com` 的密码。
      */
     fun sameSite(origin: String, pageHost: String): Boolean {
+        if (isAppOrigin(origin)) return false
         val have = hostOf(origin)?.removePrefix("www.") ?: return false
         val want = hostOf(pageHost)?.removePrefix("www.") ?: return false
         return have == want

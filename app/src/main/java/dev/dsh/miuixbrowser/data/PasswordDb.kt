@@ -54,8 +54,25 @@ internal object PasswordDb {
     const val CREATE_TOMBSTONES =
         "CREATE TABLE IF NOT EXISTS passwords_deleted(guid TEXT PRIMARY KEY NOT NULL, time INTEGER NOT NULL) WITHOUT ROWID"
 
+    /** 应用关联：某条密码记录可以用在哪些原生 App 里（包名由系统给出，不可伪造）。只在本机，不参与 Firefox 同步。 */
+    const val CREATE_PASSWORD_APPS =
+        "CREATE TABLE IF NOT EXISTS password_apps(" +
+            "guid TEXT NOT NULL, package TEXT NOT NULL, PRIMARY KEY(guid, package)) WITHOUT ROWID"
+
+    const val CREATE_PASSWORD_APPS_INDEX = "CREATE INDEX IF NOT EXISTS idx_password_apps_pkg ON password_apps(package)"
+
     const val SYNC_PENDING = 0
     const val SYNC_DONE = 1
+
+    /** 仅本机：原生 App 里保存的账号（来源是 [APP_ORIGIN_PREFIX] + 包名），永不上传。 */
+    const val SYNC_LOCAL = 2
+
+    /** 原生 App 凭据的来源前缀。网页匹配（[PasswordAutofill]）一律不认这种来源，否则主机名恰好等于包名的网站能拿到它。 */
+    const val APP_ORIGIN_PREFIX = "androidapp://"
+
+    fun appOrigin(pkg: String) = APP_ORIGIN_PREFIX + pkg
+
+    fun isAppOrigin(origin: String) = origin.startsWith(APP_ORIGIN_PREFIX)
 
     /** 列表用的元数据：不含密码和备注。 */
     data class Item(
@@ -159,6 +176,48 @@ internal object PasswordDb {
         return out
     }
 
+    /** 可用在原生 App [pkg] 里的账号元数据：该 App 自己保存的，加上用户关联过的网站账号。不含 HTTP 认证凭据，不解密。 */
+    fun listForPackage(db: SQLiteDatabase, pkg: String): List<Item> {
+        val out = ArrayList<Item>()
+        db.rawQuery(
+            "SELECT guid,origin,username,form_origin,http_realm,time_created,time_last_used,time_changed,times_used " +
+                "FROM passwords WHERE http_realm IS NULL AND (origin=? OR guid IN (SELECT guid FROM password_apps WHERE package=?)) " +
+                "ORDER BY time_last_used DESC, username COLLATE NOCASE",
+            arrayOf(appOrigin(pkg), pkg),
+        ).use { c ->
+            while (c.moveToNext()) {
+                out.add(
+                    Item(
+                        guid = c.getString(0), origin = c.getString(1), username = c.getString(2),
+                        formOrigin = if (c.isNull(3)) null else c.getString(3),
+                        httpRealm = null,
+                        timeCreated = c.getLong(5), timeLastUsed = c.getLong(6),
+                        timePasswordChanged = c.getLong(7), timesUsed = c.getInt(8),
+                    ),
+                )
+            }
+        }
+        return out
+    }
+
+    /** 把记录 [guid] 关联到原生 App [pkg]（已关联则不动）。 */
+    fun linkApp(db: SQLiteDatabase, guid: String, pkg: String) {
+        db.execSQL("INSERT OR IGNORE INTO password_apps(guid,package) VALUES(?,?)", arrayOf<Any?>(guid, pkg))
+        version++
+    }
+
+    fun unlinkApp(db: SQLiteDatabase, guid: String, pkg: String) {
+        db.execSQL("DELETE FROM password_apps WHERE guid=? AND package=?", arrayOf<Any?>(guid, pkg))
+        version++
+    }
+
+    /** 记录 [guid] 关联的 App 包名。 */
+    fun linkedApps(db: SQLiteDatabase, guid: String): List<String> {
+        val out = ArrayList<String>()
+        db.rawQuery("SELECT package FROM password_apps WHERE guid=? ORDER BY package", arrayOf(guid)).use { while (it.moveToNext()) out.add(it.getString(0)) }
+        return out
+    }
+
     /** 解开单条记录（含密码）。解不开（密钥丢失 / 数据损坏）返回 null。旧套件的会顺手换成当前套件。 */
     fun reveal(context: Context, db: SQLiteDatabase, guid: String): PasswordEntry? {
         return readFull(context, db, "WHERE guid=?", arrayOf(guid), upgrade = true).firstOrNull()
@@ -250,7 +309,7 @@ internal object PasswordDb {
                     val guid = e.guid.takeIf { it.isNotEmpty() && !guidExists(db, it) } ?: newGuid()
                     val created = if (e.timeCreated > 0) e.timeCreated else now
                     val changed = if (e.timePasswordChanged > 0) e.timePasswordChanged else created
-                    insert(context, db, e.copy(guid = guid, timeCreated = created, timePasswordChanged = changed), if (remote) SYNC_DONE else SYNC_PENDING)
+                    insert(context, db, e.copy(guid = guid, timeCreated = created, timePasswordChanged = changed), syncFor(e.origin, remote))
                     db.execSQL("DELETE FROM passwords_deleted WHERE guid=?", arrayOf<Any?>(guid))
                     added++
                     continue
@@ -270,7 +329,7 @@ internal object PasswordDb {
                 db.execSQL(
                     "UPDATE passwords SET secret=?, time_changed=?, time_last_used=MAX(time_last_used,?), " +
                         "times_used=MAX(times_used,?), sync_status=? WHERE guid=?",
-                    arrayOf<Any?>(sealed, changed, e.timeLastUsed, e.timesUsed, if (remote) SYNC_DONE else SYNC_PENDING, existing.guid),
+                    arrayOf<Any?>(sealed, changed, e.timeLastUsed, e.timesUsed, syncFor(e.origin, remote), existing.guid),
                 )
                 updated++
             }
@@ -281,6 +340,10 @@ internal object PasswordDb {
         version++
         return Stats(added, updated, unchanged, 0)
     }
+
+    /** 新写入 / 改过的记录的同步状态：原生 App 凭据永远只在本机。 */
+    private fun syncFor(origin: String, remote: Boolean): Int =
+        if (isAppOrigin(origin)) SYNC_LOCAL else if (remote) SYNC_DONE else SYNC_PENDING
 
     private class Existing(val guid: String, val secret: String, val timeChanged: Long)
 
@@ -317,8 +380,9 @@ internal object PasswordDb {
     fun delete(db: SQLiteDatabase, guid: String, now: Long = System.currentTimeMillis()) {
         db.beginTransaction()
         try {
-            db.execSQL("INSERT OR REPLACE INTO passwords_deleted(guid,time) SELECT guid,? FROM passwords WHERE guid=?", arrayOf<Any?>(now, guid))
+            db.execSQL("INSERT OR REPLACE INTO passwords_deleted(guid,time) SELECT guid,? FROM passwords WHERE guid=? AND sync_status<>$SYNC_LOCAL", arrayOf<Any?>(now, guid))
             db.execSQL("DELETE FROM passwords WHERE guid=?", arrayOf<Any?>(guid))
+            db.execSQL("DELETE FROM password_apps WHERE guid=?", arrayOf<Any?>(guid))
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -329,8 +393,9 @@ internal object PasswordDb {
     fun clear(db: SQLiteDatabase, now: Long = System.currentTimeMillis()) {
         db.beginTransaction()
         try {
-            db.execSQL("INSERT OR REPLACE INTO passwords_deleted(guid,time) SELECT guid,? FROM passwords", arrayOf<Any?>(now))
+            db.execSQL("INSERT OR REPLACE INTO passwords_deleted(guid,time) SELECT guid,? FROM passwords WHERE sync_status<>$SYNC_LOCAL", arrayOf<Any?>(now))
             db.execSQL("DELETE FROM passwords")
+            db.execSQL("DELETE FROM password_apps")
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -374,8 +439,11 @@ internal object PasswordDb {
         db.beginTransaction()
         try {
             if (guidExists(db, newGuid)) {
+                db.execSQL("UPDATE OR IGNORE password_apps SET guid=? WHERE guid=?", arrayOf<Any?>(newGuid, oldGuid))
+                db.execSQL("DELETE FROM password_apps WHERE guid=?", arrayOf<Any?>(oldGuid))
                 db.execSQL("DELETE FROM passwords WHERE guid=?", arrayOf<Any?>(oldGuid))
             } else {
+                db.execSQL("UPDATE password_apps SET guid=? WHERE guid=?", arrayOf<Any?>(newGuid, oldGuid))
                 val sealed = sealSecret(context, newGuid, cur.password, cur.note) ?: return false
                 db.execSQL("UPDATE passwords SET guid=?, secret=?, sync_status=$SYNC_DONE WHERE guid=?", arrayOf<Any?>(newGuid, sealed, oldGuid))
             }
@@ -392,7 +460,7 @@ internal object PasswordDb {
     fun resetSyncState(db: SQLiteDatabase) {
         db.beginTransaction()
         try {
-            db.execSQL("UPDATE passwords SET sync_status=$SYNC_PENDING")
+            db.execSQL("UPDATE passwords SET sync_status=$SYNC_PENDING WHERE sync_status<>$SYNC_LOCAL")
             db.execSQL("DELETE FROM passwords_deleted")
             db.setTransactionSuccessful()
         } finally {
@@ -422,7 +490,10 @@ internal object PasswordDb {
     fun applyRemoteDeletes(db: SQLiteDatabase, guids: Collection<String>) {
         db.beginTransaction()
         try {
-            for (g in guids) db.execSQL("DELETE FROM passwords WHERE guid=?", arrayOf<Any?>(g))
+            for (g in guids) {
+                db.execSQL("DELETE FROM passwords WHERE guid=?", arrayOf<Any?>(g))
+                db.execSQL("DELETE FROM password_apps WHERE guid=?", arrayOf<Any?>(g))
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()

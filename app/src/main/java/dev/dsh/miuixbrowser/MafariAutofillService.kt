@@ -15,6 +15,7 @@ import android.app.PendingIntent
 import android.app.assist.AssistStructure
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
@@ -44,10 +45,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * 取舍：
  *  - 列表只读元数据（站点 / 用户名），不解密；「填充前验证身份」打开时，每条是一个带验证的数据集，
  *    选中后由 [AutofillAuthActivity] 验证并只解开这一条；关闭时才解开（至多 [MAX_DATASETS] 条）直接给系统。
- *  - 只信任自己和 [TRUSTED_BROWSERS]：网页域名是调用方自己声明的，放开给任意应用，恶意应用就能谎称自己是银行网站来骗密码。
+ *  - 网页域名只信任自己和 [TRUSTED_BROWSERS]：网页域名是调用方自己声明的，放开给任意应用，恶意应用就能谎称自己是银行网站来骗密码。
  *  - 保存提示只在本应用的 WebView 非无痕标签、以及受信浏览器里出现：Gecko 标签有自己的保存提示（[GeckoLogins]），不能重复弹。
  *  - 本应用的 WebView 标签正常情况下已改走 [WebLoginChannel]（应用内弹窗，并关掉了该 WebView 的系统自动填充）；
  *    只有 WebView 太旧装不上它时，本服务才继续负责本应用 WebView 的填充 / 保存。
+ *  - 其它原生 App（不在受信名单里）：**不信任**它声明的网页域名，只认系统给出的包名——只列出该包名「关联」的账号
+ *    （[PasswordDb.listForPackage]：在该 App 里保存的，或在 [AutofillPickActivity] 里选择过的），
+ *    首次用时给一行「选择账号…」，选中后才建立关联。包名由系统写进结构，应用无法冒充别的包。
  *  - 不能引用 `Gecko*` 类：lite 版里它们不存在（见 ARCHITECTURE §2）。
  */
 class MafariAutofillService : AutofillService() {
@@ -60,7 +64,8 @@ class MafariAutofillService : AutofillService() {
     override fun onFillRequest(request: FillRequest, cancel: CancellationSignal, callback: FillCallback) {
         val ctx = applicationContext
         val structure = request.fillContexts.lastOrNull()?.structure
-        if (structure == null || !(PasswordPrefs.fillEnabled(ctx) || PasswordPrefs.saveEnabled(ctx)) || !trusted(structure)) {
+        val nativePkg = structure?.let { nativePackage(it) }
+        if (structure == null || !(PasswordPrefs.fillEnabled(ctx) || PasswordPrefs.saveEnabled(ctx)) || (!trusted(structure) && nativePkg == null)) {
             callback.onSuccess(null)
             return
         }
@@ -69,7 +74,7 @@ class MafariAutofillService : AutofillService() {
         val cancelled = AtomicBoolean(false)
         cancel.setOnCancelListener { cancelled.set(true) }
         io.execute {
-            val response = runCatching { buildResponse(ctx, structure, own, tab) }
+            val response = runCatching { if (nativePkg != null) buildNativeResponse(ctx, structure, nativePkg) else buildResponse(ctx, structure, own, tab) }
                 .onFailure { Diag.log("autofill: fill failed: $it") }
                 .getOrNull()
             if (!cancelled.get()) callback.onSuccess(response)
@@ -80,7 +85,8 @@ class MafariAutofillService : AutofillService() {
         val ctx = applicationContext
         val contexts = request.fillContexts
         val last = contexts.lastOrNull()?.structure
-        if (last == null || !PasswordPrefs.saveEnabled(ctx) || !trusted(last)) {
+        val nativePkg = last?.let { nativePackage(it) }
+        if (last == null || !PasswordPrefs.saveEnabled(ctx) || (!trusted(last) && nativePkg == null)) {
             callback.onSuccess()
             return
         }
@@ -90,9 +96,13 @@ class MafariAutofillService : AutofillService() {
                 // 提交后表单可能已不可见，所以不要求可见；从最近的上下文往前找第一个带密码值的
                 for (fc in contexts.asReversed()) {
                     val snap = snapshot(fc.structure)
-                    val form = AutofillParser.parse(snap.nodes, visibleOnly = false) ?: continue
+                    val form = AutofillParser.parse(snap.nodes, visibleOnly = false, native = nativePkg != null) ?: continue
                     val password = form.password?.text.orEmpty()
                     if (password.isEmpty()) continue
+                    if (nativePkg != null) {
+                        saveNative(ctx, nativePkg, form.username?.text.orEmpty(), password)
+                        break
+                    }
                     // 站点用填充请求时记下的（提交后页面可能已经跳转到别的站点）
                     val host = clientState?.getString(STATE_HOST) ?: form.domain ?: continue
                     val scheme = clientState?.getString(STATE_SCHEME) ?: form.scheme ?: "https"
@@ -192,7 +202,7 @@ class MafariAutofillService : AutofillService() {
     }
 
     /** 需要验证身份的数据集：值留空，选中后系统启动 [AutofillAuthActivity]，验证通过才解密这一条。 */
-    private fun lockedDataset(ctx: Context, item: PasswordDb.Item, userId: AutofillId?, passId: AutofillId, withHeader: Boolean = false): Dataset {
+    private fun lockedDataset(ctx: Context, item: PasswordDb.Item, userId: AutofillId?, passId: AutofillId, withHeader: Boolean = false, site: String = PasswordCsv.displayHost(item.origin)): Dataset {
         val intent = Intent(ctx, AutofillAuthActivity::class.java)
             .putExtra(AutofillAuthActivity.EXTRA_GUID, item.guid)
             .putExtra(AutofillAuthActivity.EXTRA_PASS_ID, passId)
@@ -203,10 +213,93 @@ class MafariAutofillService : AutofillService() {
             ctx, requestCodes.incrementAndGet(), intent,
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE,
         ).intentSender
-        val b = Dataset.Builder(presentation(ctx, item.username, PasswordCsv.displayHost(item.origin), withHeader))
+        val b = Dataset.Builder(presentation(ctx, item.username, site, withHeader))
         if (userId != null) b.setValue(userId, null)
         b.setValue(passId, null)
         return b.setAuthentication(sender).build()
+    }
+
+    // ------------------------------------------------------------------ 原生 App（按包名关联）
+
+    /** 原生 App 的包名：不是本应用、也不在受信浏览器名单里的调用方。包名来自系统写入的结构，应用无法伪造。 */
+    private fun nativePackage(structure: AssistStructure): String? {
+        val pkg = structure.activityComponent?.packageName ?: return null
+        return pkg.takeIf { it != packageName && it !in TRUSTED_BROWSERS }
+    }
+
+    private fun buildNativeResponse(ctx: Context, structure: AssistStructure, pkg: String): FillResponse? {
+        val snap = snapshot(structure)
+        val form = AutofillParser.parse(snap.nodes, native = true)
+        // 原生 App 只处理带密码框的表单：没有网页域名可对，单独的用户名框误触发率太高
+        val passId = form?.password?.let { snap.ids[it.index] }
+        if (form == null || passId == null) return null // 绝大多数 App 的绝大多数输入框都走这里，不记日志
+        val userId = form.username?.let { snap.ids[it.index] }
+        val db = AppDatabase.get(ctx) ?: return null
+        val label = appLabel(ctx, pkg)
+        val response = FillResponse.Builder()
+        var any = false
+
+        if (PasswordPrefs.fillEnabled(ctx) && !form.newPassword) {
+            val items = PasswordDb.listForPackage(db, pkg).take(MAX_DATASETS)
+            for (item in items) {
+                val site = if (PasswordDb.isAppOrigin(item.origin)) label else PasswordCsv.displayHost(item.origin)
+                if (PasswordPrefs.verifyBeforeFill(ctx)) {
+                    response.addDataset(lockedDataset(ctx, item, userId, passId, withHeader = !any, site = site))
+                } else {
+                    val e = PasswordDb.reveal(ctx, db, item.guid) ?: continue
+                    val b = Dataset.Builder(presentation(ctx, e.username, site, withHeader = !any))
+                    if (userId != null) b.setValue(userId, AutofillValue.forText(e.username))
+                    b.setValue(passId, AutofillValue.forText(e.password))
+                    response.addDataset(b.build())
+                }
+                any = true
+            }
+            // 末尾永远有一行「选择账号…」：第一次在这个 App 里用、或想换一个账号时，从密码库里选，选中即关联
+            response.addDataset(pickDataset(ctx, pkg, label, userId, passId, withHeader = !any))
+            any = true
+        }
+
+        if (PasswordPrefs.saveEnabled(ctx)) {
+            val save = SaveInfo.Builder(SaveInfo.SAVE_DATA_TYPE_PASSWORD, arrayOf(passId))
+            if (userId != null) save.setOptionalIds(arrayOf(userId))
+            save.setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE)
+            response.setSaveInfo(save.build())
+            any = true
+        }
+        if (!any) return null
+        return response.build()
+    }
+
+    /** 「选择账号…」数据集：选中后由 [AutofillPickActivity] 列出密码库、验证身份、建立关联并填充。 */
+    private fun pickDataset(ctx: Context, pkg: String, label: String, userId: AutofillId?, passId: AutofillId, withHeader: Boolean): Dataset {
+        val intent = Intent(ctx, AutofillPickActivity::class.java)
+            .putExtra(AutofillPickActivity.EXTRA_PKG, pkg)
+            .putExtra(AutofillPickActivity.EXTRA_PASS_ID, passId)
+        if (userId != null) intent.putExtra(AutofillPickActivity.EXTRA_USER_ID, userId)
+        val sender = PendingIntent.getActivity(
+            ctx, requestCodes.incrementAndGet(), intent,
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE,
+        ).intentSender
+        val b = Dataset.Builder(presentation(ctx, "选择账号…", label, withHeader))
+        if (userId != null) b.setValue(userId, null)
+        b.setValue(passId, null)
+        return b.setAuthentication(sender).build()
+    }
+
+    /**
+     * 保存原生 App 里提交的账号。已经有「同用户名、关联到这个 App」的记录时更新它（可能是一条网站账号），
+     * 否则新建一条仅本机的 [PasswordDb.appOrigin] 记录（不上传 Firefox 同步）。
+     */
+    private fun saveNative(ctx: Context, pkg: String, username: String, password: String) {
+        val db = AppDatabase.get(ctx) ?: return
+        val linked = PasswordDb.listForPackage(db, pkg).firstOrNull { it.username == username }
+        val origin = linked?.origin ?: PasswordDb.appOrigin(pkg)
+        val now = System.currentTimeMillis()
+        val entry = PasswordEntry(
+            guid = "", origin = origin, username = username, password = password,
+            timeCreated = now, timeLastUsed = now, timePasswordChanged = now, timesUsed = 1,
+        )
+        PasswordDb.importEntries(ctx, db, listOf(entry))
     }
 
     // ------------------------------------------------------------------ 系统结构 → AfNode
@@ -295,6 +388,12 @@ class MafariAutofillService : AutofillService() {
             "com.microsoft.emmx", "com.brave.browser", "com.vivaldi.browser", "com.sec.android.app.sbrowser",
             "com.opera.browser", "com.duckduckgo.mobile.android",
         )
+
+        /** 原生 App 的显示名；查不到（包可见性限制 / 已卸载）退回包名。 */
+        internal fun appLabel(ctx: Context, pkg: String): String = runCatching {
+            val pm = ctx.packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(0))).toString()
+        }.getOrDefault(pkg)
 
         /** 下拉里一行：主标题用户名，副标题站点。 */
         internal fun presentation(ctx: Context, username: String, site: String, withHeader: Boolean = false): RemoteViews =

@@ -68,4 +68,13 @@ class PasswordAutofillTest {
         assertFalse(PasswordAutofill.usable("https://example.com", null, "example.com", "http"))
         assertFalse(PasswordAutofill.usable("https://example.com", null, "other.org", "https"))
     }
+
+    @Test
+    fun appOriginsNeverMatchWebPages() {
+        // 包名长得像主机名：主机名恰好等于包名的网站不能拿到原生 App 的凭据
+        assertFalse(PasswordAutofill.sameSite("androidapp://com.example.bank", "com.example.bank"))
+        assertFalse(PasswordAutofill.usable("androidapp://com.example.bank", null, "com.example.bank", "https"))
+        assertFalse(PasswordAutofill.hostMatches("androidapp://com.example.bank", "com.example.bank"))
+        assertTrue(PasswordAutofill.sameSite("https://example.com", "example.com"))
+    }
 }

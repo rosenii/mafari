@@ -1,6 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
 import dev.dsh.miuixbrowser.sync.fxa.FxaUi
+import dev.dsh.miuixbrowser.MafariAutofillService
 import dev.dsh.miuixbrowser.browser.PasswordCsv
 import dev.dsh.miuixbrowser.browser.PasswordEntry
 import dev.dsh.miuixbrowser.crypto.BiometricGate
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -130,6 +132,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
     var report by remember { mutableStateOf<ImportReport?>(null) }
     var detail by remember { mutableStateOf<PasswordDb.Item?>(null) }
     var shownPassword by remember { mutableStateOf<String?>(null) }
+    var linkedApps by remember { mutableStateOf<List<String>>(emptyList()) } // 详情里：这条账号关联的原生 App 包名
     var confirmDelete by remember { mutableStateOf<PasswordDb.Item?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var fxaSyncing by remember { mutableStateOf(false) }
@@ -190,6 +193,13 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             refresh++
         }
+    }
+
+    // 详情打开 / 关联变化（PasswordDb.version 随 linkApp / unlinkApp 递增）时重新读关联的 App
+    val detailGuid = detail?.guid
+    LaunchedEffect(detailGuid, PasswordDb.version) {
+        linkedApps = if (detailGuid == null) emptyList()
+        else withContext(Dispatchers.IO) { AppDatabase.get(context)?.let { PasswordDb.linkedApps(it, detailGuid) }.orEmpty() }
     }
 
     val total = count ?: 0
@@ -368,7 +378,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                     },
                 ) { item ->
                     ListSheetRow(
-                        title = PasswordCsv.displayHost(item.origin) + (item.httpRealm?.let { " · $it" } ?: ""),
+                        title = originTitle(context, item.origin) + (item.httpRealm?.let { " · $it" } ?: ""),
                         summary = item.username.ifEmpty { "（无用户名）" },
                         onClick = {
                             shownPassword = null
@@ -404,8 +414,8 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 val d = detail
                 AppGlassDialog(
                     show = d != null,
-                    title = d?.let { PasswordCsv.displayHost(it.origin) },
-                    summary = d?.let { it.origin },
+                    title = d?.let { originTitle(context, it.origin) },
+                    summary = d?.let { it.origin.removePrefix(PasswordDb.APP_ORIGIN_PREFIX) },
                     backdrop = bd,
                     onDismissRequest = { detail = null; shownPassword = null },
                 ) {
@@ -431,6 +441,14 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                             }
                         }
                         if (d.timePasswordChanged > 0) DetailLine("修改时间", formatTime(d.timePasswordChanged))
+                        // 关联的原生 App（在 App 里选「选择账号…」时建立）：这里可以逐个解除
+                        linkedApps.forEach { pkg ->
+                            DetailLine(label = "关联的应用", value = MafariAutofillService.appLabel(context, pkg)) {
+                                DetailTextAction("解除") {
+                                    scope.launch { withContext(Dispatchers.IO) { AppDatabase.get(context)?.let { PasswordDb.unlinkApp(it, d.guid, pkg) } } }
+                                }
+                            }
+                        }
                         Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             AppDialogButton(
                                 onClick = { confirmDelete = d },
@@ -450,7 +468,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 AppGlassDialog(
                     show = del != null,
                     title = "删除这条密码？",
-                    summary = del?.let { PasswordCsv.displayHost(it.origin) + " · " + it.username.ifEmpty { "（无用户名）" } },
+                    summary = del?.let { originTitle(context, it.origin) + " · " + it.username.ifEmpty { "（无用户名）" } },
                     backdrop = bd,
                     onDismissRequest = { confirmDelete = null },
                 ) {
@@ -504,6 +522,22 @@ private fun DetailLine(label: String, value: String, actions: (@Composable () ->
             Text(text = value, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         actions?.invoke()
+    }
+}
+
+/** 来源的显示名：网站显示域名，原生 App 的账号（androidapp://）显示 App 名。 */
+private fun originTitle(context: Context, origin: String): String =
+    if (PasswordDb.isAppOrigin(origin)) MafariAutofillService.appLabel(context, origin.removePrefix(PasswordDb.APP_ORIGIN_PREFIX))
+    else PasswordCsv.displayHost(origin)
+
+/** 值右侧的文字操作（和 [DetailIconButton] 同一主题色，40dp 高点击区）。 */
+@Composable
+private fun DetailTextAction(text: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.height(40.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = text, fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
     }
 }
 

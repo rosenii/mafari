@@ -47,6 +47,11 @@ internal object Migrations {
         },
         // 书签「同层置顶」：bookmarks 表加 pinned 列
         Step(2, "bookmark pinned column") { db -> BookmarkDb.addPinnedColumn(db) },
+        // 密码 ↔ 原生 App 的关联（系统自动填充用，见 PasswordDb.listForPackage）
+        Step(3, "password app links") { db ->
+            db.execSQL(PasswordDb.CREATE_PASSWORD_APPS)
+            db.execSQL(PasswordDb.CREATE_PASSWORD_APPS_INDEX)
+        },
     )
 
     /** 当前代码期望的结构版本。 */

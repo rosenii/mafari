@@ -69,11 +69,15 @@ internal object AutofillParser {
         "firstname", "lastname", "fullname", "first_name", "last_name", "搜索", "验证", "姓名",
     )
 
-    /** [visibleOnly] = false 供保存用：提交后表单常被藏起来，保存请求里的结构里它们可能已不可见。 */
-    fun parse(all: List<AfNode>, visibleOnly: Boolean = true): AfForm? {
-        val nodes = all.filter { (!visibleOnly || it.visible) && it.editable && (it.inWeb || it.domain != null) }
+    /**
+     * [visibleOnly] = false 供保存用：提交后表单常被藏起来，保存请求里的结构里它们可能已不可见。
+     * [native] = true：解析原生 App 的登录框——不要求是网页内容，也**忽略**结构里的网页域名
+     * （非受信应用能随便声明域名，原生路径只认系统给出的包名，见 [MafariAutofillService]）。
+     */
+    fun parse(all: List<AfNode>, visibleOnly: Boolean = true, native: Boolean = false): AfForm? {
+        val nodes = all.filter { (!visibleOnly || it.visible) && it.editable && (native || it.inWeb || it.domain != null) }
         if (nodes.isEmpty()) return null
-        val domainNode = all.firstOrNull { it.domain != null }
+        val domainNode = if (native) null else all.firstOrNull { it.domain != null }
         val domain = domainNode?.domain
         val scheme = domainNode?.scheme
 

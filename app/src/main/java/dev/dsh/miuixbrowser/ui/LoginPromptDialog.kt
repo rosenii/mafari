@@ -286,7 +286,7 @@ private fun AccountCard(
 
 /** 站点图标；favicon 还没取到 / 取不到时显示域名首字母。 */
 @Composable
-private fun SiteAvatar(origin: String, size: Dp) {
+internal fun SiteAvatar(origin: String, size: Dp) {
     val icon = rememberFavicon(origin)
     Box(
         modifier = Modifier
