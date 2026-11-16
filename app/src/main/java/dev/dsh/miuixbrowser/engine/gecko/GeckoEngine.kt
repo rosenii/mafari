@@ -7,6 +7,8 @@ import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.sync.FloccusPatcher
 import dev.dsh.miuixbrowser.sync.fxa.FxaSync
 import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.util.ErrorKind
+import dev.dsh.miuixbrowser.util.ErrorPages
 import dev.dsh.miuixbrowser.util.hostOf
 import dev.dsh.miuixbrowser.util.isUserScriptUrl
 import android.content.Context
@@ -698,8 +700,10 @@ class GeckoTabEngine(
                 uri: String?,
                 error: WebRequestError,
             ): GeckoResult<String>? {
-                tab.geckoLoadError("加载失败（错误 ${error.category}/${error.code}）")
-                return null
+                val label = "Gecko ${error.category}/${error.code}"
+                val spec = ErrorPages.fromKind(geckoErrorKind(error), label, "category=${error.category} code=${error.code}")
+                val page = tab.geckoLoadError("加载失败（错误 ${error.category}/${error.code}）", uri, spec)
+                return page?.let { GeckoResult.fromValue(it) }
             }
         }
 
@@ -988,3 +992,27 @@ private fun permConst(name: String): Int =
 private val PERM_STORAGE_ACCESS: Int by lazy { permConst("PERMISSION_STORAGE_ACCESS") }
 private val PERM_LOCAL_DEVICE: Int by lazy { permConst("PERMISSION_LOCAL_DEVICE_ACCESS") }
 private val PERM_LOCAL_NETWORK: Int by lazy { permConst("PERMISSION_LOCAL_NETWORK_ACCESS") }
+
+/** GeckoView 的 WebRequestError → 与内核无关的错误类别（只用长期稳定的常量，其余落到 UNKNOWN） */
+private fun geckoErrorKind(error: WebRequestError): ErrorKind = when (error.code) {
+    WebRequestError.ERROR_UNKNOWN_HOST -> ErrorKind.DNS
+    WebRequestError.ERROR_UNKNOWN_PROXY_HOST -> ErrorKind.PROXY
+    WebRequestError.ERROR_PROXY_CONNECTION_REFUSED -> ErrorKind.PROXY
+    WebRequestError.ERROR_CONNECTION_REFUSED -> ErrorKind.CONNECTION_REFUSED
+    WebRequestError.ERROR_NET_TIMEOUT -> ErrorKind.TIMEOUT
+    WebRequestError.ERROR_NET_RESET, WebRequestError.ERROR_NET_INTERRUPT -> ErrorKind.CONNECTION_RESET
+    WebRequestError.ERROR_OFFLINE -> ErrorKind.OFFLINE
+    WebRequestError.ERROR_SECURITY_BAD_CERT -> ErrorKind.CERT_OTHER
+    WebRequestError.ERROR_SECURITY_SSL -> ErrorKind.SSL_PROTOCOL
+    WebRequestError.ERROR_REDIRECT_LOOP -> ErrorKind.TOO_MANY_REDIRECTS
+    WebRequestError.ERROR_MALFORMED_URI -> ErrorKind.BAD_URL
+    WebRequestError.ERROR_UNKNOWN_PROTOCOL -> ErrorKind.UNSUPPORTED_SCHEME
+    WebRequestError.ERROR_FILE_NOT_FOUND, WebRequestError.ERROR_FILE_ACCESS_DENIED -> ErrorKind.FILE_NOT_FOUND
+    WebRequestError.ERROR_PORT_BLOCKED -> ErrorKind.PORT_BLOCKED
+    WebRequestError.ERROR_CONTENT_CRASHED -> ErrorKind.CRASHED
+    WebRequestError.ERROR_SAFEBROWSING_PHISHING_URI, WebRequestError.ERROR_SAFEBROWSING_MALWARE_URI,
+    WebRequestError.ERROR_SAFEBROWSING_UNWANTED_URI, WebRequestError.ERROR_SAFEBROWSING_HARMFUL_URI -> ErrorKind.UNSAFE_SITE
+    WebRequestError.ERROR_INVALID_CONTENT_ENCODING, WebRequestError.ERROR_CORRUPTED_CONTENT,
+    WebRequestError.ERROR_UNSAFE_CONTENT_TYPE -> ErrorKind.BAD_CONTENT
+    else -> ErrorKind.UNKNOWN
+}

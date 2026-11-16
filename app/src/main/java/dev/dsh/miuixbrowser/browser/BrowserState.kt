@@ -38,6 +38,8 @@ import dev.dsh.miuixbrowser.script.UserScript
 import dev.dsh.miuixbrowser.script.UserscriptEngine
 import dev.dsh.miuixbrowser.sync.fxa.FxaSync
 import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.util.ErrorPages
+import dev.dsh.miuixbrowser.util.ErrorSpec
 import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
 import dev.dsh.miuixbrowser.adblock.RequestLog
 import dev.dsh.miuixbrowser.util.isSameSite
@@ -127,6 +129,11 @@ class BrowserTab(
     var canGoBack by mutableStateOf(false)
     var canGoForward by mutableStateOf(false)
     var errorText by mutableStateOf<String?>(null)
+    /** 应用当前深浅色：访问失败页按它配色 */
+    @Volatile internal var displayDark = false
+    /** Gecko：刚交给内核显示的错误页 data: 地址；它触发的页面回调不应改写地址栏、也不记入历史 */
+    private var geckoErrorUri: String? = null
+    private var geckoShowingError = false
     /** 标签卡片用的页面缩略图（页面加载完成后截取） */
     var thumbnail by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
         private set
@@ -877,11 +884,18 @@ class BrowserTab(
                 else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) errorText = error.description?.toString()
+                if (request.isForMainFrame) {
+                    errorText = error.description?.toString()
+                    showWebViewErrorPage(view, request.url.toString(), ErrorPages.fromWebView(error.errorCode, error.description?.toString()))
+                }
                 WebViewDebug.logLoadError(request, error)
             }
 
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                // 只接管空响应体的 4xx / 5xx；带正文的是网站自己的错误页，照常展示
+                if (request.isForMainFrame && ErrorPages.shouldReplaceHttpError(errorResponse.statusCode, errorResponse.responseHeaders)) {
+                    showWebViewErrorPage(view, request.url.toString(), ErrorPages.fromHttp(errorResponse.statusCode, errorResponse.reasonPhrase))
+                }
                 WebViewDebug.logHttpError(request, errorResponse)
             }
 
@@ -1666,6 +1680,8 @@ class BrowserTab(
 
     internal fun geckoPageStart(u: String) {
         if (closed || destroyed) return
+        if (u == geckoErrorUri) { loading = true; return } // 错误页自身的加载：保留失败地址与错误信息
+        geckoShowingError = false
         // 主页（url 为空）或被主页盖住（parked）时，页面侧回调不得改写 url；引擎初始化产生的 about:blank 也忽略
         if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
         pageHost = runCatching { Uri.parse(u).host }.getOrNull().orEmpty()
@@ -1678,6 +1694,7 @@ class BrowserTab(
 
     internal fun geckoLocation(u: String) {
         if (closed || destroyed) return
+        if (u == geckoErrorUri) return
         if (stateRestorePending && !isBlankPage(u)) stateRestorePending = false
         if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
         updatePageHost(u)
@@ -1700,7 +1717,7 @@ class BrowserTab(
         progress = 1f
         syncNav()
         val visited = url
-        if (success && !parked && visited.isNotEmpty() && !visited.startsWith("about:")) {
+        if (success && !geckoShowingError && !parked && visited.isNotEmpty() && !visited.startsWith("about:")) {
             onVisited?.invoke(visited, title)
         }
     }
@@ -1710,10 +1727,26 @@ class BrowserTab(
         syncNav()
     }
 
-    internal fun geckoLoadError(text: String) {
-        if (closed || destroyed) return
+    /** 返回要让 Gecko 显示的错误页地址（data: URI）；标签已关闭时返回 null，让内核走默认页 */
+    internal fun geckoLoadError(text: String, failingUri: String?, spec: ErrorSpec): String? {
+        if (closed || destroyed) return null
         loading = false
         errorText = text
+        val target = failingUri?.takeIf { it.isNotBlank() } ?: url
+        val html = ErrorPages.render(spec, target, displayDark)
+        val uri = "data:text/html;charset=utf-8;base64," +
+            android.util.Base64.encodeToString(html.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+        geckoErrorUri = uri
+        geckoShowingError = true
+        if (!parked && target.isNotEmpty() && !isBlankPage(target)) url = target
+        return uri
+    }
+
+    /** WebView：用自绘错误页替换系统默认页，地址栏仍显示失败的网址 */
+    private fun showWebViewErrorPage(view: WebView, failingUrl: String, spec: ErrorSpec) {
+        // data: / about: 等没有「重试」意义，也避免错误页再出错时死循环
+        if (failingUrl.startsWith("data:") || failingUrl.startsWith("about:")) return
+        view.loadDataWithBaseURL(failingUrl, ErrorPages.render(spec, failingUrl, displayDark), "text/html", "UTF-8", failingUrl)
     }
 
     private fun captureGeckoThumbnail() {
@@ -1979,6 +2012,7 @@ class BrowserTab(
      * 3. 对齐 Activity `Configuration.uiMode` — 让算法深色跟随应用内「深色/浅色/跟随系统」
      */
     fun applyDisplayTheme(dark: Boolean) {
+        displayDark = dark
         if (isGecko) {
             gecko?.applyTheme(dark)
         } else {

@@ -16,6 +16,8 @@ import dev.dsh.miuixbrowser.script.ScriptResources
 import dev.dsh.miuixbrowser.script.UserScript
 import dev.dsh.miuixbrowser.script.UserscriptEngine
 import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.util.ErrorPages
+import dev.dsh.miuixbrowser.util.ErrorSpec
 import dev.dsh.miuixbrowser.util.isSameSite
 import android.annotation.SuppressLint
 import android.app.ActivityManager
@@ -181,7 +183,7 @@ class WebAppActivity : ComponentActivity() {
         webView = WebView(this).apply { setBackgroundColor(defaultBg) }
         fpInjector = FingerprintInjector(webView)
         fpInjector.onUnprotectedBlocked = { target ->
-            showErrorPage(webView, target, "指纹保护：该页面未能在加载前注册保护，已停止加载")
+            showErrorPage(webView, target, ErrorPages.fingerprintBlocked())
         }
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -357,7 +359,14 @@ class WebAppActivity : ComponentActivity() {
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (!request.isForMainFrame) return
-                showErrorPage(view, request.url.toString(), error.description?.toString().orEmpty())
+                showErrorPage(view, request.url.toString(), ErrorPages.fromWebView(error.errorCode, error.description?.toString()))
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                // 只接管空响应体的 4xx / 5xx；带正文的是网站自己的错误页，照常展示
+                if (!request.isForMainFrame) return
+                if (!ErrorPages.shouldReplaceHttpError(errorResponse.statusCode, errorResponse.responseHeaders)) return
+                showErrorPage(view, request.url.toString(), ErrorPages.fromHttp(errorResponse.statusCode, errorResponse.reasonPhrase))
             }
 
             override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
@@ -800,22 +809,8 @@ class WebAppActivity : ComponentActivity() {
         }
     }
 
-    private fun showErrorPage(view: WebView, failingUrl: String, reason: String) {
-        val fg = if (dark) "#E6E6E6" else "#222222"
-        val bg = if (dark) "#1A1A1A" else "#FFFFFF"
-        val safeUrl = android.text.TextUtils.htmlEncode(failingUrl)
-        val safeReason = android.text.TextUtils.htmlEncode(reason)
-        val html = """
-            <html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-            <body style="margin:0;background:$bg;color:$fg;font-family:sans-serif;display:flex;
-                flex-direction:column;align-items:center;justify-content:center;height:100vh;text-align:center">
-              <div style="font-size:18px;margin-bottom:8px">页面加载失败</div>
-              <div style="font-size:13px;opacity:.6;padding:0 24px;word-break:break-all">$safeReason</div>
-              <a href="$safeUrl" style="margin-top:22px;padding:10px 28px;border-radius:22px;
-                 background:#3B7DFF;color:#fff;text-decoration:none">重试</a>
-            </body></html>
-        """.trimIndent()
-        view.loadDataWithBaseURL(failingUrl, html, "text/html", "UTF-8", failingUrl)
+    private fun showErrorPage(view: WebView, failingUrl: String, spec: ErrorSpec) {
+        view.loadDataWithBaseURL(failingUrl, ErrorPages.render(spec, failingUrl, dark), "text/html", "UTF-8", failingUrl)
     }
 
     /** 状态栏 / 手势条区域的底色跟随网页（theme-color 或 body 背景），图标深浅随之切换 */
