@@ -3513,7 +3513,8 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         val successor = if (wasActive) pickSuccessor(closing) else activeBefore
         detach(closing)
         if (tabs.isEmpty()) {
-            newTab()
+            // 关掉的是最后一个标签：新建一个（保持无痕 / 普通模式不变）；普通标签会按「自定义起始页」打开指定页面
+            newTab(incognito = closing.incognito)
             return
         }
         // 关掉的是后台标签时当前标签不能变；关掉当前标签才按层级回退

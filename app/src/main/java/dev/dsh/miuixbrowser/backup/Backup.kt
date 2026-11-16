@@ -285,14 +285,15 @@ enum class BackupCategory(val id: String, val title: String, val summary: String
     SCRIPT_DATA("script_data", "脚本数据", "脚本用 GM_setValue 保存的值"),
     ADBLOCK("adblock", "去广告规则", "订阅、开关与自定义规则"),
     // id 仍是 "gecko_cookies"：沿用旧备份与已保存的勾选；现在 Gecko / WebView 两种内核都用它
-    COOKIES("gecko_cookies", "Cookie", "当前内核的登录状态，仅持久 Cookie");
+    COOKIES("gecko_cookies", "Cookie", "当前内核的登录状态，仅持久 Cookie"),
+    FXA("fxa", "Firefox 帐户同步", "帐户身份、登录令牌与同步设置，恢复后无需重新登录");
 
     companion object {
         fun byId(id: String): BackupCategory? = entries.firstOrNull { it.id == id }
             ?: if (id == "cookies") COOKIES else null
 
-        /** 默认勾选：除 Cookie、密码（都含登录凭据）外的全部；这两类要用户自己打开 */
-        val DEFAULT_SELECTION: Set<BackupCategory> = entries.filter { it != COOKIES && it != PASSWORDS }.toSet()
+        /** 默认勾选：全部类别（含密码、Cookie、Firefox 帐户这几类带登录凭据的——备份文件本身由口令加密） */
+        val DEFAULT_SELECTION: Set<BackupCategory> = entries.toSet()
     }
 }
 
@@ -335,6 +336,32 @@ object BackupManager {
 
     /** 密码在备份里的单元名（明文 JSON 数组，由备份信封加密；内容见 [passwordsToJson]） */
     private const val PASSWORDS_UNIT = "passwords/list"
+
+    /**
+     * Firefox 帐户同步的身份：Mozilla 账号库（android-components）把帐户状态（OAuth 令牌、同步密钥、设备注册信息）
+     * 存在它自己名字不固定的 SharedPreferences 里，加上本应用的 mafari_fxa_sync（登录标记、自动同步设置）。
+     * 不写死库内部的文件名（随库版本会变）：按名字特征从 shared_prefs 目录里找，备份里每个文件一个单元 "fxa/<名字>"。
+     * mafari_fxa_logins 不进：它是 Keystore 保护的密钥，换机 / 重装后解不开，而且只服务于同步中转库。
+     */
+    private const val FXA_UNIT_PREFIX = "fxa/"
+    private const val FXA_SYNC_PREFS = "mafari_fxa_sync"
+    private const val FXA_SIGNED_IN_KEY = "signed_in"
+    private val FXA_PREF_NAME_OK = Regex("[A-Za-z0-9_.\\-]{1,160}")
+    private val FXA_PREF_HINT = Regex("fxa|sync.?auth|sync.?engine|account.?manager", RegexOption.IGNORE_CASE)
+    private val FXA_PREF_EXCLUDE = setOf("mafari_fxa_logins")
+
+    private fun isFxaPref(name: String): Boolean =
+        name !in FXA_PREF_EXCLUDE && FXA_PREF_NAME_OK.matches(name) && FXA_PREF_HINT.containsMatchIn(name)
+
+    /** 本机 shared_prefs 目录里属于 Firefox 帐户同步的偏好文件名（不含 .xml）。 */
+    private fun fxaPrefNames(app: Context): List<String> {
+        val dir = File(app.applicationInfo.dataDir, "shared_prefs")
+        return dir.listFiles().orEmpty()
+            .filter { it.isFile && it.name.endsWith(".xml") }
+            .map { it.name.removeSuffix(".xml") }
+            .filter { isFxaPref(it) }
+            .sorted()
+    }
 
     /** meta.json 里记录 Cookie 来自哪个内核的键，值为 [COOKIE_ENGINE_GECKO] / [COOKIE_ENGINE_WEBVIEW]（旧备份没有这个键，一律按 Gecko） */
     private const val META_COOKIE_ENGINE = "cookieEngine"
@@ -519,6 +546,33 @@ object BackupManager {
             }
         }
 
+        // 5) Firefox 帐户同步的身份：只有「当前确实登录着」才备份（没登录时那些文件只是残留，不该覆盖别处的登录状态）
+        if (BackupCategory.FXA in categories) {
+            val signedIn = app.getSharedPreferences(FXA_SYNC_PREFS, Context.MODE_PRIVATE).getBoolean(FXA_SIGNED_IN_KEY, false)
+            if (signedIn) {
+                for (name in fxaPrefNames(app)) {
+                    val root = JSONObject()
+                    for ((key, value) in app.getSharedPreferences(name, Context.MODE_PRIVATE).all) {
+                        val entry = JSONObject()
+                        when (value) {
+                            is String -> entry.put("t", "s").put("v", value)
+                            is Int -> entry.put("t", "i").put("v", value)
+                            is Long -> entry.put("t", "l").put("v", value)
+                            is Float -> entry.put("t", "f").put("v", value.toDouble())
+                            is Boolean -> entry.put("t", "b").put("v", value)
+                            is Set<*> -> entry.put("t", "ss").put("v", JSONArray(value.map { it.toString() }))
+                            else -> continue
+                        }
+                        root.put(key, entry)
+                    }
+                    if (root.length() > 0) {
+                        units["$FXA_UNIT_PREFIX$name"] = root.toString().toByteArray(Charsets.UTF_8)
+                        included.add(BackupCategory.FXA)
+                    }
+                }
+            }
+        }
+
         for ((name, root) in roots) units["prefs/$name"] = root.toString().toByteArray(Charsets.UTF_8)
 
         val done = BackupCategory.entries.filter { it in included }
@@ -600,6 +654,8 @@ object BackupManager {
         internal val tabs: List<TabBackupRow>? = null,
         /** 备份里的密码（已解析校验）；没有为 null */
         internal val passwords: List<PasswordEntry>? = null,
+        /** 备份里的 Firefox 帐户同步身份：偏好文件名 → 键值；没有为空 */
+        internal val fxaPrefs: Map<String, Map<String, Any>> = emptyMap(),
     ) {
         /** 默认要恢复的类别：备份里有且本机能恢复的全部 */
         val defaultSelection: Set<BackupCategory> get() = categories.filter { it !in unavailable }.toSet()
@@ -643,8 +699,16 @@ object BackupManager {
         var cookies: ByteArray? = null
         var tabs: List<TabBackupRow>? = null
         var passwords: List<PasswordEntry>? = null
+        val fxaPrefs = LinkedHashMap<String, Map<String, Any>>()
         for ((name, bytes) in contents.units) {
             when {
+                name.startsWith(FXA_UNIT_PREFIX) -> {
+                    val pref = name.removePrefix(FXA_UNIT_PREFIX)
+                    if (isFxaPref(pref)) {
+                        val values = parsePrefs(app, pref, bytes)
+                        if (values.isNotEmpty()) fxaPrefs[pref] = values
+                    }
+                }
                 name.startsWith("prefs/") -> {
                     val pref = name.removePrefix("prefs/")
                     if (pref in PREFS) {
@@ -690,6 +754,8 @@ object BackupManager {
         if (cookies != null) present.add(BackupCategory.COOKIES)
         if (tabs != null) present.add(BackupCategory.TABS)
         if (passwords != null) present.add(BackupCategory.PASSWORDS)
+        // 帐户身份必须带着 mafari_fxa_sync 的登录标记才算有数据（否则重启后不会初始化同步，等于白恢复）
+        if (fxaPrefs[FXA_SYNC_PREFS]?.get(FXA_SIGNED_IN_KEY) == true && fxaPrefs.size > 1) present.add(BackupCategory.FXA)
         if (present.isEmpty()) throw CryptoException("备份里没有可恢复的数据")
 
         val unavailable = emptySet<BackupCategory>()
@@ -712,6 +778,7 @@ object BackupManager {
             cookies = cookies,
             tabs = tabs,
             passwords = passwords,
+            fxaPrefs = fxaPrefs,
         )
     }
 
@@ -796,6 +863,11 @@ object BackupManager {
                     WriteMode.WHOLE
                 }
                 writePrefs(app, name, values, mode)
+            }
+            if (cat == BackupCategory.FXA) {
+                // 整文件替换：帐户状态要么整份是备份里的，要么保持原样；写完由调用方重启进程，
+                // 重启后 FxaSync 读到登录标记就会初始化，并用恢复的令牌继续同步
+                for ((name, values) in plan.fxaPrefs) writePrefs(app, name, values, WriteMode.WHOLE)
             }
             if (cat == BackupCategory.ADBLOCK) {
                 for ((rel, bytes) in plan.files) {

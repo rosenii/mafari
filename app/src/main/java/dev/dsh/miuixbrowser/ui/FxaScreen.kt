@@ -162,10 +162,12 @@ fun FxaScreen(
                 return@Scaffold
             }
             if (url != null) {
+                // 玻璃顶栏要取样的 backdrop 图层只挂在后面这块纯色底上，不能挂在 WebView 上：
+                // WebView 由系统独立硬件合成，被 layerBackdrop 反复录制进图层会整页闪烁（截图还是空白）
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop).background(surface))
                 androidx.compose.ui.viewinterop.AndroidView(
                     modifier = Modifier
                         .fillMaxSize()
-                        .layerBackdrop(backdrop)
                         .padding(top = innerPadding.calculateTopPadding()),
                     factory = { ctx ->
                         WebView(ctx).apply {

@@ -1262,7 +1262,7 @@ private fun CategoryDialog(
         show = show,
         title = "备份内容",
         summary = "所有备份方式共用，改动立即生效" +
-            if (BackupCategory.COOKIES in selected || BackupCategory.PASSWORDS in selected) "\n密码和 Cookie 含登录凭据，请妥善保管备份文件与口令。" else "",
+            if (BackupCategory.COOKIES in selected || BackupCategory.PASSWORDS in selected || BackupCategory.FXA in selected) "\n密码、Cookie 和 Firefox 帐户登录状态含登录凭据，请妥善保管备份文件与口令。" else "",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1550,6 +1550,7 @@ private fun RestoreConfirmDialog(
                         summary = when {
                             unavailable -> "本机不支持，无法恢复"
                             cat == BackupCategory.PASSWORDS -> "与本机合并，不删除本机已有的密码"
+                            cat == BackupCategory.FXA -> "覆盖本机的 Firefox 帐户登录状态；原设备若还在用，两台会共用同一设备身份"
                             else -> cat.summary
                         },
                         enabled = !unavailable,

@@ -38,9 +38,7 @@ class PasswordBackupTest {
     }
 
     @Test
-    fun passwordsAreOptIn() {
-        assertFalse(BackupCategory.PASSWORDS in BackupCategory.DEFAULT_SELECTION)
-        assertFalse(BackupCategory.COOKIES in BackupCategory.DEFAULT_SELECTION)
-        assertTrue(BackupCategory.BOOKMARKS in BackupCategory.DEFAULT_SELECTION)
+    fun allCategoriesSelectedByDefault() {
+        assertTrue(BackupCategory.entries.all { it in BackupCategory.DEFAULT_SELECTION })
     }
 }

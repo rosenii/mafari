@@ -2072,7 +2072,12 @@ fun BrowserScreen(
                                             state.select(indexed.index)
                                             sheet = Sheet.None
                                         },
-                                        onClose = { state.closeTab(indexed.index) },
+                                        onClose = {
+                                            // 关掉最后一个标签：BrowserState 会按「自定义起始页」补一个新标签，收起列表直接回到它
+                                            val last = state.tabs.size == 1
+                                            state.closeTab(indexed.index)
+                                            if (last) sheet = Sheet.None
+                                        },
                                     )
                                 }
                                 repeat(2 - rowItems.size) { Spacer(Modifier.weight(1f)) }
@@ -2095,8 +2100,12 @@ fun BrowserScreen(
                                     BarButton(
                                         icon = MiuixIcons.Glass.Close,
                                         description = "关闭",
-                                        enabled = state.tabs.size > 1,
-                                        onClick = { state.closeTab(index) },
+                                        // 只剩一个标签时也能清除：清掉后按「自定义起始页」新建一个，并收起列表回到它
+                                        onClick = {
+                                            val last = state.tabs.size == 1
+                                            state.closeTab(index)
+                                            if (last) sheet = Sheet.None
+                                        },
                                     )
                                 },
                                 onClick = {

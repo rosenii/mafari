@@ -33,7 +33,7 @@ object BackupAuto {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 备份内容的选择（手动导出 / WebDAV / Git / 自动推送共用）；没选过时用默认：除 Cookie 外全选。 */
+    /** 备份内容的选择（手动导出 / WebDAV / Git / 自动推送共用）；没选过时用默认：全选。 */
     fun categories(context: Context): Set<BackupCategory> {
         val raw = prefs(context).getStringSet(K_CATEGORIES, null) ?: return BackupCategory.DEFAULT_SELECTION
         return raw.mapNotNull { BackupCategory.byId(it) }.toSet()
