@@ -655,6 +655,13 @@ class GeckoTabEngine(
                 request: GeckoSession.NavigationDelegate.LoadRequest,
             ): GeckoResult<AllowOrDeny>? {
                 val target = request.uri
+                // 证书错误页里的「继续」：不真正导航；放行由内核自带证书页完成，这里只是重新加载失败地址
+                if (ErrorPages.isProceedUrl(target)) {
+                    if (tab.geckoProceedAfterCertWarning()) {
+                        tab.geckoProceedReloadUrl()?.let { u -> android.os.Handler(android.os.Looper.getMainLooper()).post { loadUri(u) } }
+                    }
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
                 if (FxaSync.interceptRedirect(target)) return GeckoResult.fromValue(AllowOrDeny.DENY)
                 // .user.js：与 WebView 一致，拦下并弹出「导入脚本」
                 if (isUserScriptUrl(target)) {

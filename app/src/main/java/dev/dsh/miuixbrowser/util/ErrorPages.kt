@@ -22,6 +22,8 @@ data class ErrorSpec(
     val tips: List<String>,
     val detail: String = "",
     val warn: Boolean = false,
+    /** 证书类错误里允许用户「忽略风险继续访问」（页面渲染一个折叠的高级区 + 内部链接 [ErrorPages.PROCEED_URL]） */
+    val canProceed: Boolean = false,
 )
 
 object ErrorPages {
@@ -263,7 +265,34 @@ object ErrorPages {
     private fun spec(
         kind: ErrorKind, code: String, detail: String, title: String, summary: String,
         vararg tips: String, warn: Boolean = false,
-    ) = ErrorSpec(kind, code, title, summary, tips.toList(), detail, warn)
+    ) = ErrorSpec(kind, code, title, summary, tips.toList(), detail, warn, canProceed = isOverridable(kind))
+
+    /**
+     * 只有「站点自己的证书问题」可以让用户自担风险继续：过期 / 不受信任（自签名）/ 域名不匹配 / 其它验证失败。
+     * 已吊销、安全浏览拦截、协议握手失败不给入口（继续也不会成功，或风险明确）。
+     */
+    fun isOverridable(kind: ErrorKind?): Boolean =
+        kind == ErrorKind.CERT_DATE || kind == ErrorKind.CERT_AUTHORITY ||
+            kind == ErrorKind.CERT_NAME || kind == ErrorKind.CERT_OTHER
+
+    /** 错误页里「继续访问」链接的内部地址；不带任何参数，真正的目标由标签页记住的失败地址决定，页面无法伪造。 */
+    const val PROCEED_URL = "mafari-error://proceed"
+
+    fun isProceedUrl(url: String?): Boolean = url != null && url.equals(PROCEED_URL, ignoreCase = true)
+
+    /** 去掉 canProceed（已经放行过一次仍失败，例如 HSTS 站点，不再重复给入口）。 */
+    fun withoutProceed(spec: ErrorSpec): ErrorSpec = if (spec.canProceed) spec.copy(canProceed = false) else spec
+
+    /** 局域网 / 本机 / IP 字面量：自签名证书很常见，错误页里给一句更贴切的说明。 */
+    fun isPrivateHost(host: String): Boolean {
+        val h = host.trim().trim('[', ']').lowercase()
+        if (h.isEmpty()) return false
+        if (h == "localhost" || h.endsWith(".local") || h.endsWith(".lan") || h.endsWith(".home.arpa") || !h.contains('.') && !h.contains(':')) return true
+        if (h.contains(':')) return h == "::1" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd") // IPv6 本机 / 链路本地 / ULA
+        val p = h.split('.').mapNotNull { it.toIntOrNull() }
+        if (p.size != 4 || p.any { it !in 0..255 }) return false
+        return p[0] == 10 || p[0] == 127 || (p[0] == 192 && p[1] == 168) || (p[0] == 172 && p[1] in 16..31) || (p[0] == 169 && p[1] == 254)
+    }
 
     /** 指纹保护兜底拦截（不是网络错误，没有错误码）。 */
     fun fingerprintBlocked(): ErrorSpec = fromKind(ErrorKind.FINGERPRINT, "FINGERPRINT_PROTECTION")
@@ -341,8 +370,10 @@ object ErrorPages {
     /**
      * 渲染成自包含 HTML。[failingUrl] 用于「重试」与展示域名；[dark] 是应用当前的深浅色。
      * 页面不含脚本：重试是一个普通链接，详情用 <details>。
+     * [spec].canProceed 时多一个折叠的「高级」区：说明风险 + 「继续访问（不安全）」链接；[nativeProceed] 表示
+     * 该链接会转到内核自带的证书页（Gecko）而不是直接放行（WebView）。
      */
-    fun render(spec: ErrorSpec, failingUrl: String, dark: Boolean): String {
+    fun render(spec: ErrorSpec, failingUrl: String, dark: Boolean, nativeProceed: Boolean = false): String {
         val bg = if (dark) "#1A1A1A" else "#FFFFFF"
         val fg = if (dark) "#E8E8E8" else "#222222"
         val sub = if (dark) "#A0A0A0" else "#6B6B6B"
@@ -357,6 +388,17 @@ object ErrorPages {
             if (spec.detail.isNotBlank()) append("\n").append(esc(spec.detail))
             if (failingUrl.isNotBlank()) append("\n").append(esc(failingUrl.take(300)))
         }
+        val proceed = if (spec.canProceed) {
+            val lan = isPrivateHost(host)
+            val note = when {
+                lan -> "这是局域网 / 本机地址，路由器、NAS 等自建设备常用自签名证书；确认是自己的设备即可继续。"
+                else -> "继续访问后，你与该网站之间的通信可能被窃听或篡改。请勿输入密码、验证码或支付信息。"
+            }
+            val extra = if (nativeProceed) "下一步会打开内核自带的证书页，在那里确认「接受风险并继续」。" else "仅对该网站在本次运行期间有效，关闭应用后失效。"
+            val label = if (nativeProceed) "继续（查看证书详情）" else "忽略风险，继续访问（不安全）"
+            """<details class="adv"><summary>高级</summary><p>${esc(note)}</p><p>${esc(extra)}</p>
+            <a class="proceed" href="$PROCEED_URL">${esc(label)}</a></details>"""
+        } else ""
         return """
             <!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -377,6 +419,9 @@ object ErrorPages {
             .btn{display:inline-block;padding:11px 36px;border-radius:24px;background:$accent;color:#fff;text-decoration:none;font-size:15px}
             details{margin-top:22px;max-width:420px;width:100%;font-size:12px;color:$sub}
             summary{cursor:pointer;list-style:none}
+            .adv{margin-top:18px}
+            .adv p{margin:8px 0;line-height:1.6}
+            .proceed{display:inline-block;margin-top:4px;padding:9px 22px;border-radius:20px;border:1px solid #E5484D;color:#E5484D;text-decoration:none;font-size:13.5px}
             pre{white-space:pre-wrap;word-break:break-all;text-align:left;background:$card;border-radius:10px;padding:10px 12px;margin:8px 0 0;
               font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
             </style></head><body>
@@ -386,6 +431,7 @@ object ErrorPages {
             <p class="sum">${esc(spec.summary)}</p>
             <ul>$tips</ul>
             <a class="btn" href="$safeUrl">重试</a>
+            $proceed
             <details><summary>技术详情</summary><pre>$detail</pre></details>
             </body></html>
         """.trimIndent()

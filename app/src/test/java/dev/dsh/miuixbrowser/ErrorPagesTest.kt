@@ -83,4 +83,35 @@ class ErrorPagesTest {
         assertTrue(html.contains("找不到该网站"))
         assertTrue(ErrorPages.render(spec, "https://a.b", dark = true).contains("#1A1A1A"))
     }
+
+    @Test
+    fun proceed_onlyForOverridableCertErrors() {
+        for (k in listOf(ErrorKind.CERT_DATE, ErrorKind.CERT_AUTHORITY, ErrorKind.CERT_NAME, ErrorKind.CERT_OTHER)) {
+            assertTrue("$k", ErrorPages.fromKind(k, "X").canProceed)
+        }
+        for (k in listOf(ErrorKind.CERT_REVOKED, ErrorKind.SSL_PROTOCOL, ErrorKind.UNSAFE_SITE, ErrorKind.DNS, ErrorKind.HTTPS_ONLY)) {
+            assertFalse("$k", ErrorPages.fromKind(k, "X").canProceed)
+        }
+        assertFalse(ErrorPages.fromHttp(404).canProceed)
+    }
+
+    @Test
+    fun proceed_renderShowsAdvancedLinkOnlyWhenAllowed() {
+        val spec = ErrorPages.fromWebView(-11, "net::ERR_CERT_AUTHORITY_INVALID")
+        val html = ErrorPages.render(spec, "https://self.signed/", dark = false)
+        assertTrue(html.contains("href=\"mafari-error://proceed\""))
+        assertTrue(html.contains("忽略风险，继续访问"))
+        assertFalse(ErrorPages.render(ErrorPages.withoutProceed(spec), "https://self.signed/", dark = false).contains("mafari-error://"))
+        assertFalse(ErrorPages.render(ErrorPages.fromWebView(-2, "net::ERR_NAME_NOT_RESOLVED"), "https://a.b/", dark = false).contains("mafari-error://"))
+        assertTrue(ErrorPages.render(spec, "https://self.signed/", dark = false, nativeProceed = true).contains("证书页"))
+    }
+
+    @Test
+    fun proceed_urlAndPrivateHost() {
+        assertTrue(ErrorPages.isProceedUrl("mafari-error://proceed"))
+        assertFalse(ErrorPages.isProceedUrl("mafari-error://proceed?u=https://bank.com"))
+        assertFalse(ErrorPages.isProceedUrl(null))
+        for (h in listOf("192.168.1.2", "10.0.0.5", "172.16.0.1", "127.0.0.1", "localhost", "nas.local", "nas", "[::1]", "169.254.1.1")) assertTrue(h, ErrorPages.isPrivateHost(h))
+        for (h in listOf("example.com", "8.8.8.8", "172.32.0.1", "172.15.0.1", "")) assertFalse(h, ErrorPages.isPrivateHost(h))
+    }
 }

@@ -134,6 +134,10 @@ class BrowserTab(
     /** Gecko：刚交给内核显示的错误页 data: 地址；它触发的页面回调不应改写地址栏、也不记入历史 */
     private var geckoErrorUri: String? = null
     private var geckoShowingError = false
+    /** 当前错误页对应的失败地址 + 是否允许「忽略风险继续」；「继续访问」链接只认这里记住的目标，不信任页面传参 */
+    @Volatile private var proceedTarget: String? = null
+    /** Gecko：用户点了「继续」后，下一次对该地址的证书错误交给内核自带证书页（它自带「接受风险并继续」） */
+    @Volatile private var geckoNativeCertFor: String? = null
     /** 标签卡片用的页面缩略图（页面加载完成后截取） */
     var thumbnail by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
         private set
@@ -883,6 +887,12 @@ class BrowserTab(
                 if (incognito && !adblockInIncognito) null
                 else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
 
+            override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
+                // 只对用户在错误页里明确选择过「继续访问」的主机放行；其它一律取消（随后 onReceivedError 渲染错误页）
+                val host = runCatching { Uri.parse(error.url).host }.getOrNull().orEmpty()
+                if (host.isNotEmpty() && SslExceptions.contains(host, incognito)) handler.proceed() else handler.cancel()
+            }
+
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
                     errorText = error.description?.toString()
@@ -901,6 +911,10 @@ class BrowserTab(
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url.toString()
+                if (ErrorPages.isProceedUrl(target)) {
+                    proceedAfterCertWarning(view)
+                    return true
+                }
                 if (EngineSupport.SYNC_BUNDLED && FxaSync.interceptRedirect(target)) return true
                 if (isUserScriptUrl(target)) {
                     onUserScriptLink?.invoke(target)
@@ -1733,7 +1747,15 @@ class BrowserTab(
         loading = false
         errorText = text
         val target = failingUri?.takeIf { it.isNotBlank() } ?: url
-        val html = ErrorPages.render(spec, target, displayDark)
+        // 用户已在自绘页点过「继续」：这一次让 Gecko 显示自带证书页（含「接受风险并继续」），由内核登记证书例外
+        if (spec.canProceed && geckoNativeCertFor != null && geckoNativeCertFor == target) {
+            geckoNativeCertFor = null
+            proceedTarget = null
+            geckoShowingError = true
+            return null
+        }
+        proceedTarget = if (spec.canProceed && target.startsWith("https://", ignoreCase = true)) target else null
+        val html = ErrorPages.render(spec, target, displayDark, nativeProceed = true)
         val uri = "data:text/html;charset=utf-8;base64," +
             android.util.Base64.encodeToString(html.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
         geckoErrorUri = uri
@@ -1746,8 +1768,35 @@ class BrowserTab(
     private fun showWebViewErrorPage(view: WebView, failingUrl: String, spec: ErrorSpec) {
         // data: / about: 等没有「重试」意义，也避免错误页再出错时死循环
         if (failingUrl.startsWith("data:") || failingUrl.startsWith("about:")) return
-        view.loadDataWithBaseURL(failingUrl, ErrorPages.render(spec, failingUrl, displayDark), "text/html", "UTF-8", failingUrl)
+        val host = runCatching { Uri.parse(failingUrl).host }.getOrNull().orEmpty()
+        // 该主机已经放行过却仍失败（例如 HSTS 站点不允许覆盖）：不再给入口，避免点了没反应
+        val shown = if (spec.canProceed && host.isNotEmpty() && SslExceptions.contains(host, incognito)) ErrorPages.withoutProceed(spec) else spec
+        proceedTarget = if (shown.canProceed && failingUrl.startsWith("https://", ignoreCase = true)) failingUrl else null
+        view.loadDataWithBaseURL(failingUrl, ErrorPages.render(shown, failingUrl, displayDark), "text/html", "UTF-8", failingUrl)
     }
+
+    /** WebView：用户在证书错误页点了「忽略风险，继续访问」——记住该主机（本次运行内有效）并重新加载 */
+    private fun proceedAfterCertWarning(view: WebView) {
+        val target = proceedTarget ?: return
+        val host = runCatching { Uri.parse(target).host }.getOrNull().orEmpty()
+        if (host.isEmpty()) return
+        SslExceptions.add(host, incognito)
+        proceedTarget = null
+        errorText = null
+        view.loadUrl(target)
+    }
+
+    /** Gecko：同上，但放行由内核的证书页完成——下一次加载该地址时不接管错误页 */
+    internal fun geckoProceedAfterCertWarning(): Boolean {
+        val target = proceedTarget ?: return false
+        if (closed || destroyed) return false
+        geckoNativeCertFor = target
+        proceedTarget = null
+        return true
+    }
+
+    /** Gecko：[geckoProceedAfterCertWarning] 之后应重新加载的地址（下次 geckoLoadError 命中后清除） */
+    internal fun geckoProceedReloadUrl(): String? = geckoNativeCertFor
 
     private fun captureGeckoThumbnail() {
         val g = gecko ?: return
@@ -3676,4 +3725,17 @@ internal sealed class LoginPrompt {
     ) : LoginPrompt() {
         class Item(val origin: String, val username: String)
     }
+}
+
+/**
+ * WebView 的证书例外：用户在错误页明确选择「忽略风险，继续访问」的主机，仅存内存（关闭应用即失效）。
+ * 无痕标签单独一份，且不会带到普通标签，反之亦然。
+ */
+internal object SslExceptions {
+    private val normal = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val incognito = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private fun set(incog: Boolean) = if (incog) incognito else normal
+    fun add(host: String, incog: Boolean) { set(incog).add(host.lowercase()) }
+    fun contains(host: String, incog: Boolean) = set(incog).contains(host.lowercase())
+    fun clear() { normal.clear(); incognito.clear() }
 }
