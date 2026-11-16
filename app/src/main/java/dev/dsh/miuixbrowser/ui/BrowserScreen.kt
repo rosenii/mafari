@@ -116,6 +116,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -359,6 +361,8 @@ fun BrowserScreen(
     }
     remember { Diag.log("BrowserScreen composed, favorites=" + favorites.items.size) }
     val menuOrder = remember { MenuOrderStore(context) }
+    // 首次安装 / 升级后的用户引导：当前步骤放在这里（引导里点进二级页面再回来，仍停在原步骤）
+    var onboardingStep by rememberSaveable { mutableIntStateOf(0) }
     // 首页「快捷菜单」点击功能时转发给下面的 runMenuAction（它要等脚本菜单等函数声明之后才能定义）
     val quickRunner = remember { MenuActionRunner() }
     // Gecko 拓展定期检查更新：应用在前台、Gecko 模式下，启动后稍等一会儿检查一次，之后每 6 小时看一次是否到点
@@ -426,6 +430,8 @@ fun BrowserScreen(
     val defaultBrowserLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
     LaunchedEffect(Unit) {
         if (settings.defaultBrowserPrompted) return@LaunchedEffect
+        // 引导里自带「设为默认浏览器」一步，引导完成 / 跳过时会一并标记已询问，这里不再重复弹
+        if (settings.onboardingPending) return@LaunchedEffect
         if (DefaultBrowser.isDefault(context)) {
             settings.markDefaultBrowserPrompted()
         } else {
@@ -546,6 +552,8 @@ fun BrowserScreen(
             UpdateChecker.findPending(context, settings.ignoredUpdate, settings.updateChannel)
         }
         if (found != null) {
+            // 引导页还在时先不弹更新提示，免得盖在引导上
+            androidx.compose.runtime.snapshotFlow { settings.onboardingPending }.first { !it }
             lastUpdateRelease = found
             updateRelease = found
         }
@@ -1193,7 +1201,7 @@ fun BrowserScreen(
     val barVisible by remember { androidx.compose.runtime.derivedStateOf { !barHidden || hide < 0.995f } }
 
     // 二级页面的返回（含预见性返回）由 NavDisplay 接管；这里只处理浏览主界面自己的返回。
-    BackHandler(enabled = backStack.size <= 1) {
+    BackHandler(enabled = backStack.size <= 1 && !settings.onboardingPending) {
         when {
             // 视频全屏优先退出
             customView != null -> {
@@ -1222,6 +1230,7 @@ fun BrowserScreen(
         }
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     NavDisplay(
         backStack = backStack,
         modifier = Modifier.fillMaxSize(),
@@ -3031,6 +3040,22 @@ fun BrowserScreen(
             initialTab = route.tab,
             blurEnabled = settings.blurEnabled,
             initialGroup = route.group,
+        )
+    }
+    }
+    // 用户引导：盖在最上层；进入二级页面（备份 / Firefox 同步）时撤掉，返回后继续
+    if (settings.onboardingPending && backStack.size <= 1) {
+        OnboardingScreen(
+            settings = settings,
+            menuOrder = menuOrder,
+            step = onboardingStep,
+            onStepChange = { onboardingStep = it },
+            onOpenBackup = { pushPage(AppRoute.BackupPage) },
+            onOpenFxa = { pushPage(AppRoute.FxaPage) },
+            onFinish = {
+                settings.markOnboardingDone()
+                onboardingStep = 0
+            },
         )
     }
     }

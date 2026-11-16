@@ -64,6 +64,9 @@ const val HOME_MODE_DEFAULT = 0
 const val HOME_MODE_NEW_TAB = 1
 const val HOME_MODE_CUSTOM = 2
 
+/** 首次安装 / 升级后的「用户引导页」版本：引导内容有重大变化、需要让老用户再看一遍时 +1 */
+const val ONBOARDING_VERSION = 1
+
 /** 「布局 → 导航栏位置」：数值写进 SharedPreferences，不要改 */
 const val BAR_POS_TOP = 0
 const val BAR_POS_BOTTOM = 1
@@ -483,6 +486,22 @@ class AppSettings(context: Context) {
         prefs.edit().putBoolean(KEY_DEFAULT_BROWSER_PROMPTED, true).apply()
     }
 
+    /**
+     * 已看完（或跳过）的引导页版本。新安装和从旧版本升级上来的用户都没有这个键，读出来是 0，
+     * 小于 [ONBOARDING_VERSION] 就会在启动后弹出引导（见 OnboardingScreen）。
+     */
+    var onboardingVersion by mutableIntStateOf(prefs.getInt(KEY_ONBOARDING, 0))
+        private set
+
+    val onboardingPending: Boolean get() = onboardingVersion < ONBOARDING_VERSION
+
+    /** 完成或跳过引导。引导里已经带了「设为默认浏览器」这一步，旧的首次询问弹窗不必再弹。 */
+    fun markOnboardingDone() {
+        onboardingVersion = ONBOARDING_VERSION
+        prefs.edit().putInt(KEY_ONBOARDING, ONBOARDING_VERSION).apply()
+        markDefaultBrowserPrompted()
+    }
+
     fun updateWallpaperBlur(enabled: Boolean) {
         wallpaperBlur = enabled
         prefs.edit().putBoolean(KEY_WALL_BLUR, enabled).apply()
@@ -800,6 +819,7 @@ class AppSettings(context: Context) {
         const val KEY_WALL = "wallpaper"
         const val KEY_WALL_BLUR = "wallpaper_blur"
         const val KEY_DEFAULT_BROWSER_PROMPTED = "default_browser_prompted"
+        const val KEY_ONBOARDING = "onboarding_version"
         const val KEY_ENHANCE = "page_enhancements"
         const val KEY_SCRIPTS = "scripts_enabled"
         const val KEY_SCRIPTS_INCOGNITO = "scripts_in_incognito"

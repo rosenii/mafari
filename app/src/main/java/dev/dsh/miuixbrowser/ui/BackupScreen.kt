@@ -1387,8 +1387,9 @@ private fun PasswordDialog(
     }
 }
 
+/** 默认加密口令弹窗：备份页与首次引导共用。 */
 @Composable
-private fun DefaultPasswordDialog(
+internal fun DefaultPasswordDialog(
     show: Boolean,
     isSet: Boolean,
     initial: String,

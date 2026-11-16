@@ -98,6 +98,36 @@ private val POLICY_SECTIONS = listOf(
     ),
 )
 
+/** 政策正文（更新日期 + 各小节卡片）：隐私政策页与首次引导的最后一步共用。 */
+@Composable
+internal fun PolicySections() {
+    Text(
+        text = "最后更新：$POLICY_UPDATED",
+        fontSize = 12.sp,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+    )
+    POLICY_SECTIONS.forEach { section ->
+        SmallTitle(text = section.title)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            insideMargin = PaddingValues(16.dp),
+        ) {
+            section.paragraphs.forEachIndexed { index, text ->
+                if (index > 0) Spacer(Modifier.height(10.dp))
+                Text(
+                    text = text,
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun PrivacyPolicyScreen(
     onBack: () -> Unit,
@@ -137,31 +167,7 @@ fun PrivacyPolicyScreen(
                     .padding(top = innerPadding.calculateTopPadding())
                     .padding(bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
             ) {
-                Text(
-                    text = "最后更新：$POLICY_UPDATED",
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                )
-                POLICY_SECTIONS.forEach { section ->
-                    SmallTitle(text = section.title)
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp),
-                        insideMargin = PaddingValues(16.dp),
-                    ) {
-                        section.paragraphs.forEachIndexed { index, text ->
-                            if (index > 0) Spacer(Modifier.height(10.dp))
-                            Text(
-                                text = text,
-                                fontSize = 14.sp,
-                                lineHeight = 21.sp,
-                                color = MiuixTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
-                }
+                PolicySections()
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
