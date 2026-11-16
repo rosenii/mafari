@@ -683,6 +683,15 @@ internal object GeckoGm {
                     main.post { runCatching { android.widget.Toast.makeText(app, if (t.isEmpty()) x else "$t：$x", android.widget.Toast.LENGTH_SHORT).show() } }
                 }
             }
+            "host" -> { // 宿主能力：系统画中画 / DLNA 投屏 / 外部播放器（见 MediaHost）
+                val cbId = o.optString("cbId")
+                val op = o.optString("op")
+                if (!SAFE_ID.matches(cbId) || op.length > 20 || !allow(sid, "host", 60, 10_000)) return
+                val fn = "__mafariHostCallback_$cbId"
+                dev.dsh.miuixbrowser.script.MediaHost.handle(
+                    tab.hostActivity(), "gecko", op, o.optString("json").take(20_000), fn,
+                ) { f, kind, payload -> cb(port, f, kind, payload) }
+            }
             "menu" -> tab.gmMenuReported(o.optString("list").take(100_000), port)
             "ran" -> tab.gmRanReported(o.optString("id"))
         }

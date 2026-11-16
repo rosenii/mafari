@@ -723,6 +723,34 @@
     try { if (bridge && typeof bridge.toast === 'function') bridge.toast(title ? title + '：' + text : text); } catch (e) {}
   }
 
+  // ------------------------------------------------------------------ Mafari 宿主能力（系统画中画 / DLNA 投屏 / 外部播放器）
+  // GM_mafariHost(op, args, onEvent) → Promise<结果 | null>。null = 宿主不支持（桥不存在 / 超时 / 不是主界面）。
+  // 传了 onEvent 就是订阅：原生之后随时可以往回推事件，回调常驻到页面卸载；不传则结果回来后立刻摘掉回调。
+  function GM_mafariHost(op, args, onEvent) {
+    return new Promise(function (resolve) {
+      if (!bridge || typeof bridge.host !== 'function') { resolve(null); return; }
+      var cbId = 'h_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      var fn = '__mafariHostCallback_' + cbId;
+      var persist = typeof onEvent === 'function';
+      var done = false, timer = null;
+      function finish(v) {
+        if (done) return;
+        done = true;
+        if (timer) _clearTimeout(timer);
+        if (!persist) delCb(fn);
+        resolve(v);
+      }
+      setCb(fn, function (kind, json) {
+        var v = null;
+        try { v = JSON.parse(json); } catch (e) {}
+        if (kind === 'r') finish(v);
+        else if (persist) safeCall(onEvent, null, [v], 'mafariHost');
+      });
+      timer = _setTimeout(function () { finish(null); }, 6000);
+      try { bridge.host(String(op), JSON.stringify(args || {}), cbId); } catch (e) { finish(null); }
+    });
+  }
+
   function GM_openInTab(url, opts) {
     var abs = absUrl(url);
     var options = (opts && typeof opts === 'object') ? opts : { active: opts !== false };
@@ -1212,6 +1240,7 @@
     getResourceUrl: p(GM_getResourceURL), getResourceURL: p(GM_getResourceURL),
     xmlHttpRequest: promisifyXhr, xmlhttpRequest: promisifyXhr,
     notification: p(GM_notification), openInTab: p(GM_openInTab), setClipboard: p(GM_setClipboard),
+    mafariHost: p(GM_mafariHost),
     download: GM_download_promise,
     registerMenuCommand: p(GM_registerMenuCommand), unregisterMenuCommand: p(GM_unregisterMenuCommand),
     getTab: p(function () { return tabObj; }), saveTab: p(GM_saveTab),
@@ -1229,7 +1258,7 @@
     GM_addValueChangeListener, GM_removeValueChangeListener, GM_addStyle, GM_addElement,
     GM_getResourceText, GM_getResourceURL, GM_xmlhttpRequest, GM_notification, GM_openInTab,
     GM_setClipboard, GM_download, GM_registerMenuCommand, GM_unregisterMenuCommand,
-    GM_getTab, GM_saveTab, GM_getTabs, GM_cookie, GM_log, GM, unsafeWindow, define, module, exports
+    GM_getTab, GM_saveTab, GM_getTabs, GM_cookie, GM_log, GM_mafariHost, GM, unsafeWindow, define, module, exports
   ) {
     return (__MAFARI_FN__ () {
 __MAFARI_CODE__
@@ -1246,7 +1275,7 @@ __MAFARI_CODE__
         GM_setClipboard, GM_download, GM_registerMenuCommand, GM_unregisterMenuCommand,
         GM_getTab, GM_saveTab, GM_getTabs, GM_cookie,
         function () { try { console.log.apply(console, arguments); } catch (e) {} },
-        GM, W, undefined, undefined, undefined);
+        GM_mafariHost, GM, W, undefined, undefined, undefined);
     } catch (err) {
       log('error', (err && err.stack) || (err && err.message) || err);
       return;

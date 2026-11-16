@@ -90,7 +90,7 @@
 
   const BG = new Set(['xhr', 'xhrAbort', 'cookieList', 'cookieSet']);
   const NATIVE = new Set(['set', 'del', 'getValue', 'toast', 'copy', 'copyHtml', 'notify', 'openTab', 'closeTab',
-    'download', 'menu', 'ran']);
+    'download', 'menu', 'ran', 'host']);
 
   /** 已绑定端口的一条消息：用绑定的凭据盖章后分发 */
   function dispatch(st, data) {

@@ -127,10 +127,25 @@ class MainActivity : ComponentActivity() {
         if (EngineSupport.GECKO_BUNDLED && (level == 10 || level == 15 || level >= 40)) BrowserState.trimCurrent()
     }
 
+    // 画中画：按 Home / 切任务时，若脚本播放器正在全屏播放，进入系统画中画（见 script/MediaHost.kt）
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        dev.dsh.miuixbrowser.script.MediaHost.onUserLeaveHint(this)
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        dev.dsh.miuixbrowser.script.MediaHost.onPipModeChanged(this, isInPictureInPictureMode)
+    }
+
     override fun onStop() {
-        if (EngineSupport.GECKO_BUNDLED) GeckoViewLifecycle.onStop()
-        // 退到后台：所有标签的媒体都暂停（两种内核）
-        BrowserState.pauseMediaCurrent()
+        // 刚进画中画时个别系统会先回调一次 onStop：这不是退到后台，别暂停。关闭画中画小窗（✕）走的是真正的 onStop，照常暂停
+        val keepPlaying = dev.dsh.miuixbrowser.script.MediaHost.keepPlayingOnStop()
+        if (!keepPlaying) {
+            if (EngineSupport.GECKO_BUNDLED) GeckoViewLifecycle.onStop()
+            // 退到后台：所有标签的媒体都暂停（两种内核）
+            BrowserState.pauseMediaCurrent()
+        }
         super.onStop()
         FavoritesStore.flushCurrent()
         ExtensionStore.flushCurrent()

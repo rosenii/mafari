@@ -33,7 +33,8 @@
   var setT = W.setTimeout.bind(W);
   var clearT = W.clearTimeout.bind(W);
   var hasOwn = Object.prototype.hasOwnProperty;
-  var CB_FN = /^__mafari(?:Dl|Ntf)Callback_[A-Za-z0-9_]{1,80}$/;
+  var CB_FN = /^__mafari(?:Dl|Ntf|Host)Callback_[A-Za-z0-9_]{1,80}$/;
+  var CB_KEEP = /^__mafariHostCallback_/; // 宿主事件订阅：常驻，不做一次性处理
 
   var iid = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -186,7 +187,7 @@
       case 'cb': // 对应 GmBridge.callJs：只允许调用运行时自己注册的一次性回调（__mafariDlCallback_* / __mafariNtfCallback_*）
         if (typeof m.fn === 'string' && CB_FN.test(m.fn)) {
           var f = W[m.fn];
-          try { delete W[m.fn]; } catch (e) {} // 先摘掉再调：一次性，防重入 / 页面替换后重复触发
+          if (!CB_KEEP.test(m.fn)) { try { delete W[m.fn]; } catch (e) {} } // 先摘掉再调：一次性，防重入 / 页面替换后重复触发（宿主订阅除外）
           if (typeof f === 'function') { try { f.apply(W, Array.isArray(m.args) ? m.args : []); } catch (e) {} }
         }
         break;
@@ -325,6 +326,7 @@
     },
     closeTab: function (id) { send({ t: 'closeTab', id: String(id) }); },
     download: function (url, name) { send({ t: 'download', url: String(url), name: String(name || '') }); },
+    host: function (op, json, cbId) { send({ t: 'host', op: String(op), json: String(json), cbId: String(cbId) }); },
     downloadAsync: function (url, name, cbId) {
       send({ t: 'download', url: String(url), name: String(name || ''), cbId: String(cbId) });
     },

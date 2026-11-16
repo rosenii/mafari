@@ -536,6 +536,9 @@ class BrowserTab(
         activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
+    /** 脚本宿主能力（画中画 / 投屏）要用到的 Activity */
+    fun hostActivity(): android.app.Activity? = resolveActivity()
+
     /** LocalContext 可能是 ContextThemeWrapper，逐层解开找 Activity */
     private fun resolveActivity(): android.app.Activity? {
         var c: Context? = appContext
@@ -754,6 +757,7 @@ class BrowserTab(
                         }
                     },
                     { id -> onGmCloseTab?.invoke(id) },
+                    { resolveActivity() },
                 ),
                 "MafariGM",
             )

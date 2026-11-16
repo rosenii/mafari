@@ -38,6 +38,8 @@ class GmBridge(
     private val onDownload: (url: String, name: String, onResult: ((ok: Boolean, error: String?) -> Unit)?) -> Unit =
         { _, _, _ -> },
     private val onCloseTab: (id: String) -> Unit = {},
+    /** 宿主 Activity（只有主界面 MainActivity 支持画中画 / 投屏面板；WebAppActivity 不传 → 脚本自动退回原行为） */
+    private val hostActivity: () -> android.app.Activity? = { null },
 ) {
 
     // 有界线程池：8 个工作线程 + 容量 64 的队列；空闲线程 30 秒回收。队列满时拒绝并回调错误，不再无限开线程。
@@ -366,6 +368,18 @@ class GmBridge(
     @JavascriptInterface
     fun closeTab(id: String) {
         mainHandler.post { onCloseTab(id) }
+    }
+
+    // ------------------------------------------------------------------ 宿主能力（系统画中画 / DLNA 投屏 / 外部播放器）
+
+    /** 结果与事件经 window.__mafariHostCallback_<cbId>(kind, json) 回传，见 [MediaHost] */
+    @JavascriptInterface
+    fun host(op: String, json: String, cbId: String) {
+        if (!SAFE_ID.matches(cbId) || op.length > 20) return
+        val fn = "__mafariHostCallback_$cbId"
+        MediaHost.handle(hostActivity(), "webview", op, json.take(20_000), fn) { f, kind, payload ->
+            callJs(f, JSONObject.quote(kind) + "," + JSONObject.quote(payload))
+        }
     }
 
     /** 旧接口：发起即返回，没有结果回调 */
