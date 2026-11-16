@@ -48,6 +48,29 @@ object ErrorPages {
     private const val E_TOO_MANY_REQUESTS = -15
     private const val E_UNSAFE_RESOURCE = -16
 
+    /**
+     * WebView 的 onReceivedSslError：[primary] 是 android.net.http.SslError.getPrimaryError()
+     * （0 未生效 / 1 已过期 / 2 域名不符 / 3 不受信任 / 4 日期无效 / 5 其它；字面值，免得纯 JVM 测试依赖 android.jar）。
+     */
+    fun fromSslError(primary: Int): ErrorSpec {
+        val (kind, name) = when (primary) {
+            0 -> ErrorKind.CERT_DATE to "SSL_NOTYETVALID"
+            1 -> ErrorKind.CERT_DATE to "SSL_EXPIRED"
+            2 -> ErrorKind.CERT_NAME to "SSL_IDMISMATCH"
+            3 -> ErrorKind.CERT_AUTHORITY to "SSL_UNTRUSTED"
+            4 -> ErrorKind.CERT_DATE to "SSL_DATE_INVALID"
+            else -> ErrorKind.CERT_OTHER to "SSL_INVALID"
+        }
+        return fromKind(kind, name, "SslError.primaryError=$primary")
+    }
+
+    /** 忽略片段和末尾斜杠后是否同一个地址（判断 SSL 错误是不是当前主框架页面的）。 */
+    fun sameUrl(a: String?, b: String?): Boolean {
+        fun norm(u: String?) = u.orEmpty().substringBefore('#').trimEnd('/').lowercase()
+        val x = norm(a)
+        return x.isNotEmpty() && x == norm(b)
+    }
+
     private val NET_NAME = Regex("""(?:net::)?(ERR_[A-Z0-9_]+)""")
 
     /** [description] 形如 `net::ERR_NAME_NOT_RESOLVED`：能解析出名字就按名字分（比粗粒度的 errorCode 准），否则按 errorCode。 */

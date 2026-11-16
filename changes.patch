@@ -1,0 +1,113 @@
+--- a/app/src/main/java/dev/dsh/miuixbrowser/util/ErrorPages.kt	2026-11-16 23:08:02.237017721 +0000
++++ b/app/src/main/java/dev/dsh/miuixbrowser/util/ErrorPages.kt	2026-11-16 23:08:18.769726892 +0000
+@@ -48,6 +48,29 @@
+     private const val E_TOO_MANY_REQUESTS = -15
+     private const val E_UNSAFE_RESOURCE = -16
+ 
++    /**
++     * WebView 的 onReceivedSslError：[primary] 是 android.net.http.SslError.getPrimaryError()
++     * （0 未生效 / 1 已过期 / 2 域名不符 / 3 不受信任 / 4 日期无效 / 5 其它；字面值，免得纯 JVM 测试依赖 android.jar）。
++     */
++    fun fromSslError(primary: Int): ErrorSpec {
++        val (kind, name) = when (primary) {
++            0 -> ErrorKind.CERT_DATE to "SSL_NOTYETVALID"
++            1 -> ErrorKind.CERT_DATE to "SSL_EXPIRED"
++            2 -> ErrorKind.CERT_NAME to "SSL_IDMISMATCH"
++            3 -> ErrorKind.CERT_AUTHORITY to "SSL_UNTRUSTED"
++            4 -> ErrorKind.CERT_DATE to "SSL_DATE_INVALID"
++            else -> ErrorKind.CERT_OTHER to "SSL_INVALID"
++        }
++        return fromKind(kind, name, "SslError.primaryError=$primary")
++    }
++
++    /** 忽略片段和末尾斜杠后是否同一个地址（判断 SSL 错误是不是当前主框架页面的）。 */
++    fun sameUrl(a: String?, b: String?): Boolean {
++        fun norm(u: String?) = u.orEmpty().substringBefore('#').trimEnd('/').lowercase()
++        val x = norm(a)
++        return x.isNotEmpty() && x == norm(b)
++    }
++
+     private val NET_NAME = Regex("""(?:net::)?(ERR_[A-Z0-9_]+)""")
+ 
+     /** [description] 形如 `net::ERR_NAME_NOT_RESOLVED`：能解析出名字就按名字分（比粗粒度的 errorCode 准），否则按 errorCode。 */
+--- a/app/src/main/java/dev/dsh/miuixbrowser/browser/BrowserState.kt	2026-11-16 23:08:02.239225144 +0000
++++ b/app/src/main/java/dev/dsh/miuixbrowser/browser/BrowserState.kt	2026-11-16 23:08:18.771910660 +0000
+@@ -136,6 +136,9 @@
+     private var geckoShowingError = false
+     /** 当前错误页对应的失败地址 + 是否允许「忽略风险继续」；「继续访问」链接只认这里记住的目标，不信任页面传参 */
+     @Volatile private var proceedTarget: String? = null
++    /** WebView：已在 onReceivedSslError 里自己渲染过证书错误页的地址与时间，避免随后的 onReceivedError 再渲染一次 */
++    @Volatile private var sslPageShownFor: String? = null
++    @Volatile private var sslPageShownAt = 0L
+     /** Gecko：用户点了「继续」后，下一次对该地址的证书错误交给内核自带证书页（它自带「接受风险并继续」） */
+     @Volatile private var geckoNativeCertFor: String? = null
+     /** 标签卡片用的页面缩略图（页面加载完成后截取） */
+@@ -888,15 +891,35 @@
+                 else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
+ 
+             override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
+-                // 只对用户在错误页里明确选择过「继续访问」的主机放行；其它一律取消（随后 onReceivedError 渲染错误页）
+-                val host = runCatching { Uri.parse(error.url).host }.getOrNull().orEmpty()
+-                if (host.isNotEmpty() && SslExceptions.contains(host, incognito)) handler.proceed() else handler.cancel()
++                val errUrl = error.url.orEmpty()
++                val host = runCatching { Uri.parse(errUrl).host }.getOrNull().orEmpty()
++                // 用户在错误页里明确选择过「继续访问」的主机：放行
++                if (host.isNotEmpty() && SslExceptions.contains(host, incognito)) {
++                    handler.proceed()
++                    return
++                }
++                handler.cancel()
++                Diag.log("webview ssl error primary=${error.primaryError} url=$errUrl page=$url")
++                // 主框架：直接在这里渲染引导页。取消之后系统不一定还会回调 onReceivedError，
++                // 只靠它的话页面会停在空白；子资源（图片 / 脚本）的证书错误只取消，不动页面
++                if (ErrorPages.sameUrl(errUrl, url) || ErrorPages.sameUrl(errUrl, view.url)) {
++                    val spec = ErrorPages.fromSslError(error.primaryError)
++                    errorText = "SSL ${error.primaryError}"
++                    sslPageShownFor = errUrl
++                    sslPageShownAt = android.os.SystemClock.uptimeMillis()
++                    view.post { if (!closed && !destroyed) showWebViewErrorPage(view, errUrl, spec) }
++                }
+             }
+ 
+             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                 if (request.isForMainFrame) {
+-                    errorText = error.description?.toString()
+-                    showWebViewErrorPage(view, request.url.toString(), ErrorPages.fromWebView(error.errorCode, error.description?.toString()))
++                    val failing = request.url.toString()
++                    val shownBySsl = ErrorPages.sameUrl(failing, sslPageShownFor) &&
++                        android.os.SystemClock.uptimeMillis() - sslPageShownAt < 5_000
++                    if (!shownBySsl) {
++                        errorText = error.description?.toString()
++                        showWebViewErrorPage(view, failing, ErrorPages.fromWebView(error.errorCode, error.description?.toString()))
++                    }
+                 }
+                 WebViewDebug.logLoadError(request, error)
+             }
+--- a/app/src/test/java/dev/dsh/miuixbrowser/ErrorPagesTest.kt	2026-11-16 23:08:02.241866163 +0000
++++ b/app/src/test/java/dev/dsh/miuixbrowser/ErrorPagesTest.kt	2026-11-16 23:08:18.772495594 +0000
+@@ -114,4 +114,25 @@
+         for (h in listOf("192.168.1.2", "10.0.0.5", "172.16.0.1", "127.0.0.1", "localhost", "nas.local", "nas", "[::1]", "169.254.1.1")) assertTrue(h, ErrorPages.isPrivateHost(h))
+         for (h in listOf("example.com", "8.8.8.8", "172.32.0.1", "172.15.0.1", "")) assertFalse(h, ErrorPages.isPrivateHost(h))
+     }
++
++    @Test
++    fun sslError_mapsPrimaryErrorToOverridableCertKinds() {
++        assertEquals(ErrorKind.CERT_DATE, ErrorPages.fromSslError(0).kind)
++        assertEquals(ErrorKind.CERT_DATE, ErrorPages.fromSslError(1).kind)
++        assertEquals(ErrorKind.CERT_NAME, ErrorPages.fromSslError(2).kind)
++        assertEquals(ErrorKind.CERT_AUTHORITY, ErrorPages.fromSslError(3).kind)
++        assertEquals(ErrorKind.CERT_DATE, ErrorPages.fromSslError(4).kind)
++        assertEquals(ErrorKind.CERT_OTHER, ErrorPages.fromSslError(5).kind)
++        assertEquals(ErrorKind.CERT_OTHER, ErrorPages.fromSslError(99).kind)
++        for (c in 0..5) assertTrue("$c", ErrorPages.fromSslError(c).canProceed)
++    }
++
++    @Test
++    fun sameUrl_ignoresFragmentSlashAndCase() {
++        assertTrue(ErrorPages.sameUrl("https://a.com/x#top", "https://a.com/x"))
++        assertTrue(ErrorPages.sameUrl("https://A.com/", "https://a.com"))
++        assertFalse(ErrorPages.sameUrl("https://a.com/x", "https://a.com/y"))
++        assertFalse(ErrorPages.sameUrl("", ""))
++        assertFalse(ErrorPages.sameUrl(null, "https://a.com"))
++    }
+ }

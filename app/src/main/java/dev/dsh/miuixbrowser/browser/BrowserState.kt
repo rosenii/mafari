@@ -136,6 +136,9 @@ class BrowserTab(
     private var geckoShowingError = false
     /** 当前错误页对应的失败地址 + 是否允许「忽略风险继续」；「继续访问」链接只认这里记住的目标，不信任页面传参 */
     @Volatile private var proceedTarget: String? = null
+    /** WebView：已在 onReceivedSslError 里自己渲染过证书错误页的地址与时间，避免随后的 onReceivedError 再渲染一次 */
+    @Volatile private var sslPageShownFor: String? = null
+    @Volatile private var sslPageShownAt = 0L
     /** Gecko：用户点了「继续」后，下一次对该地址的证书错误交给内核自带证书页（它自带「接受风险并继续」） */
     @Volatile private var geckoNativeCertFor: String? = null
     /** 标签卡片用的页面缩略图（页面加载完成后截取） */
@@ -888,15 +891,35 @@ class BrowserTab(
                 else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
 
             override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
-                // 只对用户在错误页里明确选择过「继续访问」的主机放行；其它一律取消（随后 onReceivedError 渲染错误页）
-                val host = runCatching { Uri.parse(error.url).host }.getOrNull().orEmpty()
-                if (host.isNotEmpty() && SslExceptions.contains(host, incognito)) handler.proceed() else handler.cancel()
+                val errUrl = error.url.orEmpty()
+                val host = runCatching { Uri.parse(errUrl).host }.getOrNull().orEmpty()
+                // 用户在错误页里明确选择过「继续访问」的主机：放行
+                if (host.isNotEmpty() && SslExceptions.contains(host, incognito)) {
+                    handler.proceed()
+                    return
+                }
+                handler.cancel()
+                Diag.log("webview ssl error primary=${error.primaryError} url=$errUrl page=$url")
+                // 主框架：直接在这里渲染引导页。取消之后系统不一定还会回调 onReceivedError，
+                // 只靠它的话页面会停在空白；子资源（图片 / 脚本）的证书错误只取消，不动页面
+                if (ErrorPages.sameUrl(errUrl, url) || ErrorPages.sameUrl(errUrl, view.url)) {
+                    val spec = ErrorPages.fromSslError(error.primaryError)
+                    errorText = "SSL ${error.primaryError}"
+                    sslPageShownFor = errUrl
+                    sslPageShownAt = android.os.SystemClock.uptimeMillis()
+                    view.post { if (!closed && !destroyed) showWebViewErrorPage(view, errUrl, spec) }
+                }
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
-                    errorText = error.description?.toString()
-                    showWebViewErrorPage(view, request.url.toString(), ErrorPages.fromWebView(error.errorCode, error.description?.toString()))
+                    val failing = request.url.toString()
+                    val shownBySsl = ErrorPages.sameUrl(failing, sslPageShownFor) &&
+                        android.os.SystemClock.uptimeMillis() - sslPageShownAt < 5_000
+                    if (!shownBySsl) {
+                        errorText = error.description?.toString()
+                        showWebViewErrorPage(view, failing, ErrorPages.fromWebView(error.errorCode, error.description?.toString()))
+                    }
                 }
                 WebViewDebug.logLoadError(request, error)
             }

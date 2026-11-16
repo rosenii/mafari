@@ -114,4 +114,25 @@ class ErrorPagesTest {
         for (h in listOf("192.168.1.2", "10.0.0.5", "172.16.0.1", "127.0.0.1", "localhost", "nas.local", "nas", "[::1]", "169.254.1.1")) assertTrue(h, ErrorPages.isPrivateHost(h))
         for (h in listOf("example.com", "8.8.8.8", "172.32.0.1", "172.15.0.1", "")) assertFalse(h, ErrorPages.isPrivateHost(h))
     }
+
+    @Test
+    fun sslError_mapsPrimaryErrorToOverridableCertKinds() {
+        assertEquals(ErrorKind.CERT_DATE, ErrorPages.fromSslError(0).kind)
+        assertEquals(ErrorKind.CERT_DATE, ErrorPages.fromSslError(1).kind)
+        assertEquals(ErrorKind.CERT_NAME, ErrorPages.fromSslError(2).kind)
+        assertEquals(ErrorKind.CERT_AUTHORITY, ErrorPages.fromSslError(3).kind)
+        assertEquals(ErrorKind.CERT_DATE, ErrorPages.fromSslError(4).kind)
+        assertEquals(ErrorKind.CERT_OTHER, ErrorPages.fromSslError(5).kind)
+        assertEquals(ErrorKind.CERT_OTHER, ErrorPages.fromSslError(99).kind)
+        for (c in 0..5) assertTrue("$c", ErrorPages.fromSslError(c).canProceed)
+    }
+
+    @Test
+    fun sameUrl_ignoresFragmentSlashAndCase() {
+        assertTrue(ErrorPages.sameUrl("https://a.com/x#top", "https://a.com/x"))
+        assertTrue(ErrorPages.sameUrl("https://A.com/", "https://a.com"))
+        assertFalse(ErrorPages.sameUrl("https://a.com/x", "https://a.com/y"))
+        assertFalse(ErrorPages.sameUrl("", ""))
+        assertFalse(ErrorPages.sameUrl(null, "https://a.com"))
+    }
 }
