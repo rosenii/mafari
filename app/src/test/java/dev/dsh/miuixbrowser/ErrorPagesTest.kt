@@ -103,7 +103,7 @@ class ErrorPagesTest {
         assertTrue(html.contains("忽略风险，继续访问"))
         assertFalse(ErrorPages.render(ErrorPages.withoutProceed(spec), "https://self.signed/", dark = false).contains("mafari-error://"))
         assertFalse(ErrorPages.render(ErrorPages.fromWebView(-2, "net::ERR_NAME_NOT_RESOLVED"), "https://a.b/", dark = false).contains("mafari-error://"))
-        assertTrue(ErrorPages.render(spec, "https://self.signed/", dark = false, nativeProceed = true).contains("证书页"))
+        assertTrue(ErrorPages.render(spec, "https://self.signed/", dark = false, nativeProceed = true).contains("addCertException"))
     }
 
     @Test

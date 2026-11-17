@@ -1724,7 +1724,7 @@ class BrowserTab(
 
     internal fun geckoPageStart(u: String) {
         if (closed || destroyed) return
-        if (ErrorPages.isProceedUrl(u)) return // 错误页内部链接，被 onLoadRequest 拒绝，不是真实导航
+        if (ErrorPages.isProceedUrl(u)) return
         if (u == geckoErrorUri) { loading = true; return } // 错误页自身的加载：保留失败地址与错误信息
         geckoShowingError = false
         // 主页（url 为空）或被主页盖住（parked）时，页面侧回调不得改写 url；引擎初始化产生的 about:blank 也忽略
@@ -1777,23 +1777,13 @@ class BrowserTab(
         if (closed || destroyed) return null
         loading = false
         errorText = text
-        val pending = geckoNativeCertFor
-        val target = failingUri?.takeIf { it.isNotBlank() && !ErrorPages.isProceedUrl(it) }
-            ?: pending ?: url.takeIf { !ErrorPages.isProceedUrl(it) }.orEmpty()
-        dev.dsh.miuixbrowser.util.Diag.log("geckoLoadError: failing=$failingUri target=$target pending=$pending canProceed=${spec.canProceed} proceedTarget=$proceedTarget")
+        val target = failingUri?.takeIf { it.isNotBlank() } ?: url
         // 用户已在自绘页点过「继续」：这一次让 Gecko 显示自带证书页（含「接受风险并继续」），由内核登记证书例外
-        if (spec.canProceed && pending != null && (ErrorPages.sameUrl(pending, target) || ErrorPages.sameHost(pending, target))) {
+        if (spec.canProceed && geckoNativeCertFor != null && geckoNativeCertFor == target) {
             geckoNativeCertFor = null
             proceedTarget = null
             geckoShowingError = true
-            // 日志证实：返回 null 时 GeckoView 不会自己显示证书页（页面空白 / 仍停在自绘页）。
-            // 显式返回内核的 about:certerror，docshell 会带着失败的 channel 加载它，页面上有「接受风险并继续」。
-            val enc = { v: String -> java.net.URLEncoder.encode(v, "UTF-8") }
-            val certUri = "about:certerror?e=nssFailure2&u=${enc(pending)}&c=UTF-8&d=${enc(spec.detail.ifBlank { spec.code })}"
-            geckoErrorUri = certUri
-            dev.dsh.miuixbrowser.util.Diag.log("geckoLoadError: -> $certUri")
-            if (!parked && pending.isNotEmpty()) url = pending
-            return certUri
+            return null
         }
         proceedTarget = if (spec.canProceed && target.startsWith("https://", ignoreCase = true)) target else null
         val html = ErrorPages.render(spec, target, displayDark, nativeProceed = true)

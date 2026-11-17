@@ -659,11 +659,7 @@ class GeckoTabEngine(
                 val target = request.uri
                 // 证书错误页里的「继续」：不真正导航；放行由内核自带证书页完成，这里只是重新加载失败地址
                 if (ErrorPages.isProceedUrl(target)) {
-                    val armed = tab.geckoProceedAfterCertWarning()
-                    Diag.log("cert-proceed: click armed=$armed reload=${tab.geckoProceedReloadUrl()}")
-                    if (armed) {
-                        tab.geckoProceedReloadUrl()?.let { u -> android.os.Handler(android.os.Looper.getMainLooper()).post { loadUri(u) } }
-                    }
+                    // 放行由错误页里的脚本（document.addCertException）完成，这里只拦下内部链接
                     return GeckoResult.fromValue(AllowOrDeny.DENY)
                 }
                 if (FxaSync.interceptRedirect(target)) return GeckoResult.fromValue(AllowOrDeny.DENY)
@@ -712,7 +708,6 @@ class GeckoTabEngine(
                 error: WebRequestError,
             ): GeckoResult<String>? {
                 val label = "Gecko ${error.category}/${error.code}"
-                Diag.log("onLoadError: uri=$uri category=${error.category} code=${error.code}")
                 val spec = ErrorPages.fromKind(geckoErrorKind(error), label, "category=${error.category} code=${error.code}")
                 val page = tab.geckoLoadError(tr("加载失败（错误 {0}/{1}）", error.category, error.code), uri, spec)
                 return page?.let { GeckoResult.fromValue(it) }
