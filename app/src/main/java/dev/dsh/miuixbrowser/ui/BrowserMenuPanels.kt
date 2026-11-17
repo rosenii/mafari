@@ -598,7 +598,7 @@ internal fun TabCard(
                                 backdrop = blurBackdrop,
                                 shape = GlassShape(0.dp),
                                 style = GlassLook.style(isAppDarkTheme()),
-                                material = GlassMaterials.puredThinGlass(isAppDarkTheme()),
+                                material = GlassLook.material(isAppDarkTheme()),
                                 stroke = GlassEdgeStrokes.forTheme(isAppDarkTheme()),
                                 shading = GlassLook.shading(),
                             )

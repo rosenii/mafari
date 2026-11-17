@@ -459,7 +459,7 @@ private fun GuideCard(
                         backdrop = backdrop,
                         shape = GlassShape(24.dp),
                         style = GlassLook.style(dark),
-                        material = GlassMaterials.puredThinGlass(dark),
+                        material = GlassLook.material(dark),
                         stroke = GlassEdgeStrokes.forTheme(dark),
                         shading = GlassLook.shading(),
                     )

@@ -237,8 +237,11 @@ class MainActivity : ComponentActivity() {
             }
             val themeController = remember(mode) { ThemeController(mode) }
             MiuixTheme(controller = themeController) {
-                dev.dsh.miuixbrowser.ui.GlassLook.update(settings.blurMode)
-                CompositionLocalProvider(LocalBlurMode provides settings.blurMode) {
+                dev.dsh.miuixbrowser.ui.GlassLook.update(settings.blurMode, settings.glassParams)
+                CompositionLocalProvider(
+                    LocalBlurMode provides settings.blurMode,
+                    dev.dsh.miuixbrowser.ui.LocalGlassParams provides settings.glassParams,
+                ) {
                     // 首帧先画一个与主题底色一致的占位面：BrowserScreen 首次组合要同步读加密库（标签 / 书签 / 脚本），
                     // 库还没打开时直接组合会把主线程卡住 1~2 秒，系统启动画面（白屏）也就一直收不起来。
                     // 库在后台线程等好之后再组合 BrowserScreen；库早已就绪（如界面重建）则直接组合，不闪占位。

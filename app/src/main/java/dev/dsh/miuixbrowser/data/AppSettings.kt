@@ -140,6 +140,18 @@ class AppSettings(context: Context) {
     )
         private set
 
+    /** 柔光玻璃的自定义材质参数（设置 →「高级材质」→「自定义材质参数」）。 */
+    var glassParams by mutableStateOf(
+        GlassParams.decode(prefs.getString(KEY_GLASS_PARAMS, null)) ?: GlassPresets.ALL[0].params,
+    )
+        private set
+
+    /** 当前套用的柔光模板下标；-1 表示手动改过参数（自定义）。 */
+    var glassPreset by mutableStateOf(
+        if (prefs.contains(KEY_GLASS_PARAMS)) prefs.getInt(KEY_GLASS_PRESET, -1).takeIf { it in GlassPresets.ALL.indices } ?: -1 else 0,
+    )
+        private set
+
     /** 是否有任何模糊（miuix-glass 或 liquid glass） */
     val blurEnabled: Boolean get() = blurMode != BLUR_OFF
 
@@ -557,6 +569,26 @@ class AppSettings(context: Context) {
         prefs.edit().putString(KEY_WALL, uri).apply()
     }
 
+    /** 套用一个柔光模板。 */
+    fun applyGlassPreset(index: Int) {
+        val preset = GlassPresets.ALL.getOrNull(index) ?: return
+        glassParams = preset.params
+        glassPreset = index
+        saveGlass()
+    }
+
+    /** 拖滑条时实时改参数（只改内存，松手再 [commitGlassParams] 落盘），模板标记变为「自定义」。 */
+    fun updateGlassParams(params: GlassParams) {
+        glassParams = params
+        glassPreset = -1
+    }
+
+    fun commitGlassParams() = saveGlass()
+
+    private fun saveGlass() {
+        prefs.edit().putString(KEY_GLASS_PARAMS, glassParams.encode()).putInt(KEY_GLASS_PRESET, glassPreset).apply()
+    }
+
     fun updateBlurMode(mode: Int) {
         blurMode = mode.coerceIn(BLUR_MIUIX, BLUR_FROST)
         prefs.edit().putInt(KEY_BLUR_MODE, blurMode).apply()
@@ -834,6 +866,8 @@ class AppSettings(context: Context) {
     private companion object {
         const val KEY_BLUR = "blur"
         const val KEY_BLUR_MODE = "blur_mode"
+        const val KEY_GLASS_PARAMS = "glass_params"
+        const val KEY_GLASS_PRESET = "glass_preset"
         const val KEY_HOME_FAV = "home_show_favorites"
         const val KEY_HOME_FAV_ROWS = "home_fav_rows"
         const val KEY_HOME_LOGO = "home_show_logo"

@@ -257,7 +257,7 @@ internal fun Modifier.glassBar(
         backdrop = if (canUseGlass) backdrop else null,
         shape = glassShape,
         style = GlassLook.style(dark),
-        material = if (canUseGlass) GlassMaterials.puredThinGlass(dark) else null,
+        material = if (canUseGlass) GlassLook.material(dark) else null,
         stroke = if (blurEnabled) GlassEdgeStrokes.forTheme(dark) else null,
         shading = GlassLook.shading(),
         fallback = Modifier
