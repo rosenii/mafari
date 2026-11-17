@@ -1359,6 +1359,11 @@ fun BrowserScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    // 全屏沉浸（decorFitsSystemWindows=false）下系统不会替 WebView / GeckoView 缩小窗口，
+                    // 键盘会直接盖住屏幕底部的网页输入框。这里让网页区域避开键盘：
+                    // 区域变矮后页面会把获得焦点的输入框滚到可见处。
+                    // 地址栏输入时不收缩，避免每次唤起键盘都让网页整体重排。
+                    .then(if (editing) Modifier else Modifier.imePadding())
                     .topInsetPx { if (nativeInset) 0 else contentTopPx() },
             ) {
                 key(tab.id) {
@@ -1804,7 +1809,13 @@ fun BrowserScreen(
                 onForward = { tab.goForward() },
                 onHome = { state.goHome(tab) },
                 onCopyAddress = {
-                    if (tab.url.isNotBlank()) clipboard.setText(AnnotatedString(tab.url))
+                    if (tab.url.isNotBlank()) {
+                        clipboard.setText(AnnotatedString(tab.url))
+                        // Android 13+ 系统会自己弹「已复制」，旧版本补一个提示
+                        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+                            android.widget.Toast.makeText(context, tr("已复制网址"), android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 },
                 onAddressTap = {
                     if (!editing) {

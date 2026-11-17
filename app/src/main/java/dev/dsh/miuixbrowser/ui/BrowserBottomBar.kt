@@ -399,6 +399,10 @@ internal fun BottomBar(
                     editing = editing,
                     onStartEdit = onAddressTap,
                     onFocusLost = onFocusLost,
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onCopyAddress()
+                    },
                     modifier = Modifier.weight(1f),
                 )
                 // 网页加载完毕（非加载中、非输入中）时，地址栏最右端显示刷新图标
@@ -746,6 +750,7 @@ internal fun AddressField(
     editing: Boolean = true,
     onStartEdit: () -> Unit = {},
     onFocusLost: () -> Unit = {},
+    onLongPress: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val color = MiuixTheme.colorScheme.onSurface
@@ -808,14 +813,16 @@ internal fun AddressField(
                 },
         )
         if (!editing) {
-            // 未编辑时盖一层透明点击区，点一下立刻切到完整网址
+            // 未编辑时盖一层透明点击区，点一下立刻切到完整网址；长按复制网址。
+            // 这一层会吞掉触摸，所以长按必须在这里处理，外层 Row 的 onLongClick 收不到事件。
             Box(
                 modifier = Modifier
                     .matchParentSize()
-                    .clickable(
+                    .combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = onStartEdit,
+                        onLongClick = onLongPress,
                     ),
             )
         }
