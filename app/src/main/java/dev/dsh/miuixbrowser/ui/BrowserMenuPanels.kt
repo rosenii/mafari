@@ -742,7 +742,13 @@ internal fun TabsSegmented(
  * 已登录但用默认头像 / 头像取不到 = 主色头像图标。头像地址只认 https。
  */
 @Composable
-private fun AccountMenuIcon(label: String) {
+internal fun AccountMenuIcon(
+    label: String,
+    avatarSize: androidx.compose.ui.unit.Dp = 28.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 26.dp,
+    /** 未登录时的图标颜色；null = 默认的灰色 */
+    unsignedTint: Color? = null,
+) {
     val signedIn = if (EngineSupport.SYNC_BUNDLED) FxaSync.ui as? FxaUi.SignedIn else null
     val url = signedIn?.avatarUrl?.takeIf { it.startsWith("https://") }.orEmpty()
     val avatar = rememberRemoteIcon(url)
@@ -752,15 +758,15 @@ private fun AccountMenuIcon(label: String) {
             contentDescription = label,
             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             modifier = Modifier
-                .size(28.dp)
+                .size(avatarSize)
                 .clip(androidx.compose.foundation.shape.CircleShape),
         )
     } else {
         Icon(
             imageVector = AppIcons.Account,
             contentDescription = label,
-            tint = if (signedIn != null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.size(26.dp),
+            tint = if (signedIn != null) MiuixTheme.colorScheme.primary else unsignedTint ?: MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.size(iconSize),
         )
     }
 }

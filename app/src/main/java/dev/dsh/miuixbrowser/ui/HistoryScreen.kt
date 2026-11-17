@@ -115,7 +115,6 @@ import top.yukonga.miuix.kmp.icon.glass.Delete
 import top.yukonga.miuix.kmp.icon.glass.Add
 import top.yukonga.miuix.kmp.icon.glass.Search
 import top.yukonga.miuix.kmp.icon.glass.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1299,7 +1298,7 @@ private fun BookmarkRow(
 
 /**
  * 书签分组标题：左侧分组名 + 数量，右侧按钮点一下展开 / 收起（整行也可点击；长按管理分组）。
- * 「自定义」排序下，顶层分组（个人收藏除外）左侧多一个始终显示的排序手柄（miuix ListView 图标，无底框），按住上下拖动即可排序；
+ * 「自定义」排序下，顶层分组（个人收藏除外）左侧多一个始终显示的排序手柄（自绘圆点图标，无底框），按住上下拖动即可排序；
  * 个人收藏左侧是同样大小的置顶图标（固定在最上面，不可点击 / 拖动）。
  */
 @Composable
@@ -1345,7 +1344,7 @@ private fun BookmarkGroupHeader(
     ) {
         if (dragHandle) {
             var handleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
-            // 无底色的排序图标（miuix ListView · Regular）；36dp 是触控区，拖动中图标变主色
+            // 无底色的排序手柄（自绘 AppIcons.DragGrip：两列三排圆点）；36dp 是触控区，拖动中图标变主色
             Box(
                 modifier = Modifier
                     .size(36.dp)
@@ -1371,10 +1370,10 @@ private fun BookmarkGroupHeader(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = MiuixIcons.Regular.ListView,
+                    imageVector = AppIcons.DragGrip,
                     contentDescription = tr("拖动排序"),
                     tint = if (isDragged) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
             Spacer(Modifier.width(6.dp))

@@ -1881,12 +1881,17 @@ private fun QuickMenuTile(
                 .groupTileSurface(hasWallpaper),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = action.icon,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(20.dp),
-            )
+            if (action == MenuAction.Account) {
+                // 已登录 Firefox 帐户且设了头像：显示圆形头像（比图标略大，铺满磁贴的视觉中心）；否则仍是账户图标
+                AccountMenuIcon(label = action.label, avatarSize = 26.dp, iconSize = 20.dp, unsignedTint = tint)
+            } else {
+                Icon(
+                    imageVector = action.icon,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
             if (editing) TileRemoveBadge(onClick = onRemove)
         }
         Text(
