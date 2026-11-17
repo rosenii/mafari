@@ -1,39 +1,49 @@
 package dev.dsh.miuixbrowser.browser
 
 import dev.dsh.miuixbrowser.BuildConfig
+import dev.dsh.miuixbrowser.download.DownloadState
+import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.net.GitHubAccelerate
 import dev.dsh.miuixbrowser.ui.AppBottomSheet
 import dev.dsh.miuixbrowser.ui.AppDialogButton
 import dev.dsh.miuixbrowser.ui.AppRelease
+import dev.dsh.miuixbrowser.ui.MarkdownText
 import dev.dsh.miuixbrowser.ui.UpdateChannel
 import dev.dsh.miuixbrowser.ui.ciBuildOf
 import dev.dsh.miuixbrowser.ui.fetchLatestRelease
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
-import top.yukonga.miuix.kmp.glass.GlassBottomSheet
-import top.yukonga.miuix.kmp.glass.GlassDialogButton
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import dev.dsh.miuixbrowser.download.Downloader
 
 /** 启动时自动检查更新的进程级状态：同一进程只检查一次（旋转屏幕等重组不会重复请求）。 */
 object UpdateChecker {
@@ -48,37 +58,144 @@ object UpdateChecker {
         return rel
     }
 
-    fun download(context: Context, rel: AppRelease, openInApp: ((String) -> Unit)? = null) {
+    /** 没有 APK 资产：优先在应用内浏览页打开发布页，回退系统浏览器 */
+    fun openReleasePage(context: Context, rel: AppRelease, openInApp: ((String) -> Unit)?) {
+        val page = rel.pageUrl
+        if (openInApp != null && page.isNotBlank()) {
+            openInApp(page)
+        } else {
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(page)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+    }
+}
+
+enum class UpdatePhase { IDLE, PICKING, DOWNLOADING, DONE, FAILED }
+
+/**
+ * 应用更新的下载 / 安装状态（进程级，启动提示与「关于」页共用）：
+ * 选线路 → 内置下载器下载（进度直接显示在更新弹窗里）→ 下载完成 → 唤起系统安装器。
+ * 同一时间只跟踪一个版本；弹窗收起不影响下载，取消会删掉未完成的文件。
+ */
+object UpdateDownload {
+    var phase by mutableStateOf(UpdatePhase.IDLE)
+        private set
+
+    /** 正在 / 已下载的版本（release.version）；弹窗据此判断状态是否属于自己展示的版本 */
+    var version by mutableStateOf("")
+        private set
+
+    var taskId by mutableLongStateOf(0L)
+        private set
+
+    var error by mutableStateOf<String?>(null)
+        private set
+
+    /** 谁发起的下载（"launch" 启动提示 / "about" 关于页）；下载完成时由发起方把收起的弹窗重新弹出 */
+    var origin by mutableStateOf("")
+        private set
+
+    private var apkUri: Uri? = null
+
+    /** 每次开始 / 取消都 +1，用来丢弃过期的回调（选线路线程、下载完成回调） */
+    private var generation = 0
+
+    private const val APK_MIME = "application/vnd.android.package-archive"
+
+    fun start(context: Context, rel: AppRelease, origin: String, openInApp: ((String) -> Unit)? = null) {
         val apk = rel.apkUrl
         if (apk.isNullOrBlank()) {
-            // 无 APK：优先在应用内浏览页打开发布页，回退系统浏览器
-            val page = rel.pageUrl
-            if (openInApp != null && page.isNotBlank()) {
-                openInApp(page)
-            } else {
-                runCatching {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse(page)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
+            UpdateChecker.openReleasePage(context, rel, openInApp)
+            return
+        }
+        if (phase == UpdatePhase.PICKING || phase == UpdatePhase.DOWNLOADING) return
+        val appCtx = context.applicationContext
+        val gen = ++generation
+        this.origin = origin
+        version = rel.version
+        error = null
+        apkUri = null
+        taskId = 0L
+        phase = UpdatePhase.PICKING
+        val fileName = apk.substringBefore('?').substringAfterLast('/')
+            .ifBlank { "mafari-${rel.version.removePrefix("v")}.apk" }
+        // 直连 + GitHub 加速并发探测，连通者优先；探测在后台，回主线程再入下载队列
+        Thread {
+            val url = runCatching { GitHubAccelerate.pickDownloadUrl(apk) }.getOrDefault(apk)
+            Handler(Looper.getMainLooper()).post {
+                if (gen != generation || phase != UpdatePhase.PICKING) return@post // 选线路期间被取消
+                taskId = Downloader.startForUpdate(appCtx, url, fileName, APK_MIME) { ok, err ->
+                    onFinished(appCtx, gen, ok, err)
                 }
+                phase = UpdatePhase.DOWNLOADING
+            }
+        }.start()
+    }
+
+    private fun onFinished(context: Context, gen: Int, ok: Boolean, err: String?) {
+        if (gen != generation || phase != UpdatePhase.DOWNLOADING) return
+        if (ok) {
+            apkUri = Downloader.tasks.firstOrNull { it.id == taskId }?.uri
+            if (apkUri == null) {
+                error = "找不到下载好的安装包"
+                phase = UpdatePhase.FAILED
+            } else {
+                phase = UpdatePhase.DONE
+                Toast.makeText(context, "更新已下载完成，点击安装", Toast.LENGTH_SHORT).show()
+            }
+        } else if (err == "cancelled") {
+            // 在下载页里删掉了任务
+            phase = UpdatePhase.IDLE
+        } else {
+            error = err ?: "未知错误"
+            phase = UpdatePhase.FAILED
+        }
+    }
+
+    /** 取消下载（选线路 / 下载中 / 失败后）：删掉任务和未完成的文件，回到「下载」状态 */
+    fun cancel(context: Context) {
+        generation++
+        val id = taskId
+        if (id != 0L && phase != UpdatePhase.DONE) Downloader.delete(context.applicationContext, id)
+        taskId = 0L
+        error = null
+        apkUri = null
+        phase = UpdatePhase.IDLE
+    }
+
+    /** 唤起系统安装器；没有「安装未知应用」授权时先跳到该授权页 */
+    fun install(context: Context) {
+        val uri = apkUri
+        val readable = uri != null && runCatching { context.contentResolver.openInputStream(uri)?.close() }.isSuccess
+        if (uri == null || !readable) {
+            // 安装包被删了（比如在下载页里删除）
+            Toast.makeText(context, "安装包已不存在，请重新下载", Toast.LENGTH_SHORT).show()
+            apkUri = null
+            taskId = 0L
+            phase = UpdatePhase.IDLE
+            return
+        }
+        if (!context.packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(context, "请先允许 Mafari 安装应用，返回后再点「安装」", Toast.LENGTH_LONG).show()
+            runCatching {
+                context.startActivity(
+                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
             }
             return
         }
-        Toast.makeText(context, "正在选择下载线路…", Toast.LENGTH_SHORT).show()
-        // 直连 + GitHub 加速并发探测，连通者优先；探测在后台，回主线程再入下载队列
-        Thread {
-            val url = GitHubAccelerate.pickDownloadUrl(apk)
-            android.os.Handler(context.mainLooper).post {
-                Downloader.start(
-                    context = context,
-                    url = url,
-                    userAgent = null,
-                    fileName = apk.substringBefore('?').substringAfterLast('/').ifBlank { "mafari-${rel.version.removePrefix("v")}.apk" },
-                    mimeType = "application/vnd.android.package-archive",
-                )
-                Toast.makeText(context, "已开始下载，完成后可在下载页安装", Toast.LENGTH_LONG).show()
-            }
-        }.start()
+        val ok = runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, APK_MIME)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.isSuccess
+        if (!ok) Toast.makeText(context, "无法唤起系统安装器，请在下载页打开安装包", Toast.LENGTH_LONG).show()
     }
 }
 
@@ -125,19 +242,29 @@ fun isNewerVersion(remote: String, local: String): Boolean {
     return pre(local) && !pre(remote)
 }
 
-/** 发现新版本的底部弹窗：下载 / 忽略此版本。下滑关闭等同“稍后再说”，下次启动仍会提示。 */
+/**
+ * 发现新版本的底部弹窗：更新日志（Markdown）→ 点「下载」后进度直接显示在弹窗里：
+ * 下载中按钮是「收起 / 取消下载」，下载完成变成「安装」。
+ * 下滑关闭 / 收起 = 稍后再说（下载继续在后台进行）。
+ *
+ * @param onIgnore 启动提示里有「忽略此版本」；「关于」页里传 null，第一个按钮是「取消」。
+ */
 @Composable
 fun UpdateSheet(
     show: Boolean,
     release: AppRelease?,
     backdrop: Backdrop?,
+    origin: String,
     onDismiss: () -> Unit,
-    onIgnore: (AppRelease) -> Unit,
-    onDownload: (AppRelease) -> Unit,
+    onIgnore: ((AppRelease) -> Unit)? = null,
+    openInApp: ((String) -> Unit)? = null,
 ) {
+    val context = LocalContext.current
+    val tracked = release != null && release.version == UpdateDownload.version
+    val phase = if (tracked) UpdateDownload.phase else UpdatePhase.IDLE
     AppBottomSheet(
         show = show,
-        title = "发现新版本",
+        title = if (phase == UpdatePhase.DONE) "更新已就绪" else "发现新版本",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -163,33 +290,118 @@ fun UpdateSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 220.dp)
+                        .heightIn(max = 240.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    Text(
-                        text = release.notes,
-                        fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
+                    MarkdownText(markdown = release.notes)
                 }
             }
+
+            // 下载进度（选线路 / 下载中）与失败原因
+            if (phase == UpdatePhase.PICKING || phase == UpdatePhase.DOWNLOADING) {
+                val task = Downloader.tasks.firstOrNull { it.id == UpdateDownload.taskId }
+                val progress = if (phase == UpdatePhase.DOWNLOADING && task != null && task.total > 0) {
+                    Downloader.progressOf(task)
+                } else null
+                Spacer(Modifier.height(14.dp))
+                LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(6.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        text = when {
+                            phase == UpdatePhase.PICKING -> "正在选择下载线路…"
+                            task?.state == DownloadState.PAUSED -> "已暂停（可在下载页继续）"
+                            else -> Downloader.progressSizeText(task?.bytes ?: 0L, task?.total ?: 0L).ifBlank { "正在连接…" }
+                        },
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    if (progress != null) {
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+            } else if (phase == UpdatePhase.FAILED) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "下载失败：" + (UpdateDownload.error ?: "未知错误"),
+                    fontSize = 13.sp,
+                    color = Color(0xFFE5484D),
+                )
+            }
+
             Spacer(Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                AppDialogButton(onClick = { onIgnore(release) }, modifier = Modifier.weight(1f)) {
-                    Text(text = "忽略此版本", style = MiuixTheme.textStyles.button)
-                }
-                AppDialogButton(
-                    onClick = { onDownload(release) },
-                    modifier = Modifier.weight(1f),
-                    role = GlassDialogButtonRole.Primary,
-                ) {
-                    Text(
-                        text = if (release.apkUrl.isNullOrBlank()) "查看更新" else "下载",
-                        style = MiuixTheme.textStyles.button,
-                    )
+                when (phase) {
+                    UpdatePhase.PICKING, UpdatePhase.DOWNLOADING -> {
+                        AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                            Text(text = "收起", style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = { UpdateDownload.cancel(context) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(text = "取消下载", style = MiuixTheme.textStyles.button)
+                        }
+                    }
+                    UpdatePhase.DONE -> {
+                        AppDialogButton(
+                            onClick = { UpdateDownload.install(context) },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Primary,
+                        ) {
+                            Text(text = "安装", style = MiuixTheme.textStyles.button)
+                        }
+                    }
+                    UpdatePhase.FAILED -> {
+                        AppDialogButton(
+                            onClick = {
+                                UpdateDownload.cancel(context)
+                                onDismiss()
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(text = "关闭", style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                UpdateDownload.cancel(context)
+                                UpdateDownload.start(context, release, origin, openInApp)
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Primary,
+                        ) {
+                            Text(text = "重试", style = MiuixTheme.textStyles.button)
+                        }
+                    }
+                    UpdatePhase.IDLE -> {
+                        AppDialogButton(
+                            onClick = { if (onIgnore != null) onIgnore(release) else onDismiss() },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(text = if (onIgnore != null) "忽略此版本" else "取消", style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                UpdateDownload.start(context, release, origin, openInApp)
+                                // 没有安装包时只是打开发布页，弹窗收起
+                                if (release.apkUrl.isNullOrBlank()) onDismiss()
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Primary,
+                        ) {
+                            Text(
+                                text = if (release.apkUrl.isNullOrBlank()) "查看更新" else "下载",
+                                style = MiuixTheme.textStyles.button,
+                            )
+                        }
+                    }
                 }
             }
         }

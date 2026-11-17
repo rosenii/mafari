@@ -293,24 +293,42 @@ class AppSettings(context: Context) {
     }
 
     /**
-     * 更新通道：0=lite 1=gecko 2=canary-lite 3=canary-gecko 4=sync-lite 5=canary-sync-lite（见 [UpdateChannel]）。
-     * 用新 key 存储：旧版本的 update_channel（0=stable 1=dev 2=gecko）含义不同，不沿用，
-     * 所以从旧版本升级上来的用户一律走默认通道 gecko（设备没有 arm64 时退到 lite）。
+     * 更新通道：0=lite 1=gecko 2=canary-lite 3=canary-gecko 4=sync_lite 5=canary-sync_lite（见 [UpdateChannel]）。
+     * 用新 key 存储：旧版本的 update_channel（0=stable 1=dev 2=gecko）含义不同，不沿用。
+     *
+     * 通道要与用户实际安装的变体同步：同时记下「保存通道时安装的变体」，启动时发现已装变体变了
+     * （用户换装了别的变体）或没有记录（旧版本升级上来，当时的默认值不看变体），就把通道改到已装变体上
+     * （保留 canary / 正式的选择），避免 lite 用户收到 gecko 推送、sync_lite 用户收到 lite 推送。
      */
-    var updateChannel by mutableStateOf(
-        if (prefs.contains(KEY_UPDATE_CHANNEL)) {
-            UpdateChannel.migrate(
-                prefs.getInt(KEY_UPDATE_CHANNEL, UpdateChannel.GECKO).coerceIn(0, UpdateChannel.NAMES.lastIndex),
-            )
-        } else {
-            UpdateChannel.default()
-        },
-    )
+    var updateChannel by mutableStateOf(loadUpdateChannel())
         private set
+
+    private fun loadUpdateChannel(): Int {
+        val installed = UpdateChannel.installedFlavor()
+        val stored = if (prefs.contains(KEY_UPDATE_CHANNEL)) {
+            prefs.getInt(KEY_UPDATE_CHANNEL, UpdateChannel.default()).coerceIn(0, UpdateChannel.NAMES.lastIndex)
+        } else null
+        val recorded = prefs.getString(KEY_UPDATE_CHANNEL_FLAVOR, null)
+        val channel = when {
+            stored == null -> UpdateChannel.default()
+            recorded == installed -> stored
+            else -> UpdateChannel.forInstalled(UpdateChannel.isCanary(stored))
+        }
+        if (stored != channel || recorded != installed) {
+            prefs.edit()
+                .putInt(KEY_UPDATE_CHANNEL, channel)
+                .putString(KEY_UPDATE_CHANNEL_FLAVOR, installed)
+                .apply()
+        }
+        return channel
+    }
 
     fun updateUpdateChannel(channel: Int) {
         updateChannel = channel.coerceIn(0, UpdateChannel.NAMES.lastIndex)
-        prefs.edit().putInt(KEY_UPDATE_CHANNEL, updateChannel).apply()
+        prefs.edit()
+            .putInt(KEY_UPDATE_CHANNEL, updateChannel)
+            .putString(KEY_UPDATE_CHANNEL_FLAVOR, UpdateChannel.installedFlavor())
+            .apply()
     }
 
     /**
@@ -830,6 +848,7 @@ class AppSettings(context: Context) {
         const val KEY_APP_ICON = "app_icon"
         const val KEY_IGNORED_UPDATE = "ignored_update"
         const val KEY_UPDATE_CHANNEL = "update_channel_v2" // 旧 "update_channel" 含义不同（stable/dev/gecko），已弃用
+        const val KEY_UPDATE_CHANNEL_FLAVOR = "update_channel_installed_flavor" // 保存通道时安装的变体，用于发现换装
         const val KEY_ENGINE = "browser_engine"
         const val KEY_DL_THREADS = "download_threads"
         const val KEY_DL_MIN_MB = "download_multithread_min_mb"

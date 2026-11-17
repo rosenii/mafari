@@ -2,8 +2,11 @@ package dev.dsh.miuixbrowser.ui
 
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.R
-import dev.dsh.miuixbrowser.download.Downloader
+import dev.dsh.miuixbrowser.browser.UpdateDownload
+import dev.dsh.miuixbrowser.browser.UpdatePhase
+import dev.dsh.miuixbrowser.browser.UpdateSheet
 import dev.dsh.miuixbrowser.browser.currentVersionLabel
+import dev.dsh.miuixbrowser.browser.extractChangelog
 import dev.dsh.miuixbrowser.browser.isNewerVersion
 import dev.dsh.miuixbrowser.browser.isUpdateAvailable
 import dev.dsh.miuixbrowser.engine.EngineSupport
@@ -38,6 +41,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -122,6 +126,17 @@ fun AboutScreen(
     val surface = MiuixTheme.colorScheme.surface
     val iconShape = RoundedCornerShape(26.dp)
     var pendingUpdate by remember { mutableStateOf<AppRelease?>(null) }
+    // 弹窗收起动画期间 pendingUpdate 已是 null，内容用上一次的版本撑住；下载完成时也据此把弹窗重新弹出
+    var lastPendingUpdate by remember { mutableStateOf<AppRelease?>(null) }
+    LaunchedEffect(pendingUpdate) { pendingUpdate?.let { lastPendingUpdate = it } }
+    LaunchedEffect(UpdateDownload.phase) {
+        val last = lastPendingUpdate
+        if (UpdateDownload.phase == UpdatePhase.DONE && UpdateDownload.origin == "about" &&
+            last != null && last.version == UpdateDownload.version && pendingUpdate == null
+        ) {
+            pendingUpdate = last
+        }
+    }
     var showDonate by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(LocalLiquidBackdrop provides if (glass) liquidBackdrop else null) {
@@ -264,9 +279,11 @@ fun AboutScreen(
                         backdrop = if (glass) pageBackdrop else null,
                         title = "Mafari",
                         summary = BuildConfig.VERSION_NAME,
-                        items = UpdateChannel.NAMES,
-                        selectedIndex = updateChannel.coerceIn(0, UpdateChannel.NAMES.lastIndex),
-                        onSelectedIndexChange = onUpdateChannelChange,
+                        items = UpdateChannel.DISPLAY_NAMES,
+                        selectedIndex = UpdateChannel.DISPLAY_ORDER.indexOf(updateChannel).coerceAtLeast(0),
+                        onSelectedIndexChange = { index ->
+                            UpdateChannel.DISPLAY_ORDER.getOrNull(index)?.let(onUpdateChannelChange)
+                        },
                     )
                     AboutRow("WebView 内核版本", kernel)
                     if (EngineSupport.GECKO_BUNDLED) AboutRow("GeckoView 内核版本", geckoKernel ?: "未知")
@@ -423,54 +440,15 @@ fun AboutScreen(
                 }
             }
 
-            // 应用内下载更新（不再跳浏览器）
-            val update = pendingUpdate
-            AppGlassDialog(
-                show = update != null,
-                title = "发现新版本",
-                summary = update?.let { "${it.version} · 下载后可在下载页安装" },
+            // 应用内下载更新：进度直接显示在弹窗里，下载完成后点「安装」唤起系统安装器
+            UpdateSheet(
+                show = pendingUpdate != null,
+                release = pendingUpdate ?: lastPendingUpdate,
                 backdrop = if (glass) pageBackdrop else null,
-                onDismissRequest = { pendingUpdate = null },
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    AppDialogButton(
-                        onClick = { pendingUpdate = null },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(text = "取消", style = MiuixTheme.textStyles.button)
-                    }
-                    AppDialogButton(
-                        onClick = {
-                            val rel = update ?: return@AppDialogButton
-                            val apk = rel.apkUrl
-                            if (apk != null) {
-                                Toast.makeText(context, "正在选择下载线路…", Toast.LENGTH_SHORT).show()
-                                Thread {
-                                    val url = GitHubAccelerate.pickDownloadUrl(apk)
-                                    android.os.Handler(context.mainLooper).post {
-                                        Downloader.start(
-                                            context = context,
-                                            url = url,
-                                            userAgent = null,
-                                            fileName = "mafari-${rel.version.removePrefix("v")}.apk",
-                                            mimeType = "application/vnd.android.package-archive",
-                                        )
-                                        Toast.makeText(context, "已开始下载，完成后可在下载页安装", Toast.LENGTH_LONG).show()
-                                    }
-                                }.start()
-                            }
-                            pendingUpdate = null
-                        },
-                        modifier = Modifier.weight(1f),
-                        role = top.yukonga.miuix.kmp.glass.GlassDialogButtonRole.Primary,
-                    ) {
-                        Text(text = "下载", style = MiuixTheme.textStyles.button)
-                    }
-                }
-            }
+                origin = "about",
+                onDismiss = { pendingUpdate = null },
+                openInApp = onOpenUrl,
+            )
 
             // 捐赠：赞赏码 + 保存到相册
             DonateSheet(show = showDonate, backdrop = if (glass) pageBackdrop else null, onDismiss = { showDonate = false })
@@ -498,13 +476,14 @@ private const val RELEASES_API = "https://api.github.com/repos/rosenii/mafari/re
 private const val RELEASES_MAX_PAGES = 6
 
 /**
- * 更新通道（持久化的是下标，顺序不要改）：
+ * 更新通道（持久化的是下标，顺序不要改；菜单里的显示顺序见 [DISPLAY_ORDER]）：
  * - lite：正式发布版里带 `-lite` 后缀、与本机架构匹配的安装包
  * - gecko：正式发布版里带 `-gecko` 后缀的安装包
  * - canary-lite：最新构建预发布（gecko-N）或正式发布（dual 分支直接发布的也算，取发布时间最新的）里带 `-lite`、匹配架构的安装包
  * - canary-gecko：同上，取 `-gecko` 安装包
- * - sync-lite：正式发布版里的 `sync_lite` 安装包（无内核 + Firefox 同步，仅 arm64）；与 lite 严格区分，lite 通道绝不会选到它
- * - canary-sync-lite：同 canary-lite 的取法，取 `sync_lite` 安装包
+ * - sync_lite：正式发布版里的 `sync_lite` 安装包（无内核 + Firefox 同步，仅 arm64）；与 lite 严格区分，lite 通道绝不会选到它
+ * - canary-sync_lite：同 canary-lite 的取法，取 `sync_lite` 安装包
+ * 通道名与发布文件名里的变体标记一致（gecko / lite / sync_lite，canary 前缀 `canary-`）。
  */
 object UpdateChannel {
     const val LITE = 0
@@ -513,7 +492,15 @@ object UpdateChannel {
     const val CANARY_GECKO = 3
     const val SYNC_LITE = 4
     const val CANARY_SYNC_LITE = 5
-    val NAMES = listOf("lite", "gecko", "canary-lite", "canary-gecko", "sync-lite", "canary-sync-lite")
+
+    /** 按持久化下标排列的通道名（与发布名一致） */
+    val NAMES = listOf("lite", "gecko", "canary-lite", "canary-gecko", "sync_lite", "canary-sync_lite")
+
+    /** 菜单显示顺序（存的是下标）：先 canary 系，再正式版；各自按 lite / gecko / sync_lite 排 */
+    val DISPLAY_ORDER = listOf(CANARY_LITE, CANARY_GECKO, CANARY_SYNC_LITE, LITE, GECKO, SYNC_LITE)
+
+    /** 菜单里的文案，顺序同 [DISPLAY_ORDER] */
+    val DISPLAY_NAMES: List<String> = DISPLAY_ORDER.map { NAMES[it] }
 
     fun isCanary(channel: Int) =
         channel == CANARY_LITE || channel == CANARY_GECKO || channel == CANARY_SYNC_LITE
@@ -532,27 +519,19 @@ object UpdateChannel {
         else -> "lite"
     }
 
-    /**
-     * 没有选择记录（含从旧版本升级）时的默认通道：
-     * 已装 sync_lite 包 → sync-lite；否则 gecko，设备没有 arm64-v8a（跑不了 GeckoView）时退到 lite
-     */
-    fun default(): Int = when {
-        EngineSupport.SYNC_LITE -> SYNC_LITE
-        android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" } -> GECKO
-        else -> LITE
+    /** 与当前安装包同变体的通道；[canary] 决定取 canary 系还是正式系 */
+    fun forInstalled(canary: Boolean): Int = when (installedFlavor()) {
+        "gecko" -> if (canary) CANARY_GECKO else GECKO
+        "sync_lite" -> if (canary) CANARY_SYNC_LITE else SYNC_LITE
+        else -> if (canary) CANARY_LITE else LITE
     }
 
     /**
-     * 兼容旧版本：以前 sync_lite 包只有 lite / canary-lite 两个通道（靠已装变体自动选 sync 包）。
-     * 已装 sync_lite 包而存的是 lite 系通道时，迁移到对应的 sync-lite 通道，避免升级后被提示"切换变体"。
+     * 没有选择记录时的默认通道：跟随用户实际安装的变体（lite → lite，gecko → gecko，sync_lite → sync_lite），
+     * 安装的是 canary 版本（版本名带 canary）则取对应的 canary 通道。
+     * 不再按设备架构猜测——否则装了 lite 的 arm64 用户会默认收到 gecko 的推送。
      */
-    fun migrate(channel: Int): Int = if (EngineSupport.SYNC_LITE) {
-        when (channel) {
-            LITE -> SYNC_LITE
-            CANARY_LITE -> CANARY_SYNC_LITE
-            else -> channel
-        }
-    } else channel
+    fun default(): Int = forInstalled(BuildConfig.VERSION_NAME.contains("canary", ignoreCase = true))
 }
 
 /** gecko 分支 CI 构建预发布的 tag：gecko-<构建号> */
@@ -678,7 +657,7 @@ private fun parseRelease(o: org.json.JSONObject, channel: Int): AppRelease? {
         version = tag,
         pageUrl = pageUrl,
         apkUrl = apkUrl,
-        notes = o.optString("body", "").trim(),
+        notes = extractChangelog(o.optString("body", "")),
         publishedAt = runCatching { java.time.Instant.parse(o.optString("published_at", "")).toEpochMilli() }
             .getOrDefault(0L),
     )

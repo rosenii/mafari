@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.browser.UpdateDownload
+import dev.dsh.miuixbrowser.browser.UpdatePhase
 import dev.dsh.miuixbrowser.browser.UpdateSheet
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_COLS
 import dev.dsh.miuixbrowser.browser.quickMenuCandidates
@@ -568,6 +570,16 @@ fun BrowserScreen(
             androidx.compose.runtime.snapshotFlow { settings.onboardingPending }.first { !it }
             lastUpdateRelease = found
             updateRelease = found
+        }
+    }
+
+    // 弹窗收起后下载完成：把更新弹窗重新弹出，方便直接点「安装」（只处理从启动提示发起的下载）
+    LaunchedEffect(UpdateDownload.phase) {
+        val pending = lastUpdateRelease
+        if (UpdateDownload.phase == UpdatePhase.DONE && UpdateDownload.origin == "launch" &&
+            pending != null && pending.version == UpdateDownload.version && updateRelease == null
+        ) {
+            updateRelease = pending
         }
     }
 
@@ -2426,15 +2438,13 @@ fun BrowserScreen(
             show = updateRelease != null,
             release = updateRelease ?: lastUpdateRelease,
             backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
+            origin = "launch",
             onDismiss = { updateRelease = null },
             onIgnore = {
                 settings.updateIgnoredUpdate(it.version)
                 updateRelease = null
             },
-            onDownload = {
-                UpdateChecker.download(context, it, openInApp = { openInBrowser(it) })
-                updateRelease = null
-            },
+            openInApp = { openInBrowser(it) },
         )
 
         val downloadRequest = pendingDownload

@@ -316,6 +316,18 @@ object Downloader {
         startInternal(context, url, userAgent, fileName, mimeType, onComplete, referer, withCookies, geckoCookies)
     }
 
+    /**
+     * 应用自更新专用：固定走内置下载器（不交给第三方下载器，才能拿到进度并在完成后安装），
+     * 返回任务 id，界面据此从 [tasks] 读进度、用 [delete] 取消。[onComplete] 在主线程回调（取消时为 false + "cancelled"）。
+     */
+    fun startForUpdate(
+        context: Context,
+        url: String,
+        fileName: String,
+        mimeType: String?,
+        onComplete: (ok: Boolean, error: String?) -> Unit,
+    ): Long = startInternal(context.applicationContext, url, null, fileName, mimeType, onComplete, null, false, false)
+
     private fun startInternal(
         context: Context,
         url: String,
@@ -326,7 +338,7 @@ object Downloader {
         referer: String?,
         withCookies: Boolean,
         geckoCookies: Boolean,
-    ) {
+    ): Long {
         init(context)
         val task = DownloadTask(
             name = fileName,
@@ -343,6 +355,7 @@ object Downloader {
         DownloadService.start(context)
         DownloadService.instance?.showStart(fileName, task.id)
         launch(task.id)
+        return task.id
     }
 
     fun pause(id: Long) {
