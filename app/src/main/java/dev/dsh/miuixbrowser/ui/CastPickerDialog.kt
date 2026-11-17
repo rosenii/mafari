@@ -1,9 +1,15 @@
 package dev.dsh.miuixbrowser.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -16,6 +22,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.dsh.miuixbrowser.script.CastPickerUi
@@ -54,8 +64,28 @@ internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
                     )
                 }
-                CastRow(icon = "🖥", text = "屏幕镜像（系统投屏）", onClick = { ui.pickMirror() })
-                CastRow(icon = "▶", text = "外部播放器 / 投屏 App", onClick = { ui.pickExternal() })
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CastTile(
+                        icon = AppIcons.ScreenMirror,
+                        title = "屏幕镜像",
+                        hint = "系统投屏，投出整个画面",
+                        onClick = { ui.pickMirror() },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                    CastTile(
+                        icon = AppIcons.OpenExternal,
+                        title = "外部打开",
+                        hint = "交给播放器或投屏 App",
+                        onClick = { ui.pickExternal() },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -82,5 +112,35 @@ private fun CastRow(icon: String, text: String, onClick: () -> Unit) {
         Text(text = icon, fontSize = 18.sp)
         Spacer(Modifier.width(12.dp))
         Text(text = text, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+    }
+}
+
+/** 屏幕镜像 / 外部打开：并排的大圆角矩形，图标 + 标题 + 一行小字说明 */
+@Composable
+private fun CastTile(icon: ImageVector, title: String, hint: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Image(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(30.dp),
+            colorFilter = ColorFilter.tint(MiuixTheme.colorScheme.primary),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(3.dp))
+        Text(
+            text = hint,
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
     }
 }
