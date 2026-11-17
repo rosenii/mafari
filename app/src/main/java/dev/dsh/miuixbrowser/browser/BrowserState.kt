@@ -1724,6 +1724,7 @@ class BrowserTab(
 
     internal fun geckoPageStart(u: String) {
         if (closed || destroyed) return
+        if (ErrorPages.isProceedUrl(u)) return // 错误页内部链接，被 onLoadRequest 拒绝，不是真实导航
         if (u == geckoErrorUri) { loading = true; return } // 错误页自身的加载：保留失败地址与错误信息
         geckoShowingError = false
         // 主页（url 为空）或被主页盖住（parked）时，页面侧回调不得改写 url；引擎初始化产生的 about:blank 也忽略
@@ -1738,7 +1739,7 @@ class BrowserTab(
 
     internal fun geckoLocation(u: String) {
         if (closed || destroyed) return
-        if (u == geckoErrorUri) return
+        if (u == geckoErrorUri || ErrorPages.isProceedUrl(u)) return
         if (stateRestorePending && !isBlankPage(u)) stateRestorePending = false
         if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
         updatePageHost(u)
@@ -1776,9 +1777,11 @@ class BrowserTab(
         if (closed || destroyed) return null
         loading = false
         errorText = text
-        val target = failingUri?.takeIf { it.isNotBlank() } ?: url
+        val pending = geckoNativeCertFor
+        val target = failingUri?.takeIf { it.isNotBlank() && !ErrorPages.isProceedUrl(it) }
+            ?: pending ?: url.takeIf { !ErrorPages.isProceedUrl(it) }.orEmpty()
         // 用户已在自绘页点过「继续」：这一次让 Gecko 显示自带证书页（含「接受风险并继续」），由内核登记证书例外
-        if (spec.canProceed && geckoNativeCertFor != null && geckoNativeCertFor == target) {
+        if (spec.canProceed && pending != null && (ErrorPages.sameUrl(pending, target) || ErrorPages.sameHost(pending, target))) {
             geckoNativeCertFor = null
             proceedTarget = null
             geckoShowingError = true

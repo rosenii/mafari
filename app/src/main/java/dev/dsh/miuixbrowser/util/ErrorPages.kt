@@ -73,6 +73,14 @@ object ErrorPages {
         return x.isNotEmpty() && x == norm(b)
     }
 
+    /** 忽略 www. 前缀与大小写后是否同一主机（Gecko 重载时失败地址可能被规范化 / 重定向到同主机的另一路径）。 */
+    fun sameHost(a: String?, b: String?): Boolean {
+        fun host(u: String?) = Regex("""^[a-zA-Z][a-zA-Z0-9+.-]*://([^/:?#]+)""").find(u.orEmpty())
+            ?.groupValues?.get(1)?.lowercase()?.removePrefix("www.").orEmpty()
+        val x = host(a)
+        return x.isNotEmpty() && x == host(b)
+    }
+
     private val NET_NAME = Regex("""(?:net::)?(ERR_[A-Z0-9_]+)""")
 
     /** [description] 形如 `net::ERR_NAME_NOT_RESOLVED`：能解析出名字就按名字分（比粗粒度的 errorCode 准），否则按 errorCode。 */
