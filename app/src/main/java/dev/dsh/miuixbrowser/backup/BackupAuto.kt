@@ -106,4 +106,39 @@ object BackupAuto {
         }
         if (ok) prefs(app).edit().putLong(K_LAST, now).apply()
     }
+
+    /** [pushAllNow] 的结果：成功 / 失败的目标数；[error] 非空表示根本没开始（没口令 / 没目标 / 没选备份内容） */
+    data class PushResult(val ok: Int, val failed: Int, val error: String? = null)
+
+    /**
+     * 立即把加密备份上传到「所有」已配置的 WebDAV 服务器和 Git 仓库（不看自动推送间隔，也不要求开启「一并同步」）。
+     * 菜单里的「同步」走这里。需要已设好默认口令。
+     */
+    suspend fun pushAllNow(context: Context): PushResult = withContext(Dispatchers.IO) {
+        val app = context.applicationContext
+        val password = password(app) ?: return@withContext PushResult(0, 0, "请先在「备份与同步」里设置默认口令")
+        val dav = WebDavStore.list(app).map { it.config }
+        val git = GitStore.list(app).map { it.config }
+        if (dav.isEmpty() && git.isEmpty()) return@withContext PushResult(0, 0, "还没有配置 WebDAV 服务器或 Git 仓库")
+        val categories = effectiveCategories(app)
+        if (categories.isEmpty()) return@withContext PushResult(0, 0, "没有选择要备份的内容")
+
+        val chars = password.toCharArray()
+        val buffer = ByteArrayOutputStream()
+        try {
+            BackupManager.export(app, buffer, chars, categories)
+        } finally {
+            chars.fill('\u0000')
+        }
+        val bytes = buffer.toByteArray()
+        var ok = 0
+        var failed = 0
+        for (cfg in dav) {
+            if (runCatching { WebDavClient(cfg).upload(bytes) }.isSuccess) { WebDavStore.markUploaded(app); ok++ } else failed++
+        }
+        for (cfg in git) {
+            if (runCatching { GitSyncClient(app, cfg).upload(bytes) }.isSuccess) { GitStore.markPushed(app); ok++ } else failed++
+        }
+        PushResult(ok, failed)
+    }
 }

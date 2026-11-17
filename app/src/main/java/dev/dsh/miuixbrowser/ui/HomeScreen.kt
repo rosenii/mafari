@@ -1864,6 +1864,13 @@ private fun QuickMenuTile(
     modifier: Modifier = Modifier,
     onRemove: () -> Unit,
 ) {
+    // 状态型功能：去广告开着 → 红；同步进行中 → 主题色 + 「同步中」（与更多菜单一致）
+    val syncing = action == MenuAction.Sync && dev.dsh.miuixbrowser.browser.MenuSyncState.syncing
+    val tint = when {
+        action == MenuAction.AdBlock && dev.dsh.miuixbrowser.adblock.AdBlock.enabled -> Color(0xFFE53935)
+        syncing -> MiuixTheme.colorScheme.primary
+        else -> MiuixTheme.colorScheme.onSurface
+    }
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
@@ -1875,17 +1882,17 @@ private fun QuickMenuTile(
             Icon(
                 imageVector = action.icon,
                 contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurface,
+                tint = tint,
                 modifier = Modifier.size(20.dp),
             )
             if (editing) TileRemoveBadge(onClick = onRemove)
         }
         Text(
-            text = action.label,
+            text = if (syncing) "同步中" else action.label,
             fontSize = 10.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = MiuixTheme.colorScheme.onSurface,
+            color = tint,
             style = TextStyle(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 lineHeight = 13.sp,

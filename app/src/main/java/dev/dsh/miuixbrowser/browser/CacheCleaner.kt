@@ -53,6 +53,17 @@ object CacheCleaner {
         }.start()
     }
 
+    /** 与「设置 → 清理缓存」完全一致的一键清理（菜单里的「清理缓存」也走这里）：返回释放的字节数 */
+    suspend fun cleanAll(context: Context): Long {
+        val clearWeb: () -> Unit = {
+            runCatching { WebView(context.applicationContext).apply { clearCache(true); destroy() } }
+            if (dev.dsh.miuixbrowser.engine.EngineSupport.GECKO_BUNDLED) dev.dsh.miuixbrowser.engine.gecko.GeckoRuntimeHolder.clearCaches()
+        }
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            cleanNow(context) { kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.Main) { clearWeb() } }
+        }
+    }
+
     /** 手动清理：返回释放的字节数。必须在主线程之外调用，内部会切回主线程清 WebView 缓存 */
     fun cleanNow(context: Context, clearWebViewCache: () -> Unit): Long {
         val app = context.applicationContext

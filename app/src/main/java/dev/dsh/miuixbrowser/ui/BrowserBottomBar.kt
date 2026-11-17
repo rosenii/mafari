@@ -373,17 +373,18 @@ internal fun BottomBar(
                             },
                         ),
                     )
-                    .padding(horizontal = 12.dp),
+                    // 左右两侧的图标（阅读 / 脚本 / 刷新）尽量贴边；文字与图标的间距由下面的 Spacer 负责
+                    .padding(start = 6.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // 阅读模式图标：地址栏最左侧（比加载小圆点还靠左）
                 if (showReader) {
                     AddressReaderButton(active = readerActive, onClick = onReader)
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(Modifier.width(6.dp))
                 } else if (showScripts) {
                     // 与阅读图标同一位置、同一尺寸；可阅读时上面的分支优先，这里不显示
                     AddressScriptButton(onClick = onScripts)
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(Modifier.width(6.dp))
                 }
                 if (loading) {
                     LoadingDot()
@@ -400,7 +401,7 @@ internal fun BottomBar(
                 )
                 // 网页加载完毕（非加载中、非输入中）时，地址栏最右端显示刷新图标
                 if (showRefresh) {
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(Modifier.width(6.dp))
                     AddressRefreshButton(onClick = onRefresh)
                 }
             }
@@ -676,7 +677,8 @@ internal fun AddressScriptButton(onClick: () -> Unit) {
             imageVector = AppIcons.Script,
             contentDescription = "正在运行的脚本",
             tint = MiuixTheme.colorScheme.primary,
-            modifier = Modifier.size(iconSize),
+            // 视觉上略微下移（只移图标，点击区域不变）
+            modifier = Modifier.offset(y = 1.dp).size(iconSize),
         )
     }
 }

@@ -248,6 +248,10 @@ internal fun MenuGrid(
     scriptsActive: Boolean = false,
     /** 至少有一个拓展在运行（Gecko 内核）时「拓展」图标和文字变青绿色 */
     extensionsActive: Boolean = false,
+    /** 去广告开着时「去广告」图标和文字变红 */
+    adBlockActive: Boolean = false,
+    /** 正在同步：「同步」图标和文字变主题色 */
+    syncActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
     lockedFor: (MenuAction) -> Boolean = { false },
 ) {
@@ -324,6 +328,8 @@ internal fun MenuGrid(
                                 action == MenuAction.Requests && requestsActive -> amber
                                 action == MenuAction.ScriptMenu && scriptsActive -> lightBlue
                                 action == MenuAction.GeckoExtensions && extensionsActive -> teal
+                                action == MenuAction.AdBlock && adBlockActive -> Color(0xFFE53935)
+                                action == MenuAction.Sync && syncActive -> MiuixTheme.colorScheme.primary
                                 else -> MiuixTheme.colorScheme.onSurface
                             },
                             dragged = dragAction == action,

@@ -551,14 +551,7 @@ fun SettingsScreen(
                             android.text.format.Formatter.formatFileSize(context, reclaimable),
                         onClick = {
                             scope.launch {
-                                // WebView 网页缓存要在主线程清；其余文件在 IO 线程删
-                                val clearWeb: () -> Unit = {
-                                    runCatching { WebView(context.applicationContext).apply { clearCache(true); destroy() } }
-                                    if (EngineSupport.GECKO_BUNDLED) GeckoRuntimeHolder.clearCaches()
-                                }
-                                val freed = withContext(Dispatchers.IO) {
-                                    CacheCleaner.cleanNow(context) { runBlocking(Dispatchers.Main) { clearWeb() } }
-                                }
+                                val freed = CacheCleaner.cleanAll(context)
                                 reclaimable = withContext(Dispatchers.IO) { CacheCleaner.reclaimableBytes(context) }
                                 Toast.makeText(
                                     context,

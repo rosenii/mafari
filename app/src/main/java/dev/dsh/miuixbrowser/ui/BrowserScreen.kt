@@ -4,6 +4,7 @@ import dev.dsh.miuixbrowser.browser.UpdateDownload
 import dev.dsh.miuixbrowser.browser.UpdatePhase
 import dev.dsh.miuixbrowser.browser.UpdateSheet
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_COLS
+import dev.dsh.miuixbrowser.browser.MenuSyncState
 import dev.dsh.miuixbrowser.browser.quickMenuCandidates
 import dev.dsh.miuixbrowser.RefreshSpinnerView
 import dev.dsh.miuixbrowser.adblock.AdBlock
@@ -533,6 +534,8 @@ fun BrowserScreen(
     var runningScripts by remember { mutableStateOf<List<RunningScript>>(emptyList()) }
     // 菜单面板右上角蓝标：当前页面运行的脚本数
     var scriptRunCount by remember { mutableIntStateOf(0) }
+    // 菜单「同步」进行中：图标变主题色、文字变「同步中」，防止重复点击
+    var menuSyncing by MenuSyncState::syncing
     // 地址栏左侧脚本图标：当前标签页面运行的脚本数（加载完成后查询，见下方 LaunchedEffect）
     var addressScriptCount by remember { mutableIntStateOf(0) }
     var pendingDownload by remember { mutableStateOf<DownloadRequest?>(null) }
@@ -1916,6 +1919,36 @@ fun BrowserScreen(
             MenuAction.Settings -> pushPage(AppRoute.Settings)
             MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)
             MenuAction.CloseTab -> state.closeTab(state.activeIndex)
+            MenuAction.CleanCache -> scope.launch {
+                val freed = runCatching { dev.dsh.miuixbrowser.browser.CacheCleaner.cleanAll(context) }.getOrDefault(0L)
+                android.widget.Toast.makeText(
+                    context,
+                    if (freed > 0) "已清理 " + android.text.format.Formatter.formatFileSize(context, freed) else "没有可清理的缓存",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+            MenuAction.Sync -> if (!menuSyncing) {
+                menuSyncing = true
+                scope.launch {
+                    val r = runCatching { BackupAuto.pushAllNow(context) }.getOrNull()
+                    menuSyncing = false
+                    val msg = when {
+                        r == null -> "同步失败"
+                        r.error != null -> r.error ?: ""
+                        r.failed == 0 -> "同步完成，已上传到 ${r.ok} 个目标"
+                        r.ok == 0 -> "同步失败（${r.failed} 个目标上传失败）"
+                        else -> "同步完成：${r.ok} 个成功，${r.failed} 个失败"
+                    }
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+            // 去广告开关：只有 WebView 内核有（Gecko 标签下菜单里是置灰的）
+            MenuAction.AdBlock -> if (!tab.isGecko) {
+                AdBlock.updateEnabled(!AdBlock.enabled)
+                android.widget.Toast.makeText(context, if (AdBlock.enabled) "去广告已开启" else "去广告已关闭", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                dev.dsh.miuixbrowser.engine.gecko.showGeckoUnsupportedToast(context)
+            }
         }
     }
     quickRunner.run = { runMenuAction(it) }
@@ -2191,6 +2224,8 @@ fun BrowserScreen(
                     labelFor = { action ->
                         if (action == MenuAction.Desktop) {
                             if (tab.desktopMode) "移动版" else "桌面版"
+                        } else if (action == MenuAction.Sync && menuSyncing) {
+                            "同步中"
                         } else {
                             action.label
                         }
@@ -2200,6 +2235,8 @@ fun BrowserScreen(
                             MenuAction.Downloads ->
                                 Downloader.tasks.count { it.state == DownloadState.RUNNING }
                             MenuAction.ScriptMenu -> scriptRunCount
+                            // 本页拦截数：菜单打开 / 重组时读一次计数器，不轮询
+                            MenuAction.AdBlock -> if (AdBlock.enabled && !tab.isGecko) tab.pageAdBlocked.get() else 0
                             MenuAction.GeckoExtensions -> if (settings.geckoMode) {
                                 GeckoExtensionStore.items.count {
                                     it.enabled && (!tab.incognito || it.allowedInPrivate)
@@ -2215,13 +2252,16 @@ fun BrowserScreen(
                         when (action) {
                             // 拓展只在 Gecko 内核可用：WebView 下置灰，点击提示不可用
                             MenuAction.GeckoExtensions -> !settings.geckoMode
+                            // 去广告依赖 WebView 的请求拦截：Gecko 标签下置灰
+                            MenuAction.AdBlock -> tab.isGecko
                             else -> false
                         }
                     },
                     order = menuOrder.order,
                     hidden = menuOrder.hidden,
                     onAction = { action ->
-                        sheet = Sheet.None
+                        // 同步 / 去广告 / 清理缓存：菜单保持打开，图标和文字就地变化
+                        if (action != MenuAction.Sync && action != MenuAction.AdBlock && action != MenuAction.CleanCache) sheet = Sheet.None
                         runMenuAction(action)
                     },
                     onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
@@ -2256,6 +2296,8 @@ fun BrowserScreen(
                     },
                     incognitoActive = tab.incognito,
                     requestsActive = AdBlock.requestLogEnabled,
+                    adBlockActive = AdBlock.enabled && !tab.isGecko,
+                    syncActive = menuSyncing,
                     scriptsActive = settings.scriptsEnabled,
                     extensionsActive = settings.geckoMode &&
                         GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) },

@@ -311,6 +311,9 @@ class BrowserTab(
     /** 本页的请求域名汇总（WebView 内核，「请求」面板用）；只放内存，换页 / 关标签清空，无痕标签不记录 */
     val requestLog = RequestLog()
 
+    /** 本页被去广告拦掉的请求数（WebView 内核）：换页清零；只在菜单打开时读一次，不轮询 */
+    val pageAdBlocked = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** 只有 WebView 内核的标签才有 WebView；Gecko 标签不创建（省内存） */
     private val webViewOrNull: WebView? = if (engineKind == EngineKind.WEBVIEW) WebView(appContext) else null
 
@@ -830,6 +833,7 @@ class BrowserTab(
             override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
                 WebViewDebug.logPage("start", pageUrl)
                 requestLog.clear() // 换页：本页请求重新统计
+                pageAdBlocked.set(0)
                 if (!parked) pageUrl?.let { url = it }
                 pageHost = runCatching { Uri.parse(pageUrl).host }.getOrNull().orEmpty()
                 resetReaderState()
@@ -889,6 +893,7 @@ class BrowserTab(
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                 if (incognito && !adblockInIncognito) null
                 else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
+                    ?.also { pageAdBlocked.incrementAndGet() }
 
             override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
                 val errUrl = error.url.orEmpty()

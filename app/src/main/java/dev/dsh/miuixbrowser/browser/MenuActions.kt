@@ -52,8 +52,22 @@ enum class MenuAction(
     Requests("requests", "网络请求", AppIcons.Globe),
     CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
 
+    /** 清理缓存：效果同「设置 → 清理缓存」 */
+    CleanCache("clean_cache", "清理缓存", AppIcons.CleanCache),
+
+    /** 同步：一键把加密备份上传到所有 WebDAV 服务器 / Git 仓库 */
+    Sync("sync", "同步", AppIcons.SyncCloud),
+
+    /** 去广告开关（仅 WebView 内核）：开启时图标变红，角标是本页拦截数 */
+    AdBlock("adblock", "去广告", AppIcons.AdShield),
+
     /** Firefox 账户（仅带 Firefox 同步的版本）：点开进入「Firefox账户同步」，登录后图标换成账号头像 */
     Account("account", "账户", AppIcons.Account),
+}
+
+/** 菜单「同步」是否进行中：更多菜单和首页快捷菜单共用，两处的图标 / 文字一起变化 */
+object MenuSyncState {
+    var syncing by androidx.compose.runtime.mutableStateOf(false)
 }
 
 /** 更多面板的图标顺序与隐藏项，可拖动排序 / 拖到下方隐藏并持久化 */
