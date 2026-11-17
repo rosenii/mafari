@@ -96,11 +96,11 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.glass.GlassDefaults
+import top.yukonga.miuix.kmp.material.GlassDefaults
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
-import top.yukonga.miuix.kmp.glass.GlassMaterials
-import top.yukonga.miuix.kmp.glass.GlassShape
-import top.yukonga.miuix.kmp.glass.GlassStrokes
+import top.yukonga.miuix.kmp.material.GlassMaterials
+import top.yukonga.miuix.kmp.material.GlassShape
+import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
 import top.yukonga.miuix.kmp.glass.glassPanel
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -460,7 +460,7 @@ private fun GuideCard(
                         shape = GlassShape(24.dp),
                         style = GlassDefaults.style(dark),
                         material = GlassMaterials.puredThinGlass(dark),
-                        stroke = GlassStrokes.forTheme(dark),
+                        stroke = GlassEdgeStrokes.forTheme(dark),
                         shading = false,
                     )
                 } else {

@@ -5,7 +5,11 @@ plugins {
 
 // ---- 依赖版本：统一在此声明 ----
 // 既用于下方 dependencies，也会写进 BuildConfig.DEP_VERSIONS，供「关于」页的「依赖版本」展示（改版本只需改这里）。
-val miuixVersion = "0.9.4"                 // miuix 源码在 ./miuix，由 includeBuild 参与构建，此处为其版本号
+// miuix 源码在 third_party/miuix（includeBuild 参与构建）；版本号直接读上游 BuildConfig.kt，跟随主线
+val miuixVersion: String = rootProject.file("third_party/miuix/build-logic/src/main/kotlin/BuildConfig.kt")
+    .takeIf { it.exists() }
+    ?.let { Regex("""LIBRARY_VERSION\s*=\s*"([^"]+)"""").find(it.readText())?.groupValues?.get(1) }
+    ?: error("读取不到 miuix 版本：请先运行 tools/miuix-sync.sh")
 val backdropVersion = "2.0.1"
 val activityComposeVersion = "1.13.0"
 val coreKtxVersion = "1.19.1"
@@ -35,7 +39,7 @@ val appServicesVersion = (project.findProperty("appServicesVersion") as String?)
 // GeckoView nightly（仅 arm64-v8a）。默认 "+" = 取 Mozilla Maven 上最新的 nightly；
 // 要锁定版本（推荐，nightly 的 API 偶尔会改）在 gradle.properties 写 geckoViewVersion=152.0.20260801093011
 val geckoViewVersion = (project.findProperty("geckoViewVersion") as String?) ?: "+"
-// 构建工具链：Kotlin / Compose Multiplatform / AGP 的版本声明在根 build.gradle.kts（miuix 的在 miuix/gradle/libs.versions.toml），
+// 构建工具链：Kotlin / Compose Multiplatform / AGP 的版本声明在根 build.gradle.kts（miuix 的在 third_party/miuix/gradle/libs.versions.toml），
 // Gradle 版本在 gradle/wrapper/gradle-wrapper.properties；升级时请同步这里，仅用于「关于」页展示
 val kotlinVersion = "2.4.21"
 val composeMultiplatformVersion = "1.12.2"
@@ -96,7 +100,7 @@ android {
         minSdk = 33
         targetSdk = 37
         versionCode = 20055
-        versionName = "v2.1.55"
+        versionName = "v2.1.55-canary"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -207,6 +211,7 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:$miuixVersion")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:$miuixVersion")
     implementation("top.yukonga.miuix.kmp:miuix-squircle-android:$miuixVersion")
+    implementation("top.yukonga.miuix.kmp:miuix-material-android:$miuixVersion")
     implementation("top.yukonga.miuix.kmp:miuix-blur-android:$miuixVersion")
     implementation("top.yukonga.miuix.kmp:miuix-glass-android:$miuixVersion")
     implementation("top.yukonga.miuix.kmp:miuix-glass-icons-android:$miuixVersion")

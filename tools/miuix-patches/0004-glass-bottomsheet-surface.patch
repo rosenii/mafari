@@ -1,0 +1,50 @@
+From 3856e32c10bbef9381df1aaadb05a2a40112429f Mon Sep 17 00:00:00 2001
+From: Mafari <mafari@local>
+Date: Tue, 17 Nov 2026 19:43:31 +0000
+Subject: [PATCH] =?UTF-8?q?glass:=20GlassBottomSheet=20=E5=A2=9E=E5=8A=A0?=
+ =?UTF-8?q?=20surface=20=E5=8F=82=E6=95=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt   | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
+index 9f864bd..9f7960a 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
+@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.Dp
+ import androidx.compose.ui.unit.DpSize
+ import top.yukonga.miuix.kmp.blur.Backdrop
+ import top.yukonga.miuix.kmp.layout.BottomSheetDefaults
++import top.yukonga.miuix.kmp.layout.BottomSheetSurfaceScope
+ import top.yukonga.miuix.kmp.material.EdgeStroke
+ import top.yukonga.miuix.kmp.material.GlassMaterial
+ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+@@ -43,6 +44,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+  * @param stroke Optional bloom stroke, omitted on the overscroll extension.
+  * @param containerColor Opaque fallback fill.
+  * @param dimColor Scrim color before the host applies animation progress.
++ * @param surface Optional replacement for the default glass surface (e.g. progressive top band).
+  * @param onDismissFinished Called after the hide animation completes.
+  * @param content Sheet content. Add scrolling, navigation-bar padding and extra spacing as needed.
+  */
+@@ -69,6 +71,7 @@ fun GlassBottomSheet(
+     stroke: EdgeStroke? = GlassBottomSheetDefaults.stroke(),
+     containerColor: Color = GlassBottomSheetDefaults.containerColor(),
+     dimColor: Color = GlassBottomSheetDefaults.ScrimColor,
++    surface: (@Composable BottomSheetSurfaceScope.() -> Modifier)? = null,
+     onDismissFinished: (() -> Unit)? = null,
+     content: @Composable () -> Unit,
+ ) {
+@@ -92,7 +95,7 @@ fun GlassBottomSheet(
+         enableNestedScroll = enableNestedScroll,
+         renderInRootScaffold = renderInRootScaffold,
+         dimColor = dimColor,
+-        surface = glassBottomSheetSurface(backdrop, material, stroke, containerColor),
++        surface = surface ?: glassBottomSheetSurface(backdrop, material, stroke, containerColor),
+         content = content,
+     )
+ }

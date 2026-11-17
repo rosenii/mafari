@@ -31,6 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 拉取 miuix 上游（miuix.ref 指定版本）并自动打上 tools/miuix-patches 里的本地改造
+      - name: Sync miuix
+        run: tools/miuix-sync.sh
+
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:

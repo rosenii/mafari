@@ -145,7 +145,7 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 
 ## 许可证
 
-本项目以 [Apache License 2.0](LICENSE) 发布；内置的 `miuix/` 子工程同为 Apache-2.0，见 [miuix/LICENSE](miuix/LICENSE)。
+本项目以 [Apache License 2.0](LICENSE) 发布；构建时拉取的 miuix 上游同为 Apache-2.0（见其仓库 LICENSE），本地改造以补丁形式放在 `tools/miuix-patches/`。
 
 项目地址：<https://github.com/rosenii/mafari>
 

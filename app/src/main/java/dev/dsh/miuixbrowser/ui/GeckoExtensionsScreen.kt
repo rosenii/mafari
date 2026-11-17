@@ -82,7 +82,7 @@ import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.glass.More
 import top.yukonga.miuix.kmp.icon.glass.Refresh
 import top.yukonga.miuix.kmp.icon.glass.Search
-import top.yukonga.miuix.kmp.icon.glass.Settings
+import dev.dsh.miuixbrowser.ui.icons.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**

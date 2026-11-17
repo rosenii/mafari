@@ -19,6 +19,6 @@ _mafari_extract/
 **/build/
 **/.idea/
 **/.claude/
-miuix/docs/.vitepress/cache/
-miuix/docs/.vitepress/dist/
+# miuix 上游源码（tools/miuix-sync.sh 生成）
+third_party/
 node_modules/

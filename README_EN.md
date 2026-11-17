@@ -145,7 +145,7 @@ For full build instructions, build variants, the release pipeline, and code stru
 
 ## License
 
-Released under the [Apache License 2.0](LICENSE). The bundled `miuix/` subproject is also Apache-2.0; see [miuix/LICENSE](miuix/LICENSE).
+Released under the [Apache License 2.0](LICENSE). The miuix upstream fetched at build time is also Apache-2.0 (see its LICENSE); local changes live as patches in `tools/miuix-patches/`.
 
 Project page: <https://github.com/rosenii/mafari>
 

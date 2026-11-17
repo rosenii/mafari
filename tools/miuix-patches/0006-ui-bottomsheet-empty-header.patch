@@ -1,0 +1,33 @@
+From fe18dc202436adb41a370e0f4ca8b02bde8c0fe4 Mon Sep 17 00:00:00 2001
+From: Mafari <mafari@local>
+Date: Tue, 17 Nov 2026 19:43:47 +0000
+Subject: [PATCH] =?UTF-8?q?ui:=20=E5=BA=95=E9=83=A8=E6=8A=BD=E5=B1=89?=
+ =?UTF-8?q?=E6=A0=87=E9=A2=98=E5=92=8C=E6=8C=89=E9=92=AE=E9=83=BD=E4=B8=BA?=
+ =?UTF-8?q?=E7=A9=BA=E6=97=B6=E4=B8=8D=E9=A2=84=E7=95=99=E5=A4=B4=E9=83=A8?=
+ =?UTF-8?q?=E9=97=B4=E8=B7=9D?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt  | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
+index 1b3259f..56c687a 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
+@@ -841,10 +841,12 @@ private fun TitleAndActionsRow(
+     startAction: (@Composable () -> Unit)?,
+     endAction: (@Composable () -> Unit)?,
+ ) {
++    // 标题与两侧按钮都为空时（如「更多」菜单）不再预留头部间距，让内容更贴近顶部拖动条。
++    val emptyHeader = title == null && startAction == null && endAction == null
+     Box(
+         modifier = Modifier
+             .fillMaxWidth()
+-            .padding(top = 6.dp, bottom = 12.dp),
++            .padding(top = if (emptyHeader) 0.dp else 6.dp, bottom = if (emptyHeader) 0.dp else 12.dp),
+     ) {
+         // Start action (e.g. close button)
+         Box(modifier = Modifier.align(Alignment.CenterStart)) {

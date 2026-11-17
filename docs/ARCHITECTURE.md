@@ -19,7 +19,9 @@ mafari-dual/
 │     ├─ gecko/assets/               仅 gecko 变体：内置拓展 mafari-gm-ext/（manifest / background.js / relay.js）、
 │     │                              mafari_gm_gecko_shim.js、mafari-bookmarks-shim.js（Floccus 书签垫片）
 │     └─ test/                       JVM 单测：CryptoEngine、BackupFormat、GitNames、GitHistory、WebDavNames
-├─ miuix/                            UI 库源码（includeBuild + dependencySubstitution，Apache-2.0，自带 AGENTS.md）
+├─ miuix.ref                         miuix 上游仓库与版本（跟随主线）
+├─ third_party/miuix/                上游源码（gitignore，tools/miuix-sync.sh 生成，includeBuild + dependencySubstitution）
+├─ tools/miuix-patches/              对上游的本地改造补丁（git am 格式）
 │                                    业务改动不要放这里；模块：ui / preference / icons / glass / blur / nav / squircle …
 ├─ docs/                             ARCHITECTURE（本文）、GECKO、GECKO_GM、FINGERPRINT + 截图
 ├─ tools/                            node 测试：gm-ext-test（Gecko GM 链路）、userscript-test（用户脚本解析）
@@ -213,7 +215,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | 备份格式 / 加密 | `Backup.kt`、`CipherSuite.kt`、`CryptoEngine.kt` |
 | 云同步 | `WebDav.kt`、`GitSync.kt`、`BackupAuto.kt` |
 | 下载 | `download/` 目录：`Downloader`、`ExternalDownloader`、`DownloadService`、`DownloadDb` |
-| 玻璃 / 液态玻璃材质 | `AppMaterial`、`GlassKit`、`LiquidGlass*`、`miuix/miuix-glass` |
+| 玻璃 / 液态玻璃材质 | `AppMaterial`、`GlassKit`、`LiquidGlass*`、`third_party/miuix/miuix-glass` |
 | 发版 / 更新选包 | `release.yml`、`app/build.gradle.kts`、`AboutScreen.pickApkUrl`、`CHANGELOG.md` |
 
 ## 13. 文档地图
@@ -225,7 +227,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | `docs/GECKO.md` | 双内核适配矩阵、Gecko 高级保护、about:config 偏好 |
 | `docs/GECKO_GM.md` | Gecko 油猴（内置 WebExtension）方案、安全模型、验证清单 |
 | `docs/FINGERPRINT.md` | WebView 指纹保护的安全边界与降级路径 |
-| `miuix/AGENTS.md` | UI 库自身的协作约定 |
+| `third_party/miuix/AGENTS.md` | UI 库自身的协作约定 |
 | `CHANGELOG.md` | 变更历史（发版小节同时是 Release 正文） |
 
 > 后续建议（未做）：抽出 `EngineAdapter` 接口统一 WebView / Gecko；订阅等小数据继续往加密库迁移。

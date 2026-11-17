@@ -33,7 +33,6 @@ import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.blur.textureBlurEffect
-import top.yukonga.miuix.kmp.blur.highlight.Highlight
 
 
 /**
