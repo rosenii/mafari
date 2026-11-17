@@ -215,4 +215,13 @@ object AppIcons {
             "M20,4L11,13",
         )
     }
+
+    /** 电视：圆角屏幕 + 顶部两根天线。 */
+    val Tv: ImageVector by lazy {
+        stroked(
+            "Tv",
+            "M5,7H19A2,2 0 0 1 21,9V18A2,2 0 0 1 19,20H5A2,2 0 0 1 3,18V9A2,2 0 0 1 5,7Z",
+            "M8,3L12,7L16,3",
+        )
+    }
 }

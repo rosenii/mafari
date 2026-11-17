@@ -3,6 +3,15 @@ package dev.dsh.miuixbrowser.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.rotate
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -53,8 +62,42 @@ internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
                     .heightIn(max = 320.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (ui.scanning) "正在搜索…" else "附近设备",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    val spin = rememberInfiniteTransition(label = "castRefresh")
+                    val angle by spin.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)),
+                        label = "angle",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = !ui.scanning) { ui.refresh() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            imageVector = AppIcons.Refresh,
+                            contentDescription = "重新搜索",
+                            modifier = Modifier.size(20.dp).rotate(if (ui.scanning) angle else 0f),
+                            colorFilter = ColorFilter.tint(
+                                if (ui.scanning) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
+                }
                 ui.devices.forEach { d ->
-                    CastRow(icon = "📺", text = d.name, onClick = { ui.pickDevice(d) })
+                    CastRow(text = d.name, onClick = { ui.pickDevice(d) })
                 }
                 if (ui.devices.isEmpty()) {
                     Text(
@@ -100,7 +143,7 @@ internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
 }
 
 @Composable
-private fun CastRow(icon: String, text: String, onClick: () -> Unit) {
+private fun CastRow(text: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -109,7 +152,12 @@ private fun CastRow(icon: String, text: String, onClick: () -> Unit) {
             .padding(horizontal = 8.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = icon, fontSize = 18.sp)
+        Image(
+            imageVector = AppIcons.Tv,
+            contentDescription = null,
+            modifier = Modifier.size(22.dp),
+            colorFilter = ColorFilter.tint(MiuixTheme.colorScheme.primary),
+        )
         Spacer(Modifier.width(12.dp))
         Text(text = text, fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
     }

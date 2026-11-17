@@ -77,8 +77,8 @@ fun RequestLogSheet(
         ) {
             item {
                 AppSwitchPreference(
-                    title = "记录请求",
-                    summary = "统计页面请求的域名与次数，开启后刷新页面生效",
+                    title = "记录和管理网页请求",
+                    summary = "统计请求域名，可屏蔽 / 放行；开启后刷新生效",
                     checked = AdBlock.requestLogEnabled,
                     onCheckedChange = {
                         AdBlock.updateRequestLog(it)

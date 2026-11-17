@@ -16,6 +16,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -41,12 +42,16 @@ import java.util.concurrent.atomic.AtomicBoolean
 class CastPickerUi {
     var show by mutableStateOf(false)
     var status by mutableStateOf("")
+    /** 正在搜索设备：刷新按钮转圈 */
+    var scanning by mutableStateOf(false)
     val devices = mutableStateListOf<DlnaDevice>()
     internal var onDevice: (DlnaDevice) -> Unit = {}
     internal var onMirror: () -> Unit = {}
     internal var onExternal: () -> Unit = {}
     internal var onCancel: () -> Unit = {}
+    internal var onRefresh: () -> Unit = {}
 
+    fun refresh() = onRefresh()
     fun pickDevice(d: DlnaDevice) = onDevice(d)
     fun pickMirror() = onMirror()
     fun pickExternal() = onExternal()
@@ -327,10 +332,48 @@ object MediaHost {
         return runCatching { a.startActivity(chooser) }.isSuccess
     }
 
+    /**
+     * 屏幕镜像入口：国内 ROM 优先走各家自带的「无线显示 / 投屏」页（小米 / 华为荣耀 / OPPO·一加·realme / vivo / 三星），
+     * 一个都起不来才退回 AOSP 的 ACTION_CAST_SETTINGS（那个在国内 ROM 上往往是 Google Cast 页）。
+     * 组件名在不同机型 / 系统版本上并不稳定，所以按「厂商候选 → 通用候选 → 系统兜底」逐个尝试，起不来（不存在 / 未导出）就换下一个。
+     */
     private fun openSystemCast(a: Activity) {
         suppressPip(a)
-        val ok = runCatching { a.startActivity(Intent(Settings.ACTION_CAST_SETTINGS)) }.isSuccess ||
-            runCatching { a.startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS)) }.isSuccess
+        fun comp(pkg: String, cls: String) = Intent().setClassName(pkg, cls)
+        val vendorSpecific = when (Build.MANUFACTURER.lowercase()) {
+            "xiaomi", "redmi", "poco", "blackshark" -> listOf(
+                comp("com.milink.service", "com.miui.circulate.world.CirculateActivity"),
+                comp("com.xiaomi.mirror", "com.xiaomi.mirror.MirrorActivity"),
+                Intent("miui.intent.action.WIRELESS_DISPLAY"),
+            )
+            "huawei", "honor" -> listOf(
+                comp("com.huawei.android.wfdft", "com.huawei.android.wfdft.WifiDisplayActivity"),
+                Intent("com.huawei.android.wfd.action.WIFI_DISPLAY"),
+            )
+            "oppo", "oneplus", "realme" -> listOf(
+                comp("com.oplus.wirelesssettings", "com.oplus.wirelesssettings.wifi.WifiDisplaySettingsActivity"),
+                comp("com.coloros.wirelesssettings", "com.coloros.wirelesssettings.wifidisplay.WifiDisplaySettingsActivity"),
+            )
+            "vivo", "iqoo" -> listOf(
+                comp("com.android.settings", "com.vivo.settings.wifidisplay.WifiDisplaySettingsActivity"),
+            )
+            "samsung" -> listOf(
+                Intent("com.samsung.android.smartmirroring.action.SMART_VIEW"),
+                comp("com.samsung.android.smartmirroring", "com.samsung.android.smartmirroring.SmartMirroringActivity"),
+            )
+            else -> emptyList()
+        }
+        val generic = listOf(
+            comp("com.android.settings", "com.android.settings.Settings\$WifiDisplaySettingsActivity"),
+            Intent("android.settings.WIFI_DISPLAY_SETTINGS"),
+            Intent("android.settings.CAST_SETTINGS"),
+            Intent(Settings.ACTION_WIRELESS_SETTINGS),
+        )
+        val ok = (vendorSpecific + generic).any { i ->
+            runCatching { a.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                .onFailure { Diag.log("$TAG: cast settings ${i.component ?: i.action} $it") }
+                .isSuccess
+        }
         Toast.makeText(
             a, if (ok) "连上电视后回到浏览器全屏播放即可（屏幕镜像会把整个画面投出去）" else "这台设备没有系统投屏入口",
             Toast.LENGTH_LONG,
@@ -360,9 +403,15 @@ object MediaHost {
         )
     }
 
+    /** 当前这一轮搜索的取消标记：手动刷新时作废上一轮 */
+    private var scanCancel: AtomicBoolean? = null
+
     private fun closePicker() {
         pickerCancel?.set(true)
         pickerCancel = null
+        scanCancel?.set(true)
+        scanCancel = null
+        pickerUi.scanning = false
         pickerUi.show = false
     }
 
@@ -382,6 +431,13 @@ object MediaHost {
             }
         }
         ui.onCancel = { closePicker() }
+        ui.onRefresh = {
+            if (!cancelled.get()) {
+                ui.devices.clear()
+                ui.status = "正在搜索局域网设备…"
+                discoverDevices(a, ui, cancelled)
+            }
+        }
         ui.show = true
 
         // Android 17 起访问局域网要先有「附近设备」权限：没授权先弹系统授权框，授权后再开始搜索
@@ -395,15 +451,18 @@ object MediaHost {
         }
     }
 
-    private fun discoverDevices(a: Activity, ui: CastPickerUi, cancelled: AtomicBoolean) {
+    private fun discoverDevices(a: Activity, ui: CastPickerUi, picker: AtomicBoolean) {
+        scanCancel?.set(true)
+        val cancelled = AtomicBoolean(false).also { scanCancel = it }
+        ui.scanning = true
         io.execute {
             val wm = a.applicationContext.getSystemService(WifiManager::class.java)
             // 部分机型不持有组播锁会丢掉 SSDP 的应答
             val lock = runCatching { wm?.createMulticastLock("mafari-ssdp")?.apply { setReferenceCounted(false); acquire() } }.getOrNull()
             try {
-                newDlna(a).discover(7000, { cancelled.get() }) { dev ->
+                newDlna(a).discover(7000, { cancelled.get() || picker.get() }) { dev ->
                     main.post {
-                        if (!cancelled.get() && ui.devices.none { it.location == dev.location }) ui.devices.add(dev)
+                        if (!cancelled.get() && !picker.get() && ui.devices.none { it.location == dev.location }) ui.devices.add(dev)
                     }
                 }
             } catch (e: Exception) {
@@ -412,7 +471,9 @@ object MediaHost {
                 runCatching { lock?.release() }
             }
             main.post {
-                if (!cancelled.get() && ui.devices.isEmpty()) ui.status = "没有发现设备，请确认手机和电视在同一 Wi-Fi"
+                if (cancelled.get() || picker.get()) return@post
+                ui.scanning = false
+                if (ui.devices.isEmpty()) ui.status = "没有发现设备，请确认手机和电视在同一 Wi-Fi"
             }
         }
     }
