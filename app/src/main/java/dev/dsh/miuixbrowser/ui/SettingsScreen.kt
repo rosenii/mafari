@@ -131,6 +131,8 @@ fun SettingsScreen(
     onOpenBookmarks: () -> Unit,
     onOpenBackup: () -> Unit = {},
     onOpenAbout: () -> Unit,
+    /** 「使用指南」：重新打开新用户引导（由 BrowserScreen 实现：退回浏览主界面并盖上引导）。 */
+    onOpenGuide: () -> Unit = {},
     onPageEnhancementsChange: (Boolean) -> Unit = {},
     blurEnabled: Boolean = true,
 ) {
@@ -575,6 +577,11 @@ fun SettingsScreen(
                         .padding(horizontal = 12.dp),
                     insideMargin = PaddingValues(0.dp),
                 ) {
+                    SettingsRow(
+                        title = "使用指南",
+                        summary = "重新查看新用户引导",
+                        onClick = onOpenGuide,
+                    )
                     SettingsRow(
                         title = "捐赠",
                         summary = DONATE_SUMMARY,

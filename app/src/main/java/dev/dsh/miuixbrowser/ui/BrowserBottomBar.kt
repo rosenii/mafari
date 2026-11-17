@@ -301,11 +301,15 @@ internal fun BottomBar(
     /** 正处于阅读模式：图标点亮 */
     readerActive: Boolean = false,
     onReader: () -> Unit = {},
+    /** 当前页面有正在运行的脚本：在阅读图标的位置显示脚本图标（阅读图标优先，可阅读时由它占位） */
+    scriptsRunning: Boolean = false,
+    onScripts: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(29.dp)
     val showRefresh = shouldShowAddressRefresh(address = address, loading = loading, editing = editing)
     val showReader = shouldShowAddressReader(readerVisible = readerVisible, editing = editing)
+    val showScripts = shouldShowAddressScripts(readerVisible = readerVisible, scriptsRunning = scriptsRunning, editing = editing)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -375,6 +379,10 @@ internal fun BottomBar(
                 // 阅读模式图标：地址栏最左侧（比加载小圆点还靠左）
                 if (showReader) {
                     AddressReaderButton(active = readerActive, onClick = onReader)
+                    Spacer(Modifier.width(2.dp))
+                } else if (showScripts) {
+                    // 与阅读图标同一位置、同一尺寸；可阅读时上面的分支优先，这里不显示
+                    AddressScriptButton(onClick = onScripts)
                     Spacer(Modifier.width(2.dp))
                 }
                 if (loading) {
@@ -607,6 +615,13 @@ internal fun shouldShowAddressReader(readerVisible: Boolean, editing: Boolean): 
 /** 地址栏内阅读图标占用的宽度（按钮 24dp + 右侧间距 2dp），用于底栏宽度计算。 */
 internal val AddressReaderWidth = 26.dp
 
+/**
+ * 脚本图标显示条件：当前页面有正在运行的脚本，且不在输入状态；
+ * 页面可阅读 / 正处于阅读模式时阅读图标优先，脚本图标让位（两者共用同一个位置）。
+ */
+internal fun shouldShowAddressScripts(readerVisible: Boolean, scriptsRunning: Boolean, editing: Boolean): Boolean =
+    scriptsRunning && !readerVisible && !editing
+
 /** 地址栏最左侧的阅读模式按钮：未进入时是灰色线条，进入后图标点亮（主题色 + 淡色底）。 */
 @Composable
 internal fun AddressReaderButton(active: Boolean, onClick: () -> Unit) {
@@ -633,6 +648,34 @@ internal fun AddressReaderButton(active: Boolean, onClick: () -> Unit) {
             imageVector = AppIcons.Reader,
             contentDescription = if (active) "退出阅读模式" else "阅读模式",
             tint = tint,
+            modifier = Modifier.size(iconSize),
+        )
+    }
+}
+
+/** 地址栏最左侧的脚本按钮：位置和大小与 [AddressReaderButton] 一致；有脚本在运行，所以图标用主题色。点击打开脚本菜单。 */
+@Composable
+internal fun AddressScriptButton(onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
+        Icon(
+            imageVector = AppIcons.Script,
+            contentDescription = "正在运行的脚本",
+            tint = MiuixTheme.colorScheme.primary,
             modifier = Modifier.size(iconSize),
         )
     }

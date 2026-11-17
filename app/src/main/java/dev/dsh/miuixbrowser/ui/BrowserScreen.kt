@@ -363,6 +363,8 @@ fun BrowserScreen(
     val menuOrder = remember { MenuOrderStore(context) }
     // 首次安装 / 升级后的用户引导：当前步骤放在这里（引导里点进二级页面再回来，仍停在原步骤）
     var onboardingStep by rememberSaveable { mutableIntStateOf(0) }
+    // 设置 → 关于 → 使用指南：已经看过引导的人主动重看（不写完成标记、不依赖 settings.onboardingPending）
+    var onboardingReplay by rememberSaveable { mutableStateOf(false) }
     // 首页「快捷菜单」点击功能时转发给下面的 runMenuAction（它要等脚本菜单等函数声明之后才能定义）
     val quickRunner = remember { MenuActionRunner() }
     // Gecko 拓展定期检查更新：应用在前台、Gecko 模式下，启动后稍等一会儿检查一次，之后每 6 小时看一次是否到点
@@ -529,6 +531,8 @@ fun BrowserScreen(
     var runningScripts by remember { mutableStateOf<List<RunningScript>>(emptyList()) }
     // 菜单面板右上角蓝标：当前页面运行的脚本数
     var scriptRunCount by remember { mutableIntStateOf(0) }
+    // 地址栏左侧脚本图标：当前标签页面运行的脚本数（加载完成后查询，见下方 LaunchedEffect）
+    var addressScriptCount by remember { mutableIntStateOf(0) }
     var pendingDownload by remember { mutableStateOf<DownloadRequest?>(null) }
     var showFind by remember { mutableStateOf(false) }
     var editingFavIndex by remember { mutableStateOf(-1) }
@@ -1211,7 +1215,7 @@ fun BrowserScreen(
     val barVisible by remember { androidx.compose.runtime.derivedStateOf { !barHidden || hide < 0.995f } }
 
     // 二级页面的返回（含预见性返回）由 NavDisplay 接管；这里只处理浏览主界面自己的返回。
-    BackHandler(enabled = backStack.size <= 1 && !settings.onboardingPending) {
+    BackHandler(enabled = backStack.size <= 1 && !settings.onboardingPending && !onboardingReplay) {
         when {
             // 视频全屏优先退出
             customView != null -> {
@@ -1604,7 +1608,9 @@ fun BrowserScreen(
             // 阅读层按当前应用主题配色：用 surface 亮度判断深浅（MiuixTheme 的取值只能在组合里读，不能放进点击回调）
             val readerSurface = MiuixTheme.colorScheme.surface
             val readerDark = (0.299f * readerSurface.red + 0.587f * readerSurface.green + 0.114f * readerSurface.blue) < 0.5f
-            val readerWidth = if (shouldShowAddressReader(readerShown, editing)) AddressReaderWidth else 0.dp
+            // 脚本图标与阅读图标共用这一个位置（宽度相同）：阅读优先，没有阅读图标时才可能显示脚本图标
+            val scriptsShown = shouldShowAddressScripts(readerShown, addressScriptCount > 0, editing)
+            val readerWidth = if (shouldShowAddressReader(readerShown, editing) || scriptsShown) AddressReaderWidth else 0.dp
             val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth + readerWidth
             // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
             val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
@@ -1793,6 +1799,8 @@ fun BrowserScreen(
                 readerVisible = readerShown,
                 readerActive = tab.readerActive,
                 onReader = { tab.toggleReader(readerDark) },
+                scriptsRunning = addressScriptCount > 0,
+                onScripts = { quickRunner.run(MenuAction.ScriptMenu) },
                 onShare = {
                     if (tab.url.isNotBlank()) {
                         runCatching {
@@ -1940,6 +1948,20 @@ fun BrowserScreen(
                     else -> 5000L
                 }
             }
+        }
+    }
+
+    // 地址栏脚本图标：页面加载完成后查询当前页运行的脚本数。document-idle 的脚本比首次查询出现得晚，
+    // 所以加载完后只在 0.6s / 2.6s 各查一次（事件驱动，不轮询）；开始加载就先清掉，避免上一页的图标留在新页面上
+    val scriptIconTab = state.activeTab
+    LaunchedEffect(scriptIconTab.id, scriptIconTab.url, scriptIconTab.loading, settings.scriptsEnabled) {
+        if (!settings.scriptsEnabled || scriptIconTab.url.isEmpty() || scriptIconTab.loading) {
+            addressScriptCount = 0
+            return@LaunchedEffect
+        }
+        for (gap in longArrayOf(600L, 2000L)) {
+            kotlinx.coroutines.delay(gap)
+            scriptIconTab.queryRunningScripts { n -> if (state.activeTab === scriptIconTab) addressScriptCount = n }
         }
     }
 
@@ -2222,6 +2244,9 @@ fun BrowserScreen(
                     },
                     incognitoActive = tab.incognito,
                     requestsActive = AdBlock.requestLogEnabled,
+                    scriptsActive = settings.scriptsEnabled,
+                    extensionsActive = settings.geckoMode &&
+                        GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) },
                 )
             }
 
@@ -2907,7 +2932,7 @@ fun BrowserScreen(
         )
     }
     // 引导进行中进入二级页面（备份 / Firefox 同步）：浏览主页被推到下面，转场里不能露出首页，用纯色盖住
-    if (settings.onboardingPending) {
+    if (settings.onboardingPending || onboardingReplay) {
         Box(modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface))
     }
     }
@@ -2931,6 +2956,12 @@ fun BrowserScreen(
             onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
             onOpenBackup = { pushPage(AppRoute.BackupPage) },
             onOpenAbout = { pushPage(AppRoute.About) },
+            onOpenGuide = {
+                // 先退回浏览主界面（引导只在 backStack 只剩主界面时摆放），再从第一步开始
+                popToBrowser()
+                onboardingStep = 0
+                onboardingReplay = true
+            },
             onPageEnhancementsChange = { extensions.setAllEnabled(it) },
             blurEnabled = settings.blurEnabled,
         )
@@ -3065,7 +3096,7 @@ fun BrowserScreen(
     }
     // 用户引导：盖在最上层。进入二级页面（备份 / Firefox 同步）时只是「不摆放」（visible = false），并不撤出组合：
     // 当前步骤、滚动位置和背景动画都留着，返回时第一帧就是完整的引导页，不会再闪出下面的浏览器首页
-    if (settings.onboardingPending) {
+    if (settings.onboardingPending || onboardingReplay) {
         OnboardingScreen(
             visible = backStack.size <= 1,
             settings = settings,
@@ -3075,7 +3106,8 @@ fun BrowserScreen(
             onOpenBackup = { pushPage(AppRoute.BackupPage) },
             onOpenFxa = { pushPage(AppRoute.FxaPage) },
             onFinish = {
-                settings.markOnboardingDone()
+                if (settings.onboardingPending) settings.markOnboardingDone()
+                onboardingReplay = false
                 onboardingStep = 0
             },
         )

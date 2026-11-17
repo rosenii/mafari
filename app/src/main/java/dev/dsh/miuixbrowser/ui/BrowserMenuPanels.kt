@@ -244,6 +244,10 @@ internal fun MenuGrid(
     incognitoActive: Boolean = false,
     /** 「网络请求」记录开着时图标变黄 */
     requestsActive: Boolean = false,
+    /** 脚本总开关开着时「脚本」图标和文字变浅蓝（角标仍是深蓝底白字，和图标颜色区分开） */
+    scriptsActive: Boolean = false,
+    /** 至少有一个拓展在运行（Gecko 内核）时「拓展」图标和文字变青绿色 */
+    extensionsActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
     lockedFor: (MenuAction) -> Boolean = { false },
 ) {
@@ -255,6 +259,8 @@ internal fun MenuGrid(
     val columns = 4
     val purple = Color(0xFF9C27B0)
     val amber = Color(0xFFFFB300)
+    val lightBlue = Color(0xFF5AC8FA)
+    val teal = Color(0xFF1DB9A5)
     val gridScope = rememberCoroutineScope()
     // 长按计时：按下满 [MENU_LONG_PRESS_MS] 且手指没动（没进入拖动排序）才触发长按功能
     val systemLongPressMs = LocalViewConfiguration.current.longPressTimeoutMillis
@@ -316,6 +322,8 @@ internal fun MenuGrid(
                             tint = when {
                                 action == MenuAction.Incognito && incognitoActive -> purple
                                 action == MenuAction.Requests && requestsActive -> amber
+                                action == MenuAction.ScriptMenu && scriptsActive -> lightBlue
+                                action == MenuAction.GeckoExtensions && extensionsActive -> teal
                                 else -> MiuixTheme.colorScheme.onSurface
                             },
                             dragged = dragAction == action,
