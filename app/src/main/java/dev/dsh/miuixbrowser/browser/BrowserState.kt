@@ -138,6 +138,8 @@ class BrowserTab(
     private var geckoShowingError = false
     /** 当前错误页对应的失败地址 + 是否允许「忽略风险继续」；「继续访问」链接只认这里记住的目标，不信任页面传参 */
     @Volatile private var proceedTarget: String? = null
+    /** WebView：最近一次主框架证书错误的主机 / 证书指纹 / 错误集合；用户点「继续」时据此登记例外（只放行同一张证书） */
+    @Volatile private var pendingSsl: PendingSsl? = null
     /** WebView：已在 onReceivedSslError 里自己渲染过证书错误页的地址与时间，避免随后的 onReceivedError 再渲染一次 */
     @Volatile private var sslPageShownFor: String? = null
     @Volatile private var sslPageShownAt = 0L
@@ -900,8 +902,10 @@ class BrowserTab(
             override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
                 val errUrl = error.url.orEmpty()
                 val host = runCatching { Uri.parse(errUrl).host }.getOrNull().orEmpty()
-                // 用户在错误页里明确选择过「继续访问」的主机：放行
-                if (host.isNotEmpty() && SslExceptions.contains(host, incognito)) {
+                val fp = certFingerprint(error.certificate)
+                val mask = sslErrorMask(error)
+                // 用户在错误页里明确选择过「继续访问」：只放行当时那张证书（指纹一致）且错误类型没有变多
+                if (host.isNotEmpty() && fp != null && SslExceptions.allows(host, fp, mask, incognito)) {
                     handler.proceed()
                     return
                 }
@@ -910,6 +914,7 @@ class BrowserTab(
                 // 主框架：直接在这里渲染引导页。取消之后系统不一定还会回调 onReceivedError，
                 // 只靠它的话页面会停在空白；子资源（图片 / 脚本）的证书错误只取消，不动页面
                 if (ErrorPages.sameUrl(errUrl, url) || ErrorPages.sameUrl(errUrl, view.url)) {
+                    pendingSsl = if (host.isNotEmpty() && fp != null) PendingSsl(errUrl, host, fp, mask) else null
                     val spec = ErrorPages.fromSslError(error.primaryError)
                     errorText = "SSL ${error.primaryError}"
                     sslPageShownFor = errUrl
@@ -942,7 +947,12 @@ class BrowserTab(
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url.toString()
                 if (ErrorPages.isProceedUrl(target)) {
-                    proceedAfterCertWarning(view)
+                    // 只认「用户在当前正显示的证书错误页上点击」：主框架 + 有用户手势 + 当前页就是那个失败地址
+                    if (request.isForMainFrame && request.hasGesture() && ErrorPages.sameUrl(view.url, proceedTarget)) {
+                        proceedAfterCertWarning(view)
+                    } else {
+                        Diag.log("webview: ignored proceed link (mainFrame=${request.isForMainFrame} gesture=${request.hasGesture()})")
+                    }
                     return true
                 }
                 if (EngineSupport.SYNC_BUNDLED && FxaSync.interceptRedirect(target)) return true
@@ -1472,7 +1482,11 @@ class BrowserTab(
 
     private fun engineReload() = ops.reload()
 
-    private fun engineLoad(target: String) = ops.load(target)
+    private fun engineLoad(target: String) {
+        proceedTarget = null // 换了地址：之前错误页上的「继续」不再有效
+        pendingSsl = null
+        ops.load(target)
+    }
 
     /** 强制刷新（下拉刷新 / 脚本开关后刷新）：不像 [reload] 那样在加载中变成「停止」 */
     fun refresh() = engineReload()
@@ -1799,20 +1813,23 @@ class BrowserTab(
     private fun showWebViewErrorPage(view: WebView, failingUrl: String, spec: ErrorSpec) {
         // data: / about: 等没有「重试」意义，也避免错误页再出错时死循环
         if (failingUrl.startsWith("data:") || failingUrl.startsWith("about:")) return
-        val host = runCatching { Uri.parse(failingUrl).host }.getOrNull().orEmpty()
-        // 该主机已经放行过却仍失败（例如 HSTS 站点不允许覆盖）：不再给入口，避免点了没反应
-        val shown = if (spec.canProceed && host.isNotEmpty() && SslExceptions.contains(host, incognito)) ErrorPages.withoutProceed(spec) else spec
+        val p = pendingSsl
+        // 没有这次错误的证书指纹（或不是同一个地址）就没法把例外绑定到具体证书：不给入口；
+        // 同一张证书已经放行过却仍失败（例如 HSTS 站点不允许覆盖）：也不再给入口，避免点了没反应
+        val canBind = p != null && ErrorPages.sameUrl(p.url, failingUrl) && !SslExceptions.allows(p.host, p.fp, p.mask, incognito)
+        val shown = if (spec.canProceed && !canBind) ErrorPages.withoutProceed(spec) else spec
         proceedTarget = if (shown.canProceed && failingUrl.startsWith("https://", ignoreCase = true)) failingUrl else null
         view.loadDataWithBaseURL(failingUrl, ErrorPages.render(shown, failingUrl, displayDark), "text/html", "UTF-8", failingUrl)
     }
 
-    /** WebView：用户在证书错误页点了「忽略风险，继续访问」——记住该主机（本次运行内有效）并重新加载 */
+    /** WebView：用户在证书错误页点了「忽略风险，继续访问」——记住「该主机 + 这张证书」（本次运行内有效）并重新加载 */
     private fun proceedAfterCertWarning(view: WebView) {
         val target = proceedTarget ?: return
-        val host = runCatching { Uri.parse(target).host }.getOrNull().orEmpty()
-        if (host.isEmpty()) return
-        SslExceptions.add(host, incognito)
+        val p = pendingSsl ?: return
+        if (!ErrorPages.sameUrl(p.url, target)) return
+        SslExceptions.add(p.host, p.fp, p.mask, incognito)
         proceedTarget = null
+        pendingSsl = null
         errorText = null
         view.loadUrl(target)
     }
@@ -3763,10 +3780,34 @@ internal sealed class LoginPrompt {
  * 无痕标签单独一份，且不会带到普通标签，反之亦然。
  */
 internal object SslExceptions {
-    private val normal = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    private val incognito = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    private fun set(incog: Boolean) = if (incog) incognito else normal
-    fun add(host: String, incog: Boolean) { set(incog).add(host.lowercase()) }
-    fun contains(host: String, incog: Boolean) = set(incog).contains(host.lowercase())
+    /** 例外绑定到「主机 + 证书 SHA-256 指纹 + 当时的错误集合」，换了证书或多出新的错误类型都不再放行 */
+    private data class Entry(val fp: String, val mask: Int)
+    private val normal = java.util.concurrent.ConcurrentHashMap<String, MutableSet<Entry>>()
+    private val incognito = java.util.concurrent.ConcurrentHashMap<String, MutableSet<Entry>>()
+    private fun map(incog: Boolean) = if (incog) incognito else normal
+    fun add(host: String, fp: String, mask: Int, incog: Boolean) {
+        map(incog).getOrPut(host.lowercase()) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(Entry(fp, mask))
+    }
+    /** 该主机上这张证书、这组错误（不超出当时用户看到的范围）是否已被用户放行 */
+    fun allows(host: String, fp: String, mask: Int, incog: Boolean): Boolean =
+        map(incog)[host.lowercase()]?.any { it.fp == fp && (mask and it.mask.inv()) == 0 } == true
     fun clear() { normal.clear(); incognito.clear() }
+}
+
+/** WebView 主框架证书错误的现场：地址 / 主机 / 证书指纹 / 错误集合（见 [SslExceptions]） */
+internal data class PendingSsl(val url: String, val host: String, val fp: String, val mask: Int)
+
+/** SslError 里所有出现的错误类型，按位压成一个整数（0 未生效 … 5 其它） */
+private fun sslErrorMask(e: android.net.http.SslError): Int {
+    var m = 0
+    for (i in 0..5) if (e.hasError(i)) m = m or (1 shl i)
+    return m
+}
+
+/** 服务器证书（DER）的 SHA-256 十六进制；取不到返回 null（此时不提供「继续」入口） */
+private fun certFingerprint(c: android.net.http.SslCertificate?): String? {
+    if (c == null) return null
+    val der = runCatching { if (android.os.Build.VERSION.SDK_INT >= 29) c.x509Certificate?.encoded else null }.getOrNull()
+        ?: runCatching { android.net.http.SslCertificate.saveState(c).getByteArray("x509-certificate") }.getOrNull()
+    return der?.let { b -> java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) } }
 }
