@@ -694,6 +694,11 @@ class WebAppActivity : ComponentActivity() {
                         pulled = event.y - touchDownY
                         val progress = (pulled / thresholdPx).coerceIn(0f, 1f)
                         if (progress > 0.05f) {
+                            // 顶部栏收起时根布局没有顶部留白：补上状态栏 / 摄像头挖孔的高度，避免图标压在摄像头上
+                            (refreshSpinner.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+                                val want = (18 * resources.displayMetrics.density).toInt() + (topInset - topPad).coerceAtLeast(0)
+                                if (lp.topMargin != want) { lp.topMargin = want; refreshSpinner.layoutParams = lp }
+                            }
                             refreshSpinner.visibility = View.VISIBLE
                             refreshSpinner.progress = progress
                             refreshSpinner.alpha = 0.4f + 0.6f * progress

@@ -283,6 +283,20 @@ fun FxaScreen(
                         FxaHintText(tr("同步状态：{0}\n上次成功同步：{1}", status, last))
                     }
                 }
+                // ⑤ 同步高级选项
+                if (ui is FxaUi.SignedIn) {
+                    item { SmallTitle(text = tr("同步高级选项")) }
+                    item {
+                        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
+                            AppSwitchPreference(
+                                title = tr("绝对双向同步"),
+                                summary = tr("开启后，如在本地误删书签会有云端遗失的风险，请备份后谨慎开启。"),
+                                checked = FxaSync.absoluteSync,
+                                onCheckedChange = { FxaSync.updateAbsoluteSync(it) },
+                            )
+                        }
+                    }
+                }
                 if (ui is FxaUi.SignedIn) {
                     item { SmallTitle(text = tr("已同步的内容")) }
                     item {
@@ -340,6 +354,7 @@ fun FxaScreen(
                         tr("同步书签、历史记录、标签页和密码，使用 Firefox 官方 Sync 协议，账号数据端到端加密。\n") +
                             tr("书签和历史记录只增不删：Firefox 中的书签会出现在「{0}」分组，本地书签会推送到「移动设备书签」。\n", FxaBookmarkBridge.PULL_ROOT) +
                             tr("书签和历史的删除、重命名暂不互相同步，推送的历史访问时间会记为同步时刻。\n") +
+                            (if (FxaSync.absoluteSync) tr("「绝对双向同步」已开启：书签、历史记录的删除会在本机和云端之间互相传递，密码本就双向同步（刚开启的第一轮只记录状态，不会删除）；重命名、移动仍不同步。\n") else "") +
                             tr("密码双向同步（含删除和修改，冲突时以密码修改时间较新者为准）：本机密码仍只存放在「设置 → 隐私与安全 → 密码」的加密库里，") +
                             tr("这里只列出站点和用户名，不显示密码；备注仅保存在本机，不会同步。退出登录会清空同步用的中转库，本机密码不受影响。"),
                     )

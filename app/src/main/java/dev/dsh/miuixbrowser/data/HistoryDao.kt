@@ -31,6 +31,15 @@ internal object HistoryDao {
         db.execSQL("DELETE FROM history")
     }
 
+    /** 本地历史里的全部网址（「绝对双向同步」比对删除用）。 */
+    fun allUrls(db: SQLiteDatabase): HashSet<String> {
+        db.rawQuery("SELECT url FROM history", emptyArray<String>()).use { c ->
+            val out = HashSet<String>()
+            while (c.moveToNext()) out.add(c.getString(0))
+            return out
+        }
+    }
+
     fun count(db: SQLiteDatabase, cutoff: Long? = null): Int {
         val where = if (cutoff != null) " WHERE time>=$cutoff" else ""
         db.rawQuery("SELECT COUNT(*) FROM history$where", emptyArray<String>()).use { c ->

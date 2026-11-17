@@ -57,6 +57,8 @@ internal object FxaSync {
     private const val PREFS = "mafari_fxa_sync"
     private const val K_AUTO = "auto_mode"
     private const val K_LAST_OK = "last_success"
+    /** 同步高级选项：绝对双向同步（书签的删除也互相传递）。随 mafari_fxa_sync 一起进备份。 */
+    private const val K_ABSOLUTE = "absolute_sync"
     /** 上次已知是登录状态（账号管理器 onReady / 登录成功时写入，退出时清除）：冷启动后台预热据此判断要不要初始化，没登录过的用户零开销 */
     private const val K_SIGNED_IN = "signed_in"
     private const val AUTO_RETRY_GAP_MS = 10 * 60_000L
@@ -68,11 +70,23 @@ internal object FxaSync {
         private set
     @Volatile private var lastAutoAttempt = 0L
 
+    /** 「绝对双向同步」：开启后书签的删除（本机 ↔ 云端）也会互相传递；默认关闭。 */
+    var absoluteSync: Boolean by mutableStateOf(false)
+        private set
+
     private fun prefs() = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun updateAutoMode(index: Int) {
         autoMode = index.coerceIn(0, AUTO_LABELS.lastIndex)
         prefs().edit().putInt(K_AUTO, autoMode).apply()
+    }
+
+    /** 开 / 关都清掉删除基线：下一轮同步只重新记录「两边都有的书签」，不会因为旧基线误删任何东西。 */
+    fun updateAbsoluteSync(on: Boolean) {
+        absoluteSync = on
+        prefs().edit().putBoolean(K_ABSOLUTE, on).apply()
+        FxaBookmarkBridge.resetBaseline(appContext)
+        FxaHistoryBridge.resetBaseline(appContext)
     }
 
     private fun autoDue(): Boolean {
@@ -139,6 +153,7 @@ internal object FxaSync {
             runCatching {
                 autoMode = prefs().getInt(K_AUTO, 0).coerceIn(0, AUTO_LABELS.lastIndex)
                 lastSuccess = prefs().getLong(K_LAST_OK, 0L)
+                absoluteSync = prefs().getBoolean(K_ABSOLUTE, false)
             }
             // start 失败（原来会直接让 onCreate 崩）现在落到 SignedOut 并记下原因；ui 在 onReady 前保持 Loading
             runCatching { FxaApi.start(appContext, listener); FxaApi.init() }
@@ -357,6 +372,8 @@ internal object FxaSync {
             synced = emptyMap()
             lastSuccess = 0L
             runCatching { prefs().edit().remove(K_LAST_OK).apply() }
+            FxaBookmarkBridge.resetBaseline(appContext)
+            FxaHistoryBridge.resetBaseline(appContext)
             scope.launch { runCatching { FxaPasswordBridge.onLoggedOut(appContext) } }
         }
         override fun onProblem() { ui = FxaUi.NeedsReauth((ui as? FxaUi.SignedIn)?.email) }

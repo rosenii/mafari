@@ -1029,6 +1029,10 @@ JavaScript 会在页面加载完成后执行	JavaScript runs after the page fini
 立即同步	Sync now
 退出登录	Sign out
 自动同步	Auto sync
+同步高级选项	Advanced sync options
+绝对双向同步	Absolute two-way sync
+开启后，如在本地误删书签会有云端遗失的风险，请备份后谨慎开启。	If enabled, deleting a bookmark locally by mistake may also remove it from the cloud. Back up first and enable with caution.
+「绝对双向同步」已开启：书签、历史记录的删除会在本机和云端之间互相传递，密码本就双向同步（刚开启的第一轮只记录状态，不会删除）；重命名、移动仍不同步。\n	"Absolute two-way sync" is on: bookmark and history deletions are propagated between this device and the cloud, and passwords are already synced both ways (the first round after enabling only records state and deletes nothing); renames and moves are still not synced.\n
 已同步	Synced
 尚未同步	Not synced yet
 暂无	None

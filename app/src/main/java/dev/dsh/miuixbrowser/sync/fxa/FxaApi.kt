@@ -284,11 +284,26 @@ internal object FxaApi {
         unwrap<Any?>(bookmarks.addItem(parentGuid, url, title, null))
     }
 
+    /** 按 guid 删除一个书签节点（「绝对双向同步」用：把本机的删除传到云端）。 */
+    suspend fun deleteBookmark(guid: String) {
+        unwrap<Any?>(bookmarks.deleteNode(guid))
+    }
+
     // ---------------------------------------------------------------- 历史（Places）
     suspend fun remoteVisits(since: Long): List<PVisit> =
         unwrap<List<mozilla.components.concept.storage.VisitInfo>>(history.getDetailedVisits(since, Long.MAX_VALUE))
             .filter { it.isRemote }
             .map { PVisit(it.url, it.title.orEmpty(), it.visitTime) }
+
+    /** Places 里有访问记录的全部网址（本机推上去的和其他设备的都算）：「绝对双向同步」据此判断云端是否还有这条。 */
+    suspend fun placesUrls(): Set<String> =
+        unwrap<List<mozilla.components.concept.storage.VisitInfo>>(history.getDetailedVisits(0L, Long.MAX_VALUE))
+            .mapTo(HashSet()) { it.url }
+
+    /** 删除某网址的全部访问（会作为删除记录同步到其他设备）。 */
+    suspend fun deleteHistory(url: String) {
+        unwrap<Any?>(history.deleteVisitsFor(url))
+    }
 
     suspend fun recordVisit(url: String, title: String) {
         unwrap<Any?>(history.recordVisit(url, PageVisit(VisitType.LINK, null)))

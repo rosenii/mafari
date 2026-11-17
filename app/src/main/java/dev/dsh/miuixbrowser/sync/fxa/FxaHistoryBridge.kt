@@ -5,6 +5,7 @@ import dev.dsh.miuixbrowser.data.HistoryDao
 import dev.dsh.miuixbrowser.util.hostOf
 import android.content.Context
 import android.net.Uri
+import java.io.File
 
 /**
  * Places 历史镜像 ↔ AppDatabase（SQLCipher）。
@@ -15,6 +16,9 @@ import android.net.Uri
  *   没推完会自动再同步一轮，不会像之前那样超过 500 条就丢。
  * 准确性：本地条目的时间不晚于该网址在远端的最新访问时，说明它只是拉下来的镜像，不再推回去；
  *   晚于远端的才是真正的新访问。Places 只能记「此刻」，推送出去的访问时间会变成同步时刻。
+ * 绝对双向同步（FxaSync.absoluteSync）：以「上一轮两边都有的网址」为基线（存在 filesDir 的文本文件里），
+ *   基线里有、本机现在没有、云端还有 → 删云端；基线里有、云端现在没有、本机还有 → 删本机。
+ *   刚开启时没有基线，第一轮只记录不删；云端→本机一轮要删超过基线一半（且 ≥ [MASS_DELETE_MIN] 条）时视为异常，这一方向本轮不删。
  * 安全：无痕标签不进 AppDatabase（不会被推）；推送前过滤带账号密码的网址、本机 / 内网地址；
  *   拉取时只收 http(s)、限制网址和标题长度、去掉控制字符。
  */
@@ -25,6 +29,13 @@ internal object FxaHistoryBridge {
     private const val MAX_PUSH_PER_RUN = 2000
     private const val MAX_URL = 2048
     private const val MAX_TITLE = 512
+    private const val BASE_FILE = "fxa_history_baseline.txt"
+    private const val MASS_DELETE_MIN = 20
+
+    /** 关 / 开「绝对双向同步」、退出账号时清掉删除基线：下一轮只重新记录，不删东西。 */
+    fun resetBaseline(context: Context) {
+        runCatching { File(context.filesDir, BASE_FILE).delete() }
+    }
 
     suspend fun reconcile(context: Context) {
         val db = AppDatabase.get(context) ?: return
@@ -39,6 +50,38 @@ internal object FxaHistoryBridge {
             if (cur == null) remote[v.url] = Latest(v.time, v.title)
             else if (v.time >= cur.time) { cur.time = v.time; cur.title = v.title }
         }
+        // ---- 绝对双向同步：先把删除传过去 ----
+        val absolute = FxaSync.absoluteSync
+        val baseFile = File(context.filesDir, BASE_FILE)
+        val baseline: Set<String>? = if (absolute && baseFile.exists()) runCatching { baseFile.readLines().toHashSet() }.getOrNull() else null
+        val presence: HashSet<String>? = if (absolute) FxaApi.placesUrls().filterTo(HashSet()) { acceptable(it) } else null
+        if (absolute && baseline != null && presence != null) {
+            val localUrls = HistoryDao.allUrls(db)
+            // 本机删了、云端还在 → 删云端
+            for (u in baseline) {
+                if (u in presence && u !in localUrls && runCatching { FxaApi.deleteHistory(u) }.isSuccess) {
+                    presence.remove(u)
+                    remote.remove(u)
+                }
+            }
+            // 云端删了、本机还在 → 删本机
+            val delLocal = baseline.filter { it in localUrls && it !in presence }
+            if (delLocal.isNotEmpty() && !(delLocal.size >= MASS_DELETE_MIN && delLocal.size * 2 > baseline.size)) {
+                var k = 0
+                while (k < delLocal.size) {
+                    db.beginTransaction()
+                    try {
+                        val end = minOf(k + BATCH, delLocal.size)
+                        for (n in k until end) HistoryDao.delete(db, delLocal[n])
+                        db.setTransactionSuccessful()
+                        k = end
+                    } finally {
+                        db.endTransaction()
+                    }
+                }
+            }
+        }
+
         val pulled = remote.entries.toList()
         var i = 0
         while (i < pulled.size) { // 分批事务：不长时间占着写锁，界面线程写本地历史不会卡
@@ -63,6 +106,7 @@ internal object FxaHistoryBridge {
         var cursor = prefs.getLong(K_PUSH, 0L) + 1
         var seenAtCursor = HashSet<String>() // 游标那一毫秒已处理过的网址（同一时刻多条时防重复 / 防遗漏）
         var pushed = 0
+        val pushedUrls = HashSet<String>()
         var more = true
         while (more && pushed < MAX_PUSH_PER_RUN) {
             val rows = HistoryDao.queryFrom(db, cursor, BATCH)
@@ -73,6 +117,7 @@ internal object FxaHistoryBridge {
                 val mirrored = remote[e.url]?.let { it.time >= e.time } == true
                 if (!mirrored && shareable(e.url)) {
                     FxaApi.recordVisit(e.url, cleanTitle(e.title))
+                    pushedUrls += e.url
                     pushed++
                 }
             }
@@ -81,6 +126,12 @@ internal object FxaHistoryBridge {
             fresh.filter { it.time == lastTime }.forEach { seenAtCursor.add(it.url) }
             cursor = lastTime
             prefs.edit().putLong(K_PUSH, cursor).apply() // 一批处理完才前移游标
+        }
+        // 记新基线：此刻本机和云端都有的网址
+        if (absolute && presence != null) {
+            val cloud = presence.toHashSet().apply { addAll(remote.keys); addAll(pushedUrls) }
+            val both = HistoryDao.allUrls(db).filter { it in cloud }
+            runCatching { baseFile.writeText(both.joinToString("\n")) }
         }
         if (pushed > 0) FxaSync.syncFollowUp() // 没推完的下一轮同步继续
     }

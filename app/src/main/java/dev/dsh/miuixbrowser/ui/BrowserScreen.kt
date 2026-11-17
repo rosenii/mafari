@@ -90,6 +90,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -3496,11 +3497,15 @@ internal fun fetchRemoteScript(url: String): String? = runCatching {
 private fun BoxScope.PullSpinnerHost(tab: BrowserTab) {
     val p = tab.pullProgress
     if (p > 0.05f) {
+        // 宿主铺满全屏（盖住状态栏）：从状态栏 / 居中摄像头挖孔的下沿再往下留 18dp，避免与摄像头重叠
+        val topInset = with(LocalDensity.current) {
+            maxOf(WindowInsets.statusBars.getTop(this), WindowInsets.displayCutout.getTop(this)).toDp()
+        }
         RefreshSpinner(
             progress = p,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 18.dp),
+                .padding(top = topInset + 18.dp),
         )
     }
 }
