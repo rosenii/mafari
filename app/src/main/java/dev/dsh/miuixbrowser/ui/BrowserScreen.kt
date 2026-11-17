@@ -535,7 +535,6 @@ fun BrowserScreen(
     // 菜单面板右上角蓝标：当前页面运行的脚本数
     var scriptRunCount by remember { mutableIntStateOf(0) }
     // 菜单「同步」进行中：图标变主题色、文字变「同步中」，防止重复点击
-    var menuSyncing by MenuSyncState::syncing
     // 地址栏左侧脚本图标：当前标签页面运行的脚本数（加载完成后查询，见下方 LaunchedEffect）
     var addressScriptCount by remember { mutableIntStateOf(0) }
     var pendingDownload by remember { mutableStateOf<DownloadRequest?>(null) }
@@ -1927,11 +1926,11 @@ fun BrowserScreen(
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
-            MenuAction.Sync -> if (!menuSyncing) {
-                menuSyncing = true
+            MenuAction.Sync -> if (!MenuSyncState.syncing) {
+                MenuSyncState.syncing = true
                 scope.launch {
                     val r = runCatching { BackupAuto.pushAllNow(context) }.getOrNull()
-                    menuSyncing = false
+                    MenuSyncState.syncing = false
                     val msg = when {
                         r == null -> "同步失败"
                         r.error != null -> r.error ?: ""
@@ -2224,7 +2223,7 @@ fun BrowserScreen(
                     labelFor = { action ->
                         if (action == MenuAction.Desktop) {
                             if (tab.desktopMode) "移动版" else "桌面版"
-                        } else if (action == MenuAction.Sync && menuSyncing) {
+                        } else if (action == MenuAction.Sync && MenuSyncState.syncing) {
                             "同步中"
                         } else {
                             action.label
@@ -2297,7 +2296,7 @@ fun BrowserScreen(
                     incognitoActive = tab.incognito,
                     requestsActive = AdBlock.requestLogEnabled,
                     adBlockActive = AdBlock.enabled && !tab.isGecko,
-                    syncActive = menuSyncing,
+                    syncActive = MenuSyncState.syncing,
                     scriptsActive = settings.scriptsEnabled,
                     extensionsActive = settings.geckoMode &&
                         GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) },
