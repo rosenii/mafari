@@ -1786,7 +1786,14 @@ class BrowserTab(
             geckoNativeCertFor = null
             proceedTarget = null
             geckoShowingError = true
-            return null
+            // 日志证实：返回 null 时 GeckoView 不会自己显示证书页（页面空白 / 仍停在自绘页）。
+            // 显式返回内核的 about:certerror，docshell 会带着失败的 channel 加载它，页面上有「接受风险并继续」。
+            val enc = { v: String -> java.net.URLEncoder.encode(v, "UTF-8") }
+            val certUri = "about:certerror?e=nssFailure2&u=${enc(pending)}&c=UTF-8&d=${enc(spec.detail.ifBlank { spec.code })}"
+            geckoErrorUri = certUri
+            dev.dsh.miuixbrowser.util.Diag.log("geckoLoadError: -> $certUri")
+            if (!parked && pending.isNotEmpty()) url = pending
+            return certUri
         }
         proceedTarget = if (spec.canProceed && target.startsWith("https://", ignoreCase = true)) target else null
         val html = ErrorPages.render(spec, target, displayDark, nativeProceed = true)
