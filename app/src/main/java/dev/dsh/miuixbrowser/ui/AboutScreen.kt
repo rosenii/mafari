@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.R
 import dev.dsh.miuixbrowser.browser.UpdateDownload
@@ -106,9 +108,9 @@ fun AboutScreen(
         if (!opened) onOpenUrl(url)
     }
     val scope = rememberCoroutineScope()
-    val kernel = webViewVersion() ?: "未知"
+    val kernel = webViewVersion() ?: tr("未知")
     val geckoKernel = remember { geckoViewVersion() }
-    val ua = remember { runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault("未知") }
+    val ua = remember { runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault(tr("未知")) }
     val dependencyGroups = remember { parseDependencyVersions(BuildConfig.DEP_VERSIONS) }
     val cryptoGroups = remember { parseDependencyVersions(BuildConfig.CRYPTO_ALGORITHMS) }
     var checkingUpdate by remember { mutableStateOf(false) }
@@ -145,7 +147,7 @@ fun AboutScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             PageGlassTopBar(
-                title = "关于",
+                title = tr("关于"),
                 backdrop = contentBackdrop,
                 glass = glass,
                 scrollBehavior = scrollBehavior,
@@ -226,8 +228,8 @@ fun AboutScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "版本 " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ") · " +
-                            (if (EngineSupport.GECKO_BUNDLED) "Gecko 版" else if (EngineSupport.SYNC_BUNDLED) "无内核版（含同步）" else "无内核版"),
+                        text = tr("版本 ") + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ") · " +
+                            (if (EngineSupport.GECKO_BUNDLED) tr("Gecko 版") else if (EngineSupport.SYNC_BUNDLED) tr("无内核版（含同步）") else tr("无内核版")),
                         fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
@@ -242,15 +244,15 @@ fun AboutScreen(
                                 val result = withContext(Dispatchers.IO) { fetchLatestRelease(updateChannel) }
                                 checkingUpdate = false
                                 if (result == null) {
-                                    Toast.makeText(context, "检查失败，请稍后再试", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr("检查失败，请稍后再试"), Toast.LENGTH_SHORT).show()
                                 } else {
                                     val current = currentVersionLabel(updateChannel)
                                     val latest = result.version.removePrefix("v")
                                     if (!isUpdateAvailable(context, result, updateChannel)) {
-                                        Toast.makeText(context, "已是最新版本 $current", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, tr("已是最新版本 {0}", current), Toast.LENGTH_SHORT).show()
                                     } else if (result.apkUrl.isNullOrBlank()) {
                                         // 无 APK 资产时在应用内浏览页打开发布页
-                                        Toast.makeText(context, "发现新版本 $latest", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, tr("发现新版本 {0}", latest), Toast.LENGTH_LONG).show()
                                         onOpenUrl(result.pageUrl)
                                     } else {
                                         pendingUpdate = result
@@ -262,13 +264,13 @@ fun AboutScreen(
                         modifier = Modifier.width(200.dp),
                     ) {
                         Text(
-                            text = if (checkingUpdate) "检查中…" else "检查更新",
+                            text = if (checkingUpdate) tr("检查中…") else tr("检查更新"),
                             style = MiuixTheme.textStyles.button,
                         )
                     }
                 }
 
-                SmallTitle(text = "版本")
+                SmallTitle(text = tr("版本"))
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -285,17 +287,17 @@ fun AboutScreen(
                             UpdateChannel.DISPLAY_ORDER.getOrNull(index)?.let(onUpdateChannelChange)
                         },
                     )
-                    AboutRow("WebView 内核版本", kernel)
-                    if (EngineSupport.GECKO_BUNDLED) AboutRow("GeckoView 内核版本", geckoKernel ?: "未知")
+                    AboutRow(tr("WebView 内核版本"), kernel)
+                    if (EngineSupport.GECKO_BUNDLED) AboutRow(tr("GeckoView 内核版本"), geckoKernel ?: tr("未知"))
                 }
 
-                SmallTitle(text = "加密算法")
+                SmallTitle(text = tr("加密算法"))
                 DependencyVersionsCard(cryptoGroups)
 
-                SmallTitle(text = "依赖版本")
+                SmallTitle(text = tr("依赖版本"))
                 DependencyVersionsCard(dependencyGroups)
 
-                SmallTitle(text = "本机 UA")
+                SmallTitle(text = tr("本机 UA"))
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -309,7 +311,7 @@ fun AboutScreen(
                     )
                 }
 
-                SmallTitle(text = "项目")
+                SmallTitle(text = tr("项目"))
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -322,7 +324,7 @@ fun AboutScreen(
                             .clickable { onOpenUrl(PROJECT_URL) }
                             .padding(16.dp),
                     ) {
-                        Text("项目地址", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Text(tr("项目地址"), fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = "https://github.com/rosenii/mafari",
@@ -334,7 +336,7 @@ fun AboutScreen(
                     }
                 }
 
-                SmallTitle(text = "交流与反馈")
+                SmallTitle(text = tr("交流与反馈"))
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -342,8 +344,8 @@ fun AboutScreen(
                     insideMargin = PaddingValues(0.dp),
                 ) {
                     listOf(
-                        Triple("Telegram 频道", TG_CHANNEL_URL, "更新公告与新版本推送"),
-                        Triple("Telegram 交流群", TG_GROUP_URL, "使用交流与问题反馈"),
+                        Triple(tr("Telegram 频道"), TG_CHANNEL_URL, tr("更新公告与新版本推送")),
+                        Triple(tr("Telegram 交流群"), TG_GROUP_URL, tr("使用交流与问题反馈")),
                     ).forEachIndexed { index, (title, url, hint) ->
                         if (index > 0) {
                             Spacer(
@@ -373,7 +375,7 @@ fun AboutScreen(
                     }
                 }
 
-                SmallTitle(text = "捐赠")
+                SmallTitle(text = tr("捐赠"))
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -386,7 +388,7 @@ fun AboutScreen(
                             .clickable { showDonate = true }
                             .padding(16.dp),
                     ) {
-                        Text("捐赠", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Text(tr("捐赠"), fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         Text(
                             text = DONATE_SUMMARY,
@@ -396,7 +398,7 @@ fun AboutScreen(
                     }
                 }
 
-                SmallTitle(text = "法律")
+                SmallTitle(text = tr("法律"))
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -409,10 +411,10 @@ fun AboutScreen(
                             .clickable { onOpenPrivacyPolicy() }
                             .padding(16.dp),
                     ) {
-                        Text("隐私政策", fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Text(tr("隐私政策"), fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "本地存储的数据、网络请求与权限说明",
+                            text = tr("本地存储的数据、网络请求与权限说明"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -425,7 +427,7 @@ fun AboutScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        text = "Mafari · 基于 miuix 与系统 WebView",
+                        text = tr("Mafari · 基于 miuix 与系统 WebView"),
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         textAlign = TextAlign.Center,
@@ -684,16 +686,16 @@ private fun AboutRow(title: String, value: String) {
 
 /** 依赖版本分组：BuildConfig.DEP_VERSIONS 里的分组标识 → 界面标题 */
 private val DEP_GROUP_TITLES = mapOf(
-    "ui" to "界面",
+    "ui" to tr("界面"),
     "androidx" to "AndroidX",
-    "storage" to "本地存储",
-    "engine" to "内核与加密",
-    "sync" to "云同步",
-    "build" to "构建工具链",
-    "kem" to "密钥封装（后量子混合）",
-    "sym" to "对称加密",
-    "kdf" to "密钥派生",
-    "lib" to "实现库",
+    "storage" to tr("本地存储"),
+    "engine" to tr("内核与加密"),
+    "sync" to tr("云同步"),
+    "build" to tr("构建工具链"),
+    "kem" to tr("密钥封装（后量子混合）"),
+    "sym" to tr("对称加密"),
+    "kdf" to tr("密钥派生"),
+    "lib" to tr("实现库"),
 )
 
 private class DependencyGroup(val title: String, val items: List<Pair<String, String>>)

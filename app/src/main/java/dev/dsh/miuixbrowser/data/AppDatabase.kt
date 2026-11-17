@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.crypto.SecureStore
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
@@ -90,8 +92,8 @@ internal object AppDatabase {
             HistoryDbKey.discard(file)
             val hex = HistoryDbKey.newKeyHex()
             val sealed = SecureStore.write(context, hex, SecureStore.PURPOSE_HISTORY_DB)
-                ?: error("无法保存数据库密钥")
-            check(prefs.edit().putString(KEY_NAME, sealed).commit()) { "写入数据库密钥失败" }
+                ?: error(tr("无法保存数据库密钥"))
+            check(prefs.edit().putString(KEY_NAME, sealed).commit()) { tr("写入数据库密钥失败") }
             pass = hex
         }
         val db = try {

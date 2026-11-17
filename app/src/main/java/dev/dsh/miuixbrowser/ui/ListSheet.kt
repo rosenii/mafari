@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -137,9 +139,9 @@ fun <T> SearchableListSheet(
             if (p == null || p.items.isEmpty()) {
                 Text(
                     text = when {
-                        p == null -> "加载中…"
+                        p == null -> tr("加载中…")
                         state.query.isBlank() -> emptyText
-                        else -> "没有匹配的内容"
+                        else -> tr("没有匹配的内容")
                     },
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -159,7 +161,7 @@ fun <T> SearchableListSheet(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = "更多（还有 ${p.total - p.items.size} 项）",
+                                    text = tr("更多（还有 {0} 项）", p.total - p.items.size),
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = MiuixTheme.colorScheme.primary,

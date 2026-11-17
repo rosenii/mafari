@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.PasswordCsv
 import dev.dsh.miuixbrowser.crypto.BiometricGate
 import dev.dsh.miuixbrowser.data.AppDatabase
@@ -80,7 +82,7 @@ class AutofillPickActivity : ComponentActivity() {
         }
 
         if (PasswordPrefs.verifyBeforeFill(this)) {
-            BiometricGate.authenticate(this, "验证身份", "验证后才能选择要填入的账号") { ok -> if (ok) load() else cancel() }
+            BiometricGate.authenticate(this, tr("验证身份"), tr("验证后才能选择要填入的账号")) { ok -> if (ok) load() else cancel() }
         } else {
             load()
         }
@@ -105,7 +107,7 @@ class AutofillPickActivity : ComponentActivity() {
             runOnUiThread {
                 if (isFinishing || done) return@runOnUiThread
                 if (list.isEmpty()) {
-                    Toast.makeText(app, "密码库里还没有账号", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(app, tr("密码库里还没有账号"), Toast.LENGTH_SHORT).show()
                     cancel()
                 } else {
                     rows = list
@@ -130,7 +132,7 @@ class AutofillPickActivity : ComponentActivity() {
             runOnUiThread {
                 if (isFinishing || done) return@runOnUiThread
                 if (entry == null) {
-                    Toast.makeText(app, "无法解密这条密码", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(app, tr("无法解密这条密码"), Toast.LENGTH_SHORT).show()
                     cancel()
                     return@runOnUiThread
                 }

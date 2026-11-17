@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.util.Diag
 import android.graphics.Bitmap
@@ -268,7 +270,7 @@ internal object TabDb {
      * 在 [AppDatabase.io] 上执行，排在已排队的写入之后。失败时复位 [frozen] 并抛 IOException。重启后 [load] 读到的就是恢复的列表。
      */
     fun restoreAll(context: android.content.Context, rows: List<TabBackupRow>) {
-        val db = AppDatabase.get(context) ?: throw java.io.IOException("加密库不可用，无法恢复标签列表")
+        val db = AppDatabase.get(context) ?: throw java.io.IOException(tr("加密库不可用，无法恢复标签列表"))
         frozen = true
         try {
             AppDatabase.io.submit {
@@ -294,7 +296,7 @@ internal object TabDb {
             }.get()
         } catch (e: Exception) {
             frozen = false
-            throw java.io.IOException("恢复标签列表失败：${(e.cause ?: e).message}", e)
+            throw java.io.IOException(tr("恢复标签列表失败：{0}", (e.cause ?: e).message), e)
         }
     }
 }

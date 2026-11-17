@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.AfNode
 import dev.dsh.miuixbrowser.browser.AutofillParser
 import dev.dsh.miuixbrowser.browser.BrowserState
@@ -280,7 +282,7 @@ class MafariAutofillService : AutofillService() {
             ctx, requestCodes.incrementAndGet(), intent,
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE,
         ).intentSender
-        val b = Dataset.Builder(presentation(ctx, "选择账号…", label, withHeader))
+        val b = Dataset.Builder(presentation(ctx, tr("选择账号…"), label, withHeader))
         if (userId != null) b.setValue(userId, null)
         b.setValue(passId, null)
         return b.setAuthentication(sender).build()
@@ -398,7 +400,7 @@ class MafariAutofillService : AutofillService() {
         /** 下拉里一行：主标题用户名，副标题站点。 */
         internal fun presentation(ctx: Context, username: String, site: String, withHeader: Boolean = false): RemoteViews =
             RemoteViews(ctx.packageName, R.layout.autofill_item).apply {
-                setTextViewText(R.id.af_title, username.ifEmpty { "（无用户名）" })
+                setTextViewText(R.id.af_title, username.ifEmpty { tr("（无用户名）") })
                 setTextViewText(R.id.af_subtitle, site)
                 // 第一行顶部带「钥匙 + 密码」
                 if (withHeader) setViewVisibility(R.id.af_header, android.view.View.VISIBLE)

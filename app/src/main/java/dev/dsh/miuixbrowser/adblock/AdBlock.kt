@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.adblock
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.engine.webview.WebOrigin
 import dev.dsh.miuixbrowser.net.HttpFetcher
 import dev.dsh.miuixbrowser.util.Diag
@@ -56,29 +58,29 @@ data class AdPreset(val name: String, val url: String, val summary: String)
 /** 推荐订阅（点一下即可订阅）。地址都是各规则项目官方对外提供的订阅链接。 */
 val AD_PRESETS = listOf(
     AdPreset(
-        "AdGuard 中文",
+        tr("AdGuard 中文"),
         "https://filters.adtidy.org/extension/ublock/filters/224.txt",
-        "国内网站广告，首选",
+        tr("国内网站广告，首选"),
     ),
     AdPreset(
         "EasyList China",
         "https://easylist-downloads.adblockplus.org/easylistchina.txt",
-        "EasyList 的中文补充规则",
+        tr("EasyList 的中文补充规则"),
     ),
     AdPreset(
         "EasyList",
         "https://easylist.to/easylist/easylist.txt",
-        "国际通用广告规则",
+        tr("国际通用广告规则"),
     ),
     AdPreset(
-        "AdGuard 移动广告",
+        tr("AdGuard 移动广告"),
         "https://filters.adtidy.org/extension/ublock/filters/11.txt",
-        "针对移动端网页的广告",
+        tr("针对移动端网页的广告"),
     ),
     AdPreset(
         "anti-AD",
         "https://anti-ad.net/easylist.txt",
-        "国内广告域名合集",
+        tr("国内广告域名合集"),
     ),
 )
 
@@ -324,10 +326,10 @@ object AdBlock {
     suspend fun subscribe(url: String, nameHint: String = ""): Result<AdSub> {
         val u = url.trim()
         if (!u.startsWith("http://", true) && !u.startsWith("https://", true)) {
-            return Result.failure(IllegalArgumentException("请输入 http(s) 开头的订阅地址"))
+            return Result.failure(IllegalArgumentException(tr("请输入 http(s) 开头的订阅地址")))
         }
         if (subsShadow.any { it.url.equals(u, ignoreCase = true) }) {
-            return Result.failure(IllegalStateException("已经订阅过这个地址"))
+            return Result.failure(IllegalStateException(tr("已经订阅过这个地址")))
         }
         val fetched = withContext(Dispatchers.IO) { runCatching { fetchList(u) } }
         val f = fetched.getOrElse { return Result.failure(it) }
@@ -353,16 +355,16 @@ object AdBlock {
     /** 导入本地规则文件。没有来源地址，之后无法自动更新。 */
     suspend fun importLocal(name: String, text: String): Result<AdSub> {
         if (!AdParser.looksLikeFilterList(text)) {
-            return Result.failure(IllegalArgumentException("这不是有效的去广告规则列表"))
+            return Result.failure(IllegalArgumentException(tr("这不是有效的去广告规则列表")))
         }
         val parsed = withContext(Dispatchers.Default) { AdParser.parse(text) }
-        if (parsed.ruleCount == 0) return Result.failure(IllegalArgumentException("列表里没有可用规则"))
+        if (parsed.ruleCount == 0) return Result.failure(IllegalArgumentException(tr("列表里没有可用规则")))
         val id = UUID.randomUUID().toString()
         val saved = withContext(Dispatchers.IO) { runCatching { writeList(id, text, parsed) } }
         saved.getOrElse { return Result.failure(it) }
         val sub = AdSub(
             id = id,
-            name = parsed.title.ifBlank { name.ifBlank { "本地规则" } },
+            name = parsed.title.ifBlank { name.ifBlank { tr("本地规则") } },
             url = "",
             enabled = true,
             updatedAt = System.currentTimeMillis(),
@@ -381,16 +383,16 @@ object AdBlock {
 
     private suspend fun refresh(id: String, rebuild: Boolean): Result<Int> {
         val sub = subsShadow.firstOrNull { it.id == id }
-            ?: return Result.failure(IllegalStateException("订阅不存在"))
-        if (sub.url.isBlank()) return Result.failure(IllegalStateException("本地导入的规则没有更新地址"))
+            ?: return Result.failure(IllegalStateException(tr("订阅不存在")))
+        if (sub.url.isBlank()) return Result.failure(IllegalStateException(tr("本地导入的规则没有更新地址")))
         val fetched = withContext(Dispatchers.IO) { runCatching { fetchList(sub.url) } }
         val f = fetched.getOrElse {
-            updateSub(id) { s -> s.copy(error = it.message ?: "更新失败") }
+            updateSub(id) { s -> s.copy(error = it.message ?: tr("更新失败")) }
             return Result.failure(it)
         }
         val saved = withContext(Dispatchers.IO) { runCatching { writeList(id, f.text, f.parsed) } }
         saved.getOrElse {
-            updateSub(id) { s -> s.copy(error = it.message ?: "保存失败") }
+            updateSub(id) { s -> s.copy(error = it.message ?: tr("保存失败")) }
             return Result.failure(it)
         }
         updateSub(id) { s ->
@@ -920,9 +922,9 @@ object AdBlock {
 
     private fun fetchList(url: String): Fetched {
         val text = download(url)
-        if (!AdParser.looksLikeFilterList(text)) throw IOException("不是有效的去广告规则列表")
+        if (!AdParser.looksLikeFilterList(text)) throw IOException(tr("不是有效的去广告规则列表"))
         val parsed = AdParser.parse(text)
-        if (parsed.ruleCount == 0) throw IOException("列表里没有可用规则")
+        if (parsed.ruleCount == 0) throw IOException(tr("列表里没有可用规则"))
         return Fetched(text, parsed)
     }
 
@@ -944,7 +946,7 @@ object AdBlock {
         tmp.writeText(text, Charsets.UTF_8)
         if (!tmp.renameTo(target)) {
             target.delete()
-            if (!tmp.renameTo(target)) throw IOException("写入规则文件失败")
+            if (!tmp.renameTo(target)) throw IOException(tr("写入规则文件失败"))
         }
         if (parsed != null) parsedCache[id] = CachedList(target.lastModified(), parsed)
     }

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.sync
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.data.Favorite
 import dev.dsh.miuixbrowser.data.FavoritesStore
@@ -271,7 +273,7 @@ object BookmarksBridge {
                 store.commitSyncChanges()
                 nodeOf(f.id, false)
             } else {
-                val path = pathIn(container, title.ifBlank { "新文件夹" })
+                val path = pathIn(container, title.ifBlank { tr("新文件夹") })
                 val id = store.registerFolder(path)
                 if (index != null) {
                     val sibs = childFolders(container)

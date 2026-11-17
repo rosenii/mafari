@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.Diag
 import net.zetetic.database.sqlcipher.SQLiteDatabase
 import dev.dsh.miuixbrowser.download.DownloadDb
@@ -59,7 +61,7 @@ internal object Migrations {
 
     init {
         // 开发期自检：版本号必须从 1 开始连续递增
-        check(STEPS.withIndex().all { (i, s) -> s.version == i + 1 }) { "Migrations.STEPS 版本号必须连续递增" }
+        check(STEPS.withIndex().all { (i, s) -> s.version == i + 1 }) { tr("Migrations.STEPS 版本号必须连续递增") }
     }
 
     fun apply(db: SQLiteDatabase) {

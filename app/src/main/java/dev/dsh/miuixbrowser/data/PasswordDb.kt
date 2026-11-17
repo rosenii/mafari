@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.PasswordAutofill
 import dev.dsh.miuixbrowser.browser.PasswordEntry
 import dev.dsh.miuixbrowser.crypto.SecureStore
@@ -325,7 +327,7 @@ internal object PasswordDb {
                 if (!newer && cur != null) { unchanged++; continue }
                 val changed = if (e.timePasswordChanged > 0) e.timePasswordChanged else now
                 val note = e.note.ifEmpty { cur?.second.orEmpty() }
-                val sealed = sealSecret(context, existing.guid, e.password, note) ?: throw IllegalStateException("加密失败")
+                val sealed = sealSecret(context, existing.guid, e.password, note) ?: throw IllegalStateException(tr("加密失败"))
                 db.execSQL(
                     "UPDATE passwords SET secret=?, time_changed=?, time_last_used=MAX(time_last_used,?), " +
                         "times_used=MAX(times_used,?), sync_status=? WHERE guid=?",
@@ -366,7 +368,7 @@ internal object PasswordDb {
         db.rawQuery("SELECT 1 FROM passwords WHERE guid=?", arrayOf(guid)).use { it.moveToFirst() }
 
     private fun insert(context: Context, db: SQLiteDatabase, e: PasswordEntry, sync: Int) {
-        val sealed = sealSecret(context, e.guid, e.password, e.note) ?: throw IllegalStateException("加密失败")
+        val sealed = sealSecret(context, e.guid, e.password, e.note) ?: throw IllegalStateException(tr("加密失败"))
         db.execSQL(
             "INSERT INTO passwords(guid,origin,form_origin,http_realm,username,secret,username_field,password_field," +
                 "time_created,time_last_used,time_changed,times_used,sync_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",

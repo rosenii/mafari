@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">Mafari</string>
     <!-- 系统「自动填充服务」选择列表里显示的名字 -->
-    <string name="autofill_service_label">Mafari 密码</string>
+    <string name="autofill_service_label">Mafari Passwords</string>
 </resources>

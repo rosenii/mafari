@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.MainActivity
 import dev.dsh.miuixbrowser.R
 import android.Manifest
@@ -32,7 +34,7 @@ class GeckoWebNotifications(private val app: Context) : WebNotificationDelegate 
             val nm = app.getSystemService(NotificationManager::class.java)
             if (nm.getNotificationChannel(CHANNEL) == null) {
                 nm.createNotificationChannel(
-                    NotificationChannel(CHANNEL, "网站通知", NotificationManager.IMPORTANCE_DEFAULT),
+                    NotificationChannel(CHANNEL, tr("网站通知"), NotificationManager.IMPORTANCE_DEFAULT),
                 )
             }
             val key = notification.tag.orEmpty().ifBlank { "n${seq.incrementAndGet()}" }

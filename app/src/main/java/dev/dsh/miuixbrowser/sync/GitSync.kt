@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.sync
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.backup.BackupManager
 import dev.dsh.miuixbrowser.crypto.CryptoException
 import dev.dsh.miuixbrowser.crypto.SecureStore
@@ -144,19 +146,19 @@ object GitNames {
         val all = messages.joinToString(" | ").lowercase(Locale.ROOT)
         return when {
             "hostkey" in all || "host key" in all || "host identification" in all ->
-                "服务器主机密钥与之前记录的不一致（可能被劫持，或服务器换了密钥）；确认无误后清除配置再重试"
+                tr("服务器主机密钥与之前记录的不一致（可能被劫持，或服务器换了密钥）；确认无误后清除配置再重试")
             ssh && ("invalid privatekey" in all || "passphrase" in all || "keypair" in all || "end of file" in all && "key" in all) ->
-                "私钥无法解析，或私钥口令不对（暂不支持 PuTTY .ppk 格式）"
+                tr("私钥无法解析，或私钥口令不对（暂不支持 PuTTY .ppk 格式）")
             ssh && ("auth fail" in all || "auth cancel" in all || "permission denied" in all || "not authorized" in all) ->
-                "Deploy key 被拒绝：请确认对应公钥已添加到该仓库，并勾选了写权限"
+                tr("Deploy key 被拒绝：请确认对应公钥已添加到该仓库，并勾选了写权限")
             "not authorized" in all || "authentication" in all || "unauthorized" in all || "forbidden" in all ->
-                "用户名或令牌错误，或没有访问权限"
+                tr("用户名或令牌错误，或没有访问权限")
             "not found" in all || "does not appear to be a git repository" in all || "repository not found" in all ->
-                if (ssh) "仓库不存在，或该 Deploy key 不属于这个仓库" else "仓库不存在，或令牌无权访问该仓库"
-            "unknownhost" in all || "unable to resolve" in all || "no address associated" in all -> "无法解析服务器地址"
-            "timed out" in all || "timeout" in all -> "连接超时"
-            !ssh && ("ssl" in all || "certificate" in all || "handshake" in all) -> "TLS 连接失败（证书无效或协议不匹配）"
-            else -> "${what}失败：" + (messages.firstOrNull { it.isNotBlank() } ?: "未知错误")
+                if (ssh) tr("仓库不存在，或该 Deploy key 不属于这个仓库") else tr("仓库不存在，或令牌无权访问该仓库")
+            "unknownhost" in all || "unable to resolve" in all || "no address associated" in all -> tr("无法解析服务器地址")
+            "timed out" in all || "timeout" in all -> tr("连接超时")
+            !ssh && ("ssl" in all || "certificate" in all || "handshake" in all) -> tr("TLS 连接失败（证书无效或协议不匹配）")
+            else -> tr("{0}失败：", what) + (messages.firstOrNull { it.isNotBlank() } ?: tr("未知错误"))
         }
     }
 }
@@ -193,7 +195,7 @@ object GitHistory {
         update.setRefLogMessage("trim history to $keep commits", false)
         when (update.forceUpdate()) {
             RefUpdate.Result.FORCED, RefUpdate.Result.FAST_FORWARD, RefUpdate.Result.NEW, RefUpdate.Result.NO_CHANGE -> Unit
-            else -> throw IOException("裁剪历史失败")
+            else -> throw IOException(tr("裁剪历史失败"))
         }
         return true
     }
@@ -204,11 +206,11 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
     private val ssh = config.useSsh
     private val url = GitNames.normalizeAddress(config.url, ssh)
         ?: throw GitSyncException(
-            if (ssh) "SSH 地址形如 git@主机:用户/仓库.git 或 ssh://git@主机/用户/仓库.git"
-            else "仓库地址需以 http:// 或 https:// 开头，且不能包含账号密码",
+            if (ssh) tr("SSH 地址形如 git@主机:用户/仓库.git 或 ssh://git@主机/用户/仓库.git")
+            else tr("仓库地址需以 http:// 或 https:// 开头，且不能包含账号密码"),
         )
-    private val branch = GitNames.normalizeBranch(config.branch) ?: throw GitSyncException("分支名不合法")
-    private val privateKey = if (ssh) GitNames.normalizePrivateKey(config.deployKey) ?: throw GitSyncException("私钥格式不对") else null
+    private val branch = GitNames.normalizeBranch(config.branch) ?: throw GitSyncException(tr("分支名不合法"))
+    private val privateKey = if (ssh) GitNames.normalizePrivateKey(config.deployKey) ?: throw GitSyncException(tr("私钥格式不对")) else null
 
     private val creds = if (ssh) null else UsernamePasswordCredentialsProvider(config.username.ifBlank { "git" }, config.token)
     private val transportCallback: TransportConfigCallback? = if (!ssh) null else {
@@ -231,20 +233,20 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
     } catch (e: GitSyncException) {
         throw e
     } catch (e: CryptoException) {
-        throw GitSyncException(e.message ?: "备份文件过大", e)
+        throw GitSyncException(e.message ?: tr("备份文件过大"), e)
     } catch (e: Exception) {
         val messages = generateSequence<Throwable>(e) { it.cause }.mapNotNull { it.message ?: it.javaClass.simpleName }.toList()
         throw GitSyncException(GitNames.describeError(what, messages, ssh), e)
     }
 
     /** 远端是否有提交；指定了分支则要求它存在（空仓库除外，首次推送会创建）。返回远端是否为空仓库。 */
-    private fun checkRemote(): Boolean = guard("连接仓库") {
+    private fun checkRemote(): Boolean = guard(tr("连接仓库")) {
         val heads = Git.lsRemoteRepository()
             .setRemote(url).setHeads(true)
             .setCredentialsProvider(creds).setTransportConfigCallback(transportCallback).setTimeout(TIMEOUT_SEC).call()
         val empty = heads.none { it.name.startsWith("refs/heads/") }
         if (!empty && branch.isNotEmpty() && heads.none { it.name == "refs/heads/$branch" }) {
-            throw GitSyncException("仓库里没有分支 $branch")
+            throw GitSyncException(tr("仓库里没有分支 {0}", branch))
         }
         empty
     }
@@ -265,7 +267,7 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
 
     private fun <T> withWorkDir(block: (File) -> T): T {
         val dir = File(context.cacheDir, "git-sync-" + System.nanoTime())
-        if (!dir.mkdirs()) throw GitSyncException("无法创建临时目录")
+        if (!dir.mkdirs()) throw GitSyncException(tr("无法创建临时目录"))
         try {
             return block(dir)
         } finally {
@@ -277,7 +279,7 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
     fun upload(bytes: ByteArray) {
         val empty = checkRemote()
         withWorkDir { dir ->
-            guard("推送备份") {
+            guard(tr("推送备份")) {
                 cloneInto(dir).use { git ->
                     File(dir, GitNames.FILE_NAME).writeBytes(bytes)
                     git.add().addFilepattern(GitNames.FILE_NAME).call()
@@ -293,13 +295,13 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
                         when (u.status) {
                             RemoteRefUpdate.Status.OK, RemoteRefUpdate.Status.UP_TO_DATE -> Unit
                             RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ->
-                                throw GitSyncException("远端刚有新提交，请重试一次")
+                                throw GitSyncException(tr("远端刚有新提交，请重试一次"))
                             RemoteRefUpdate.Status.REJECTED_OTHER_REASON ->
                                 throw GitSyncException(
-                                    "推送被仓库拒绝：" + (u.message ?: "可能是分支受保护或没有写权限") +
-                                        if (trimmed) "（裁剪旧历史需要强制推送，请换一个允许强推的分支）" else "",
+                                    tr("推送被仓库拒绝：") + (u.message ?: tr("可能是分支受保护或没有写权限")) +
+                                        if (trimmed) tr("（裁剪旧历史需要强制推送，请换一个允许强推的分支）") else "",
                                 )
-                            else -> throw GitSyncException("推送失败：${u.status}" + (u.message?.let { " $it" } ?: ""))
+                            else -> throw GitSyncException(tr("推送失败：{0}", u.status) + (u.message?.let { " $it" } ?: ""))
                         }
                     }
                 }
@@ -309,12 +311,12 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
 
     /** 取出仓库里最新的备份文件内容。 */
     fun download(): ByteArray {
-        if (checkRemote()) throw GitSyncException("仓库还是空的，没有备份")
+        if (checkRemote()) throw GitSyncException(tr("仓库还是空的，没有备份"))
         return withWorkDir { dir ->
-            guard("拉取备份") {
+            guard(tr("拉取备份")) {
                 cloneInto(dir).use { }
                 val file = File(dir, GitNames.FILE_NAME)
-                if (!file.isFile) throw GitSyncException("仓库里没有 ${GitNames.FILE_NAME}")
+                if (!file.isFile) throw GitSyncException(tr("仓库里没有 {0}", GitNames.FILE_NAME))
                 file.inputStream().use { BackupManager.readAll(it) }
             }
         }
@@ -324,7 +326,7 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
     fun history(): List<GitBackup> {
         if (checkRemote()) return emptyList()
         return withWorkDir { dir ->
-            guard("读取历史") {
+            guard(tr("读取历史")) {
                 cloneInto(dir).use { git ->
                     git.log().setMaxCount(GitNames.HISTORY_KEEP).call()
                         .map { GitBackup(it.name, it.commitTime * 1000L) }
@@ -335,16 +337,16 @@ class GitSyncClient(private val context: Context, private val config: GitConfig)
 
     /** 取出某个提交里的备份文件内容；[commit] 来自 [history]。 */
     fun download(commit: String): ByteArray {
-        if (!COMMIT_REGEX.matches(commit)) throw GitSyncException("提交号不合法")
+        if (!COMMIT_REGEX.matches(commit)) throw GitSyncException(tr("提交号不合法"))
         return withWorkDir { dir ->
-            guard("拉取备份") {
+            guard(tr("拉取备份")) {
                 cloneInto(dir).use { git ->
                     val repo = git.repository
-                    val id = repo.resolve(commit) ?: throw GitSyncException("仓库里已没有所选提交，请重新选择")
+                    val id = repo.resolve(commit) ?: throw GitSyncException(tr("仓库里已没有所选提交，请重新选择"))
                     RevWalk(repo).use { walk ->
                         val tree = walk.parseCommit(id).tree
                         val entry = TreeWalk.forPath(repo, GitNames.FILE_NAME, tree)
-                            ?: throw GitSyncException("所选提交里没有 ${GitNames.FILE_NAME}")
+                            ?: throw GitSyncException(tr("所选提交里没有 {0}", GitNames.FILE_NAME))
                         entry.use { repo.open(it.getObjectId(0)).openStream().use { s -> BackupManager.readAll(s) } }
                     }
                 }
@@ -441,7 +443,7 @@ object GitStore {
         if (raw.isEmpty()) "" else SecureStore.read(app, raw, purpose)
 
     private fun seal(app: Context, plain: String, purpose: String): String =
-        if (plain.isEmpty()) "" else SecureStore.write(app, plain, purpose) ?: throw GitSyncException("无法用本机密钥加密保存凭据")
+        if (plain.isEmpty()) "" else SecureStore.write(app, plain, purpose) ?: throw GitSyncException(tr("无法用本机密钥加密保存凭据"))
 
     /** 旧版单配置 → 列表（沿用已加密的凭据串，不必解密）。 */
     private fun migrateLegacy(app: Context) {
@@ -472,7 +474,7 @@ object GitStore {
         val e = prefs(app).edit().putString(K_PROFILES, arr.toString())
         if (active == null) e.remove(K_ACTIVE) else e.putString(K_ACTIVE, active)
         if (arr.length() == 0) e.remove(K_LAST_PUSH)
-        if (!e.commit()) throw GitSyncException("保存失败")
+        if (!e.commit()) throw GitSyncException(tr("保存失败"))
     }
 
     /** 所有已保存的仓库（无法解密的条目会被略过）。 */

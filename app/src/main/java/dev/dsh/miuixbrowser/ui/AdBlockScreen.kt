@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AD_PRESETS
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdPreset
@@ -124,11 +126,11 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
     }
 
     fun subscribe(url: String, name: String = "") {
-        toast("正在下载规则…")
+        toast(tr("正在下载规则…"))
         scope.launch {
             AdBlock.subscribe(url, name)
-                .onSuccess { toast("已订阅 ${it.name}（${it.ruleCount} 条规则）") }
-                .onFailure { toast(it.message ?: "订阅失败") }
+                .onSuccess { toast(tr("已订阅 {0}（{1} 条规则）", it.name, it.ruleCount)) }
+                .onFailure { toast(it.message ?: tr("订阅失败")) }
         }
     }
 
@@ -141,12 +143,12 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                 }.getOrNull()
             }
             if (text == null) {
-                toast("读取文件失败")
+                toast(tr("读取文件失败"))
             } else {
                 val name = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.').orEmpty()
                 AdBlock.importLocal(name, text)
-                    .onSuccess { toast("已导入 ${it.name}（${it.ruleCount} 条规则）") }
-                    .onFailure { toast(it.message ?: "导入失败") }
+                    .onSuccess { toast(tr("已导入 {0}（{1} 条规则）", it.name, it.ruleCount)) }
+                    .onFailure { toast(it.message ?: tr("导入失败")) }
             }
         }
     }
@@ -158,7 +160,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             PageGlassTopBar(
-                title = "去广告",
+                title = tr("去广告"),
                 backdrop = backdrop,
                 glass = glass,
                 scrollBehavior = scrollBehavior,
@@ -177,7 +179,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     ) {
                         Icon(
                             imageVector = MiuixIcons.Glass.More,
-                            contentDescription = "更多",
+                            contentDescription = tr("更多"),
                             modifier = Modifier.size(22.dp),
                             tint = MiuixTheme.colorScheme.onSurface,
                         )
@@ -213,7 +215,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "隐私报告",
+                                    text = tr("隐私报告"),
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -221,9 +223,9 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                                 )
                                 Text(
                                     text = when {
-                                        !adOn -> "未开启"
-                                        AdBlock.compiling -> "加载规则中"
-                                        else -> "保护中 · $activeSubs 个订阅"
+                                        !adOn -> tr("未开启")
+                                        AdBlock.compiling -> tr("加载规则中")
+                                        else -> tr("保护中 · {0} 个订阅", activeSubs)
                                     },
                                     fontSize = 12.sp,
                                     color = if (adOn) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -240,7 +242,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                                     color = MiuixTheme.colorScheme.onSurface,
                                 )
                                 Text(
-                                    text = " 次广告与跟踪请求已被拦截",
+                                    text = tr(" 次广告与跟踪请求已被拦截"),
                                     fontSize = 14.sp,
                                     color = MiuixTheme.colorScheme.onSurface,
                                     modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
@@ -248,16 +250,16 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                             }
                             Text(
                                 text = when {
-                                    !adOn -> "开启后，这里会统计被拦截的广告与跟踪请求数"
-                                    AdBlock.compiling -> "正在加载规则…"
-                                    else -> "已加载 ${AdBlock.loadedRules} 条规则 · 累计统计"
+                                    !adOn -> tr("开启后，这里会统计被拦截的广告与跟踪请求数")
+                                    AdBlock.compiling -> tr("正在加载规则…")
+                                    else -> tr("已加载 {0} 条规则 · 累计统计", AdBlock.loadedRules)
                                 },
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(top = 2.dp),
                             )
                             Text(
-                                text = "统计的是被网络层拦截的请求；隐藏页面广告元素不计入",
+                                text = tr("统计的是被网络层拦截的请求；隐藏页面广告元素不计入"),
                                 fontSize = 11.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(top = 2.dp),
@@ -272,55 +274,55 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                             insideMargin = PaddingValues(0.dp),
                         ) {
                             AppSwitchPreference(
-                                title = "启用去广告",
+                                title = tr("启用去广告"),
                                 summary = when {
-                                    !AdBlock.enabled -> "已关闭"
-                                    AdBlock.compiling -> "正在加载规则…"
-                                    else -> "已加载 ${AdBlock.loadedRules} 条规则 · 累计拦截 $blockedTotal 次"
+                                    !AdBlock.enabled -> tr("已关闭")
+                                    AdBlock.compiling -> tr("正在加载规则…")
+                                    else -> tr("已加载 {0} 条规则 · 累计拦截 {1} 次", AdBlock.loadedRules, blockedTotal)
                                 },
                                 checked = AdBlock.enabled,
                                 onCheckedChange = { AdBlock.updateEnabled(it) },
                             )
                             AppSwitchPreference(
-                                title = "隐藏页面广告元素",
-                                summary = "按规则隐藏页面里的广告位，对新打开的页面生效",
+                                title = tr("隐藏页面广告元素"),
+                                summary = tr("按规则隐藏页面里的广告位，对新打开的页面生效"),
                                 checked = AdBlock.cosmetic,
                                 onCheckedChange = { AdBlock.updateCosmetic(it) },
                                 enabled = AdBlock.enabled,
                             )
                             AppSwitchPreference(
-                                title = "拦截跟踪与统计",
-                                summary = "拦截第三方统计 / 追踪域名的请求",
+                                title = tr("拦截跟踪与统计"),
+                                summary = tr("拦截第三方统计 / 追踪域名的请求"),
                                 checked = settings.blockTrackingScripts,
                                 onCheckedChange = { settings.updateBlockTrackingScripts(it) },
                                 enabled = AdBlock.enabled,
                             )
                             AppDropdownPreference(
                                 backdrop = if (glass) backdrop else null,
-                                title = "自动更新订阅",
-                                items = listOf("手动", "每天", "每 3 天", "每周"),
+                                title = tr("自动更新订阅"),
+                                items = listOf(tr("手动"), tr("每天"), tr("每 3 天"), tr("每周")),
                                 selectedIndex = AdBlock.autoUpdate.coerceIn(0, 3),
                                 onSelectedIndexChange = { AdBlock.updateAutoUpdate(it) },
                             )
                         }
                     }
 
-                    item { SmallTitle(text = "启用范围") }
+                    item { SmallTitle(text = tr("启用范围")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
                             AppSwitchPreference(
-                                title = "在无痕浏览中启用",
-                                summary = "关闭后无痕标签不拦截请求、不隐藏广告元素",
+                                title = tr("在无痕浏览中启用"),
+                                summary = tr("关闭后无痕标签不拦截请求、不隐藏广告元素"),
                                 checked = settings.adblockInIncognito,
                                 onCheckedChange = { settings.updateAdblockInIncognito(it) },
                                 enabled = AdBlock.enabled,
                             )
                             AppSwitchPreference(
-                                title = "在轻应用 / 桌面快捷方式中启用",
-                                summary = "关闭后从桌面图标打开的页面不去广告，重新打开生效",
+                                title = tr("在轻应用 / 桌面快捷方式中启用"),
+                                summary = tr("关闭后从桌面图标打开的页面不去广告，重新打开生效"),
                                 checked = settings.adblockInWebApp,
                                 onCheckedChange = { settings.updateAdblockInWebApp(it) },
                                 enabled = AdBlock.enabled,
@@ -328,11 +330,11 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                         }
                     }
 
-                    item { SmallTitle(text = "订阅源") }
+                    item { SmallTitle(text = tr("订阅源")) }
                     if (subs.isEmpty()) {
                         item {
                             Text(
-                                text = "还没有订阅。点右上角「添加」导入订阅链接或本地规则文件，也可以直接选下面的推荐订阅。",
+                                text = tr("还没有订阅。点右上角「添加」导入订阅链接或本地规则文件，也可以直接选下面的推荐订阅。"),
                                 fontSize = 13.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
@@ -347,13 +349,13 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                             onToggle = { AdBlock.setSubEnabled(sub.id, it) },
                             onRefresh = {
                                 if (sub.url.isBlank()) {
-                                    toast("本地导入的规则没有更新地址")
+                                    toast(tr("本地导入的规则没有更新地址"))
                                 } else if (sub.id !in busyIds) {
                                     busyIds = busyIds + sub.id
                                     scope.launch {
                                         AdBlock.refresh(sub.id)
-                                            .onSuccess { toast("已更新（$it 条规则）") }
-                                            .onFailure { toast(it.message ?: "更新失败") }
+                                            .onSuccess { toast(tr("已更新（{0} 条规则）", it)) }
+                                            .onFailure { toast(it.message ?: tr("更新失败")) }
                                         busyIds = busyIds - sub.id
                                     }
                                 }
@@ -363,34 +365,34 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     }
 
                     if (presets.isNotEmpty()) {
-                        item { SmallTitle(text = "推荐订阅") }
+                        item { SmallTitle(text = tr("推荐订阅")) }
                         items(presets.size) { index ->
                             val p = presets[index]
                             PresetCard(p) { subscribe(p.url, p.name) }
                         }
                     }
 
-                    item { SmallTitle(text = "规则管理") }
+                    item { SmallTitle(text = tr("规则管理")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
                             ArrowPreference(
-                                title = "自定义规则",
+                                title = tr("自定义规则"),
                                 summary = if (AdBlock.customLines == 0) {
-                                    "手写规则；长按网页元素「标记为广告」也会记在这里"
+                                    tr("手写规则；长按网页元素「标记为广告」也会记在这里")
                                 } else {
-                                    "${AdBlock.customLines} 条规则"
+                                    tr("{0} 条规则", AdBlock.customLines)
                                 },
                                 onClick = { showCustom = true },
                             )
                             ArrowPreference(
-                                title = "站点白名单",
+                                title = tr("站点白名单"),
                                 summary = if (AdBlock.allowHosts.isEmpty()) {
-                                    "这些站点不执行去广告"
+                                    tr("这些站点不执行去广告")
                                 } else {
-                                    "${AdBlock.allowHosts.size} 个站点不执行去广告"
+                                    tr("{0} 个站点不执行去广告", AdBlock.allowHosts.size)
                                 },
                                 onClick = { showAllow = true },
                             )
@@ -398,8 +400,8 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     }
                     item {
                         Text(
-                            text = "规则来自第三方订阅源。网络拦截只作用于页面的子资源请求，不影响页面本身的打开；" +
-                                "不支持正则规则、重定向 / 改写类选项和扩展选择器，遇到会自动跳过。",
+                            text = tr("规则来自第三方订阅源。网络拦截只作用于页面的子资源请求，不影响页面本身的打开；") +
+                                tr("不支持正则规则、重定向 / 改写类选项和扩展选择器，遇到会自动跳过。"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
@@ -442,14 +444,14 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
         val target = deleting
         AppGlassDialog(
             show = target != null,
-            title = "删除订阅",
+            title = tr("删除订阅"),
             summary = target?.name,
             backdrop = if (glass) backdrop else null,
             onDismissRequest = { deleting = null },
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AppDialogButton(onClick = { deleting = null }, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = {
@@ -459,7 +461,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Destructive,
                 ) {
-                    Text(text = "删除", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("删除"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -471,7 +473,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
         backdrop = if (glass) backdrop else null,
     ) {
         GlassPopupItem(
-            text = "添加订阅",
+            text = tr("添加订阅"),
             onClick = {
                 showMore = false
                 showAdd = true
@@ -479,18 +481,18 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
             icon = MiuixIcons.Glass.Add,
         )
         GlassPopupItem(
-            text = if (refreshingAll) "更新中…" else "全部更新",
+            text = if (refreshingAll) tr("更新中…") else tr("全部更新"),
             enabled = !refreshingAll,
             onClick = {
                 showMore = false
                 if (AdBlock.subs.none { it.enabled && it.url.isNotBlank() }) {
-                    toast("没有可更新的订阅")
+                    toast(tr("没有可更新的订阅"))
                 } else {
                     refreshingAll = true
                     scope.launch {
                         val (ok, total) = AdBlock.refreshAll()
                         refreshingAll = false
-                        toast("已更新 $ok/$total 个订阅")
+                        toast(tr("已更新 {0}/{1} 个订阅", ok, total))
                     }
                 }
             },
@@ -541,10 +543,10 @@ private fun AdSubCard(
                 Text(sub.name, fontSize = 15.sp, color = MiuixTheme.colorScheme.onSurface, maxLines = 1)
                 Spacer(Modifier.height(2.dp))
                 val line = when {
-                    refreshing -> "正在更新…"
-                    sub.error.isNotBlank() -> "更新失败：" + sub.error
-                    sub.updatedAt == 0L -> "尚未下载，点右侧刷新"
-                    else -> "${sub.ruleCount} 条规则 · 更新于 " + formatTime(sub.updatedAt)
+                    refreshing -> tr("正在更新…")
+                    sub.error.isNotBlank() -> tr("更新失败：") + sub.error
+                    sub.updatedAt == 0L -> tr("尚未下载，点右侧刷新")
+                    else -> tr("{0} 条规则 · 更新于 ", sub.ruleCount) + formatTime(sub.updatedAt)
                 }
                 Text(
                     text = line,
@@ -557,7 +559,7 @@ private fun AdSubCard(
                     maxLines = 2,
                 )
                 Text(
-                    text = sub.url.ifBlank { "本地导入" },
+                    text = sub.url.ifBlank { tr("本地导入") },
                     fontSize = 11.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,
@@ -565,10 +567,10 @@ private fun AdSubCard(
             }
             AppSwitch(checked = sub.enabled, onCheckedChange = onToggle)
             IconButton(onClick = onRefresh) {
-                Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = "更新订阅")
+                Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = tr("更新订阅"))
             }
             IconButton(onClick = onDelete) {
-                Icon(imageVector = MiuixIcons.Glass.Delete, contentDescription = "删除")
+                Icon(imageVector = MiuixIcons.Glass.Delete, contentDescription = tr("删除"))
             }
         }
     }
@@ -595,7 +597,7 @@ private fun PresetCard(preset: AdPreset, onAdd: () -> Unit) {
             }
             Spacer(Modifier.width(8.dp))
             AppTextButton(
-                text = "订阅",
+                text = tr("订阅"),
                 onClick = onAdd,
                 primary = true,
                 inPage = true,
@@ -616,8 +618,8 @@ private fun AddSubDialog(
     var url by remember(show) { mutableStateOf("") }
     AppGlassDialog(
         show = show,
-        title = "添加订阅",
-        summary = "支持 Adblock Plus / uBlock / AdGuard 规则与 hosts 格式",
+        title = tr("添加订阅"),
+        summary = tr("支持 Adblock Plus / uBlock / AdGuard 规则与 hosts 格式"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -626,26 +628,26 @@ private fun AddSubDialog(
                 value = url,
                 onValueChange = { url = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "订阅地址（http / https）",
+                label = tr("订阅地址（http / https）"),
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
             AppTextButton(
-                text = "从本地文件导入",
+                text = tr("从本地文件导入"),
                 onClick = onPickFile,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { if (url.isNotBlank()) onSubscribe(url.trim()) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "订阅", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("订阅"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -662,8 +664,8 @@ private fun CustomRulesDialog(
     var text by remember(show) { mutableStateOf(if (show) AdBlock.readCustom() else "") }
     AppGlassDialog(
         show = show,
-        title = "自定义规则",
-        summary = "每行一条。例：||ads.example.com^ 或 example.com##.banner",
+        title = tr("自定义规则"),
+        summary = tr("每行一条。例：||ads.example.com^ 或 example.com##.banner"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -672,20 +674,20 @@ private fun CustomRulesDialog(
                 value = text,
                 onValueChange = { text = it },
                 modifier = Modifier.fillMaxWidth().height(220.dp),
-                label = "规则",
+                label = tr("规则"),
                 maxLines = 12,
             )
             Spacer(Modifier.height(14.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { onSave(text) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "保存", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("保存"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -697,9 +699,9 @@ private fun AllowListDialog(show: Boolean, backdrop: Backdrop?, onDismiss: () ->
     HostListDialog(
         show = show,
         backdrop = backdrop,
-        title = "站点白名单",
-        summary = "白名单站点（含子域名）不拦截请求、不隐藏元素",
-        emptyText = "还没有白名单站点",
+        title = tr("站点白名单"),
+        summary = tr("白名单站点（含子域名）不拦截请求、不隐藏元素"),
+        emptyText = tr("还没有白名单站点"),
         hosts = AdBlock.allowHosts,
         onAdd = { AdBlock.allowSite(it) },
         onRemove = { AdBlock.disallowSite(it) },
@@ -735,19 +737,19 @@ internal fun HostListDialog(
                     value = host,
                     onValueChange = { host = it },
                     modifier = Modifier.weight(1f),
-                    label = "域名，如 example.com",
+                    label = tr("域名，如 example.com"),
                     singleLine = true,
                 )
                 Spacer(Modifier.width(8.dp))
                 AppTextButton(
-                    text = "添加",
+                    text = tr("添加"),
                     onClick = {
                         val input = host.trim().lowercase().removePrefix("https://").removePrefix("http://")
                             .substringBefore('/')
                         if (onAdd(input)) {
                             host = ""
                         } else {
-                            Toast.makeText(context, "域名格式不正确", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, tr("域名格式不正确"), Toast.LENGTH_SHORT).show()
                         }
                     },
                     primary = true,
@@ -770,14 +772,14 @@ internal fun HostListDialog(
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(h, fontSize = 15.sp, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
                         IconButton(onClick = { onRemove(h) }) {
-                            Icon(imageVector = MiuixIcons.Glass.Delete, contentDescription = "移除")
+                            Icon(imageVector = MiuixIcons.Glass.Delete, contentDescription = tr("移除"))
                         }
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
             AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "完成", style = MiuixTheme.textStyles.button)
+                Text(text = tr("完成"), style = MiuixTheme.textStyles.button)
             }
         }
     }

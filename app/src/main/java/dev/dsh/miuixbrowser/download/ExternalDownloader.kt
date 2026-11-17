@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.download
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -39,7 +41,7 @@ object ExternalDownloader {
         ExternalApp("idm.internet.download.manager", "1DM"),
         ExternalApp("org.freedownloadmanager.fdm", "Free Download Manager"),
         ExternalApp("com.gopeed", "Gopeed"),
-        ExternalApp("com.xunlei.downloadprovider", "迅雷"),
+        ExternalApp("com.xunlei.downloadprovider", tr("迅雷")),
     )
 
     /** 设备上已安装的已知下载器 */
@@ -54,9 +56,9 @@ object ExternalDownloader {
 
     /** 目标显示名，用于提示 */
     fun labelOf(value: String): String = when (value) {
-        "" -> "内置下载器"
-        SYSTEM -> "系统下载器"
-        CHOOSER -> "下载器"
+        "" -> tr("内置下载器")
+        SYSTEM -> tr("系统下载器")
+        CHOOSER -> tr("下载器")
         else -> KNOWN.firstOrNull { it.pkg == value }?.label ?: value
     }
 
@@ -108,7 +110,7 @@ object ExternalDownloader {
         return try {
             if (t == CHOOSER) {
                 context.startActivity(
-                    Intent.createChooser(intent, "选择下载器").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    Intent.createChooser(intent, tr("选择下载器")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
             } else {
                 intent.setPackage(t)

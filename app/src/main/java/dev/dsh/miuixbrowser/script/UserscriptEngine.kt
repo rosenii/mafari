@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.script
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -243,7 +245,7 @@ object UserscriptEngine {
 
         val requireCode = meta.requires.joinToString("\n;\n") { url ->
             ScriptResources.text(context, url)
-                ?: "console.warn(" + JSONObject.quote("[Mafari] @require 未能加载: $url") + ");"
+                ?: "console.warn(" + JSONObject.quote(tr("[Mafari] @require 未能加载: {0}", url)) + ");"
         }
         val code = buildString {
             append(requireCode)

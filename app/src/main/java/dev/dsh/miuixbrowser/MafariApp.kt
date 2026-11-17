@@ -15,6 +15,7 @@ class MafariApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        dev.dsh.miuixbrowser.i18n.I18n.init(this)
         container = AppContainer(this)
         if (Application.getProcessName() == packageName) {
             StartupCoordinator.onProcessCreate(this)

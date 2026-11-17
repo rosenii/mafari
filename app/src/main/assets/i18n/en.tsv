@@ -1,0 +1,1980 @@
+# zh-CN source key <TAB> English. \n=newline, \t=tab, \\=backslash
+验证身份	Verify identity
+验证后才会填入账号和密码	Verify to fill in your username and password
+无法解密这条密码	Can't decrypt this password
+脚本通知	Script notifications
+脚本通知（静音）	Script notifications (silent)
+（无用户名）	(No username)
+打开链接	Open link
+扫码组件初始化失败	Failed to initialize the scanner
+未识别到二维码	No QR code found
+识别失败	Recognition failed
+无法读取这张图片	Can't read this image
+关闭	Close
+扫一扫	Scan
+将二维码 / 条码放入框内	Place the QR code / barcode inside the frame
+相册	Gallery
+关闭手电筒	Turn off flashlight
+手电筒	Flashlight
+扫码需要使用相机	Scanning requires camera access
+你也可以点下方「相册」，识别相册里的二维码图片。	You can also tap "Gallery" below to scan a QR code image from your photos.
+去系统设置开启相机权限	Open system settings to allow camera access
+授予相机权限	Grant camera permission
+相机启动失败	Failed to start the camera
+发送到设备	Send to device
+正在读取设备…	Loading devices…
+请先在 Mafari 里登录 Firefox 帐户	Please sign in to your Firefox account in Mafari first
+没有其他设备：请在其他设备上登录同一个 Firefox 帐户	No other devices: sign in to the same Firefox account on another device
+已发送到 {0}	Sent to {0}
+发送失败	Failed to send
+取消	Cancel
+已开始下载，可在 Mafari「下载」中查看	Download started. You can check it in Mafari "Downloads"
+这类下载请在 Mafari 浏览器中打开该网站再试	For this kind of download, open the site in the Mafari browser and try again
+未安装对应应用	The required app is not installed
+AdGuard 中文	AdGuard Chinese
+国内网站广告，首选	Ads on Chinese websites, recommended
+EasyList 的中文补充规则	Supplementary Chinese rules for EasyList
+国际通用广告规则	General international ad rules
+AdGuard 移动广告	AdGuard Mobile Ads
+针对移动端网页的广告	Ads on mobile web pages
+国内广告域名合集	Collection of Chinese ad domains
+请输入 http(s) 开头的订阅地址	Enter a subscription URL starting with http(s)
+已经订阅过这个地址	This URL is already subscribed
+这不是有效的去广告规则列表	This is not a valid ad-block list
+列表里没有可用规则	The list contains no usable rules
+本地规则	Local rules
+订阅不存在	Subscription not found
+本地导入的规则没有更新地址	Locally imported rules have no update URL
+更新失败	Update failed
+保存失败	Save failed
+不是有效的去广告规则列表	Not a valid ad-block list
+写入规则文件失败	Failed to write the rules file
+口令不能为空	Password can't be empty
+口令错误，或备份文件已损坏 / 被篡改	Wrong password, or the backup file is corrupted / tampered with
+备份文件被截断	The backup file is truncated
+备份文件尾部有多余数据	The backup file has extra trailing data
+备份文件格式错误或被截断	The backup file is malformed or truncated
+不是 Mafari 备份文件	Not a Mafari backup file
+不支持的备份版本：{0}	Unsupported backup version: {0}
+不支持的口令派生算法	Unsupported password derivation algorithm
+口令派生参数超出允许范围	Password derivation parameters are out of range
+备份单元数异常	Abnormal number of backup units
+备份公钥长度与算法套件不符	Backup public key length doesn't match the cipher suite
+备份私钥长度与算法套件不符	Backup private key length doesn't match the cipher suite
+书签	Bookmarks
+收藏与文件夹	Favorites and folders
+历史记录	History
+浏览历史	Browsing history
+标签列表	Tab list
+已打开的普通标签页，不含无痕	Open regular tabs, excluding private ones
+密码	Passwords
+已保存的账号、密码和备注	Saved accounts, passwords and notes
+应用设置	App settings
+设置、搜索引擎、代理、菜单等	Settings, search engines, proxy, menus, etc.
+用户脚本	User scripts
+油猴脚本及其开关	Userscripts and their switches
+脚本数据	Script data
+脚本用 GM_setValue 保存的值	Values saved by scripts with GM_setValue
+去广告规则	Ad-block rules
+订阅、开关与自定义规则	Subscriptions, switches and custom rules
+当前内核的登录状态，仅持久 Cookie	Sign-in state of the current engine, persistent cookies only
+Firefox 帐户同步	Firefox Account Sync
+帐户身份、登录令牌与同步设置，恢复后无需重新登录	Account identity, sign-in tokens and sync settings; no need to sign in again after restoring
+加密数据库不可用，无法备份密码	The encrypted database is unavailable; can't back up passwords
+无法解密已保存的密码（密钥已失效或数据损坏），未生成备份	Can't decrypt saved passwords (key invalid or data corrupted); no backup created
+文件过大，不像是 Mafari 备份	File too large; doesn't look like a Mafari backup
+备份缺少元数据，可能不是 Mafari 备份	The backup is missing metadata; it may not be a Mafari backup
+备份中的标签列表数据已损坏	Tab list data in the backup is corrupted
+备份中的密码数据已损坏	Password data in the backup is corrupted
+备份里没有可恢复的数据	The backup contains nothing to restore
+套件 {0}	Suite {0}
+备份中的 {0} 数据已损坏	{0} data in the backup is corrupted
+备份中的 {0} 数据格式错误	{0} data in the backup is malformed
+无法用本机密钥加密收藏 / 历史，恢复已取消	Can't encrypt favorites / history with the device key; restore cancelled
+备份中的 {0} 含有未知类型的数据	{0} in the backup contains data of an unknown type
+没有选择要恢复的内容	Nothing selected to restore
+加密数据库不可用，无法恢复密码	The encrypted database is unavailable; can't restore passwords
+写入 {0} 失败	Failed to write {0}
+没有选择要备份的内容	Nothing selected to back up
+所选内容里目前没有数据，未生成备份	The selected items currently contain no data; no backup created
+手动	Manual
+每天	Daily
+每 3 天	Every 3 days
+每周	Weekly
+无法用本机密钥加密保存口令	Can't encrypt and store the password with the device key
+账户	Account
+登录	Log in
+搜索	Search
+新标签页	New tab
+Gecko 标签没有 WebView，请使用与内核无关的接口	A Gecko tab has no WebView; use the engine-independent interface
+Gecko 内核启动失败	Failed to start the Gecko engine
+存储空间不足，无法读取该文件	Not enough storage space to read this file
+文件读取不完整或写入失败	File read incomplete or write failed
+无法读取 blob：{0}	Can't read blob: {0}
+无法创建缓存文件	Can't create cache file
+指纹保护：{0} 未能在加载前注册保护，已停止加载	Fingerprint protection: {0} couldn't be registered before loading; loading stopped
+收到保存请求: {0}	Save request received: {0}
+获取你的位置	get your location
+阅读模式尚未就绪，请稍后再试	Reader mode isn't ready yet, please try again later
+无法提取这个页面的正文	Can't extract the text of this page
+跳转到 {0}	redirect to {0}
+打开其他应用	open another app
+摄像头	Camera
+麦克风	Microphone
+使用{0}	use the {0}
+关闭对它的指纹保护	turn off fingerprint protection for it
+已豁免 {0}，刷新后生效	{0} exempted; takes effect after refresh
+无法打开该链接	Can't open this link
+未找到可打开的应用	No app found to open it
+已拦截网页打开其他应用	Blocked a page from opening another app
+已拦截网页重定向	Blocked a page redirect
+Gecko 内核启动失败，已改用 WebView	Failed to start Gecko; switched to WebView
+最多同时打开 {0} 个标签页	Up to {0} tabs can be open at once
+新建标签	New tab
+无痕浏览	Private browsing
+桌面版	Desktop site
+页内查找	Find in page
+翻译	Translate
+收藏	Favorite
+分享	Share
+刷新	Refresh
+复制链接	Copy link
+外部打开	Open externally
+添加到桌面	Add to home screen
+设置	Settings
+主页	Home
+下载	Downloads
+拓展	Extensions
+脚本	Scripts
+历史	History
+网络请求	Network requests
+关闭标签	Close tab
+Safari / iCloud 钥匙串	Safari / iCloud Keychain
+通用 CSV	Generic CSV
+文件是空的	The file is empty
+无法识别表头：需要至少包含「网址」和「密码」两列	Can't recognize the header: it must include at least "URL" and "password" columns
+缺少「网址」或「密码」列	The "URL" or "password" column is missing
+当前页面无法添加到桌面	This page can't be added to the home screen
+请先开启「桌面快捷方式」权限，然后回来再点一次「添加到桌面」	Please enable the "Home screen shortcuts" permission first, then come back and tap "Add to home screen" again
+请在系统设置里为 Mafari 开启「桌面快捷方式」权限后再试	Enable the "Home screen shortcuts" permission for Mafari in system settings and try again
+当前桌面不支持添加快捷方式，可在系统设置开启 Mafari 的「桌面快捷方式」权限，或更换桌面	This launcher doesn't support adding shortcuts. Enable the "Home screen shortcuts" permission for Mafari in system settings, or switch launchers
+正在添加到桌面，若弹出确认框请选择「添加」	Adding to home screen. If a confirmation appears, choose "Add"
+添加失败，请检查「桌面快捷方式」权限	Failed to add; check the "Home screen shortcuts" permission
+正在选择下载线路…	Choosing a download route…
+已开始下载，完成后可在下载页安装	Download started; you can install it from the Downloads page when finished
+发现新版本	New version available
+忽略此版本	Skip this version
+查看更新	View update
+未设置锁屏，已跳过验证	No screen lock set; verification skipped
+暂时无法使用系统验证	System verification is temporarily unavailable
+验证失败：	Verification failed: 
+未知错误	Unknown error
+密钥与算法套件不匹配	Key doesn't match the cipher suite
+X25519 + ML-KEM-768 混合 KEM（后量子）；两个共享密钥拼接后派生，任一算法被攻破仍安全	X25519 + ML-KEM-768 hybrid KEM (post-quantum); the two shared secrets are concatenated and then derived, so it stays secure if either algorithm is broken
+X25519 + ML-KEM-1024 混合 KEM（后量子，更高安全等级）；两个共享密钥拼接后派生	X25519 + ML-KEM-1024 hybrid KEM (post-quantum, higher security level); the two shared secrets are concatenated and then derived
+不支持的算法套件：{0}	Unsupported cipher suite: {0}
+信封过短	Envelope too short
+不是 Mafari 加密信封	Not a Mafari encryption envelope
+不支持的信封版本：{0}	Unsupported envelope version: {0}
+不支持的信封标志位	Unsupported envelope flags
+加密失败	Encryption failed
+解密失败：数据被篡改、上下文不符或密钥不对	Decryption failed: data tampered with, context mismatch, or wrong key
+信封所用密钥与当前密钥不匹配	The key used by the envelope doesn't match the current key
+不是加密字符串	Not an encrypted string
+文件过大（上限 {0} MiB）	File too large (limit {0} MiB)
+文件过大	File too large
+Base64 无效	Invalid Base64
+写入失败：{0}	Write failed: {0}
+Keystore 里的包裹密钥已丢失	The wrapping key in Keystore is missing
+私钥长度异常	Abnormal private key length
+包裹密钥无法使用	The wrapping key can't be used
+包裹密钥已失效	The wrapping key is no longer valid
+私钥解包失败（密钥文件损坏或 Keystore 密钥已变）	Failed to unwrap the private key (key file corrupted or Keystore key changed)
+密钥文件损坏	Key file corrupted
+无法写入密钥文件	Can't write the key file
+加密保护	Encryption protection
+加密保护中	Protected by encryption
+本页数据已使用加密套件保护	Data on this page is protected by a cipher suite
+加密套件	Cipher suite
+（后量子混合）	 (post-quantum hybrid)
+密钥派生	Key derivation
+数据加密	Data encryption
+密钥保护	Key protection
+本页	This page
+知道了	Got it
+无法保存数据库密钥	Can't save the database key
+写入数据库密钥失败	Failed to write the database key
+百度	Baidu
+必应	Bing
+跟随系统	Follow system
+桌面 Chrome	Desktop Chrome
+未命名	Untitled
+数据库密钥格式不对	Invalid database key format
+还原备份时长度不一致	Length mismatch while restoring the backup
+还原备份失败	Failed to restore the backup
+无法切换日志模式：{0}	Can't switch journal mode: {0}
+备份长度不一致	Backup length mismatch
+备份改名失败	Failed to rename the backup
+迁移后行数不一致：{0} -> {1}	Row count mismatch after migration: {0} -> {1}
+迁移后完整性检查未通过	Integrity check failed after migration
+迁移失败	Migration failed
+Migrations.STEPS 版本号必须连续递增	Migrations.STEPS version numbers must increase consecutively
+位置	Location
+定位	Location
+加密库不可用，无法恢复标签列表	The encrypted database is unavailable; can't restore the tab list
+恢复标签列表失败：{0}	Failed to restore the tab list: {0}
+准备下载	Preparing download
+文件下载进度	File download progress
+下载结果	Download results
+下载完成 / 失败的提醒	Reminders for completed / failed downloads
+下载中 {0}%	Downloading {0}%
+下载中	Downloading
+正在下载 {0}	Downloading {0}
+已暂停	Paused
+继续	Resume
+暂停	Pause
+正在下载	Downloading
+下载完成	Download complete
+下载失败	Download failed
+已交给 {0} 下载	Handed over to {0} for download
+无法调用第三方下载器，已改用内置下载器	Can't call the third-party downloader; using the built-in downloader instead
+文件	File
+下载完成：{0}	Download complete: {0}
+文件反复变化	The file keeps changing
+下载失败：{0}	Download failed: {0}
+不支持的重定向：{0}	Unsupported redirect: {0}
+重定向次数过多	Too many redirects
+远端文件已更新（ETag 变化），重新下载	The remote file was updated (ETag changed); downloading again
+远端文件已更新（修改时间变化），重新下载	The remote file was updated (modified time changed); downloading again
+临时文件已丢失，重新下载	The temporary file is missing; downloading again
+分段进度丢失，重新下载	Segment progress lost; downloading again
+续传位置越界，重新下载	Resume position out of range; downloading again
+续传位置不匹配，重新下载	Resume position mismatch; downloading again
+远端文件长度变化，重新下载	The remote file length changed; downloading again
+连接中断（{0} / {1}），可继续下载	Connection interrupted ({0} / {1}); you can resume the download
+分段进度异常，重新下载	Segment progress abnormal; downloading again
+分段数据不完整（{0} / {1}）	Segment data incomplete ({0} / {1})
+远端文件已更新，重新下载	The remote file was updated; downloading again
+分段响应与记录不一致，重新下载	Segment response doesn't match the record; downloading again
+分段 {0} 数据不完整	Segment {0} data incomplete
+无法创建文件	Can't create the file
+无法写入文件	Can't write the file
+下载配置	Download settings
+内置下载器	Built-in downloader
+系统下载器	System downloader
+每次询问	Ask every time
+下载器	Downloader
+选择系统或第三方下载器后，网页下载确认后直接交给它（应用自更新仍用内置）	After choosing a system or third-party downloader, web downloads are handed over to it once confirmed (app self-updates still use the built-in one)
+多线程下载	Multi-thread download
+大文件分段并行下载	Download large files in parallel segments
+线程数	Threads
+多线程阈值	Multi-thread threshold
+超过该阈值才使用多线程下载	Multi-thread download is used only above this size
+还没有下载任务。网页里的下载会先弹确认框，再保存到 /sdcard/Download/mafari。	No downloads yet. Downloads from web pages show a confirmation first, then save to /sdcard/Download/mafari.
+下载文件	Downloaded files
+全部清除	Clear all
+ · 已保存	 · Saved
+已暂停 · {0}	Paused · {0}
+失败 · {0}	Failed · {0}
+重试	Retry
+删除	Delete
+删除文件	Delete file
+\n\n将取消下载并清除未完成的临时数据	\n\nThe download will be cancelled and incomplete temporary data cleared
+清空下载记录	Clear download history
+将清空全部 {0} 条下载记录，进行中的任务会被取消	All {0} download records will be cleared, and running tasks will be cancelled
+清空	Clear
+同时删除本地文件	Also delete local files
+更早	Earlier
+今天	Today
+昨天	Yesterday
+{0}月{1}日	{0}/{1}
+{0}年{1}月{2}日	{0}/{1}/{2}
+迅雷	Xunlei
+选择下载器	Choose a downloader
+GeckoView 没有 setAutofillEnabled	GeckoView has no setAutofillEnabled
+已开启	Enabled
+开启失败 {0}	Failed to enable {0}
+{0}；session 委托：	{0}; session delegate: 
+有	Yes
+无	No
+未知	Unknown
+系统不支持自动填充	The system doesn't support autofill
+本应用的自动填充服务未启用（设置 → 密码和账号 → 自动填充服务 → Mafari 密码）；当前可能由其它服务负责	This app's autofill service is not enabled (Settings → Passwords & accounts → Autofill service → Mafari Passwords); another service may be handling it
+系统自动填充已关闭	System autofill is turned off
+本应用的自动填充服务已启用	This app's autofill service is enabled
+Gecko 版本	Gecko version
+构建 ID	Build ID
+渲染后端	Rendering backend
+SurfaceView（GeckoView 默认）	SurfaceView (GeckoView default)
+屏幕刷新率	Screen refresh rate
+当前 {0} Hz / 最高 {1} Hz	Current {0} Hz / max {1} Hz
+运行时	Runtime
+已启动	Started
+未启动（打开 Gecko 标签后启动）	Not started (starts after opening a Gecko tab)
+进程隔离	Process isolation
+运行中	Running
+运行日志	Run log
+自动填充	Autofill
+默认字体	Default font
+未开启	Off
+；强力抗指纹已开启，Gecko 只会向网页暴露基础字体	; Strong anti-fingerprinting is on, so Gecko exposes only basic fonts to web pages
+加载失败（错误 {0}/{1}）	Load failed (error {0}/{1})
+向你发送通知	send you notifications
+使用持久存储	use persistent storage
+播放受 DRM 控制的内容	play DRM-controlled content
+使用 {0} 的跨站 Cookie	use cross-site cookies from {0}
+使用跨站 Cookie	use cross-site cookies
+访问你设备上的其他应用和服务	access other apps and services on your device
+访问你本地网络中的设备	access devices on your local network
+无法读取下载内容	Can't read the download content
+安装超时，请重试	Installation timed out, please try again
+已取消安装	Installation cancelled
+安装失败	Installation failed
+安装没有完成：内核未返回结果（详见 diag.txt）	Installation didn't finish: the engine returned no result (see diag.txt)
+当前 GeckoView 版本不支持安装拓展	The current GeckoView version doesn't support installing extensions
+拓展签名无效	Invalid extension signature
+此拓展与当前内核不兼容	This extension is incompatible with the current engine
+下载失败，检查网络或链接	Download failed; check your network or the link
+不是有效的拓展文件	Not a valid extension file
+读取文件失败	Failed to read the file
+查询 Floccus 最新版本失败	Failed to query the latest Floccus version
+启用失败	Failed to enable
+停用失败	Failed to disable
+卸载失败	Failed to uninstall
+检查更新失败，检查网络	Update check failed; check your network
+当前内核不支持	Not supported by the current engine
+设置失败	Failed to apply the setting
+访问所有网站的数据	Access data on all websites
+查看标签页的标题和地址	See the titles and addresses of tabs
+访问当前标签页	Access the current tab
+读写 Cookie	Read and write cookies
+监控网络请求	Monitor network requests
+拦截 / 修改网络请求	Block / modify network requests
+按规则拦截网络请求	Block network requests by rules
+保存拓展自己的数据	Store the extension's own data
+无限存储	Unlimited storage
+管理下载	Manage downloads
+读取浏览历史	Read browsing history
+读写书签	Read and write bookmarks
+读取剪贴板	Read the clipboard
+写入剪贴板	Write to the clipboard
+显示通知	Show notifications
+与本机程序通信	Communicate with native programs
+获取位置	Get your location
+添加右键菜单	Add context menu items
+控制代理设置	Control proxy settings
+修改隐私设置	Change privacy settings
+管理其他拓展	Manage other extensions
+向网页注入脚本	Inject scripts into web pages
+监控页面跳转	Monitor page navigation
+技术与交互数据	Technical and interaction data
+位置信息	Location information
+个人通信内容	Personal communications
+健康信息	Health information
+财务和支付信息	Financial and payment information
+身份验证信息	Authentication information
+个人身份信息	Personally identifying information
+搜索词	Search terms
+网站活动	Website activity
+网站内容	Website content
+浏览活动	Browsing activity
+书签信息	Bookmarks information
+访问 {0}	Access {0}
+以及另外 {0} 个网站	and {0} more websites
+当前 GeckoView 版本的安装确认接口不兼容（详见 diag.txt）	The install-confirmation interface of this GeckoView version is incompatible (see diag.txt)
+此拓展	This extension
+收集	Collects 
+更新「{0}」？	Update "{0}"?
+「{0}」请求更多权限	"{0}" requests more permissions
+添加「{0}」？	Add "{0}"?
+此拓展不需要额外权限。	This extension needs no additional permissions.
+此拓展将可以：\n	This extension will be able to:\n
+添加	Add
+允许	Allow
+商店里找不到这个拓展	Store: this extension can't be found
+服务器返回	Server returned
+商店	Store
+访问商店失败，检查网络	Failed to reach the store; check your network
+操作失败	Operation failed
+不能在主线程读取 Cookie	Can't read cookies on the main thread
+Gecko 内核尚未就绪，请先打开一个 Gecko 标签页再试	The Gecko engine isn't ready yet; open a Gecko tab first and try again
+读取 Gecko Cookie 超时	Timed out reading Gecko cookies
+读取 Gecko Cookie 失败：	Failed to read Gecko cookies: 
+无法用本机密钥加密 Cookie，已取消恢复 Cookie	Can't encrypt cookies with the device key; cookie restore cancelled
+暂存 Cookie 失败	Failed to stage cookies
+找不到 GeckoPreferenceController.clearGeckoUserPref	GeckoPreferenceController.clearGeckoUserPref not found
+找不到 GeckoPreferenceController.setGeckoPref	GeckoPreferenceController.setGeckoPref not found
+网页	Web page
+来自 {0} 的消息	Message from {0}
+更新密码？	Update password?
+保存密码？	Save password?
+\n\n密码会加密保存在本机	\n\nThe password is encrypted and stored on this device
+更新	Update
+保存	Save
+不保存	Don't save
+填充登录信息	Fill in login
+确定	OK
+（空）	(empty)
+用户名	Username
+代理需要登录	Proxy requires login
+需要登录	Login required
+阿里 DNS	Alibaba DNS
+腾讯 DNSPod	Tencent DNSPod
+自定义	Custom
+增强型跟踪保护	Enhanced Tracking Protection
+清理网址跟踪参数	Clean URL tracking parameters
+弹跳跟踪保护	Bounce tracking protection
+定期清理跟踪者数据	Periodically purge tracker data
+指纹保护	Fingerprint protection
+强力抗指纹	Strong anti-fingerprinting
+精简 Referer	Trim Referer
+防 WebRTC 泄露 IP	Prevent WebRTC IP leaks
+禁用 WebRTC	Disable WebRTC
+严格第一方隔离	Strict first-party isolation
+仅 HTTPS	HTTPS only
+安全 DNS	Secure DNS
+禁用预取	Disable prefetch
+禁用 WebGL	Disable WebGL
+反跟踪	Anti-tracking
+清理跟踪参数	Clean tracking parameters
+WebRTC 防泄露	WebRTC leak protection
+持久存储	Persistent storage
+跨站 Cookie	Cross-site cookies
+受 DRM 控制的内容	DRM-controlled content
+设备应用和服务	Device apps and services
+本地网络设备	Local network devices
+通知	Notifications
+网站通知	Site notifications
+剪贴板读写	Clipboard read/write
+网站媒体发声	Site media sound
+网页重定向	Page redirects
+拒绝	Deny
+{0}（{1}，{2} 个字体文件）	{0} ({1}, {2} font files)
+未识别（退回 sans-serif）：{0}	Not recognized (falling back to sans-serif): {0}
+系统主题字体	System theme font
+Ag中文あ한	Ag中文あ한
+读不到 fonts.xml	Can't read fonts.xml
+fonts.xml 里没有 sans-serif	No sans-serif in fonts.xml
+sans-serif 没有字体文件	sans-serif has no font file
+读不到 {0} 的族名	Can't read the family name of {0}
+WebView 无法刷新 Cookie：{0}	WebView can't flush cookies: {0}
+找不到 WebView 的 Cookie 数据库（可能是 WebView 版本不兼容），已取消备份 Cookie	Can't find the WebView cookie database (the WebView version may be incompatible); cookie backup cancelled
+读取 WebView Cookie 失败：{0}	Failed to read WebView cookies: {0}
+WebView Cookie 库里没有 cookies 表，格式不兼容	The WebView cookie database has no cookies table; incompatible format
+WebView Cookie 库缺少列 {0}，格式不兼容	The WebView cookie database is missing columns {0}; incompatible format
+WebView 的 Cookie 值是加密存储的，无法备份	WebView cookie values are stored encrypted and can't be backed up
+不能在主线程写入 Cookie	Can't write cookies on the main thread
+Cookie 数据格式错误	Invalid cookie data format
+清除 WebView 现有 Cookie 超时，已取消恢复 Cookie	Timed out clearing existing WebView cookies; cookie restore cancelled
+写入 WebView Cookie 超时	Timed out writing WebView cookies
+没有任何 Cookie 能写入 WebView	No cookies could be written to WebView
+支持	Supported
+不支持	Not supported
+系统	System
+默认 UA	Default UA
+文档开始脚本	Document-start script
+代理覆盖	Proxy override
+智能深色	Algorithmic darkening
+日志文件	Log file
+服务器返回 HTTP {0}	Server returned HTTP {0}
+重定向缺少目标地址	Redirect is missing a target address
+不支持的重定向目标	Unsupported redirect target
+无法解析域名，请检查网络或链接	Can't resolve the domain; check your network or the link
+连接超时	Connection timed out
+HTTPS 连接失败（证书或协议错误）	HTTPS connection failed (certificate or protocol error)
+上游不是 SOCKS5	Upstream is not SOCKS5
+用户名或密码过长	Username or password is too long
+上游认证失败	Upstream authentication failed
+上游不接受可用的认证方式	Upstream accepts no usable authentication method
+上游回复异常	Abnormal upstream reply
+当前 WebView 不支持代理，请更新 Android System WebView	The current WebView doesn't support proxies; please update Android System WebView
+无法获取 WebView 代理控制器	Can't get the WebView proxy controller
+代理主机或端口无效，已回到直连	Invalid proxy host or port; reverted to a direct connection
+SOCKS5 本地中转启动失败：{0}	SOCKS5 local relay failed to start: {0}
+代理规则无效或不被当前 WebView 支持：{0}	Invalid proxy rule, or not supported by the current WebView: {0}
+悬浮媒体播放器	Floating Media Player
+识别页面里的 M3U8 / MP4 / WebM，自动在顶部悬浮 iOS 玻璃质感播放器	Detects M3U8 / MP4 / WebM on the page and shows an iOS glass-style player floating at the top
+M3U8媒体下载器	M3U8 Media Downloader
+智能嗅探 m3u8、多线程下载，支持 AES-128 解密	Smart m3u8 sniffing, multi-thread download, AES-128 decryption supported
+万能网页限制解除	Universal Web Restriction Remover
+解除复制、右键、文本选择、粘贴、拖拽、键盘等网页限制	Removes web restrictions on copy, right-click, text selection, paste, drag and keyboard
+{0} 失败：HTTP {1}	{0} failed: HTTP {1}
+，UPnP 错误 {0}	, UPnP error {0}
+未命名脚本	Untitled script
+脚本不存在	Script not found
+本地脚本没有更新地址	Local scripts have no update URL
+不是有效的油猴脚本	Not a valid userscript
+后退 10 秒	Back 10 s
+播放	Play
+快进 10 秒	Forward 10 s
+选择播放器 / 投屏 App	Choose a player / cast app
+连上电视后回到浏览器全屏播放即可（屏幕镜像会把整个画面投出去）	After connecting to the TV, return to the browser and play in full screen (screen mirroring casts the whole screen)
+这台设备没有系统投屏入口	This device has no system casting entry
+正在搜索局域网设备…	Searching for devices on the local network…
+没有找到可用的播放器	No available player found
+没有「附近设备」权限，无法搜索局域网设备。请在 系统设置 → 应用 → Mafari → 权限 里允许后重试	No "Nearby devices" permission, so local devices can't be searched. Allow it in System settings → Apps → Mafari → Permissions and try again
+没有发现设备，请确认手机和电视在同一 Wi-Fi	No devices found; make sure the phone and the TV are on the same Wi-Fi
+与「{0}」失去连接	Lost connection to "{0}"
+「{0}」没有开始播放：可能不支持该格式，或该地址需要请求头（防盗链）	"{0}" didn't start playing: the format may be unsupported, or the URL needs request headers (anti-hotlinking)
+投屏失败	Casting failed
+[Mafari] @require 未能加载: {0}	[Mafari] @require failed to load: {0}
+新文件夹	New folder
+下载的不是有效的 Floccus 包	The downloaded file is not a valid Floccus package
+服务器主机密钥与之前记录的不一致（可能被劫持，或服务器换了密钥）；确认无误后清除配置再重试	The server host key doesn't match the one recorded earlier (possibly hijacked, or the server changed its key); clear the configuration and retry once you're sure it's fine
+私钥无法解析，或私钥口令不对（暂不支持 PuTTY .ppk 格式）	The private key can't be parsed, or the passphrase is wrong (PuTTY .ppk format isn't supported yet)
+Deploy key 被拒绝：请确认对应公钥已添加到该仓库，并勾选了写权限	Deploy key rejected: make sure the public key has been added to this repository with write access
+用户名或令牌错误，或没有访问权限	Wrong username or token, or no access permission
+仓库不存在，或该 Deploy key 不属于这个仓库	The repository doesn't exist, or this Deploy key doesn't belong to it
+仓库不存在，或令牌无权访问该仓库	The repository doesn't exist, or the token has no access to it
+无法解析服务器地址	Can't resolve the server address
+TLS 连接失败（证书无效或协议不匹配）	TLS connection failed (invalid certificate or protocol mismatch)
+{0}失败：	{0} failed: 
+裁剪历史失败	Failed to trim history
+SSH 地址形如 git@主机:用户/仓库.git 或 ssh://git@主机/用户/仓库.git	SSH address looks like git@host:user/repo.git or ssh://git@host/user/repo.git
+仓库地址需以 http:// 或 https:// 开头，且不能包含账号密码	The repository address must start with http:// or https:// and must not contain credentials
+分支名不合法	Invalid branch name
+私钥格式不对	Wrong private key format
+备份文件过大	Backup file too large
+连接仓库	Connect to repository
+仓库里没有分支 {0}	The repository has no branch {0}
+无法创建临时目录	Can't create temporary directory
+推送备份	Push backup
+远端刚有新提交，请重试一次	The remote just got a new commit; please try once more
+推送被仓库拒绝：	Push rejected by the repository: 
+可能是分支受保护或没有写权限	The branch may be protected or you may lack write permission
+（裁剪旧历史需要强制推送，请换一个允许强推的分支）	 (Trimming old history needs a force push; use a branch that allows it)
+推送失败：{0}	Push failed: {0}
+仓库还是空的，没有备份	The repository is empty; no backup
+拉取备份	Pull backup
+仓库里没有 {0}	The repository has no {0}
+读取历史	Read history
+提交号不合法	Invalid commit id
+仓库里已没有所选提交，请重新选择	The selected commit no longer exists in the repository; please choose again
+所选提交里没有 {0}	The selected commit has no {0}
+无法用本机密钥加密保存凭据	Can't encrypt and store the credentials with the device key
+服务器地址需以 http:// 或 https:// 开头	The server address must start with http:// or https://
+服务器地址格式不正确	Invalid server address format
+无法连接服务器：	Can't connect to the server: 
+用户名或密码错误	Wrong username or password
+没有权限：{0}	No permission: {0}
+地址不存在：{0}	Address not found: {0}
+服务器不支持 WebDAV：{0}	The server doesn't support WebDAV: {0}
+上级目录不存在：{0}	Parent directory doesn't exist: {0}
+服务器空间不足	Not enough space on the server
+{0} 失败（HTTP {1}）	{0} failed (HTTP {1})
+连接服务器	Connect to the server
+访问 {0} 文件夹	Access the {0} folder
+创建 {0} 文件夹	Create the {0} folder
+读取备份列表	Read the backup list
+服务器把上传请求重定向到了别处（HTTP {0}），请检查地址是否缺少路径或应使用 https://	The server redirected the upload request elsewhere (HTTP {0}); check whether the address is missing a path or should use https://
+服务器拒绝了上传请求（HTTP 405）：该地址可能不允许 PUT，或服务器 / 代理与应用的 WebDAV 请求不兼容	The server rejected the upload request (HTTP 405): the address may not allow PUT, or the server / proxy is incompatible with the app's WebDAV requests
+上传备份	Upload backup
+上传后校验失败：服务器上的文件为 {0} 字节，应为 {1} 字节	Verification after upload failed: the file on the server is {0} bytes but should be {1} bytes
+下载备份	Download backup
+服务器返回了空内容	The server returned empty content
+服务器上还没有备份	No backup on the server yet
+无法用本机密钥加密保存密码	Can't encrypt and store the password with the device key
+Rust 组件初始化失败：	Rust component initialization failed: 
+其他设备	Other device
+SendTab 构造函数不可用	SendTab constructor unavailable
+1 小时	1 hour
+6 小时	6 hours
+12 小时	12 hours
+其他设备的标签页	Tabs from other devices
+网络组件初始化失败：{0}	Network component initialization failed: {0}
+无法获取登录地址	Can't get the sign-in address
+，请检查网络后重试	; check your network and try again
+登录失败：{0}	Sign-in failed: {0}
+未登录	Not signed in
+正在同步中，请稍候	Sync in progress, please wait
+同步超时，请稍后重试	Sync timed out, please try again later
+同步完成	Sync complete
+同步完成，但	Sync complete, but 
+合并失败：	 failed to merge: 
+密码同步失败：	Password sync failed: 
+密码已是最新	Passwords are up to date
+密码同步完成：	Password sync complete: 
+收到 {0} 条	{0} received
+发出 {0} 条	{0} sent
+服务器已删除 {0} 条	{0} deleted on the server
+同步失败：{0}	Sync failed: {0}
+关于	About
+版本 	Version 
+Gecko 版	Gecko edition
+无内核版（含同步）	No-engine edition (with sync)
+无内核版	No-engine edition
+检查失败，请稍后再试	Check failed, please try again later
+已是最新版本 {0}	Already on the latest version {0}
+发现新版本 {0}	New version {0} found
+检查中…	Checking…
+检查更新	Check for updates
+版本	Version
+WebView 内核版本	WebView engine version
+GeckoView 内核版本	GeckoView engine version
+加密算法	Encryption algorithms
+依赖版本	Dependency versions
+本机 UA	This device's UA
+项目	Project
+项目地址	Project page
+交流与反馈	Community & feedback
+Telegram 频道	Telegram channel
+更新公告与新版本推送	Announcements and new-version pushes
+Telegram 交流群	Telegram group
+使用交流与问题反馈	Discussion and bug reports
+捐赠	Donate
+法律	Legal
+隐私政策	Privacy policy
+本地存储的数据、网络请求与权限说明	Locally stored data, network requests and permissions
+Mafari · 基于 miuix 与系统 WebView	Mafari · built on miuix and the system WebView
+{0} · 下载后可在下载页安装	{0} · can be installed from the Downloads page after downloading
+界面	UI
+本地存储	Local storage
+内核与加密	Engine & encryption
+云同步	Cloud sync
+构建工具链	Build toolchain
+密钥封装（后量子混合）	Key encapsulation (post-quantum hybrid)
+对称加密	Symmetric encryption
+实现库	Implementation library
+正在下载规则…	Downloading rules…
+已订阅 {0}（{1} 条规则）	Subscribed to {0} ({1} rules)
+订阅失败	Subscription failed
+已导入 {0}（{1} 条规则）	Imported {0} ({1} rules)
+导入失败	Import failed
+去广告	Ad blocking
+更多	More
+隐私报告	Privacy report
+加载规则中	Loading rules
+保护中 · {0} 个订阅	Protected · {0} subscriptions
+ 次广告与跟踪请求已被拦截	 ad and tracking requests blocked
+开启后，这里会统计被拦截的广告与跟踪请求数	Once enabled, blocked ad and tracking requests are counted here
+正在加载规则…	Loading rules…
+已加载 {0} 条规则 · 累计统计	{0} rules loaded · cumulative stats
+统计的是被网络层拦截的请求；隐藏页面广告元素不计入	Counts requests blocked at the network layer; hidden page ad elements aren't included
+启用去广告	Enable ad blocking
+已关闭	Off
+已加载 {0} 条规则 · 累计拦截 {1} 次	{0} rules loaded · {1} blocked in total
+隐藏页面广告元素	Hide page ad elements
+按规则隐藏页面里的广告位，对新打开的页面生效	Hide ad slots on pages by rule; applies to newly opened pages
+拦截跟踪与统计	Block trackers and analytics
+拦截第三方统计 / 追踪域名的请求	Block requests to third-party analytics / tracking domains
+自动更新订阅	Auto-update subscriptions
+启用范围	Scope
+在无痕浏览中启用	Enable in private browsing
+关闭后无痕标签不拦截请求、不隐藏广告元素	When off, private tabs neither block requests nor hide ad elements
+在轻应用 / 桌面快捷方式中启用	Enable in light apps / home-screen shortcuts
+关闭后从桌面图标打开的页面不去广告，重新打开生效	When off, pages opened from home-screen icons aren't ad-blocked; takes effect on reopening
+订阅源	Subscriptions
+还没有订阅。点右上角「添加」导入订阅链接或本地规则文件，也可以直接选下面的推荐订阅。	No subscriptions yet. Tap "Add" at the top right to import a subscription link or a local rules file, or pick a recommended subscription below.
+已更新（{0} 条规则）	Updated ({0} rules)
+推荐订阅	Recommended subscriptions
+规则管理	Rule management
+自定义规则	Custom rules
+手写规则；长按网页元素「标记为广告」也会记在这里	Handwritten rules; elements you long-press and "Mark as ad" are also recorded here
+{0} 条规则	{0} rules
+站点白名单	Site allowlist
+这些站点不执行去广告	Ad blocking is not applied to these sites
+{0} 个站点不执行去广告	Ad blocking is not applied to {0} sites
+规则来自第三方订阅源。网络拦截只作用于页面的子资源请求，不影响页面本身的打开；	Rules come from third-party subscriptions. Network blocking only affects sub-resource requests of a page and doesn't affect opening the page itself; 
+不支持正则规则、重定向 / 改写类选项和扩展选择器，遇到会自动跳过。	Regex rules, redirect / rewrite options and extended selectors aren't supported and are skipped automatically.
+删除订阅	Delete subscription
+添加订阅	Add subscription
+更新中…	Updating…
+全部更新	Update all
+没有可更新的订阅	No subscriptions to update
+已更新 {0}/{1} 个订阅	Updated {0}/{1} subscriptions
+正在更新…	Updating…
+更新失败：	Update failed: 
+尚未下载，点右侧刷新	Not downloaded yet; tap refresh on the right
+{0} 条规则 · 更新于 	{0} rules · updated 
+本地导入	Local import
+更新订阅	Update subscription
+订阅	Subscribe
+支持 Adblock Plus / uBlock / AdGuard 规则与 hosts 格式	Supports Adblock Plus / uBlock / AdGuard rules and hosts format
+订阅地址（http / https）	Subscription URL (http / https)
+从本地文件导入	Import from local file
+每行一条。例：||ads.example.com^ 或 example.com##.banner	One per line. E.g. ||ads.example.com^ or example.com##.banner
+规则	Rules
+白名单站点（含子域名）不拦截请求、不隐藏元素	Allowlisted sites (including subdomains) aren't blocked or hidden
+还没有白名单站点	No allowlisted sites yet
+域名，如 example.com	Domain, e.g. example.com
+域名格式不正确	Invalid domain format
+移除	Remove
+完成	Done
+默认	Default
+多彩	Colorful
+立体	3D
+深色	Dark
+极简	Minimal
+极暗	Ultra dark
+算法套件	Cipher suite
+密钥封装	Key encapsulation
+每单元随机 DEK，经 KEK 以 AES-256-GCM 封装	A random DEK per unit, wrapped by a KEK with AES-256-GCM
+AES-256-GCM · 信封 v{0}	AES-256-GCM · envelope v{0}
+口令保护	Password protection
+Argon2id（64 MiB · 3 轮）	Argon2id (64 MiB · 3 passes)
+文件格式	File format
+.{0} v{1} · 每次导出换新密钥对	.{0} v{1} · a new key pair on every export
+\n没有数据，已跳过：	\nNo data, skipped: 
+\n无法解密而跳过 {0} 项	\n{0} items skipped (can't be decrypted)
+ · 最新	 · Newest
+无法写入所选位置	Can't write to the selected location
+已导出	Exported
+导出失败	Export failed
+无法读取所选文件	Can't read the selected file
+文件过大，不像是私钥	File too large; doesn't look like a private key
+默认口令未能解密	The default password couldn't decrypt it
+，请手动输入口令	; please enter the password manually
+无法恢复	Can't restore
+从仓库恢复备份	Restore backup from repository
+从服务器恢复备份	Restore backup from server
+正在获取历史备份…	Fetching backup history…
+获取失败	Failed to fetch
+还没有可恢复的备份	No backups to restore yet
+正在下载所选备份…	Downloading the selected backup…
+加密推送中	Encrypting and pushing
+已推送	Pushed
+推送失败	Push failed
+加密上传中	Encrypting and uploading
+已上传	Uploaded
+上传失败	Upload failed
+备份与同步	Backup & sync
+备份文件：Argon2id 口令 + 套件加密；同步凭据：套件加密	Backup file: Argon2id password + suite encryption; sync credentials: suite encryption
+Firefox同步	Firefox Sync
+Firefox帐户同步	Firefox Account Sync
+已登录	Signed in
+登录已失效，点击重新登录	Sign-in expired; tap to sign in again
+登录Mozilla账号，同步您的Firefox数据	Sign in to your Mozilla account to sync your Firefox data
+口令与备份配置	Password & backup settings
+默认加密口令	Default encryption password
+已设置，备份时不再询问	Set; you won't be asked when backing up
+未设置，每次备份都要输入	Not set; you'll have to enter it on every backup
+查看 / 修改默认口令	View / change the default password
+自动推送同步	Auto-push sync
+需先设默认口令并配置云同步	Set a default password and configure cloud sync first
+备份内容	Backup content
+已选 {0} / {1} 类	{0} / {1} categories selected
+未选择，选择后才能备份	Nothing selected; select something to back up
+启动应用时按间隔执行，备份「备份内容」里选中的类别，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。	Runs at app launch at the chosen interval, backs up the categories selected in "Backup content" and pushes to the currently connected WebDAV / Git, plus other entries with "Sync together" turned on.
+WebDAV/Git同步	WebDAV/Git Sync
+服务器	Server
+未配置，点击添加	Not configured; tap to add
+上次上传 	Last upload 
+尚未上传	Not uploaded yet
+从服务器恢复	Restore from server
+仓库	Repository
+上次推送 	Last push 
+尚未推送	Not pushed yet
+从仓库恢复	Restore from repository
+存于服务器 {0} 文件夹，保留最近 {1} 份；账号加密存本机。	Stored in the {0} folder on the server, keeping the latest {1}; the account is stored encrypted on this device.
+仅保留最近 {0} 个提交，旧的会强制推送裁掉；建议私有仓库。	Only the latest {0} commits are kept and older ones are trimmed by force-push; a private repository is recommended.
+本地备份与恢复	Local backup & restore
+导出备份	Export backup
+正在加密并导出…	Encrypting and exporting…
+加密后保存为 .{0} 文件	Encrypted and saved as a .{0} file
+从文件恢复	Restore from file
+正在解密并校验…	Decrypting and verifying…
+选择备份文件，解密后恢复	Choose a backup file; it's decrypted and restored
+从本地备份文件恢复	Restore from local backup file
+恢复只覆盖备份里有的内容，恢复前可再勾选；完成后自动重启。	Restore only overwrites what's in the backup; you can adjust the selection before restoring; the app restarts automatically afterwards.
+加密方案	Encryption scheme
+口令不会保存，忘记后无法解密。	The password isn't stored; it can't be decrypted if you forget it.
+WebDAV 服务器	WebDAV server
+添加新配置	Add new configuration
+连接另一台 WebDAV 服务器	Connect another WebDAV server
+匿名	Anonymous
+Git 仓库	Git repository
+连接另一个 Git 仓库	Connect another Git repository
+令牌	Token
+默认分支	Default branch
+默认口令已保存	Default password saved
+导出	Export
+上传	Upload
+推送	Push
+仓库已连接并保存	Repository connected and saved
+服务器已连接并保存	Server connected and saved
+仓库里的历史提交	Past commits in the repository
+服务器上的历史备份	Past backups on the server
+恢复完成，正在重启…	Restore complete; restarting…
+恢复失败	Restore failed
+，建议重启后检查数据	; check your data after restarting
+已连接	Connected
+当前	Current
+一并同步	Sync together
+使用	Use
+自动推送时，除当前连接的以外，开启「一并同步」的也会同步。	On auto-push, entries with "Sync together" turned on are synced in addition to the one currently connected.
+新增	Add
+删除此配置	Delete this configuration
+所有备份方式共用，改动立即生效	Shared by all backup methods; changes take effect immediately
+\n密码、Cookie 和 Firefox 帐户登录状态含登录凭据，请妥善保管备份文件与口令。	\nPasswords, cookies and Firefox account sign-in state contain credentials; keep the backup file and password safe.
+选择要恢复的备份	Choose a backup to restore
+历史备份	Backup history
+恢复此份	Restore this one
+设置备份口令	Set backup password
+仅用于加密，忘记后无法找回	Only used for encryption; can't be recovered if forgotten
+口令（至少 {0} 位）	Password (at least {0} characters)
+再次输入	Enter again
+口令至少 {0} 位	Password must be at least {0} characters
+两次输入不一致	The two entries don't match
+输入新口令可替换；加密存本机，忘记后无法找回备份	Enter a new password to replace it; stored encrypted on this device; backups can't be recovered if you forget it
+加密存本机，忘记后无法找回备份	Stored encrypted on this device; backups can't be recovered if you forget it
+隐藏口令	Hide password
+显示口令	Show password
+清除默认口令	Clear default password
+输入备份口令	Enter backup password
+导出这份备份时设置的口令	The password set when this backup was exported
+口令	Password
+解密	Decrypt
+Cookie 来自 {0} 内核，将恢复到当前的 {1} 内核；	Cookies come from the {0} engine and will be restored to the current {1} engine; 
+SameSite 等细节两个内核处理略有差别，个别站点可能需要重新登录。	Details such as SameSite are handled slightly differently by the two engines, so some sites may require signing in again.
+恢复这份备份？	Restore this backup?
+备份里有以下内容，勾选的会覆盖当前对应的数据；没有勾选 / 备份里没有的保持原样。	The backup contains the following; checked items overwrite the corresponding current data, while unchecked ones / ones not in the backup are left as they are.
+本机不支持，无法恢复	Not supported on this device; can't restore
+与本机合并，不删除本机已有的密码	Merged with this device; existing passwords aren't deleted
+覆盖本机的 Firefox 帐户登录状态；原设备若还在用，两台会共用同一设备身份	Overwrites this device's Firefox account sign-in state; if the original device is still in use, the two will share one device identity
+覆盖后无法撤销，完成后自动重启。	Overwriting can't be undone; the app restarts automatically afterwards.
+恢复并重启	Restore and restart
+恢复 {0} 项并重启	Restore {0} items and restart
+编辑服务器	Edit server
+添加服务器	Add server
+备份存于 {0} 文件夹，密码加密存本机	Backups are stored in the {0} folder; the password is stored encrypted on this device
+服务器地址（https://…）	Server address (https://…)
+地址需以 http:// 或 https:// 开头	The address must start with http:// or https://
+连接中…	Connecting…
+测试并保存	Test and save
+编辑仓库	Edit repository
+添加仓库	Add repository
+Deploy key 需写权限，加密存本机	A Deploy key needs write access; stored encrypted on this device
+令牌填在下方，勿写进地址	Enter the token below; don't put it in the address
+仓库地址（git@主机:用户/仓库.git）	Repository address (git@host:user/repo.git)
+仓库地址（https://…）	Repository address (https://…)
+私钥（粘贴 -----BEGIN … 全文）	Private key (paste the whole -----BEGIN … text)
+从文件导入私钥	Import private key from file
+私钥口令（没有则留空）	Private key passphrase (leave empty if none)
+用户名（可选）	Username (optional)
+访问令牌 / 密码	Access token / password
+分支（留空用默认）	Branch (leave empty for default)
+SSH 地址形如 git@主机:用户/仓库.git	SSH address looks like git@host:user/repo.git
+地址需为 http(s)://主机/路径，且不含账号密码	The address must be http(s)://host/path without credentials
+私钥格式不对：需要 OpenSSH / PEM 文本	Wrong private key format: OpenSSH / PEM text is required
+后退	Back
+前进	Forward
+标签页	Tabs
+退出阅读模式	Exit reader mode
+阅读模式	Reader mode
+搜索或输入网址	Search or enter address
+隐藏的功能（拖到线下方隐藏）	Hidden features (drag below the line to hide)
+把不常用的功能拖到这里	Drag rarely used features here
+无痕 · 	Private · 
+新建标签页	New tab
+已复制扫描内容	Scanned content copied
+无法打开扫一扫	Can't open the scanner
+选择文件	Choose file
+未找到可用的文件选择器	No file picker found
+未找到相机应用	No camera app found
+正在安装拓展…	Installing extension…
+已添加 {0}	{0} added
+正在读取文件…	Reading file…
+已隐藏，可在 设置 → 布局 → 定制主页 中恢复	Hidden; you can restore it in Settings → Layout → Customize home
+分享链接	Share link
+已添加此书签	This bookmark has been added
+添加书签成功	Bookmark added
+图片	Image
+页面元素	Page element
+无痕浏览页	Private tabs
+全部删除	Delete all
+没有无痕浏览页	No private tabs
+没有标签页	No tabs
+移动版	Mobile site
+在新标签页打开	Open in new tab
+在外部浏览器打开	Open in external browser
+标记为广告	Mark as ad
+选中这个广告位，可记住规则下次自动隐藏	Select this ad slot; the rule is remembered and it's hidden automatically next time
+没找到可标记的元素	No markable element found
+保存图片	Save image
+内嵌图片	Inline image
+页面内图片	In-page image
+已保存到 Download/mafari	Saved to Download/mafari
+复制图片地址	Copy image address
+标记为广告并移除	Mark as ad and remove
+记住这条规则，下次访问该站点自动隐藏	Remember this rule; it's hidden automatically on future visits to this site
+这个元素无法生成规则，本次仅移除	A rule can't be generated for this element; removed this time only
+仅移除该元素	Remove this element only
+设为默认浏览器	Set as default browser
+设为系统默认浏览器后，其他应用里的网页链接会直接用 Mafari 打开。之后也可以在 设置 → 高级 里设置。	Once set as the system default browser, web links in other apps open directly in Mafari. You can also set it later in Settings → Advanced.
+设为默认	Set as default
+页面内文件（blob）	In-page file (blob)
+页面内文件（data）	In-page file (data)
+保存到 /sdcard/Download/mafari	Save to /sdcard/Download/mafari
+选择来源	Choose source
+网页需要图片或视频	The page needs an image or video
+拍照	Take photo
+录像	Record video
+从文件选择	Choose from files
+允许网站	Allow the site to 
+记住此网站的选择	Remember this site's choice
+导入脚本？	Import script?
+导入	Import
+删除全部无痕浏览页？	Delete all private tabs?
+删除全部标签页？	Delete all tabs?
+将关闭所有无痕浏览页，普通标签页不受影响。	All private tabs will be closed; regular tabs aren't affected.
+将关闭所有标签页，无痕浏览页不受影响，并新建一个空白标签。	All tabs will be closed; private tabs aren't affected, and a blank tab will be created.
+UA 标识管理	User-Agent management
+已选中	Selected
+UA 字符串	UA string
+查找页内	Find in page
+查找内容	Search text
+上一个	Previous
+下一个	Next
+投屏到	Cast to
+屏幕镜像（系统投屏）	Screen mirroring (system cast)
+外部播放器 / 投屏 App	External player / cast app
+允许全部	Allow all
+拒绝跟踪者	Block trackers
+拒绝第三方	Block third-party
+拒绝全部	Block all
+清除当前网站 Cookie	Clear cookies for this site
+将清除当前网站的 Cookie，该站点需要重新登录	This clears the cookies of the current site; you'll need to sign in again there
+清除全部 Cookie	Clear all cookies
+将清除所有网站的 Cookie，所有登录状态会失效	This clears cookies of all websites; all sign-ins will expire
+清除会话 Cookie	Clear session cookies
+将清除所有没有过期时间的 Cookie（关闭浏览器本该失效的那些）	This clears all cookies without an expiry time (the ones that would expire when the browser closes)
+清除网站存储	Clear site storage
+将清除 localStorage / IndexedDB 等网站本地数据，不含 Cookie	This clears local site data such as localStorage / IndexedDB, excluding cookies
+清除 Cookie 与网站存储	Clear cookies and site storage
+将清除所有网站的 Cookie 和本地数据，所有登录状态会失效	This clears cookies and local data of all websites; all sign-ins will expire
+已清除	Cleared
+没有可清除的内容或操作失败	Nothing to clear, or the operation failed
+Cookie 管理	Cookie management
+接受策略	Acceptance policy
+Cookie 接受策略	Cookie acceptance policy
+Gecko：官方 ContentBlocking API，普通与无痕窗口一致	Gecko: official ContentBlocking API; regular and private windows behave the same
+WebView：官方 CookieManager；无跟踪者名单，「拒绝跟踪者」按拒绝第三方处理	WebView: official CookieManager; no tracker list, so "Block trackers" is handled as blocking third-party
+自动处理 Cookie 弹窗	Handle cookie pop-ups automatically
+自动点掉网站的 Cookie 同意横幅；个别网站可能无效	Automatically dismisses a site's cookie consent banner; may not work on some sites
+自动拒绝	Reject automatically
+优先拒绝，不行再接受	Reject first, accept if that fails
+Cookie 最长保留期	Maximum cookie lifetime
+超过上限的 Cookie 会被截短；对新写入的 Cookie 生效	Cookies exceeding the limit are shortened; applies to newly written cookies
+默认（400 天）	Default (400 days)
+30 天	30 days
+7 天	7 days
+1 天	1 day
+SameSite 默认 Lax	SameSite defaults to Lax
+未声明 SameSite 的 Cookie 不随跨站请求发送；部分跨站登录可能失效	Cookies without SameSite aren't sent on cross-site requests; some cross-site sign-ins may break
+自动清理	Auto cleanup
+启动时清理	Clean up at launch
+每次冷启动时清理当前内核的数据；无痕标签页本身不保存 Cookie	Clears the current engine's data at every cold start; private tabs don't store cookies themselves
+不清理	Don't clean up
+清除 Cookie	Clear cookies
+清除数据（	Clear data (
+ · 当前 {0} 个 Cookie	 · {0} cookies now
+所有网站，登录状态会失效	All sites; sign-ins will expire
+只清没有过期时间的 Cookie，保留「记住我」的登录	Clears only cookies without an expiry time, keeping "remember me" sign-ins
+localStorage · IndexedDB 等，不含 Cookie	localStorage · IndexedDB, etc., excluding cookies
+一次清掉上面两类数据	Clears both kinds of data above at once
+两个内核的 Cookie 互相独立；这里的清除只作用于当前选择的内核。	Cookies of the two engines are independent; clearing here only affects the currently selected engine.
+切换内核后设置页会自动显示对应内核适用的项目。	After switching engines, the settings page automatically shows the items that apply to that engine.
+清除	Clear
+赞赏码	Donation QR code
+保存后打开微信「扫一扫」，点右上角相册选择此图即可赞赏	After saving, open WeChat "Scan", tap the album at the top right and pick this image to donate
+已保存到相册（Pictures/Mafari）。打开微信「扫一扫」→ 相册，选择此图即可赞赏	Saved to the album (Pictures/Mafari). Open WeChat "Scan" → album and pick this image to donate
+保存失败，请截图保存	Save failed; please take a screenshot instead
+保存中…	Saving…
+保存到相册	Save to album
+正在下载…	Downloading…
+这是去广告规则，已加入「设置 → 高级 → 去广告」	This is an ad-block rule list and was added to "Settings → Advanced → Ad blocking"
+已导入 {0}	Imported {0}
+下载失败，检查链接	Download failed; check the link
+已导入脚本	Script imported
+这是去广告规则，已导入「设置 → 高级 → 去广告」	This is an ad-block rule list and was imported into "Settings → Advanced → Ad blocking"
+这不是有效的油猴脚本	This is not a valid userscript
+脚本 GM 数据：SQLCipher 整库 AES-256	Script GM data: whole-database AES-256 via SQLCipher
+自动更新脚本	Auto-update scripts
+关闭后无痕标签不运行脚本，切换后刷新页面生效	When off, private tabs don't run scripts; refresh the page after switching
+关闭后从桌面图标打开的页面不运行脚本，重新打开生效	When off, pages opened from home-screen icons don't run scripts; takes effect on reopening
+已安装脚本	Installed scripts
+还没有脚本。点右上角「导入脚本」输入链接或选择本地文件，也可以直接选下面的推荐脚本。	No scripts yet. Tap "Import script" at the top right to enter a link or pick a local file, or pick a recommended script below.
+已更新 {0}	{0} updated
+{0} 已是最新	{0} is up to date
+推荐脚本	Recommended scripts
+已添加 	Added 
+下载失败，检查网络	Download failed; check your network
+脚本在页面加载完成后注入运行，可在每个页面的「脚本」菜单里临时开关。	Scripts are injected after the page finishes loading; you can toggle them temporarily in each page's "Scripts" menu.
+首次打开 app 会自动安装推荐脚本；有来源地址的脚本会按上面设置的间隔在后台自动更新。	Recommended scripts are installed automatically the first time you open the app; scripts with a source URL are updated automatically in the background at the interval set above.
+新建脚本	New script
+删除脚本	Delete script
+导入脚本	Import script
+没有可更新的脚本	No scripts to update
+已更新 {0}/{1} 个脚本	Updated {0}/{1} scripts
+本地脚本	Local script
+尚未更新，点右侧刷新	Not updated yet; tap refresh on the right
+更新于 	Updated 
+编辑脚本	Edit script
+JavaScript 会在页面加载完成后执行	JavaScript runs after the page finishes loading
+名称	Name
+匹配（可留空，如 *://*.example.com/*）	Match (optional, e.g. *://*.example.com/*)
+启用	Enable
+支持 .user.js 链接或本地文件；去广告规则会自动转交「去广告」	Supports .user.js links or local files; ad-block rules are handed over to "Ad blocking" automatically
+脚本地址（http / https，.user.js）	Script URL (http / https, .user.js)
+安装中…	Installing…
+安装	Install
+无法登录	Can't sign in
+帐户	Account
+正在读取帐户状态…	Reading account status…
+登录已失效，重新登录	Sign-in expired; sign in again
+登录 Mozilla 帐户	Sign in to Mozilla account
+正在等待登录完成…	Waiting for sign-in to finish…
+同步您的Firefox数据	Sync your Firefox data
+同步中…	Syncing…
+立即同步	Sync now
+退出登录	Sign out
+自动同步	Auto sync
+已同步	Synced
+尚未同步	Not synced yet
+暂无	None
+同步状态：{0}\n上次成功同步：{1}	Sync status: {0}\nLast successful sync: {1}
+已同步的内容	Synced content
+读取中…	Reading…
+共 {0} 项，点击查看	{0} items; tap to view
+收到的标签页	Received tabs
+来自 {0}	From {0}
+发送当前页到…	Send current page to…
+正在发送…	Sending…
+同步书签、历史记录、标签页和密码，使用 Firefox 官方 Sync 协议，账号数据端到端加密。\n	Syncs bookmarks, history, tabs and passwords using the official Firefox Sync protocol, with end-to-end encrypted account data.\n
+书签和历史记录只增不删：Firefox 中的书签会出现在「{0}」分组，本地书签会推送到「移动设备书签」。\n	Bookmarks and history are add-only: Firefox bookmarks appear in the "{0}" group, and local bookmarks are pushed to "Mobile Bookmarks".\n
+书签和历史的删除、重命名暂不互相同步，推送的历史访问时间会记为同步时刻。\n	Deleting and renaming bookmarks and history isn't synced either way for now; pushed history visit times are recorded as the sync time.\n
+密码双向同步（含删除和修改，冲突时以密码修改时间较新者为准）：本机密码仍只存放在「设置 → 隐私与安全 → 密码」的加密库里，	Passwords sync both ways (including deletions and edits; on conflict the one with the newer password-change time wins): passwords on this device are still kept only in the encrypted store under "Settings → Privacy & security → Passwords", 
+这里只列出站点和用户名，不显示密码；备注仅保存在本机，不会同步。退出登录会清空同步用的中转库，本机密码不受影响。	only sites and usernames are listed here and passwords aren't shown; notes stay on this device and aren't synced. Signing out clears the relay store used for syncing; passwords on this device are not affected.
+Firefox 帐户头像	Firefox account avatar
+Gecko 调试	Gecko debug
+渲染信息	Rendering info
+滚动与渲染	Scrolling & rendering
+原生沉浸	Native immersive
+网页顶部留白随滚动收起，且收起时不重新布局网页（实验）。网页异常或顶部被遮挡时请关闭，关闭后留白固定	The blank area at the top of the page collapses as you scroll, without re-laying out the page when collapsing (experimental). Turn it off if pages misbehave or the top is covered; when off the blank area stays fixed
+默认字体使用系统字体	Use system font as default
+用系统字体（含系统里换的主题字体）作为浏览器默认字体，不使用 Gecko 自带的默认字体；网页自己指定的字体不受影响。更换系统字体后重启应用生效；开启「强力抗指纹」时 Gecko 只暴露基础字体，此开关无效	Uses the system font (including theme fonts changed in the system) as the browser's default font instead of Gecko's own default; fonts specified by pages aren't affected. Takes effect after restarting the app after changing the system font; has no effect while "Strong anti-fingerprinting" is on, since Gecko then exposes only basic fonts
+请求高刷新率	Request high refresh rate
+向系统声明屏幕最高刷新率，避免滑动时被降到低刷新率	Tells the system the screen's maximum refresh rate so it isn't dropped to a low rate while scrolling
+进程	Process
+网页在独立隔离进程里运行。重启应用后生效。Gecko 已知问题（bug 2023367）：开启后 H.264 视频（多数 MP4）无法播放，AV1 等可播，暂无解决办法，需要看视频请保持关闭	Pages run in a separate isolated process. Takes effect after restarting the app. Known Gecko issue (bug 2023367): when enabled, H.264 video (most MP4) can't play while AV1 and others can, with no workaround yet; keep it off if you need to watch video
+重启应用后生效	Takes effect after restarting the app
+诊断	Diagnostics
+渲染性能叠层	Rendering performance overlay
+在页面上显示 WebRender 帧率与耗时统计；仅用于排查，会增加开销	Shows WebRender frame rate and timing stats on the page; for troubleshooting only and adds overhead
+记录 Surface 创建 / 销毁等到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭	Logs Surface creation / destruction etc. to Android/media/<package>/diag.txt; every entry is a file write, so turn it off after troubleshooting
+USB 远程调试	USB remote debugging
+允许桌面 Firefox 通过 USB 连接并检查页面，立即生效	Lets desktop Firefox connect over USB and inspect pages; takes effect immediately
+允许 about:config	Allow about:config
+允许打开 about:config 手动修改偏好，立即生效；误改可能导致网页异常	Allows opening about:config to edit preferences manually; takes effect immediately; wrong changes may break pages
+拓展快捷菜单	Extension quick menu
+{0}个拓展运行中	{0} extensions running
+没有运行中的拓展	No running extensions
+正在读取…	Reading…
+还没有安装拓展。长按菜单里的「拓展」图标可进入拓展页安装。	No extensions installed yet. Long-press the "Extensions" icon in the menu to open the extensions page and install.
+该拓展没有快捷菜单	This extension has no quick menu
+已停用	Disabled
+没有快捷菜单	No quick menu
+角标 {0}	Badge {0}
+点击打开功能菜单	Tap to open the feature menu
+读取拓展失败：{0}	Failed to read extensions: {0}
+{0} 正在安装中，请稍候…	{0} is being installed, please wait…
+正在安装 {0}…	Installing {0}…
+请输入 http / https 链接	Please enter an http / https link
+访问商店失败	Failed to reach the store
+本地拓展	Local extension
+在 Firefox 拓展商店搜索	Search the Firefox add-on store
+商店搜索结果	Store search results
+正在搜索…	Searching…
+没有找到「{0}」相关的拓展	No extensions found for "{0}"
+自动检查更新	Auto-check for updates
+尚未检查	Not checked yet
+上次检查 	Last checked 
+已安装拓展	Installed extensions
+还没有安装拓展。点右上角搜索，从 Firefox 拓展商店添加，或在「更多」里导入。	No extensions installed yet. Tap search at the top right to add from the Firefox add-on store, or import via "More".
+拓展由Gecko内核运行，搜索结果来源于Firefox拓展商店，APP已原生支持油猴脚本，请勿再安装其它如**猴等油猴脚本类拓展程序	Extensions run on the Gecko engine and search results come from the Firefox add-on store. The app natively supports userscripts, so please don't install other userscript-manager extensions (such as Tampermonkey-style ones)
+检查更新失败	Update check failed
+卸载拓展	Uninstall extension
+已卸载 {0}	Uninstalled {0}
+卸载	Uninstall
+无法打开文件选择器：{0}	Can't open the file picker: {0}
+导入拓展	Import extension
+没有已安装的拓展	No extensions installed
+全部拓展已是最新	All extensions are up to date
+已更新 {0}/{1} 个拓展	Updated {0}/{1} extensions
+检查更新失败：{0}	Update check failed: {0}
+拓展设置	Extension settings
+支持拓展商店页面链接、.xpi 直链，或本地 .xpi 文件	Supports add-on store page links, direct .xpi links, or local .xpi files
+拓展链接（http / https）	Extension link (http / https)
+ 用户	 users
+已添加	Added
+安装中	Installing
+%.1f 亿	%.1f×100M
+%.1f 万	%.1f×10K
+‹ 返回	‹ Back
+详细信息	Details
+权限	Permissions
+已启用	Enabled
+在隐私浏览中运行	Run in private browsing
+打开拓展自带的设置页	Open the extension's own settings page
+版本、作者、简介	Version, author, description
+拓展可访问的数据	Data the extension can access
+处理中…	Working…
+作者	Author
+简介	Description
+此拓展不需要额外权限	This extension needs no additional permissions
+Gecko 高级保护	Advanced Gecko protection
+以下设置由 Gecko 内核执行，仅对 Gecko 标签生效；修改后新打开或刷新的页面起作用。	The settings below are enforced by the Gecko engine and only apply to Gecko tabs; changes take effect on newly opened or refreshed pages.
+反追踪	Anti-tracking
+标准：拦截广告 / 统计 / 社交跟踪；严格：另拦截更多内容跟踪，个别网页可能异常	Standard: blocks ads / analytics / social trackers; Strict: also blocks more content trackers, and some pages may misbehave
+默认（标准）	Default (Standard)
+标准	Standard
+严格	Strict
+打开链接时去掉 utm_*、fbclid、gclid 等跟踪参数	Strips tracking parameters such as utm_*, fbclid and gclid when opening links
+识别并清除经由中转站点（一闪而过的跳转页）建立的跟踪数据	Detects and clears tracking data created via intermediary sites (redirect pages that flash by)
+清除已知跟踪站点留下的 Cookie 与存储（标准 / 严格档位下始终开启）	Clears cookies and storage left by known tracking sites (always on in Standard / Strict)
+指纹	Fingerprinting
+拦截已知指纹脚本，并对少量易被用来识别设备的信息做随机化，兼容性好	Blocks known fingerprinting scripts and randomizes a few details often used to identify devices; good compatibility
+统一时区（UTC）、语言、窗口尺寸等；防护更强，但部分网页的时间 / 布局会异常	Unifies time zone (UTC), language, window size etc.; stronger protection, but time / layout on some pages may break
+身份与请求	Identity & requests
+全局隐私控制（GPC）	Global Privacy Control (GPC)
+向网站发送 Sec-GPC 与 DNT，声明不同意出售 / 共享个人数据	Sends Sec-GPC and DNT to sites, declaring you don't consent to the sale / sharing of personal data
+跨站请求只带来源域名，不带完整页面地址	Cross-site requests carry only the origin domain, not the full page address
+只使用默认出口地址，不向网页暴露内网 / 多网卡地址（视频通话仍可用）	Uses only the default outbound address and doesn't expose internal / multi-NIC addresses to pages (video calls still work)
+彻底关闭 WebRTC 接口，不再泄露真实 IP（视频通话 / 在线会议将不可用）	Fully disables the WebRTC interface so your real IP can't leak (video calls / online meetings won't work)
+每个站点使用独立的 Cookie 与缓存；跨站登录（如「用 Google 登录」）可能失效	Each site uses its own cookies and cache; cross-site sign-ins (such as "Sign in with Google") may break
+连接安全	Connection security
+仅 HTTPS 模式	HTTPS-only mode
+自动把 http 升级为 https；不支持的站点会先提示再决定是否继续	Automatically upgrades http to https; for unsupported sites you're warned first and can decide whether to continue
+安全 DNS（DoH）	Secure DNS (DoH)
+加密域名解析，防运营商篡改与窥探；「仅安全 DNS」下服务不可用时网页将打不开	Encrypts domain resolution against tampering and snooping by ISPs; with "Secure DNS only", pages won't open if the service is unavailable
+关闭（跟随系统）	Off (follow system)
+优先（失败回退系统）	Preferred (fall back to system on failure)
+仅安全 DNS	Secure DNS only
+DNS 服务商	DNS provider
+DoH 地址（https://…/dns-query）	DoH address (https://…/dns-query)
+加密 Client Hello（ECH）	Encrypted Client Hello (ECH)
+对支持的站点隐藏所访问的域名；需要开启安全 DNS 才会生效	Hides the visited domain on supporting sites; requires Secure DNS to be on
+其他	Other
+禁用预取 / 预连接	Disable prefetch / preconnect
+不提前解析、连接未打开的链接，减少对外暴露的请求（页面加载可能略慢）	Doesn't resolve or connect to links in advance, reducing exposed requests (pages may load slightly slower)
+彻底关闭 WebGL 指纹面；3D 网页、地图的部分效果将不可用	Fully disables the WebGL fingerprinting surface; some 3D page and map effects will be unavailable
+恢复默认	Restore defaults
+Gecko 高级保护的全部设置将恢复为默认值	All Gecko advanced protection settings will be restored to their defaults
+恢复	Restore
+返回	Back
+清除最近 1 天	Clear the last 1 day
+清除最近一周	Clear the last week
+清除最近一月	Clear the last month
+已导入 {0} 条书签	Imported {0} bookmarks
+识别到 {0} 条书签，均已存在，无需重复导入	Recognized {0} bookmarks, all already exist; no need to import again
+未识别到书签（文件 {0} 字节；支持 Chrome / Edge / Firefox 导出的 HTML 或 JSON）	No bookmarks recognized (file is {0} bytes; HTML or JSON exported from Chrome / Edge / Firefox is supported)
+导入失败：{0}	Import failed: {0}
+搜索书签	Search bookmarks
+搜索历史	Search history
+书签：加密套件加密；历史：SQLCipher 整库 AES-256	Bookmarks: cipher suite encryption; history: whole-database AES-256 via SQLCipher
+书签操作	Bookmark actions
+新建书签	New bookmark
+Chrome / Edge / Firefox 书签（HTML / JSON）	Chrome / Edge / Firefox bookmarks (HTML / JSON)
+保存到 Download/mafari	Saved to Download/mafari
+清空历史	Clear history
+清除历史记录	Clear history
+将删除{0}共 {1} 条历史记录，此操作无法撤销。	This will delete {1} history records for {0}. This can't be undone.
+{0}没有可删除的历史记录。	There are no history records to delete for {0}.
+确认删除	Confirm delete
+编辑分组	Edit group
+分组路径（用 / 分层）	Group path (use / for levels)
+分组名不能为空	Group name can't be empty
+删除分组	Delete group
+将删除分组「{0}」（含子分组）及其中的 {1} 个书签，此操作无法撤销。	This will delete the group "{0}" (including subgroups) and the {1} bookmarks in it. This can't be undone.
+新-旧	New-Old
+旧-新	Old-New
+排序	Sort
+还没有书签。点右下角按钮新建，或从 Chrome / Firefox 导入。	No bookmarks yet. Tap the button at the bottom right to create one, or import from Chrome / Firefox.
+没有匹配的书签	No matching bookmarks
+{0} 个分组	{0} groups
+{0} 个书签	{0} bookmarks
+收起	Collapse
+展开	Expand
+已置顶	Pinned
+编辑	Edit
+拖动排序	Drag to reorder
+固定在最上面	Pin to top
+还没有浏览记录	No browsing history yet
+没有匹配的历史记录	No matching history
+分组	Group
+按日	By day
+按周	By week
+按月	By month
+按年	By year
+M月d日	MMM d
+周日	Sun
+周一	Mon
+周二	Tue
+周三	Wed
+周四	Thu
+周五	Fri
+周六	Sat
+本周 · {0}	This week · {0}
+上周 · {0}	Last week · {0}
+本月	This month
+上月	Last month
+{0}月	Month {0}
+{0}年{1}月	{1}/{0}
+今年	This year
+去年	Last year
+{0}年	{0}
+已导出到 Download/mafari/{0}	Exported to Download/mafari/{0}
+导出失败：{0}	Export failed: {0}
+编辑书签	Edit bookmark
+网址	URL
+或输入/新建分组路径(以/分层)	Or enter / create a group path (levels separated by /)
+同层置顶	Pin within group
+排到所在分组的书签最前，分组文件夹仍在书签上面	Placed first among the bookmarks of its group; group folders stay above bookmarks
+最近浏览	Recently visited
+下载项	Downloads
+还没有下载任务	No downloads yet
+已完成	Completed
+失败	Failed
++ 添加收藏	+ Add favorite
+已拦截广告	Ads blocked
+已处理指纹读取	Fingerprint reads handled
+指纹保护未开启	Fingerprint protection is off
+近 24 小时没有网站频繁请求敏感权限	No sites requested sensitive permissions frequently in the last 24 hours
+{0} 近 24 小时请求{1} {2} 次	{0} requested {1} {2} times in the last 24 hours
+另有 {0} 个网站	{0} more sites
+书签分组	Bookmark groups
+快捷菜单	Quick menu
+{0} 项	{0} items
+这个分组还没有书签	This group has no bookmarks yet
+选择分组	Choose group
+还没有分组	No groups yet
+添加书签分组	Add bookmark group
+还没有书签分组，请先在书签页新建	No bookmark groups yet; create one on the Bookmarks page first
+添加快捷功能	Add quick feature
+添加收藏	Add favorite
+编辑收藏	Edit favorite
+加载中…	Loading…
+没有匹配的内容	No matching content
+更多（还有 {0} 项）	More ({0} more)
+密码  ••••••••	Password  ••••••••
+将替换已保存的旧密码，密码会加密保存在本机	The old saved password will be replaced; the password is encrypted and stored on this device
+密码会加密保存在本机	The password is encrypted and stored on this device
+欢迎使用	Welcome
+高级材质	Advanced material
+设置壁纸	Set wallpaper
+布置首页	Arrange home
+整理菜单栏	Organize menu bar
+设置口令	Set password
+隐私保护	Privacy protection
+默认浏览器	Default browser
+Mafari 浏览器，接下来用几步帮你完成基础设置	Welcome to the Mafari browser; a few steps will get the basics set up
+先挑一种界面材质，后面的所有设置页都会按它显示，之后可在 设置 → 外观 里更换	Pick an interface material first; all settings pages after this will use it. You can change it later in Settings → Appearance
+给主页挑一张喜欢的图片，也可以先跳过，之后在 设置 → 外观 里更换	Pick a picture you like for the home page, or skip it for now and change it later in Settings → Appearance
+选好起始页、导航栏位置和地址栏显示，再决定首页放哪些内容	Choose the start page, navigation bar position and address bar display, then decide what goes on the home page
+长按图标拖动即可排序，拖到分割线下方就隐藏；部分按钮长按还有更多功能	Long-press and drag icons to reorder; drag below the divider to hide them; some buttons do more on long-press
+数据在你自己手里：多种方式备份，随时换机恢复	Your data is in your own hands: back up in several ways and restore on a new phone any time
+这是 Mafari 加密备份与同步使用的唯一口令	This is the one and only password used for Mafari's encrypted backup and sync
+一键开启，或按需逐项打开	Turn everything on at once, or enable items one by one
+让其他应用里的网页链接直接用 Mafari 打开	Make web links in other apps open directly in Mafari
+请阅读到底部，然后点击「完成」	Read to the bottom, then tap "Done"
+跳过	Skip
+开始设置	Start setup
+选择壁纸	Choose wallpaper
+上一步	Back
+重新选择	Choose again
+跳过此步	Skip this step
+请先读到底部	Read to the bottom first
+柔光玻璃	Soft glass
+半透明磨砂质感，柔和通透	Translucent frosted look, soft and airy
+液态玻璃	Liquid glass
+带折射的液态质感，效果最华丽，更耗性能	Liquid look with refraction; the fanciest effect, but uses more performance
+纯色	Solid color
+不做模糊与玻璃效果，最省电、最流畅	No blur or glass effects; the most battery-friendly and smooth
+选择后下方的卡片、按钮和弹窗会立刻换成对应材质，可以先试一试。	After choosing, the cards, buttons and dialogs below switch to that material right away; try it out.
+壁纸预览	Wallpaper preview
+尚未选择壁纸	No wallpaper chosen yet
+模糊壁纸	Blur wallpaper
+主页壁纸做高斯模糊，减少对内容的干扰	Applies a Gaussian blur to the home wallpaper to reduce distraction from content
+启动与布局	Startup & layout
+自定义起始页	Custom start page
+启动应用、点主页按钮、新建标签页时打开什么	What opens when you launch the app, tap the home button or open a new tab
+默认主页	Default home page
+指定页面	Specific page
+指定页面地址	Specific page address
+未设置	Not set
+修改	Change
+导航栏位置	Navigation bar position
+顶部 / 底部：随页面滚动自动隐藏；固定：始终显示	Top / Bottom: auto-hides when the page scrolls; Fixed: always shown
+顶部	Top
+底部	Bottom
+始终最小化	Always minimized
+固定在底部	Fixed at bottom
+固定在顶部	Fixed at top
+地址栏显示	Address bar display
+网站标题	Site title
+主域名	Main domain
+完整网址	Full URL
+标签栏样式	Tab bar style
+文字显示	Text
+卡片显示	Cards
+首页内容	Home content
+LOGO 标识	LOGO
+常用功能一键直达	Common features in one tap
+把常逛的网站放在首页	Put your frequently visited sites on the home page
+按文件夹快速打开书签	Open bookmarks quickly by folder
+已拦截的广告与跟踪统计	Stats of blocked ads and trackers
+无痕标签页的首页不显示	Not shown on the home page of private tabs
+最近的下载任务	Recent download tasks
+进入首页后，长按卡片标题可上下拖动排序，卡片右上角的 × 可以把它从首页移除。	After entering the home page, long-press a card title to drag it up or down; the × at the top right of a card removes it from the home page.
+请输入完整网址，例如 https://www.baidu.com	Please enter the full URL, e.g. https://www.baidu.com
+请输入有效的网址	Please enter a valid URL
+长按进入「脚本管理」，单击是当前页面的脚本菜单	Long-press opens "Script management"; a tap opens the script menu for the current page
+长按进入「书签」库，单击是收藏当前页面	Long-press opens the "Bookmarks" library; a tap favorites the current page
+长按弹出「新建书签」，自动填入当前页的标题和网址；单击是打开书签	Long-press opens "New bookmark", prefilled with the current page's title and URL; a tap opens bookmarks
+长按进入「拓展」管理页，单击是拓展快捷菜单	Long-press opens the "Extensions" management page; a tap opens the extension quick menu
+试一试	Try it
+这里只是预览，进入浏览器后点开「更多」即可使用	This is only a preview; open "More" in the browser to use it
+长按任意图标并拖动：松手前拖到分割线下方就是隐藏，再拖回上方即恢复。「设置」不能隐藏，以免找不到入口。	Long-press any icon and drag: dropping it below the divider hides it, and dragging it back above restores it. "Settings" can't be hidden so you can always find the entry.
+长按还能做什么	What long-press can do
+备份方式	Backup methods
+本地加密备份文件	Local encrypted backup file
+导出 .mfbak 加密备份，换机或重装时选择文件即可恢复	Export an encrypted .mfbak backup; choose the file to restore when switching phones or reinstalling
+WebDAV 云备份	WebDAV cloud backup
+备份到你自己的 WebDAV 服务器，可保留多份历史	Back up to your own WebDAV server, keeping multiple past versions
+Git 仓库备份	Git repository backup
+推送到你自己的 Git 仓库，支持访问令牌或 Deploy key	Push to your own Git repository; supports access tokens or Deploy keys
+自动推送	Auto push
+设好口令和云端后，可按天 / 每 3 天 / 每周自动备份	Once the password and cloud are set up, backups can run automatically daily / every 3 days / weekly
+打开备份与同步页	Open the Backup & sync page
+和电脑、其他手机上的 Firefox 互通	Works with Firefox on your computer and other phones
+登录 Mozilla 帐户，同步书签、历史记录、标签页和密码；也能把当前网页发送到其他设备	Sign in to a Mozilla account to sync bookmarks, history, tabs and passwords; you can also send the current page to other devices
+Floccus 书签同步	Floccus bookmark sync
+在 设置 → 拓展 里安装 Floccus，可通过 Nextcloud / WebDAV / Git 在不同浏览器之间同步书签	Install Floccus in Settings → Extensions to sync bookmarks across browsers via Nextcloud / WebDAV / Git
+登录 / 管理 Firefox 帐户	Sign in / manage Firefox account
+当前是 lite 版，不含 Firefox 帐户同步；需要时可以改装 sync_lite 或 gecko 版，数据不会丢。	This is the lite edition and doesn't include Firefox account sync; you can switch to the sync_lite or gecko edition when needed, and your data won't be lost.
+唯一口令	The one and only password
+备份文件、WebDAV / Git 云备份和自动推送都用它加密。口令加密保存在本机，不会上传。	Backup files, WebDAV / Git cloud backups and auto push are all encrypted with it. The password is stored encrypted on this device and never uploaded.
+请务必记牢	Be sure to remember it
+忘记口令后，已加密的备份无法找回。口令至少 8 位。	If you forget the password, encrypted backups can't be recovered. At least 8 characters.
+已设置	Set
+尚未设置	Not set yet
+备份时不再询问口令，随时可以修改	You won't be asked for the password when backing up; you can change it any time
+现在设置，或之后在 备份与同步 里设置	Set it now, or later in Backup & sync
+修改口令	Change password
+口令已保存	Password saved
+保存失败：	Save failed: 
+拦截广告、统计与社交跟踪（标准档）	Blocks ads, analytics and social trackers (Standard)
+去掉 utm_*、fbclid、gclid 等跟踪参数	Strips tracking parameters such as utm_*, fbclid and gclid
+清除经由中转站点建立的跟踪数据	Clears tracking data created via intermediary sites
+拦截已知指纹脚本，并随机化少量设备信息	Blocks known fingerprinting scripts and randomizes a few device details
+向网站声明不同意出售 / 共享个人数据	Declares to sites that you don't consent to the sale / sharing of personal data
+跨站请求只带来源域名	Cross-site requests carry only the origin domain
+不向网页暴露内网 / 多网卡地址，视频通话仍可用	Doesn't expose internal / multi-NIC addresses to pages; video calls still work
+自动把 http 升级为 https	Automatically upgrades http to https
+加密域名解析，失败时回退系统 DNS	Encrypts domain resolution, falling back to system DNS on failure
+拦截广告与第三方统计请求，隐藏页面广告元素	Blocks ads and third-party analytics requests and hides page ad elements
+拒绝第三方 Cookie	Block third-party cookies
+减少跨站跟踪；个别「用某某账号登录」可能受影响	Reduces cross-site tracking; some "Sign in with …" flows may be affected
+发送「请勿追踪」	Send "Do Not Track"
+向网站发送 Do Not Track 请求头	Sends the Do Not Track request header to websites
+Canvas / WebGL / 音频 / 字体，让网站难以靠设备特征识别你	Canvas / WebGL / audio / fonts, making it hard for sites to recognize you by device traits
+防止真实 IP 泄露；视频通话 / 在线会议将不可用	Prevents your real IP from leaking; video calls / online meetings won't work
+一键开启隐私保护	Turn on privacy protection in one tap
+已开启全部 {0} 项	All {0} items are on
+已开启 {0} / {1} 项	{0} of {1} items are on
+包含的保护项 · {0} 版 · 	Included protections · {0} edition · 
+Gecko 内核	Gecko engine
+系统 WebView 内核	System WebView engine
+更多保护（严格模式、强力抗指纹、第一方隔离等）在 设置 → 隐私与安全 → Gecko 高级保护 里。	More protections (strict mode, strong anti-fingerprinting, first-party isolation, etc.) are in Settings → Privacy & security → Advanced Gecko protection.
+指纹保护和禁用 WebRTC 可能影响个别网页 / 视频通话，可随时在 设置 → 隐私与安全 里单独调整。	Fingerprint protection and disabling WebRTC may affect some pages / video calls; you can adjust them individually any time in Settings → Privacy & security.
+已是默认浏览器	Already the default browser
+还不是默认浏览器	Not the default browser yet
+其他应用里的网页链接会直接用 Mafari 打开	Web links in other apps open directly in Mafari
+设置后，聊天、邮件等应用里点开的网页链接会直接用 Mafari 打开。不想设置也可以继续，之后在 设置 → 高级 里随时设置。	Once set, web links you tap in chat, mail and other apps open directly in Mafari. You can also continue without setting it and do it any time later in Settings → Advanced.
+无法打开系统设置，请在 系统设置 → 应用 → 默认应用 里选择 Mafari	Can't open system settings; choose Mafari under System settings → Apps → Default apps
+请在系统设置里搜索「自动填充服务」并选择 Mafari 密码	In system settings, search for "Autofill service" and choose Mafari Passwords
+验证后才能查看或复制密码	Verify before you can view or copy passwords
+无法解密这条密码（密钥已失效或数据损坏）	Can't decrypt this password (key invalid or data corrupted)
+密码：SQLCipher 整库 AES-256，密码与备注再用加密套件逐条加密	Passwords: whole-database AES-256 via SQLCipher; passwords and notes are additionally encrypted one by one with the cipher suite
+系统自动填充服务	System autofill service
+已启用 · 系统 WebView 与 Gecko 网页的登录框都可填充	Enabled · login fields on both system WebView and Gecko pages can be filled
+未启用 · 点此在系统设置里选择「Mafari 密码」，即可全局使用本密码填充服务	Not enabled · tap to choose "Mafari Passwords" in system settings to use this password autofill service globally
+保存密码	Save passwords
+登录后询问是否保存或更新 · 无痕标签页不保存	Asks whether to save or update after you sign in · private tabs don't save
+点登录框时选择已保存的账号并填入	When you tap a login field, pick a saved account to fill in
+填充前验证身份	Verify identity before filling
+填入密码前先通过生物识别或锁屏密码	Pass biometrics or the screen lock before a password is filled in
+导入与同步	Import & sync
+正在导入…	Importing…
+从 CSV 文件导入	Import from CSV file
+Chrome · Edge · Firefox · Safari · Bitwarden · 1Password · LastPass · KeePass 导出的密码文件	Password files exported from Chrome · Edge · Firefox · Safari · Bitwarden · 1Password · LastPass · KeePass
+Firefox 同步	Firefox Sync
+同步 Firefox 密码	Sync Firefox passwords
+未登录，点击前往Firefox帐户同步页登录	Not signed in; tap to go to the Firefox account sync page and sign in
+管理	Manage
+已保存的密码	Saved passwords
+还没有保存的密码，可从其他浏览器或密码管理器导出 CSV 后导入	No saved passwords yet. Export a CSV from another browser or password manager and import it
+清除所有密码	Clear all passwords
+删除本机保存的全部 {0} 条密码，不可恢复	Delete all {0} passwords saved on this device; this can't be undone
+密码保存在本机的加密数据库里，数据库密钥由系统密钥库保护，密码字段还会再经加密套件逐条加密；	Passwords are stored in an encrypted database on this device, whose key is protected by the system keystore; password fields are additionally encrypted one by one with the cipher suite; 
+查看或复制密码前需要通过系统验证。导入用的 CSV 文件里是明文密码，导入完成后请及时删除。	system verification is required before viewing or copying a password. The CSV file used for import contains plaintext passwords; please delete it promptly after importing.
+搜索网站或用户名	Search sites or usernames
+还没有保存的密码	No saved passwords yet
+CSV 文件里是明文密码，请现在就删除它（也包括下载目录和云盘里的副本）。	The CSV file contains plaintext passwords. Please delete it right now (including copies in your downloads folder and cloud drive).
+好	OK
+（无）	(none)
+复制用户名	Copy username
+隐藏密码	Hide password
+显示密码	Show password
+复制密码	Copy password
+修改时间	Modified
+删除这条密码？	Delete this password?
+清除所有密码？	Clear all passwords?
+本机保存的全部 {0} 条密码将被删除，不可恢复	All {0} passwords saved on this device will be deleted; this can't be undone
+文件超过 {0} MB，不像是密码文件	The file is over {0} MB; it doesn't look like a password file
+加密数据库不可用，无法保存密码	The encrypted database is unavailable; can't save passwords
+识别为：{0}	Recognized as: {0}
+新增 {0} 条	{0} added
+，更新 {0} 条	, {0} updated
+{0} 条已存在，未改动	{0} already exist, unchanged
+{0} 行被跳过（缺少网址 / 密码、网址不是 http(s)、或重复）	{0} rows skipped (missing URL / password, URL isn't http(s), or duplicate)
+文件里没有数据行	The file has no data rows
+导入完成	Import complete
+无法导入	Can't import
+文件格式不对	Wrong file format
+保存时出错，已全部撤销，没有导入任何密码	An error occurred while saving; everything was rolled back and no passwords were imported
+已复制{0}	{0} copied
+隐私增强保护	Enhanced privacy protection
+隐私报告记录：SQLCipher 整库 AES-256	Privacy report records: whole-database AES-256 via SQLCipher
+请求与连接	Requests & connections
+发送禁止跟踪请求	Send Do Not Track requests
+地址栏与链接导航附带 DNT / Sec-GPC 头，并设置 navigator.doNotTrack	Address bar and link navigation carry DNT / Sec-GPC headers, and navigator.doNotTrack is set
+移除 RTCPeerConnection 等接口，防止泄露真实 IP（刷新页面后生效）	Removes interfaces such as RTCPeerConnection to prevent your real IP from leaking (takes effect after refreshing the page)
+保护中 · {0} / 4 项	Protected · {0} / 4 items
+ 次指纹读取已被处理	 fingerprint reads handled
+开启保护后，这里会统计网页读取你设备指纹的次数	Once protection is on, the number of times web pages read your device fingerprint is counted here
+已开启保护，暂未发现网页读取指纹	Protection is on; no page has read fingerprints so far
+自 {0} 开启保护以来，暂未发现网页读取指纹	Since protection was turned on at {0}, no page has read fingerprints
+自 {0} 开启保护以来的累计	Cumulative since protection was turned on at {0}
+保护已关闭 · 数字停留在 {0} 开启的那一轮	Protection is off · the number stays at the round that started at {0}
+网页在隐藏或关闭时上报，数字仅供参考	Pages report when hidden or closed; the number is for reference only
+保护项目	Protected items
+已开启，可在下方选择保护哪些项目	On; choose below which items to protect
+开启后可选择 Canvas · WebGL · Audio · Fonts	Once on, you can choose Canvas · WebGL · Audio · Fonts
+Canvas 指纹	Canvas fingerprint
+导出画布 / 读取像素时加入不可见的细微噪声	Adds invisible subtle noise when exporting a canvas / reading pixels
+WebGL 指纹	WebGL fingerprint
+给 readPixels / WebGL 画布导出加入细微噪声	Adds subtle noise to readPixels / WebGL canvas exports
+Audio 指纹	Audio fingerprint
+给音频缓冲和分析器输出加入听不出来的噪声	Adds inaudible noise to audio buffers and analyser output
+Fonts 指纹	Fonts fingerprint
+干扰 Canvas 文字测量与本机字体加载，无法枚举已安装字体	Disturbs Canvas text measurement and local font loading, so installed fonts can't be enumerated
+高级	Advanced
+未预注册页面的兜底	Fallback for unregistered pages
+仅记录，不干预	Log only, don't intervene
+停止并在保护下重载	Stop and reload under protection
+停止加载	Stop loading
+保护豁免站点	Protection-exempt sites
+这些站点（含子域名）不注入指纹保护	Fingerprint protection isn't injected into these sites (including subdomains)
+{0} 个站点不注入指纹保护	Fingerprint protection isn't injected into {0} sites
+默认关闭。开启会改动网页读到的数据，可能引起兼容问题（开启时会有具体提示）；	Off by default. Turning it on alters the data pages read and may cause compatibility problems (specific warnings are shown when you turn items on); 
+对新打开或刷新后的页面生效。保护作用于页面本身、同站点子域名以及预注册清单内的跨源 iframe，	applies to newly opened or refreshed pages. Protection covers the page itself, same-site subdomains and cross-origin iframes on the pre-registered list; 
+清单之外的跨源 iframe 不保护；若页面（如重定向落点）在注册前就开始加载，会按「兜底」策略处理	cross-origin iframes outside the list aren't protected; if a page (such as a redirect landing) starts loading before registration, it's handled by the "Fallback" policy 
+（登录回调这类带一次性凭证的地址不会被重载）。	(addresses carrying one-time credentials, such as login callbacks, aren't reloaded). 
+豁免列表与去广告的「站点白名单」相互独立；若某个网站异常，可关掉对应项或把该站点加入豁免。	The exemption list is independent of the ad-block "Site allowlist"; if a site misbehaves, turn off the relevant item or add the site to the exemptions.
+豁免站点（含子域名）不注入指纹保护；对新打开或刷新后的页面生效	Exempt sites (including subdomains) don't get fingerprint protection injected; applies to newly opened or refreshed pages
+还没有豁免站点	No exempt sites yet
+开启 Canvas 指纹保护？	Turn on Canvas fingerprint protection?
+开启 WebGL 指纹保护？	Turn on WebGL fingerprint protection?
+开启 Audio 指纹保护？	Turn on Audio fingerprint protection?
+开启 Fonts 指纹保护？	Turn on Fonts fingerprint protection?
+开启指纹保护？	Turn on fingerprint protection?
+网页读到的 Canvas 像素会带有极细微的噪声（约 1/64 的像素 ±1），可能引起：\n	The Canvas pixels a page reads will carry very subtle noise (about 1/64 of pixels ±1), which may cause:\n
+· 在线绘图 / 取色 / 图片处理 / 截图工具的结果与原图有细微差异\n	· Slight differences from the original in online drawing / color picking / image processing / screenshot tools\n
+· 银行、验证码、风控类网站发现数据被改动，要求额外验证或拒绝登录\n	· Banks, CAPTCHA and risk-control sites noticing altered data and requiring extra verification or refusing sign-in\n
+· 浏览器检测站点提示 Canvas 被篡改\n	· Browser-check sites reporting that Canvas was tampered with\n
+· 导出的图片与原画布不再逐字节一致	· Exported images are no longer byte-identical to the original canvas
+WebGL 读回的像素会带有极细微的噪声，可能引起：\n	Pixels read back from WebGL will carry very subtle noise, which may cause:\n
+· 3D / 地图 / 游戏截图、读像素的工具结果有细微差异\n	· Slight differences in 3D / map / game screenshots and pixel-reading tools\n
+· 风控类网站发现渲染数据被改动，要求额外验证\n	· Risk-control sites noticing altered rendering data and requiring extra verification\n
+· 浏览器检测站点提示 WebGL 被篡改	· Browser-check sites reporting that WebGL was tampered with
+音频缓冲和分析器输出会带有听不出来的噪声，可能引起：\n	Audio buffers and analyser output will carry inaudible noise, which may cause:\n
+· 音频分析 / 调音 / 频谱类工具读数有微小偏差\n	· Small deviations in readings of audio analysis / tuning / spectrum tools\n
+· 依赖音频指纹的校验或风控失败	· Failures in checks or risk control that rely on audio fingerprints
+Canvas 文字测量结果会有极小偏差，本机字体加载对非常见字体会失败，可能引起：\n	Canvas text measurements will deviate very slightly, and loading local fonts will fail for uncommon fonts, which may cause:\n
+· 依赖精确测量的排版、编辑器、图表出现细微错位\n	· Slight misalignment in layouts, editors and charts that rely on precise measurement\n
+· 使用本机字体的网页回退到其他字体\n	· Pages that use local fonts falling back to other fonts\n
+· 浏览器检测站点提示字体异常	· Browser-check sites reporting font anomalies
+将恢复你上次选择的保护项（首次开启为 Canvas / WebGL / Audio / Fonts 全部四项）。	Restores the items you chose last time (all four of Canvas / WebGL / Audio / Fonts the first time you turn it on).
+网页读到的 Canvas / WebGL 像素、音频输出和字体测量会带有极细微的噪声，可能引起：\n	Canvas / WebGL pixels, audio output and font measurements that a page reads will carry very subtle noise, which may cause:\n
+· 在线绘图 / 取色 / 图片处理 / 3D 与地图工具的结果有细微差异\n	· Slight differences in online drawing / color picking / image processing / 3D and map tools\n
+· 银行、验证码、风控类网站发现数据被改动，要求额外验证\n	· Banks, CAPTCHA and risk-control sites noticing altered data and requiring extra verification\n
+· 依赖精确测量的排版 / 编辑器出现细微错位，本机字体回退\n	· Slight misalignment in layouts / editors that rely on precise measurement, and local fonts falling back\n
+开启后可在列表里逐项关闭。	After turning it on, you can switch items off one by one in the list.
+指纹保护只能降低被跨站追踪的概率，不等于匿名。若遇到问题可随时关闭，或把该网站加入去广告「站点白名单」。	Fingerprint protection only lowers the chance of cross-site tracking; it doesn't make you anonymous. If you run into problems, turn it off any time or add the site to the ad-block "Site allowlist".
+仍要开启	Turn on anyway
+M月d日 HH:mm	MMM d HH:mm
+概述	Overview
+Mafari 是一款本地优先的浏览器。应用不要求注册账号，不包含广告、统计分析或崩溃上报组件，开发者也不运营用于收集你的浏览数据的服务器。	Mafari is a local-first browser. The app doesn't require an account and contains no ads, analytics or crash-reporting components, and the developer doesn't run any server that collects your browsing data.
+本页说明应用会在设备上保存哪些数据、会向哪些第三方发出网络请求，以及你可以如何控制它们。	This page explains what data the app stores on your device, which third parties it sends network requests to, and how you can control them.
+保存在你设备上的数据	Data stored on your device
+浏览历史、书签与收藏、下载记录、用户脚本、应用设置，以及网站产生的 Cookie 与站点数据，都只保存在你的设备上。	Browsing history, bookmarks and favorites, download records, userscripts, app settings, and cookies and site data produced by websites are all stored only on your device.
+历史、书签、下载记录、脚本等数据库使用 SQLCipher 加密保存，密钥由 Android 系统密钥库（Android Keystore）参与保护。	Databases such as history, bookmarks, download records and scripts are encrypted with SQLCipher, with the key protected in part by the Android Keystore.
+你导入的网站密码保存在同一个加密数据库里，密码字段另外再用应用的加密套件逐条加密；查看或复制密码前需要通过系统验证（生物识别或锁屏密码）。目前密码不会被上传、同步或写入备份。	Website passwords you import are stored in the same encrypted database, and password fields are additionally encrypted one by one with the app's cipher suite; system verification (biometrics or screen lock) is required before viewing or copying a password. Passwords are currently not uploaded, synced or written to backups.
+这些数据不会被开发者读取或上传；卸载应用会一并删除。	The developer doesn't read or upload this data; it is deleted along with the app when you uninstall it.
+网络请求与第三方	Network requests & third parties
+你访问的网站：网页内容、搜索关键词由你访问的网站或所选搜索引擎处理，适用其各自的隐私政策。默认搜索引擎为百度，可在设置中更换。	Websites you visit: page content and search keywords are handled by the websites you visit or the search engine you choose, under their own privacy policies. The default search engine is Baidu and can be changed in Settings.
+检查与下载更新：在你主动检查更新（或开启自动检查）时，应用会访问 GitHub 获取版本信息；下载安装包时可能经由 GitHub 加速镜像（如 ghfast.top、gh-proxy.com 等），这些镜像可看到你的 IP 地址与下载地址。	Update checks and downloads: when you check for updates (or turn on automatic checks), the app contacts GitHub for version information; downloading the installer may go through GitHub acceleration mirrors (such as ghfast.top and gh-proxy.com), which can see your IP address and the download address.
+站点图标：创建桌面快捷方式等场景可能向 Google 图标服务（google.com/s2/favicons）请求，会发送目标网站的域名。	Site icons: scenarios such as creating home-screen shortcuts may request Google's icon service (google.com/s2/favicons), which sends the target site's domain.
+网页翻译：使用翻译功能时，当前页面地址会发送给 Google 翻译（translate.google.com）。	Page translation: when you use translation, the current page address is sent to Google Translate (translate.google.com).
+扩展与脚本：在扩展商店搜索或安装扩展时会访问 addons.mozilla.org；用户脚本的安装、更新及其依赖按脚本自身声明的地址（如 Greasy Fork）访问。	Extensions and scripts: searching or installing extensions in the store contacts addons.mozilla.org; installing and updating userscripts and their dependencies access the addresses the scripts declare (such as Greasy Fork).
+备份与同步：只有当你自行配置 WebDAV 或 Git 同步后，备份才会上传到你指定的服务器。备份文件在设备上先加密，开发者无法读取其内容。	Backup & sync: backups are uploaded to the server you specify only after you configure WebDAV or Git sync yourself. Backup files are encrypted on the device first, so the developer can't read their contents.
+权限说明	Permissions
+网络：加载网页、检查更新、同步备份。	Network: loading pages, checking for updates, syncing backups.
+相机、麦克风、位置：仅在网页请求并经你授权时使用，可随时在设置或系统中撤销。	Camera, microphone, location: used only when a page requests it and you authorize it; you can revoke it any time in settings or the system.
+通知与前台服务：显示下载进度与结果。	Notifications and foreground service: show download progress and results.
+安装应用包：仅用于安装你主动下载的更新安装包。	Install packages: used only to install update packages you download yourself.
+生物识别：用于应用内的生物识别验证，指纹等生物特征数据由系统处理，应用不会获取。	Biometrics: used for in-app biometric verification; fingerprint and other biometric data are handled by the system and never obtained by the app.
+桌面快捷方式：用于将网页添加到桌面。	Home-screen shortcuts: used to add web pages to the home screen.
+隐私保护功能	Privacy protection features
+应用提供跟踪保护、去广告、指纹保护、Cookie 管理等功能，均在设备本地运行。屏蔽规则的拦截统计仅保存在本地。	The app provides tracking protection, ad blocking, fingerprint protection, cookie management and more, all running locally on the device. Block-rule statistics are stored only locally.
+你的选择	Your choices
+你可以随时清除历史、Cookie 与缓存，删除书签与脚本，关闭自动检查更新，或不配置任何同步。	You can clear history, cookies and cache, delete bookmarks and scripts, turn off automatic update checks, or configure no sync at all, any time.
+备份文件与同步服务器由你自行管理，请妥善保管备份口令。	Backup files and sync servers are managed by you; please keep your backup password safe.
+政策变更与联系	Policy changes & contact
+当应用的数据处理方式发生变化时，本政策会随版本更新。最后更新：{0}。	When the app's data handling changes, this policy is updated with the release. Last updated: {0}.
+如有疑问或建议，请在项目的 Issues 页面反馈。	If you have questions or suggestions, please leave feedback on the project's Issues page.
+最后更新：{0}	Last updated: {0}
+问题反馈	Feedback
+记录请求	Log requests
+统计页面请求的域名与次数，开启后刷新页面生效	Counts the domains and number of requests a page makes; refresh the page after turning on
+统计已关闭	Statistics are off
+去广告已关闭，仅统计不拦截	Ad blocking is off; counting only, no blocking
+{0} 个域名 · {1} 次请求	{0} domains · {1} requests
+暂无请求，刷新页面后再看	No requests yet; refresh the page and look again
+本页域名	Domains on this page
+我屏蔽的域名（含子域名）	Domains I blocked (including subdomains)
+已移除屏蔽	Block removed
+我放行的域名（含子域名）	Domains I allowed (including subdomains)
+已移除放行	Allow removed
+已屏蔽（手动	Blocked (manual
+取消屏蔽	Unblock
+已放行（手动	Allowed (manual
+取消放行	Remove allow
+已拦截（Gecko 防护）	Blocked (Gecko protection)
+已拦截（	Blocked (
+跟踪域名	tracking domain
+放行	Allow
+已放行	Allowed
+屏蔽	Block
+{0} 次	{0} times
+，拦截 {0} 次	, blocked {0} times
+已取消屏蔽，刷新页面生效	Unblocked; refresh the page to apply
+已取消放行	Allow removed
+已放行 {0}，刷新页面生效	Allowed {0}; refresh the page to apply
+已屏蔽 {0}，刷新页面生效	Blocked {0}; refresh the page to apply
+脚本快捷菜单	Script quick menu
+{0}个脚本运行中	{0} scripts running
+脚本已停用	Scripts disabled
+当前页面没有运行中的脚本	No scripts running on this page
+开启后将在刷新页面时运行脚本	Scripts will run when the page is refreshed after turning on
+外观	Appearance
+显示模式	Display mode
+浅色模式	Light
+深色模式	Dark
+主页壁纸	Home wallpaper
+退出应用后桌面图标将更新	The home-screen icon updates after you exit the app
+柔光玻璃 / 液态玻璃 / 纯色	Soft glass / Liquid glass / Solid color
+布局	Layout
+定制主页	Customize home
+同站链接新标签页打开	Open same-site links in a new tab
+网页内同站的新窗口链接（target=_blank）在新标签页打开；关闭则在当前标签页打开	New-window links (target=_blank) to the same site open in a new tab; when off they open in the current tab
+状态栏、导航栏全沉浸浏览	Fully immersive browsing under the status bar and navigation bar
+浏览	Browsing
+重启恢复标签页	Restore tabs on restart
+恢复之前的标签页，但不跳转，直接新建一个新标签页	Restores the previous tabs without navigating and opens a new tab instead
+不恢复，直接打开新标签页	Don't restore; just open a new tab
+恢复到退出前的状态，冷启动会回到当时浏览的页面	Restores the state before exit; a cold start returns to the page you were on
+恢复为退出前的标签列表状态	Restore the tab list as it was before exit
+恢复标签并打开新标签页	Restore tabs and open a new tab
+外部链接打开方式	How external links open
+应用内打开	In the app
+自定义标签页	Custom tab
+其他浏览器	Another browser
+书签与历史	Bookmarks & history
+书签分组、浏览记录	Bookmark groups, browsing records
+查看已下载的文件	View downloaded files
+搜索引擎	Search engine
+隐私与安全	Privacy & security
+ · 启动时清理	 · cleanup at launch
+ · 接受策略 · 自动清理 · 清除数据	 · acceptance policy · auto cleanup · clear data
+网站权限管理	Site permissions
+自动播放 · 摄像头 · 位置 · 麦克风 · 通知 · 持久存储 · 跨站 Cookie · DRM · 例外网站	Autoplay · Camera · Location · Microphone · Notifications · Persistent storage · Cross-site cookies · DRM · Exception sites
+摄像头 · 麦克风 · 定位 · 网站通知 · 剪贴板 · 媒体发声 · 网页重定向 · 打开其他应用	Camera · Microphone · Location · Site notifications · Clipboard · Media sound · Page redirects · Open other apps
+反追踪 · 指纹保护 · 安全 DNS · HTTPS-Only	Anti-tracking · Fingerprint protection · Secure DNS · HTTPS-Only
+已开启 {0} 项 · 反追踪 · 指纹保护 · 安全 DNS	{0} on · Anti-tracking · Fingerprint protection · Secure DNS
+让其他应用里的网页链接用 Mafari 打开	Make web links in other apps open with Mafari
+浏览器内核	Browser engine
+Gecko · 新建标签页生效	Gecko · applies to new tabs
+系统 WebView · 新建标签页生效	System WebView · applies to new tabs
+WebView（系统）	WebView (system)
+当前设备不是 arm64-v8a，无法使用 Gecko 内核	This device isn't arm64-v8a, so the Gecko engine can't be used
+新建的标签页将使用 	New tabs will use the 
+ 内核	 engine
+管理 Firefox 扩展	Manage Firefox extensions
+网页增强	Web enhancements
+总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告	Master switch: enables / disables all userscripts and ad blocking together; when off, long-press ad marking is no longer detected either
+已开启 · 	On · 
+ 个订阅 · 订阅源导入、自定义规则	 subscriptions · import subscriptions, custom rules
+脚本管理	Script management
+用户脚本 / 油猴脚本	Userscripts / Tampermonkey scripts
+代理	Proxy
+ · 认证	 · authentication
+已开启 · {0} {1}:{2}{3}	On · {0} {1}:{2}{3}
+关闭 · 支持 HTTP / SOCKS5	Off · supports HTTP / SOCKS5
+渲染信息 · 沉浸模式 · 系统字体 · 性能叠层 · 运行日志	Rendering info · Immersive mode · System font · Performance overlay · Run log
+WebView 调试	WebView debug
+内核信息 · 运行日志 · 控制台日志 · 远程调试 · 清理缓存	Engine info · Run log · Console log · Remote debugging · Clear cache
+数据	Data
+加密备份导出 · 从备份文件恢复 · {0} 混合抗量子加密	Encrypted backup export · Restore from backup file · {0} hybrid post-quantum encryption
+清理缓存	Clear cache
+每次冷启动自动清理 · 同系统「清除缓存」范围，保留未完成的下载 · 当前可清理 	Auto cleanup at every cold start · same scope as the system "Clear cache", keeping unfinished downloads · currently clearable: 
+已清理 	Cleared 
+没有可清理的缓存	No cache to clear
+关于 Mafari	About Mafari
+清除壁纸	Clear wallpaper
+主页壁纸做高斯模糊，减少干扰	Applies a Gaussian blur to the home wallpaper to reduce distraction
+启用代理	Enable proxy
+类型	Type
+主机	Host
+端口	Port
+认证	Authentication
+SOCKS5 认证由应用内本机中转（127.0.0.1 随机端口）完成，WebView 自身不支持 SOCKS5 认证。	SOCKS5 authentication is handled by a local relay inside the app (127.0.0.1, random port); WebView itself doesn't support SOCKS5 authentication.
+代理已{0}生效	Proxy active {0}
+（认证配置已保存）	(authentication settings saved)
+代理已关闭{0}	Proxy turned off {0}
+显示	Show
+隐藏	Hide
+显示{0}行	Show {0} rows
+不显示	Don't show
+在首页长按「隐私报告」「最近浏览」「下载项」卡片可上下拖动排序（个人收藏作为整体，长按「收藏」标题行拖动；快捷菜单每行 6 个，可放底部菜单里的功能按钮（依赖当前网页的功能除外），长按进入编辑，可拖动排序、点 × 移除、点「+」添加，同样长按「快捷菜单」标题行拖动排序；收藏超出所选行数时，最后一格显示「更多」，点击进入书签页；书签分组每行 5 个，点击分组磁贴会在图标下方弹出窗口查看其中的书签与子分组）；长按后卡片右上角会出现 ×，点击可从首页移除；无痕标签页的首页不显示最近浏览。	On the home page, long-press the "Privacy report", "Recently visited" and "Downloads" cards to drag them up or down (Favorites move as a whole: long-press the "Favorites" title row to drag; the Quick menu holds 6 per row and can hold function buttons from the bottom menu (except those that depend on the current page); long-press to edit, drag to reorder, tap × to remove, tap "+" to add, and likewise long-press the "Quick menu" title row to drag; when favorites exceed the chosen rows, the last cell shows "More" and opens the Bookmarks page; bookmark groups hold 5 per row, and tapping a group tile pops up a window below the icon with its bookmarks and subgroups); after a long-press an × appears at the top right of the card and tapping it removes it from the home page; the home page of private tabs doesn't show recently visited.
+启动应用、点击主页按钮、新建标签页时都会打开这个页面（无痕标签页除外）。请输入完整网址，例如 https://www.baidu.com	This page opens when you launch the app, tap the home button or open a new tab (except in private tabs). Please enter the full URL, e.g. https://www.baidu.com
+每次使用时询问	Ask every time
+总是允许	Always allow
+总是拒绝	Always deny
+自动播放	Autoplay
+允许音频和视频	Allow audio and video
+仅阻止音频	Block audio only
+阻止音频和视频	Block audio and video
+例外网站	Exception sites
+没有例外	No exceptions
+{0} 个网站	{0} sites
+还没有例外网站。网站申请权限时，在弹窗里打开「记住此网站的选择」，它就会出现在这里。	No exception sites yet. When a site requests a permission, turn on "Remember this site's choice" in the prompt and it will appear here.
+清除全部例外	Clear all exceptions
+跟随默认	Follow default
+删除此网站的全部例外	Delete all exceptions for this site
+应用图标	App icon
+退出应用时更新桌面图标；极简↔极暗、多彩 / 立体→深色 随显示模式自动切换	The home-screen icon updates when you exit the app; Minimal↔Ultra dark and Colorful / 3D→Dark switch automatically with the display mode
+禁止跟踪请求 · 指纹保护 · 禁用 WebRTC	Do Not Track · Fingerprint protection · Disable WebRTC
+已开启 {0} / 3 项 · 禁止跟踪请求 · 指纹保护 · 禁用 WebRTC	{0} / 3 on · Do Not Track · Fingerprint protection · Disable WebRTC
+已保存 {0} 个 · 	{0} saved · 
+CSV 导入 · 加密存储 · 自动填充	CSV import · Encrypted storage · Autofill
+自定义（用 %s 代表关键词）	Custom (use %s for the keyword)
+使用自定义	Use custom
+收藏{0}行	Favorites {0} rows
+书签分组{0}行	Bookmark groups {0} rows
+主页按钮：新建标签页 · 	Home button: new tab · 
+指定页面 · 	Specific page · 
+首页只显示标志	Home page shows only the logo
+首页无内容	Home page has no content
+发送到其他设备	Send to other devices
+更多分享方式	More ways to share
+内核信息	Engine info
+日志	Logs
+记录启动、标签、去广告等运行信息到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭。与 Gecko 调试共用同一开关	Records startup, tab, ad-block and other runtime info to Android/media/<package>/diag.txt; every entry is a file write, so turn it off after troubleshooting. Shares the same switch with Gecko debug
+控制台日志	Console log
+把网页 console 输出和 JavaScript 报错写进运行日志（需开启运行日志）	Writes the page's console output and JavaScript errors into the run log (requires the run log to be on)
+页面加载日志	Page load log
+记录页面开始 / 完成加载、加载失败，以及返回 4xx / 5xx 的请求（需开启运行日志）	Records page load start / finish, load failures, and requests that return 4xx / 5xx (requires the run log to be on)
+复制日志路径	Copy log path
+把 diag.txt 的完整路径复制到剪贴板，用文件管理器打开	Copies the full path of diag.txt to the clipboard so you can open it with a file manager
+已复制	Copied
+清空日志	Clear log
+清空 diag.txt 的内容，不改变开关	Clears the contents of diag.txt without changing the switch
+已清空	Cleared
+调试	Debug
+允许电脑 Chrome 通过 USB 连接，在 chrome://inspect 里检查本应用的网页（元素 / 控制台 / 网络），立即生效	Lets desktop Chrome connect over USB to inspect this app's pages (elements / console / network) at chrome://inspect; takes effect immediately
+维护	Maintenance
+清除 WebView 网页缓存	Clear WebView page cache
+只清 HTTP 缓存，不影响 Cookie、登录状态和站点数据	Clears only the HTTP cache; cookies, sign-in state and site data are unaffected
+网络未连接	No network connection
+设备当前没有可用的网络。	The device has no available network right now.
+检查 Wi-Fi 或移动数据是否已开启	Check whether Wi-Fi or mobile data is on
+确认没有开启飞行模式	Make sure airplane mode is off
+网络恢复后点「重试」	Tap "Retry" once the network is back
+网络刚刚发生了变化	The network just changed
+加载过程中网络被切换（例如 Wi-Fi 与移动数据之间），连接被中断了。	The network switched while loading (for example between Wi-Fi and mobile data), and the connection was interrupted.
+直接点「重试」，通常即可恢复	Just tap "Retry"; that usually fixes it
+仍然失败时，检查当前网络是否可用	If it still fails, check whether the current network works
+找不到该网站	Can't find this website
+无法解析域名，网址可能拼写有误，或当前网络的 DNS 无法识别它。	The domain can't be resolved; the address may be misspelled, or the current network's DNS doesn't recognize it.
+检查网址拼写是否正确	Check that the address is spelled correctly
+换一个网络（Wi-Fi / 移动数据）再试	Try another network (Wi-Fi / mobile data)
+如果开着代理或 VPN，确认它工作正常	If a proxy or VPN is on, make sure it works properly
+可在系统设置里把私人 DNS 改为 dns.alidns.com 或 1.1.1.1 再试	In system settings, you can change Private DNS to dns.alidns.com or 1.1.1.1 and try again
+网站太久没有响应。可能是网络较慢，也可能是对方服务器繁忙或在当前网络下无法访问。	The website took too long to respond. The network may be slow, or the server may be busy or unreachable from this network.
+检查网络信号后重试	Check the network signal and retry
+换一个网络再试	Try another network
+站点本身故障时，稍后再访问	If the site itself is down, visit again later
+网站拒绝了连接	The website refused the connection
+服务器所在的主机可以到达，但它没有接受这次连接。	The host is reachable, but it didn't accept this connection.
+网站可能正在维护或已停止服务，稍后再试	The site may be under maintenance or out of service; try again later
+如果访问的是局域网或自建服务，确认服务已启动、端口正确	If you're visiting a local-network or self-hosted service, make sure it's running and the port is right
+检查防火墙或代理设置	Check your firewall or proxy settings
+连接被中断	Connection interrupted
+连接建立后被意外断开，或服务器没有返回任何数据。	The connection was unexpectedly dropped after being established, or the server returned no data.
+点「重试」再次加载	Tap "Retry" to load again
+网络不稳定时换个网络试试	When the network is unstable, try another network
+反复出现多半是网站或中间网络的问题，稍后再访问	If it keeps happening, it's most likely a problem with the site or the networks in between; visit again later
+无法到达该地址	Can't reach this address
+当前网络没有通往目标地址的路由。	The current network has no route to the destination address.
+访问局域网地址时，确认手机和设备在同一个网络	When visiting a local-network address, make sure your phone and the device are on the same network
+如果是 IPv6 地址，换到支持 IPv6 的网络再试	If it's an IPv6 address, try a network that supports IPv6
+检查 VPN 或代理是否阻断了访问	Check whether a VPN or proxy is blocking access
+连接不安全：证书已过期或尚未生效	Connection not secure: certificate expired or not yet valid
+网站证书的有效期与当前设备时间对不上，为保护你的信息，已停止加载。	The website certificate's validity period doesn't match the device's current time; loading was stopped to protect your information.
+先检查手机的日期和时间是否正确（建议开启自动设置）	First check that your phone's date and time are correct (turning on automatic setting is recommended)
+时间无误则是网站证书过期，需要站长处理	If the time is correct, the site's certificate has expired and the site owner has to fix it
+不要在此类页面输入密码或支付信息	Don't enter passwords or payment information on such pages
+连接不安全：证书不受信任	Connection not secure: certificate not trusted
+网站的证书不是由受信任的机构签发（可能是自签名证书，或当前网络正在劫持流量）。	The website's certificate wasn't issued by a trusted authority (it may be self-signed, or the current network may be intercepting traffic).
+公共 Wi-Fi 下出现，请换用可信网络	If this appears on public Wi-Fi, switch to a trusted network
+自建或内网站点，需先在系统中安装其根证书	For self-hosted or intranet sites, install their root certificate in the system first
+连接不安全：证书与网址不匹配	Connection not secure: certificate doesn't match the address
+网站出示的证书不是颁发给你正在访问的这个域名的。	The certificate presented by the website wasn't issued for the domain you're visiting.
+检查网址是否有误，或试试带 / 不带 www 的写法	Check whether the address is wrong, or try with / without www
+通常需要网站管理员修正证书配置	Usually the site administrator needs to fix the certificate configuration
+连接不安全：证书已被吊销	Connection not secure: certificate revoked
+签发机构已声明该网站的证书不再可信。	The issuing authority has declared this website's certificate no longer trustworthy.
+建议不要继续访问此网站	We recommend not continuing to this website
+如果这是你信任的站点，请联系站点管理员	If this is a site you trust, contact its administrator
+连接不安全：证书存在问题	Connection not secure: certificate problem
+无法验证该网站证书的有效性，为保护你的信息，已停止加载。	The validity of the website's certificate can't be verified; loading was stopped to protect your information.
+换一个网络再试，排除网络劫持	Try another network to rule out network interception
+无法建立安全连接	Can't establish a secure connection
+与网站协商加密连接时失败，可能是对方使用了过旧的加密设置，或网络干扰了握手。	Negotiating the encrypted connection with the website failed; it may use outdated encryption settings, or the network interfered with the handshake.
+检查设备时间是否准确	Check that the device time is accurate
+持续失败说明网站自身配置有问题，需要站长处理	If it keeps failing, the site's own configuration is wrong and the site owner has to fix it
+该网站不支持安全连接	This website doesn't support secure connections
+已开启「仅 HTTPS」，而这个网站无法通过 HTTPS 访问，因此没有加载。	"HTTPS only" is on and this website can't be reached over HTTPS, so it wasn't loaded.
+确认网址无误	Make sure the address is correct
+如果明确信任该站点，可在设置中关闭仅 HTTPS 模式后再访问	If you clearly trust this site, turn off HTTPS-only mode in settings and visit again
+代理服务器无响应	Proxy server not responding
+已配置的代理无法连接，网页请求没能发出去。	The configured proxy can't be reached, so the page request couldn't be sent.
+检查代理地址和端口是否填写正确	Check that the proxy address and port are correct
+确认代理服务正在运行	Make sure the proxy service is running
+暂时关闭代理后重试	Turn the proxy off temporarily and retry
+代理需要身份验证	Proxy requires authentication
+代理服务器要求验证身份，但验证未通过或不被支持。	The proxy server requires authentication, but it failed or isn't supported.
+检查代理的用户名和密码	Check the proxy username and password
+联系代理服务提供方	Contact the proxy provider
+需要身份验证	Authentication required
+网站要求登录验证，但验证失败或使用了不支持的验证方式。	The website requires authentication, but it failed or an unsupported method was used.
+确认账号和密码是否正确	Check that the account and password are correct
+改用网站提供的网页登录入口	Use the website's web login entry instead
+网站不断把你转到别的地址，形成了循环。	The website keeps redirecting you to other addresses, forming a loop.
+清除该网站的 Cookie 后重试	Clear this site's cookies and retry
+如果刚改过 HTTPS / 代理设置，也可能由此引起	If you just changed HTTPS / proxy settings, that may also be the cause
+仍然出现则是网站配置错误，需站长处理	If it still appears, the site is misconfigured and the site owner has to fix it
+网址无效	Invalid address
+这个地址的格式不正确，无法访问。	The format of this address is incorrect and it can't be opened.
+检查网址中是否有多余的空格、中文标点或漏写的字符	Check the address for extra spaces, Chinese punctuation or missing characters
+从搜索结果或书签重新进入	Re-enter from search results or bookmarks
+无法打开这类链接	Can't open this kind of link
+这个链接使用了浏览器不支持的协议，也没有找到能处理它的应用。	This link uses a protocol the browser doesn't support, and no app was found to handle it.
+确认已安装对应的应用	Make sure the corresponding app is installed
+向链接提供方索取网页版地址	Ask the link provider for the web version address
+找不到文件	File not found
+要打开的文件不存在、已被移动，或没有读取权限。	The file to open doesn't exist, has been moved, or can't be read.
+确认文件仍在原位置	Make sure the file is still in its original location
+检查应用的存储权限	Check the app's storage permission
+访问被阻止	Access blocked
+这次请求被拦截了，可能来自广告拦截规则、网站自身的安全策略，或设备管理策略。	This request was blocked, possibly by ad-block rules, the site's own security policy, or a device management policy.
+如果是广告拦截造成的，可在拦截设置中对该站点放行	If ad blocking caused it, allow this site in the blocking settings
+若设备由单位或家长管理，请联系管理员	If the device is managed by an organization or parents, contact the administrator
+也可能是网站只允许特定地区或客户端访问	The site may also only allow certain regions or clients
+请求过于频繁	Too many requests
+短时间内发出的请求太多，被暂时限制了。	Too many requests were sent in a short time and were temporarily limited.
+等待几分钟后再重试	Wait a few minutes and retry
+避免连续多次刷新	Avoid refreshing repeatedly
+已拦截不安全的网站	Unsafe website blocked
+该网站被安全浏览服务标记为可能含有钓鱼、恶意软件或有害内容。	This website was flagged by a safe-browsing service as possibly containing phishing, malware or harmful content.
+建议不要继续访问	We recommend not continuing
+如果你确认它是误报，请通过其它渠道联系站点方	If you're sure it's a false positive, contact the site owner through other channels
+网站返回的数据异常	The website returned abnormal data
+收到的内容不完整或格式不对，浏览器无法正确解析。	The received content is incomplete or malformed and the browser can't parse it correctly.
+清除该网站的缓存后重试	Clear this site's cache and retry
+反复出现多为服务器故障，稍后再访问	If it keeps happening, it's mostly a server fault; visit again later
+该端口已被限制访问	This port is restricted
+出于安全考虑，浏览器不允许访问这个端口。	For security reasons, the browser doesn't allow access to this port.
+检查网址中的端口号是否正确	Check that the port number in the address is correct
+把服务改到常用端口（如 80、443、8080）	Move the service to a common port (such as 80, 443, 8080)
+页面崩溃了	The page crashed
+渲染这个页面的进程意外退出，可能是内存不足或页面本身有问题。	The process rendering this page exited unexpectedly; memory may be low, or the page itself may have a problem.
+关闭其它标签页或应用，释放内存	Close other tabs or apps to free memory
+点「重试」重新加载	Tap "Retry" to reload
+指纹保护已拦截加载	Fingerprint protection blocked loading
+该页面未能在加载前完成指纹保护的注册，为避免暴露设备特征，已停止加载。	This page couldn't complete fingerprint-protection registration before loading; loading was stopped to avoid exposing device traits.
+仍然失败时，可在隐私设置中调整指纹保护策略	If it still fails, adjust the fingerprint protection policy in privacy settings
+页面加载失败	Page failed to load
+出现了未知的网络错误。	An unknown network error occurred.
+检查网络连接后重试	Check your network connection and retry
+问题持续时，可把下方的技术详情反馈给开发者	If the problem persists, report the technical details below to the developer
+请求有误	Bad request
+服务器无法理解这次请求。	The server couldn't understand this request.
+检查网址里是否有异常字符	Check the address for unusual characters
+访问这个页面需要先验证身份。	You need to verify your identity to access this page.
+登录账号后再访问	Sign in to your account and visit again
+如果已登录，登录状态可能已过期，请重新登录	If you're already signed in, your session may have expired; please sign in again
+需要付费	Payment required
+该内容需要付费后才能访问。	This content requires payment to access.
+确认账号的订阅状态	Check the subscription status of your account
+没有访问权限	No access permission
+服务器拒绝了这次访问。	The server refused this access.
+确认账号是否有权限	Check whether the account has permission
+部分网站会限制地区、网络或浏览器，换个网络试试	Some sites restrict region, network or browser; try another network
+如果开着代理，换一个出口节点再试	If a proxy is on, switch to another exit node and retry
+页面不存在	Page not found
+网站上没有找到这个页面，链接可能已失效，或网址输入有误。	This page wasn't found on the website; the link may be dead, or the address may be wrong.
+检查网址拼写	Check the address spelling
+回到网站首页，从导航重新查找	Go back to the site's home page and search again via its navigation
+也可以搜索页面标题	You can also search for the page title
+不支持这种请求方式	This request method isn't supported
+服务器不允许对这个地址使用当前的请求方式。	The server doesn't allow the current request method for this address.
+返回上一页，从网站内的入口重新进入	Go back and re-enter from an entry within the site
+服务器不接受这种请求	The server doesn't accept this request
+服务器无法按当前请求的格式提供内容。	The server can't provide the content in the format of the current request.
+点「重试」	Tap "Retry"
+换一个页面入口再试	Try another entry to the page
+请求超时	Request timed out
+服务器等了太久没有收到完整请求。	The server waited too long without receiving the complete request.
+检查网络后重试	Check the network and retry
+请求冲突	Request conflict
+这次操作与服务器上的当前状态冲突。	This operation conflicts with the current state on the server.
+刷新页面后重试	Refresh the page and retry
+页面已被永久删除	The page has been permanently deleted
+该内容已被移除，并且不会再恢复。	This content has been removed and won't be restored.
+回到网站首页查找相关内容	Go back to the site's home page to find related content
+如果是书签，可以删除它	If it's a bookmark, you can delete it
+请求内容过长	Request too large
+地址或请求数据太长，服务器无法处理。	The address or request data is too long for the server to handle.
+缩短网址或减少提交的内容	Shorten the address or submit less content
+服务器不想泡咖啡	The server refuses to brew coffee
+服务器返回了 418（我是茶壶）。这通常是网站的彩蛋或反爬机制。	The server returned 418 (I'm a teapot). This is usually a site's Easter egg or an anti-scraping measure.
+稍后再试	Try again later
+换个网络访问	Visit through another network
+服务器无法处理请求	The server can't process the request
+服务器无法完成这次请求。	The server couldn't complete this request.
+短时间内访问次数过多，被网站暂时限制了。	Too many visits in a short time; the site temporarily restricted you.
+等几分钟再访问	Wait a few minutes and visit again
+避免连续刷新	Avoid refreshing continuously
+因法律原因无法访问	Unavailable for legal reasons
+由于法律或监管要求，该内容在当前地区不可用。	Due to legal or regulatory requirements, this content isn't available in your region.
+这不是网络故障，刷新也无济于事	This isn't a network fault; refreshing won't help
+网站出了点问题	Something went wrong on the website
+网站服务器内部出错，这不是你的网络或设备的问题。	An internal error occurred on the website's server; this isn't a problem with your network or device.
+问题持续则只能等站点方修复	If it persists, you can only wait for the site to fix it
+网站不支持此功能	The website doesn't support this feature
+服务器没有实现完成这次请求所需的功能。	The server doesn't implement the functionality needed to complete this request.
+返回上一页，换一种方式访问	Go back and try accessing it another way
+网关错误	Bad gateway
+网站的上游服务器返回了无效的响应，通常是后端故障或正在重启。	The site's upstream server returned an invalid response, usually due to a backend fault or a restart in progress.
+过几分钟再试	Try again in a few minutes
+站点方修复前，刷新通常没有用	Until the site fixes it, refreshing usually doesn't help
+网站暂时不可用	Website temporarily unavailable
+服务器正在维护或负载过高，暂时无法处理请求。	The server is under maintenance or overloaded and can't process requests for now.
+稍后再访问	Visit again later
+站点公告页或社交账号上也许有恢复时间	The site's announcement page or social accounts may give a recovery time
+网关超时	Gateway timeout
+网站的上游服务器响应太慢，请求超时了。	The site's upstream server responded too slowly and the request timed out.
+换个网络再试	Try another network and retry
+协议版本不受支持	Protocol version not supported
+服务器不支持当前使用的 HTTP 版本。	The server doesn't support the HTTP version in use.
+服务器资源异常	Server resource problem
+服务器存储空间不足，或在处理时陷入了循环。	The server ran out of storage space, or got stuck in a loop while processing.
+这是站点方的问题，稍后再试	This is a problem on the site's side; try again later
+网站背后的服务器没有正常响应	The server behind the website didn't respond properly
+网站使用了 CDN，但 CDN 无法从源服务器取得正常内容（可能是源站宕机、超时或证书异常）。	The website uses a CDN, but the CDN couldn't get proper content from the origin server (the origin may be down, timing out or have a certificate problem).
+这是站点方的问题，刷新通常没有用	This is a problem on the site's side; refreshing usually doesn't help
+访问被服务器拒绝	Access denied by the server
+服务器认为这次请求有问题，没有返回页面。	The server considered this request problematic and returned no page.
+检查网址是否正确	Check that the address is correct
+必要时重新登录	Sign in again if necessary
+服务器出错，暂时无法提供这个页面。	A server error occurred; this page can't be provided right now.
+服务器返回了异常的状态。	The server returned an abnormal status.
+允许网站{0}？	Allow this site to {0}?
+清除数据（{0}）	Clear data ({0})
+新建的标签页将使用 {0} 内核	New tabs will use the {0} engine
+已开启 · {0} 个订阅 · 订阅源导入、自定义规则	On · {0} subscriptions · import subscriptions, custom rules
+代理已（{0}）生效	Proxy active ({0})
+搜索{0}	Search {0}
+{0}：{1}	{0}: {1}
+：{0}	: {0}
+、	, 
+已屏蔽（手动：{0}）	Blocked (manual: {0})
+已屏蔽（手动）	Blocked (manual)
+已放行（手动：{0}）	Allowed (manual: {0})
+已放行（手动）	Allowed (manual)
+已拦截（{0}）	Blocked ({0})
+该功能在 Gecko 下不支持或有替代方案	This feature isn't supported in Gecko or has an alternative
+脚本未注册快捷菜单	This script has no quick menu registered
+个人收藏	Personal favorites
+支持开发者，给牛马来杯核动力coffee ☕!	Support the developer — buy this drudge a nuclear-powered coffee ☕!
+共 {0} 项	{0} items in total
+该功能在 WebView 下不可用	This feature isn't available in WebView
+语言已切换，正在重启…	Language changed; restarting…
+语言	Language
+技术详情	Technical details
+验证后才能选择要填入的账号	Verify to choose the account to fill in
+密码库里还没有账号	No accounts in the password vault yet
+选择账号…	Choose account…
+这是局域网 / 本机地址，路由器、NAS 等自建设备常用自签名证书；确认是自己的设备即可继续。	This is a local-network / localhost address. Self-hosted devices such as routers and NAS boxes often use self-signed certificates; if it's your own device, you can continue.
+继续访问后，你与该网站之间的通信可能被窃听或篡改。请勿输入密码、验证码或支付信息。	If you continue, communication between you and this site may be intercepted or tampered with. Do not enter passwords, verification codes or payment details.
+下一步会打开内核自带的证书页，在那里确认「接受风险并继续」。	Next, the engine's built-in certificate page will open; confirm "Accept the Risk and Continue" there.
+仅对该网站在本次运行期间有效，关闭应用后失效。	Applies to this site only for the current session and expires when the app is closed.
+继续（查看证书详情）	Continue (view certificate details)
+忽略风险，继续访问（不安全）	Ignore the risk and continue (unsafe)
+同步失败	Sync failed
+同步完成，已上传到 {0} 个目标	Sync complete; uploaded to {0} target(s)
+同步失败（{0} 个目标上传失败）	Sync failed ({0} target(s) failed to upload)
+同步完成：{0} 个成功，{1} 个失败	Sync complete: {0} succeeded, {1} failed
+去广告已开启	Ad blocking enabled
+去广告已关闭	Ad blocking disabled
+同步中	Syncing
+关联的应用	Linked apps
+解除	Unlink
+正在运行的脚本	Running scripts
+使用指南	User guide
+重新查看新用户引导	Replay the new-user walkthrough
+附近设备	Nearby devices
+重新搜索	Search again
+屏幕镜像	Screen mirroring
+系统投屏，投出整个画面	System cast; shows your entire screen
+交给播放器或投屏 App	Hand off to a player or casting app
+记录和管理网页请求	Log and manage web requests
+统计请求域名，可屏蔽 / 放行；开启后刷新生效	Counts requested domains, which you can block / allow; takes effect after a refresh once enabled
+选择账号	Choose account
+用于「{0}」	For "{0}"
+选定后，之后在此应用里会直接列出这个账号	Once chosen, this account will be listed directly in this app from now on
+找不到下载好的安装包	Can't find the downloaded installer
+更新已下载完成，点击安装	Update downloaded; tap to install
+安装包已不存在，请重新下载	The installer no longer exists; please download it again
+请先允许 Mafari 安装应用，返回后再点「安装」	Allow Mafari to install apps first, then come back and tap "Install"
+无法唤起系统安装器，请在下载页打开安装包	Can't launch the system installer; open the package from the Downloads page
+更新已就绪	Update ready
+已暂停（可在下载页继续）	Paused (resume from the Downloads page)
+正在连接…	Connecting…
+取消下载	Cancel download
+同步	Sync
+请先在「备份与同步」里设置默认口令	Set a default passphrase in "Backup & Sync" first
+还没有配置 WebDAV 服务器或 Git 仓库	No WebDAV server or Git repository has been configured yet

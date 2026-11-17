@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.net
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import java.io.DataInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -102,22 +104,22 @@ internal class Socks5Relay(
 
             uout.write(byteArrayOf(5, 2, 0, 2))
             uout.flush()
-            if (uin.readUnsignedByte() != 5) throw IOException("上游不是 SOCKS5")
+            if (uin.readUnsignedByte() != 5) throw IOException(tr("上游不是 SOCKS5"))
             when (uin.readUnsignedByte()) {
                 0 -> {}
                 2 -> {
                     val ub = user.toByteArray(Charsets.UTF_8)
                     val pb = pass.toByteArray(Charsets.UTF_8)
-                    if (ub.size > 255 || pb.size > 255) throw IOException("用户名或密码过长")
+                    if (ub.size > 255 || pb.size > 255) throw IOException(tr("用户名或密码过长"))
                     uout.write(byteArrayOf(1, ub.size.toByte()))
                     uout.write(ub)
                     uout.write(byteArrayOf(pb.size.toByte()))
                     uout.write(pb)
                     uout.flush()
                     uin.readUnsignedByte()
-                    if (uin.readUnsignedByte() != 0) throw IOException("上游认证失败")
+                    if (uin.readUnsignedByte() != 0) throw IOException(tr("上游认证失败"))
                 }
-                else -> throw IOException("上游不接受可用的认证方式")
+                else -> throw IOException(tr("上游不接受可用的认证方式"))
             }
 
             // 4) 转发 CONNECT，把上游的回复原样还给 WebView
@@ -128,7 +130,7 @@ internal class Socks5Relay(
 
             val rh = ByteArray(4)
             uin.readFully(rh)
-            val rAddr = readAddr(uin, rh[3].toInt()) ?: throw IOException("上游回复异常")
+            val rAddr = readAddr(uin, rh[3].toInt()) ?: throw IOException(tr("上游回复异常"))
             val rPort = ByteArray(2)
             uin.readFully(rPort)
             cout.write(rh)

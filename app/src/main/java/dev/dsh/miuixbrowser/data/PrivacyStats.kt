@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
 import org.json.JSONArray
@@ -81,9 +83,9 @@ object PrivacyStats {
         val h = host.trim().lowercase()
         if (h.isEmpty()) return
         val kinds = buildList {
-            if ("摄像头" in what) add("摄像头")
-            if ("麦克风" in what) add("麦克风")
-            if ("位置" in what || "定位" in what) add("定位")
+            if (tr("摄像头") in what) add(tr("摄像头"))
+            if (tr("麦克风") in what) add(tr("麦克风"))
+            if (tr("位置") in what || tr("定位") in what) add(tr("定位"))
         }
         if (kinds.isEmpty()) return
         ensureLoaded(context)

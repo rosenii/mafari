@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.script
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.app.Activity
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
@@ -243,10 +245,10 @@ object MediaHost {
 
     private fun params(c: Context): PictureInPictureParams {
         val actions = listOf(
-            action(c, 1, android.R.drawable.ic_media_rew, "后退 10 秒", "back"),
-            if (playing) action(c, 2, android.R.drawable.ic_media_pause, "暂停", "pause")
-            else action(c, 3, android.R.drawable.ic_media_play, "播放", "play"),
-            action(c, 4, android.R.drawable.ic_media_ff, "快进 10 秒", "fwd"),
+            action(c, 1, android.R.drawable.ic_media_rew, tr("后退 10 秒"), "back"),
+            if (playing) action(c, 2, android.R.drawable.ic_media_pause, tr("暂停"), "pause")
+            else action(c, 3, android.R.drawable.ic_media_play, tr("播放"), "play"),
+            action(c, 4, android.R.drawable.ic_media_ff, tr("快进 10 秒"), "fwd"),
         )
         return PictureInPictureParams.Builder()
             .setAspectRatio(ratio(armW, armH))
@@ -325,7 +327,7 @@ object MediaHost {
         o.optString("cookie").takeIf { it.isNotBlank() }?.let { hdr += "Cookie"; hdr += it }
         if (hdr.isNotEmpty()) i.putExtra("headers", hdr.toTypedArray())
         o.optInt("pos", 0).takeIf { it > 0 }?.let { i.putExtra("position", it * 1000) }
-        val chooser = Intent.createChooser(i, "选择播放器 / 投屏 App").putExtra(
+        val chooser = Intent.createChooser(i, tr("选择播放器 / 投屏 App")).putExtra(
             Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(ComponentName(a, MainActivity::class.java)),
         )
         suppressPip(a)
@@ -375,7 +377,7 @@ object MediaHost {
                 .isSuccess
         }
         Toast.makeText(
-            a, if (ok) "连上电视后回到浏览器全屏播放即可（屏幕镜像会把整个画面投出去）" else "这台设备没有系统投屏入口",
+            a, if (ok) tr("连上电视后回到浏览器全屏播放即可（屏幕镜像会把整个画面投出去）") else tr("这台设备没有系统投屏入口"),
             Toast.LENGTH_LONG,
         ).show()
     }
@@ -421,20 +423,20 @@ object MediaHost {
         val cancelled = AtomicBoolean(false)
         pickerCancel = cancelled
         ui.devices.clear()
-        ui.status = "正在搜索局域网设备…"
+        ui.status = tr("正在搜索局域网设备…")
         ui.onDevice = { d -> closePicker(); startCast(a, d, req) }
         ui.onMirror = { closePicker(); openSystemCast(a) }
         ui.onExternal = {
             closePicker()
             if (!launchExternal(a, req)) {
-                emit(JSONObject().put("ev", "cast").put("state", "error").put("msg", "没有找到可用的播放器"))
+                emit(JSONObject().put("ev", "cast").put("state", "error").put("msg", tr("没有找到可用的播放器")))
             }
         }
         ui.onCancel = { closePicker() }
         ui.onRefresh = {
             if (!cancelled.get()) {
                 ui.devices.clear()
-                ui.status = "正在搜索局域网设备…"
+                ui.status = tr("正在搜索局域网设备…")
                 discoverDevices(a, ui, cancelled)
             }
         }
@@ -446,7 +448,7 @@ object MediaHost {
             if (granted) {
                 discoverDevices(a, ui, cancelled)
             } else {
-                ui.status = "没有「附近设备」权限，无法搜索局域网设备。请在 系统设置 → 应用 → Mafari → 权限 里允许后重试"
+                ui.status = tr("没有「附近设备」权限，无法搜索局域网设备。请在 系统设置 → 应用 → Mafari → 权限 里允许后重试")
             }
         }
     }
@@ -473,7 +475,7 @@ object MediaHost {
             main.post {
                 if (cancelled.get() || picker.get()) return@post
                 ui.scanning = false
-                if (ui.devices.isEmpty()) ui.status = "没有发现设备，请确认手机和电视在同一 Wi-Fi"
+                if (ui.devices.isEmpty()) ui.status = tr("没有发现设备，请确认手机和电视在同一 Wi-Fi")
             }
         }
     }
@@ -497,7 +499,7 @@ object MediaHost {
                     if (s.stop) break
                     val q = runCatching { s.dlna.query(dev) }.getOrNull()
                     if (q == null) {
-                        if (++misses >= 6) { stopCast(s, "与「${dev.name}」失去连接"); return@execute }
+                        if (++misses >= 6) { stopCast(s, tr("与「{0}」失去连接", dev.name)); return@execute }
                         continue
                     }
                     misses = 0
@@ -506,7 +508,7 @@ object MediaHost {
                     if (sawPlaying && !seeked) { seeked = true; runCatching { s.dlna.seek(dev, startAt) } }
                     if (!live && sawPlaying) { stopCast(s, null); return@execute } // 播完了，或在电视上点了停止
                     if (!live && SystemClock.uptimeMillis() - began > 25_000) {
-                        stopCast(s, "「${dev.name}」没有开始播放：可能不支持该格式，或该地址需要请求头（防盗链）")
+                        stopCast(s, tr("「{0}」没有开始播放：可能不支持该格式，或该地址需要请求头（防盗链）", dev.name))
                         return@execute
                     }
                     if (live) {
@@ -518,7 +520,7 @@ object MediaHost {
                 }
             } catch (e: Exception) {
                 Diag.log("$TAG: cast $e")
-                stopCast(s, e.message ?: "投屏失败")
+                stopCast(s, e.message ?: tr("投屏失败"))
             }
         }
     }

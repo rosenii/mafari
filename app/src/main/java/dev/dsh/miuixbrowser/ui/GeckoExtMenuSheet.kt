@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.engine.gecko.GeckoExtensionStore
 import android.widget.Toast
 import androidx.compose.foundation.Image
@@ -140,7 +142,7 @@ fun GeckoExtMenuSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "拓展快捷菜单",
+                        text = tr("拓展快捷菜单"),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = MiuixTheme.colorScheme.onSurface,
@@ -158,7 +160,7 @@ fun GeckoExtMenuSheet(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = if (running.isNotEmpty()) "${running.size}个拓展运行中" else "没有运行中的拓展",
+                            text = if (running.isNotEmpty()) tr("{0}个拓展运行中", running.size) else tr("没有运行中的拓展"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -185,7 +187,7 @@ fun GeckoExtMenuSheet(
 
             if (all.isEmpty()) {
                 Text(
-                    text = if (store.loading.value) "正在读取…" else "还没有安装拓展。长按菜单里的「拓展」图标可进入拓展页安装。",
+                    text = if (store.loading.value) tr("正在读取…") else tr("还没有安装拓展。长按菜单里的「拓展」图标可进入拓展页安装。"),
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
@@ -210,7 +212,7 @@ fun GeckoExtMenuSheet(
                                         lastClickedId = item.id
                                         clickTick++
                                     } else {
-                                        Toast.makeText(context, "该拓展没有快捷菜单", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, tr("该拓展没有快捷菜单"), Toast.LENGTH_SHORT).show()
                                     }
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -239,11 +241,11 @@ fun GeckoExtMenuSheet(
                                 )
                                 Text(
                                     text = when {
-                                        !item.enabled -> "已停用"
-                                        action == null -> "没有快捷菜单"
-                                        action.badge.isNotBlank() -> "角标 ${action.badge}"
+                                        !item.enabled -> tr("已停用")
+                                        action == null -> tr("没有快捷菜单")
+                                        action.badge.isNotBlank() -> tr("角标 {0}", action.badge)
                                         action.title.isNotBlank() && action.title != item.name -> action.title
-                                        else -> "点击打开功能菜单"
+                                        else -> tr("点击打开功能菜单")
                                     },
                                     fontSize = 12.sp,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

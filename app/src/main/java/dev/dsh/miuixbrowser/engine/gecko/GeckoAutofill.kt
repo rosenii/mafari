@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
 import android.view.View
@@ -29,19 +31,19 @@ internal object GeckoAutofill {
         }.getOrNull()
         var enabled: String
         if (setter == null) {
-            enabled = "GeckoView 没有 setAutofillEnabled"
+            enabled = tr("GeckoView 没有 setAutofillEnabled")
         } else {
-            enabled = runCatching { setter.invoke(view, true); "已开启" }
-                .getOrElse { "开启失败 ${it.cause?.message ?: it.message}" }
+            enabled = runCatching { setter.invoke(view, true); tr("已开启") }
+                .getOrElse { tr("开启失败 {0}", it.cause?.message ?: it.message) }
         }
         val hasDelegate = runCatching {
             session.javaClass.methods.firstOrNull { it.name == "getAutofillDelegate" && it.parameterTypes.isEmpty() }
                 ?.invoke(session) != null
         }.getOrNull()
-        lastState = "$enabled；session 委托：" + when (hasDelegate) {
-            true -> "有"
-            false -> "无"
-            null -> "未知"
+        lastState = tr("{0}；session 委托：", enabled) + when (hasDelegate) {
+            true -> tr("有")
+            false -> tr("无")
+            null -> tr("未知")
         }
         Diag.log("autofill: $lastState")
     }
@@ -50,11 +52,11 @@ internal object GeckoAutofill {
     fun describe(context: Context): String {
         val am = runCatching { context.getSystemService(AutofillManager::class.java) }.getOrNull()
         val sys = when {
-            am == null -> "系统不支持自动填充"
+            am == null -> tr("系统不支持自动填充")
             // hasEnabledAutofillServices() 只回答「本应用自己的服务（MafariAutofillService）是否被选中」
-            !am.hasEnabledAutofillServices() -> "本应用的自动填充服务未启用（设置 → 密码和账号 → 自动填充服务 → Mafari 密码）；当前可能由其它服务负责"
-            !am.isEnabled -> "系统自动填充已关闭"
-            else -> "本应用的自动填充服务已启用"
+            !am.hasEnabledAutofillServices() -> tr("本应用的自动填充服务未启用（设置 → 密码和账号 → 自动填充服务 → Mafari 密码）；当前可能由其它服务负责")
+            !am.isEnabled -> tr("系统自动填充已关闭")
+            else -> tr("本应用的自动填充服务已启用")
         }
         return "$sys；$lastState"
     }

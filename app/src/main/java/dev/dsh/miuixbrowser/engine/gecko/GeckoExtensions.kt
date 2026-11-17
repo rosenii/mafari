@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.cancelCompat
 import dev.dsh.miuixbrowser.net.HttpFetcher
 import dev.dsh.miuixbrowser.sync.BookmarksBridge
@@ -257,13 +259,13 @@ object GeckoExtensionStore {
                     }
                 } ?: run {
                     job.cancelCompat()
-                    error("安装超时，请重试")
+                    error(tr("安装超时，请重试"))
                 }
                 when (first) {
                     // 用户点了取消：立刻结束，不依赖内核是否回包
                     1 -> {
                         job.cancelCompat()
-                        error("已取消安装")
+                        error(tr("已取消安装"))
                     }
                     0 -> {
                         val done = withTimeoutOrNull(POST_ALLOW_TIMEOUT_MS) { job.await() }
@@ -271,10 +273,10 @@ object GeckoExtensionStore {
                             job.cancelCompat()
                             null   // 内核迟迟没回包：下面按列表对比兜底
                         } else {
-                            done.getOrThrow() ?: error("安装失败")
+                            done.getOrThrow() ?: error(tr("安装失败"))
                         }
                     }
-                    else -> job.await().getOrThrow() ?: error("安装失败")
+                    else -> job.await().getOrThrow() ?: error(tr("安装失败"))
                 }
             }
             if (ext != null) {
@@ -287,7 +289,7 @@ object GeckoExtensionStore {
                     Diag.log("ext: install result never arrived but extension is present: ${added.id}")
                     added
                 } else {
-                    error(promptFailure ?: "安装没有完成：内核未返回结果（详见 diag.txt）")
+                    error(promptFailure ?: tr("安装没有完成：内核未返回结果（详见 diag.txt）"))
                 }
             }
         } finally {
@@ -306,7 +308,7 @@ object GeckoExtensionStore {
         return when {
             two != null -> two.invoke(controller, uri, null)
             one != null -> one.invoke(controller, uri)
-            else -> error("当前 GeckoView 版本不支持安装拓展")
+            else -> error(tr("当前 GeckoView 版本不支持安装拓展"))
         } as GeckoResult<WebExtension>
     }
 
@@ -314,12 +316,12 @@ object GeckoExtensionStore {
         promptFailure?.let { promptFailure = null; return it }
         val raw = (t.cause?.message ?: t.message).orEmpty()
         return when {
-            raw.contains("userCancelled", true) || raw.contains("cancel", true) -> "已取消安装"
-            raw.contains("signature", true) -> "拓展签名无效"
-            raw.contains("incompatible", true) -> "此拓展与当前内核不兼容"
-            raw.contains("networkFailure", true) || raw.contains("network", true) -> "下载失败，检查网络或链接"
-            raw.contains("corrupt", true) || raw.contains("invalid", true) -> "不是有效的拓展文件"
-            raw.isBlank() -> "安装失败"
+            raw.contains("userCancelled", true) || raw.contains("cancel", true) -> tr("已取消安装")
+            raw.contains("signature", true) -> tr("拓展签名无效")
+            raw.contains("incompatible", true) -> tr("此拓展与当前内核不兼容")
+            raw.contains("networkFailure", true) || raw.contains("network", true) -> tr("下载失败，检查网络或链接")
+            raw.contains("corrupt", true) || raw.contains("invalid", true) -> tr("不是有效的拓展文件")
+            raw.isBlank() -> tr("安装失败")
             else -> raw
         }
     }
@@ -331,7 +333,7 @@ object GeckoExtensionStore {
         val target = File(dir, "import_${System.currentTimeMillis()}.xpi")
         context.contentResolver.openInputStream(source)?.use { input ->
             target.outputStream().use { input.copyTo(it) }
-        } ?: error("读取文件失败")
+        } ?: error(tr("读取文件失败"))
         "file://" + target.absolutePath
     }
 
@@ -369,7 +371,7 @@ object GeckoExtensionStore {
      */
     private suspend fun updateFloccus(context: Context, item: GeckoExtItem): Boolean {
         val latest = withContext(Dispatchers.IO) { FloccusPatcher.latestRelease() }
-            ?: error("查询 Floccus 最新版本失败")
+            ?: error(tr("查询 Floccus 最新版本失败"))
         val newer = FloccusPatcher.isNewer(latest.version, item.version)
         // 没有新版，但装着的是旧垫片（选文件夹转圈那一版）：用同版本重新打补丁覆盖安装
         if (!newer && !FloccusPatcher.needsRepatch(context)) return false
@@ -394,13 +396,13 @@ object GeckoExtensionStore {
         else c.disable(item.ext, WebExtensionController.EnableSource.USER)
         r.await()
         refresh(context)
-    }.recoverCatching { throw IllegalStateException(if (enabled) "启用失败" else "停用失败") }
+    }.recoverCatching { throw IllegalStateException(if (enabled) tr("启用失败") else tr("停用失败")) }
 
     suspend fun uninstall(context: Context, item: GeckoExtItem): Result<Unit> = runCatching {
         controller(context).uninstall(item.ext).await()
         icons.remove(item.id)
         refresh(context)
-    }.recoverCatching { throw IllegalStateException("卸载失败") }
+    }.recoverCatching { throw IllegalStateException(tr("卸载失败")) }
 
     /** 检查单个拓展的更新：true = 已更新到新版本，false = 已是最新 */
     suspend fun updateOne(context: Context, item: GeckoExtItem): Result<Boolean> = runCatching {
@@ -410,7 +412,7 @@ object GeckoExtensionStore {
         val changed = after != null && !newVersion.isNullOrEmpty() && newVersion != item.version
         if (changed) refresh(context)
         changed
-    }.recoverCatching { throw IllegalStateException("检查更新失败，检查网络") }
+    }.recoverCatching { throw IllegalStateException(tr("检查更新失败，检查网络")) }
 
     // ------------------------------------------------------------------ 定期检查更新
 
@@ -948,11 +950,11 @@ object GeckoExtensionStore {
     suspend fun setAllowedInPrivate(context: Context, item: GeckoExtItem, allowed: Boolean): Result<Unit> = runCatching {
         val c = controller(context)
         val m = c.javaClass.methods.firstOrNull { it.name == "setAllowedInPrivateBrowsing" && it.parameterTypes.size == 2 }
-            ?: error("当前内核不支持")
+            ?: error(tr("当前内核不支持"))
         @Suppress("UNCHECKED_CAST")
         (m.invoke(c, item.ext, allowed) as GeckoResult<WebExtension>).await()
         refresh(context)
-    }.recoverCatching { throw IllegalStateException("设置失败") }
+    }.recoverCatching { throw IllegalStateException(tr("设置失败")) }
 
     // ------------------------------------------------------------------ 提示委托（安装 / 更新 / 可选权限确认）
 
@@ -1067,44 +1069,44 @@ object GeckoExtensionStore {
     }
 
     private val PERMISSION_NAMES = mapOf(
-        "<all_urls>" to "访问所有网站的数据",
-        "tabs" to "查看标签页的标题和地址",
-        "activeTab" to "访问当前标签页",
-        "cookies" to "读写 Cookie",
-        "webRequest" to "监控网络请求",
-        "webRequestBlocking" to "拦截 / 修改网络请求",
-        "declarativeNetRequest" to "按规则拦截网络请求",
-        "storage" to "保存拓展自己的数据",
-        "unlimitedStorage" to "无限存储",
-        "downloads" to "管理下载",
-        "history" to "读取浏览历史",
-        "bookmarks" to "读写书签",
-        "clipboardRead" to "读取剪贴板",
-        "clipboardWrite" to "写入剪贴板",
-        "notifications" to "显示通知",
-        "nativeMessaging" to "与本机程序通信",
-        "geolocation" to "获取位置",
-        "contextMenus" to "添加右键菜单",
-        "proxy" to "控制代理设置",
-        "privacy" to "修改隐私设置",
-        "management" to "管理其他拓展",
-        "scripting" to "向网页注入脚本",
-        "webNavigation" to "监控页面跳转",
+        "<all_urls>" to tr("访问所有网站的数据"),
+        "tabs" to tr("查看标签页的标题和地址"),
+        "activeTab" to tr("访问当前标签页"),
+        "cookies" to tr("读写 Cookie"),
+        "webRequest" to tr("监控网络请求"),
+        "webRequestBlocking" to tr("拦截 / 修改网络请求"),
+        "declarativeNetRequest" to tr("按规则拦截网络请求"),
+        "storage" to tr("保存拓展自己的数据"),
+        "unlimitedStorage" to tr("无限存储"),
+        "downloads" to tr("管理下载"),
+        "history" to tr("读取浏览历史"),
+        "bookmarks" to tr("读写书签"),
+        "clipboardRead" to tr("读取剪贴板"),
+        "clipboardWrite" to tr("写入剪贴板"),
+        "notifications" to tr("显示通知"),
+        "nativeMessaging" to tr("与本机程序通信"),
+        "geolocation" to tr("获取位置"),
+        "contextMenus" to tr("添加右键菜单"),
+        "proxy" to tr("控制代理设置"),
+        "privacy" to tr("修改隐私设置"),
+        "management" to tr("管理其他拓展"),
+        "scripting" to tr("向网页注入脚本"),
+        "webNavigation" to tr("监控页面跳转"),
     )
 
     private val DATA_NAMES = mapOf(
-        "technicalAndInteraction" to "技术与交互数据",
-        "locationInfo" to "位置信息",
-        "personalCommunications" to "个人通信内容",
-        "healthInfo" to "健康信息",
-        "financialAndPaymentInfo" to "财务和支付信息",
-        "authenticationInfo" to "身份验证信息",
-        "personallyIdentifyingInfo" to "个人身份信息",
-        "searchTerms" to "搜索词",
-        "websiteActivity" to "网站活动",
-        "websiteContent" to "网站内容",
-        "browsingActivity" to "浏览活动",
-        "bookmarksInfo" to "书签信息",
+        "technicalAndInteraction" to tr("技术与交互数据"),
+        "locationInfo" to tr("位置信息"),
+        "personalCommunications" to tr("个人通信内容"),
+        "healthInfo" to tr("健康信息"),
+        "financialAndPaymentInfo" to tr("财务和支付信息"),
+        "authenticationInfo" to tr("身份验证信息"),
+        "personallyIdentifyingInfo" to tr("个人身份信息"),
+        "searchTerms" to tr("搜索词"),
+        "websiteActivity" to tr("网站活动"),
+        "websiteContent" to tr("网站内容"),
+        "browsingActivity" to tr("浏览活动"),
+        "bookmarksInfo" to tr("书签信息"),
     )
 
     /** 权限 / 可访问网站 → 中文说明（安装确认框与详情页共用） */
@@ -1114,8 +1116,8 @@ object GeckoExtensionStore {
         if (allSites) {
             if ("<all_urls>" !in permissions) add(PERMISSION_NAMES.getValue("<all_urls>"))
         } else {
-            origins.take(5).forEach { add("访问 $it") }
-            if (origins.size > 5) add("以及另外 ${origins.size - 5} 个网站")
+            origins.take(5).forEach { add(tr("访问 {0}", it)) }
+            if (origins.size > 5) add(tr("以及另外 {0} 个网站", origins.size - 5))
         }
     }
 
@@ -1145,7 +1147,7 @@ object GeckoExtensionStore {
             if (responseClass == null) {
                 if (name.contains("InstallPromptRequest")) {
                     // 这个方法要的是 PermissionPromptResponse，却找不到这个类：回 AllowOrDeny 会被内核当成类型错误
-                    promptFailure = "当前 GeckoView 版本的安装确认接口不兼容（详见 diag.txt）"
+                    promptFailure = tr("当前 GeckoView 版本的安装确认接口不兼容（详见 diag.txt）")
                     result.completeExceptionally(IllegalStateException("PermissionPromptResponse class not found"))
                 } else {
                     result.complete(if (allow) AllowOrDeny.ALLOW else AllowOrDeny.DENY)
@@ -1157,21 +1159,21 @@ object GeckoExtensionStore {
                     result.complete(response)
                 } else {
                     // 回不了结果时 Gecko 会一直等：用异常明确结束这次请求，并记下原因给界面提示
-                    if (allow) promptFailure = "当前 GeckoView 版本的安装确认接口不兼容（详见 diag.txt）"
+                    if (allow) promptFailure = tr("当前 GeckoView 版本的安装确认接口不兼容（详见 diag.txt）")
                     result.completeExceptionally(IllegalStateException("cannot build ${responseClass.name}"))
                 }
             }
         }
 
-        val extName = ext?.metaData?.name?.takeIf { it.isNotBlank() } ?: "此拓展"
-        val lines = (describePermissions(permissions, origins) + dataCollection.map { "收集" + (DATA_NAMES[it] ?: it) })
+        val extName = ext?.metaData?.name?.takeIf { it.isNotBlank() } ?: tr("此拓展")
+        val lines = (describePermissions(permissions, origins) + dataCollection.map { tr("收集") + (DATA_NAMES[it] ?: it) })
             .map { "· $it" }
         val title = when {
-            name.contains("Update") -> "更新「$extName」？"
-            name.contains("Optional") -> "「$extName」请求更多权限"
-            else -> "添加「$extName」？"
+            name.contains("Update") -> tr("更新「{0}」？", extName)
+            name.contains("Optional") -> tr("「{0}」请求更多权限", extName)
+            else -> tr("添加「{0}」？", extName)
         }
-        val message = if (lines.isEmpty()) "此拓展不需要额外权限。" else "此拓展将可以：\n" + lines.joinToString("\n")
+        val message = if (lines.isEmpty()) tr("此拓展不需要额外权限。") else tr("此拓展将可以：\n") + lines.joinToString("\n")
         val activity = activityProvider?.invoke()
         if (activity == null || activity.isFinishing || activity.isDestroyed) {
             finish(false)
@@ -1182,8 +1184,8 @@ object GeckoExtensionStore {
                 AlertDialog.Builder(activity)
                     .setTitle(title)
                     .setMessage(message)
-                    .setPositiveButton(if (name.contains("Install")) "添加" else "允许") { _, _ -> finish(true) }
-                    .setNegativeButton("取消") { _, _ -> finish(false) }
+                    .setPositiveButton(if (name.contains("Install")) tr("添加") else tr("允许")) { _, _ -> finish(true) }
+                    .setNegativeButton(tr("取消")) { _, _ -> finish(false) }
                     .setOnCancelListener { finish(false) }
                     // 任何方式关掉（含 Activity 重建）都要回结果，否则安装会一直挂着
                     .setOnDismissListener { finish(false) }
@@ -1217,12 +1219,12 @@ object GeckoExtensionStore {
             val slug = Regex("/addon/([^/?#]+)").find(uri.path.orEmpty())?.groupValues?.get(1)
                 ?: return@runCatching null
             parseAddon(JSONObject(httpGet("$AMO_API/addon/${URLEncoder.encode(slug, "UTF-8")}/?lang=zh-CN")))
-                ?: error("商店里找不到这个拓展")
+                ?: error(tr("商店里找不到这个拓展"))
         }.recoverCatching { throw IllegalStateException(netMessage(it)) }
     }
 
     private fun netMessage(t: Throwable) =
-        t.message?.takeIf { it.startsWith("服务器返回") || it.startsWith("商店") } ?: "访问商店失败，检查网络"
+        t.message?.takeIf { it.startsWith(tr("服务器返回")) || it.startsWith(tr("商店")) } ?: tr("访问商店失败，检查网络")
 
     /** 读字符串字段：缺失或 JSON null 都当空串（Android 的 optString 对 JSON null 会返回 "null" 字样） */
     private fun str(o: JSONObject, key: String): String =
@@ -1279,7 +1281,7 @@ object GeckoExtensionStore {
 suspend fun <T> GeckoResult<T>.await(): T? = suspendCancellableCoroutine { cont ->
     accept(
         { value -> if (cont.isActive) cont.resume(value) },
-        { error -> if (cont.isActive) cont.resumeWith(Result.failure(error ?: IllegalStateException("操作失败"))) },
+        { error -> if (cont.isActive) cont.resumeWith(Result.failure(error ?: IllegalStateException(tr("操作失败")))) },
     )
 }
 

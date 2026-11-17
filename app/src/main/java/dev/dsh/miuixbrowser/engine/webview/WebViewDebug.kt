@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.webview
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
@@ -96,17 +98,17 @@ object WebViewDebug {
     fun infoLines(context: Context): List<Pair<String, String>> {
         val pkg = runCatching { WebViewCompat.getCurrentWebViewPackage(context) }.getOrNull()
         val ua = runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault("")
-        fun feature(name: String) = if (WebViewFeature.isFeatureSupported(name)) "支持" else "不支持"
+        fun feature(name: String) = if (WebViewFeature.isFeatureSupported(name)) tr("支持") else tr("不支持")
         return listOf(
-            "WebView" to (pkg?.let { "${it.packageName} ${it.versionName}" } ?: "未知"),
-            "系统" to "Android ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）· ${Build.MANUFACTURER} ${Build.MODEL}",
-            "默认 UA" to ua.ifBlank { "未知" },
-            "文档开始脚本" to feature(WebViewFeature.DOCUMENT_START_SCRIPT),
+            "WebView" to (pkg?.let { "${it.packageName} ${it.versionName}" } ?: tr("未知")),
+            tr("系统") to "Android ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）· ${Build.MANUFACTURER} ${Build.MODEL}",
+            tr("默认 UA") to ua.ifBlank { tr("未知") },
+            tr("文档开始脚本") to feature(WebViewFeature.DOCUMENT_START_SCRIPT),
             "Passkey" to feature(WebViewFeature.WEB_AUTHENTICATION),
-            "代理覆盖" to feature(WebViewFeature.PROXY_OVERRIDE),
-            "智能深色" to feature(WebViewFeature.ALGORITHMIC_DARKENING),
-            "运行日志" to if (Diag.enabled) "已开启" else "关闭",
-            "日志文件" to Diag.logFile(context).let { f ->
+            tr("代理覆盖") to feature(WebViewFeature.PROXY_OVERRIDE),
+            tr("智能深色") to feature(WebViewFeature.ALGORITHMIC_DARKENING),
+            tr("运行日志") to if (Diag.enabled) tr("已开启") else tr("关闭"),
+            tr("日志文件") to Diag.logFile(context).let { f ->
                 if (f.exists()) "${f.absolutePath}（${android.text.format.Formatter.formatFileSize(context, f.length())}）"
                 else f.absolutePath
             },

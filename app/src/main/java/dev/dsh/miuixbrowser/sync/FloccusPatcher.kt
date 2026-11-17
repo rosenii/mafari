@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.sync
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.engine.gecko.GeckoPrefs
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
@@ -156,7 +158,7 @@ object FloccusPatcher {
         val ok = runCatching { isFloccus(file) }.getOrDefault(false)
         if (!ok) {
             file.delete()
-            error("下载的不是有效的 Floccus 包")
+            error(tr("下载的不是有效的 Floccus 包"))
         }
         return file
     }

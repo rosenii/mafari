@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -51,7 +53,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
     AppGlassDialog(
         show = ui.show,
-        title = "投屏到",
+        title = tr("投屏到"),
         backdrop = backdrop,
         onDismissRequest = { ui.cancel() },
     ) {
@@ -67,7 +69,7 @@ internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (ui.scanning) "正在搜索…" else "附近设备",
+                        text = if (ui.scanning) tr("正在搜索…") else tr("附近设备"),
                         fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.weight(1f),
@@ -88,7 +90,7 @@ internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
                     ) {
                         Image(
                             imageVector = AppIcons.Refresh,
-                            contentDescription = "重新搜索",
+                            contentDescription = tr("重新搜索"),
                             modifier = Modifier.size(20.dp).rotate(if (ui.scanning) angle else 0f),
                             colorFilter = ColorFilter.tint(
                                 if (ui.scanning) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.primary,
@@ -116,15 +118,15 @@ internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
                 ) {
                     CastTile(
                         icon = AppIcons.ScreenMirror,
-                        title = "屏幕镜像",
-                        hint = "系统投屏，投出整个画面",
+                        title = tr("屏幕镜像"),
+                        hint = tr("系统投屏，投出整个画面"),
                         onClick = { ui.pickMirror() },
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                     CastTile(
                         icon = AppIcons.OpenExternal,
-                        title = "外部打开",
-                        hint = "交给播放器或投屏 App",
+                        title = tr("外部打开"),
+                        hint = tr("交给播放器或投屏 App"),
                         onClick = { ui.pickExternal() },
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
@@ -135,7 +137,7 @@ internal fun CastPickerDialog(ui: CastPickerUi, backdrop: Backdrop?) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AppDialogButton(onClick = { ui.cancel() }, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
             }
         }

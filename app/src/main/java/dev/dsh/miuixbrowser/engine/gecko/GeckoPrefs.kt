@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.Diag
 import android.net.Uri
 import java.lang.reflect.Modifier
@@ -59,7 +61,7 @@ object GeckoPrefs {
             if (value === CLEAR) {
                 val clear = clearMethod ?: (cls.methods.firstOrNull {
                     it.name == "clearGeckoUserPref" && it.parameterTypes.size == 1 && it.parameterTypes[0] == String::class.java
-                } ?: error("找不到 GeckoPreferenceController.clearGeckoUserPref")).also { clearMethod = it }
+                } ?: error(tr("找不到 GeckoPreferenceController.clearGeckoUserPref"))).also { clearMethod = it }
                 clear.invoke(if (Modifier.isStatic(clear.modifiers)) null else cls.getDeclaredConstructor().newInstance(), name)
                 return@runCatching
             }
@@ -69,7 +71,7 @@ object GeckoPrefs {
             }
             val m = setMethods[value.javaClass] ?: (cls.methods.firstOrNull {
                 it.name == "setGeckoPref" && it.parameterTypes.size in 2..3 && accepts(it.parameterTypes[1], value)
-            } ?: error("找不到 GeckoPreferenceController.setGeckoPref")).also { setMethods[value.javaClass] = it }
+            } ?: error(tr("找不到 GeckoPreferenceController.setGeckoPref"))).also { setMethods[value.javaClass] = it }
             val target = if (Modifier.isStatic(m.modifiers)) null else cls.getDeclaredConstructor().newInstance()
             if (m.parameterTypes.size == 3) m.invoke(target, name, value, branchUser) else m.invoke(target, name, value)
         }.onFailure {

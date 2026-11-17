@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.download
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -30,7 +32,7 @@ class DownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = build("准备下载", 0, true, "0%")
+        val notification = build(tr("准备下载"), 0, true, "0%")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -51,20 +53,20 @@ class DownloadService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "下载",
+            tr("下载"),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "文件下载进度"
+            description = tr("文件下载进度")
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
         // 完成 / 失败走单独的渠道：进度渠道是 IMPORTANCE_LOW 不会提醒，结果通知需要能弹出、有提示音
         val resultChannel = NotificationChannel(
             RESULT_CHANNEL_ID,
-            "下载结果",
+            tr("下载结果"),
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
-            description = "下载完成 / 失败的提醒"
+            description = tr("下载完成 / 失败的提醒")
             setShowBadge(false)
         }
         manager.createNotificationChannel(resultChannel)
@@ -119,8 +121,8 @@ class DownloadService : Service() {
             .put("business", "download")
             .put("enableFloat", allowFloat)
             .put("updatable", true)
-            .put("ticker", "下载中 $percent%")
-            .put("aodTitle", "下载中 $percent%")
+            .put("ticker", tr("下载中 {0}%", percent))
+            .put("aodTitle", tr("下载中 {0}%", percent))
 
         val bigArea = JSONObject().apply {
             put(
@@ -130,7 +132,7 @@ class DownloadService : Service() {
                     put(
                         "textInfo",
                         JSONObject().apply {
-                            put("frontTitle", "下载中")
+                            put("frontTitle", tr("下载中"))
                             put("title", "$percent%")
                             put("content", text)
                             put("useHighLight", false)
@@ -152,7 +154,7 @@ class DownloadService : Service() {
                 "textInfo",
                 JSONObject().apply {
                     put("frontTitle", "$percent%")
-                    put("title", "下载中")
+                    put("title", tr("下载中"))
                     put("content", name)
                 },
             )
@@ -163,14 +165,14 @@ class DownloadService : Service() {
             .put("smallIslandArea", smallArea)
 
         val baseInfo = JSONObject().apply {
-            put("title", "正在下载 $name")
+            put("title", tr("正在下载 {0}", name))
             put("content", text)
             put("colorTitle", "#006EFF")
             put("type", 2)
         }
         val hintInfo = JSONObject().apply {
             put("type", 1)
-            put("title", "下载中")
+            put("title", tr("下载中"))
         }
         param.put("param_island", island)
         param.put("baseInfo", baseInfo)
@@ -221,15 +223,15 @@ class DownloadService : Service() {
                 )
                 builder.setRequestPromotedOngoing(true)
                 // 状态栏胶囊里显示的短文本（最多约 7 个字符）
-                builder.setShortCriticalText(if (paused) "已暂停" else if (indeterminate) "…" else "$progress%")
+                builder.setShortCriticalText(if (paused) tr("已暂停") else if (indeterminate) "…" else "$progress%")
             }
         }
 
         if (taskId > 0L) {
             val action = if (paused) {
-                DownloadActionReceiver.ACTION_RESUME to "继续"
+                DownloadActionReceiver.ACTION_RESUME to tr("继续")
             } else {
-                DownloadActionReceiver.ACTION_PAUSE to "暂停"
+                DownloadActionReceiver.ACTION_PAUSE to tr("暂停")
             }
             builder.addAction(
                 Notification.Action.Builder(
@@ -247,7 +249,7 @@ class DownloadService : Service() {
                         this,
                         android.R.drawable.ic_menu_close_clear_cancel,
                     ),
-                    "取消",
+                    tr("取消"),
                     broadcast(taskId, DownloadActionReceiver.ACTION_CANCEL, 2),
                 ).build(),
             )
@@ -274,7 +276,7 @@ class DownloadService : Service() {
             getSystemService(NotificationManager::class.java)
                 .notify(
                     NOTIFICATION_ID,
-                    build("正在下载", 0, true, name, name, taskId, allowFloat = true),
+                    build(tr("正在下载"), 0, true, name, name, taskId, allowFloat = true),
                 )
             islandShown = true
         }
@@ -296,7 +298,7 @@ class DownloadService : Service() {
             getSystemService(NotificationManager::class.java)
                 .notify(
                     NOTIFICATION_ID,
-                    build("已暂停", (progress * 100).toInt(), false, name, name, taskId, paused = true),
+                    build(tr("已暂停"), (progress * 100).toInt(), false, name, name, taskId, paused = true),
                 )
         }
     }
@@ -312,11 +314,11 @@ class DownloadService : Service() {
         )
 
     fun finish(text: String) {
-        postResult("下载完成", text, success = true)
+        postResult(tr("下载完成"), text, success = true)
     }
 
     fun fail(text: String) {
-        postResult("下载失败", text, success = false)
+        postResult(tr("下载失败"), text, success = false)
     }
 
     companion object {

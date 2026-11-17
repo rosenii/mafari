@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.script.BuiltinScript
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdParser
@@ -129,19 +131,19 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
     fun importUrl(url: String) {
         if (importBusy) return
         importBusy = true
-        toast("正在下载…")
+        toast(tr("正在下载…"))
         scope.launch {
             val result = fetchUserScriptText(url, allowFilterList = true)
             result.onSuccess { text ->
                 if (AdParser.looksLikeFilterList(text)) {
                     AdBlock.subscribe(url)
-                        .onSuccess { toast("这是去广告规则，已加入「设置 → 高级 → 去广告」") }
-                        .onFailure { toast(it.message ?: "订阅失败") }
+                        .onSuccess { toast(tr("这是去广告规则，已加入「设置 → 高级 → 去广告」")) }
+                        .onFailure { toast(it.message ?: tr("订阅失败")) }
                 } else {
                     val script = store.installText(url, text)
-                    toast("已导入 ${script.name}")
+                    toast(tr("已导入 {0}", script.name))
                 }
-            }.onFailure { toast(it.message ?: "下载失败，检查链接") }
+            }.onFailure { toast(it.message ?: tr("下载失败，检查链接")) }
             importBusy = false
         }
     }
@@ -156,18 +158,18 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
             }
             val fileName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.').orEmpty()
             when {
-                text == null -> toast("读取文件失败")
+                text == null -> toast(tr("读取文件失败"))
                 text.contains("==UserScript==") -> {
                     val parsedName = parseUserScript(text).first
                     store.add(if (parsedName.isBlank()) fileName else "", text)
-                    toast("已导入脚本")
+                    toast(tr("已导入脚本"))
                 }
                 AdParser.looksLikeFilterList(text) -> {
                     AdBlock.importLocal(fileName, text)
-                        .onSuccess { toast("这是去广告规则，已导入「设置 → 高级 → 去广告」") }
-                        .onFailure { toast(it.message ?: "导入失败") }
+                        .onSuccess { toast(tr("这是去广告规则，已导入「设置 → 高级 → 去广告」")) }
+                        .onFailure { toast(it.message ?: tr("导入失败")) }
                 }
-                else -> toast("这不是有效的油猴脚本")
+                else -> toast(tr("这不是有效的油猴脚本"))
             }
         }
     }
@@ -179,7 +181,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             PageGlassTopBar(
-                title = "脚本",
+                title = tr("脚本"),
                 backdrop = backdrop,
                 glass = glass,
                 scrollBehavior = scrollBehavior,
@@ -199,7 +201,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     ) {
                         Icon(
                             imageVector = MiuixIcons.Glass.More,
-                            contentDescription = "更多",
+                            contentDescription = tr("更多"),
                             modifier = Modifier.size(22.dp),
                             tint = MiuixTheme.colorScheme.onSurface,
                         )
@@ -213,7 +215,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
             onDismiss = { showLockInfo = false },
             backdrop = backdrop,
             liquid = liquid,
-            scope = "脚本 GM 数据：SQLCipher 整库 AES-256",
+            scope = tr("脚本 GM 数据：SQLCipher 整库 AES-256"),
         )
         val topInset = innerPadding.calculateTopPadding()
         Box(modifier = Modifier.fillMaxSize()) {
@@ -243,40 +245,40 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                         ) {
                             AppDropdownPreference(
                                 backdrop = if (glass) backdrop else null,
-                                title = "自动更新脚本",
-                                items = listOf("手动", "每天", "每 3 天", "每周"),
+                                title = tr("自动更新脚本"),
+                                items = listOf(tr("手动"), tr("每天"), tr("每 3 天"), tr("每周")),
                                 selectedIndex = store.autoUpdate.coerceIn(0, 3),
                                 onSelectedIndexChange = { store.updateAutoUpdate(it) },
                             )
                         }
                     }
 
-                    item { SmallTitle(text = "启用范围") }
+                    item { SmallTitle(text = tr("启用范围")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
                             AppSwitchPreference(
-                                title = "在无痕浏览中启用",
-                                summary = "关闭后无痕标签不运行脚本，切换后刷新页面生效",
+                                title = tr("在无痕浏览中启用"),
+                                summary = tr("关闭后无痕标签不运行脚本，切换后刷新页面生效"),
                                 checked = settings.scriptsInIncognito,
                                 onCheckedChange = { settings.updateScriptsInIncognito(it) },
                             )
                             AppSwitchPreference(
-                                title = "在轻应用 / 桌面快捷方式中启用",
-                                summary = "关闭后从桌面图标打开的页面不运行脚本，重新打开生效",
+                                title = tr("在轻应用 / 桌面快捷方式中启用"),
+                                summary = tr("关闭后从桌面图标打开的页面不运行脚本，重新打开生效"),
                                 checked = settings.scriptsInWebApp,
                                 onCheckedChange = { settings.updateScriptsInWebApp(it) },
                             )
                         }
                     }
 
-                    item { SmallTitle(text = "已安装脚本") }
+                    item { SmallTitle(text = tr("已安装脚本")) }
                     if (scripts.isEmpty()) {
                         item {
                             Text(
-                                text = "还没有脚本。点右上角「导入脚本」输入链接或选择本地文件，也可以直接选下面的推荐脚本。",
+                                text = tr("还没有脚本。点右上角「导入脚本」输入链接或选择本地文件，也可以直接选下面的推荐脚本。"),
                                 fontSize = 13.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
@@ -306,8 +308,8 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                                     busyIds = busyIds + script.id
                                     scope.launch {
                                         store.refresh(script.id)
-                                            .onSuccess { changed -> toast(if (changed) "已更新 ${script.name}" else "${script.name} 已是最新") }
-                                            .onFailure { toast(it.message ?: "更新失败") }
+                                            .onSuccess { changed -> toast(if (changed) tr("已更新 {0}", script.name) else tr("{0} 已是最新", script.name)) }
+                                            .onFailure { toast(it.message ?: tr("更新失败")) }
                                         busyIds = busyIds - script.id
                                     }
                                 }
@@ -317,7 +319,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     }
 
                     if (missingBuiltins.isNotEmpty()) {
-                        item { SmallTitle(text = "推荐脚本") }
+                        item { SmallTitle(text = tr("推荐脚本")) }
                         items(missingBuiltins.size) { index ->
                             val builtin = missingBuiltins[index]
                             BuiltinScriptCard(builtin, installing = builtin.userScriptUrl in installingUrls) {
@@ -327,8 +329,8 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                                     installingUrls = installingUrls + builtin.userScriptUrl
                                     scope.launch {
                                         store.install(builtin.userScriptUrl)
-                                            .onSuccess { toast("已添加 " + builtin.name) }
-                                            .onFailure { toast(it.message ?: "下载失败，检查网络") }
+                                            .onSuccess { toast(tr("已添加 ") + builtin.name) }
+                                            .onFailure { toast(it.message ?: tr("下载失败，检查网络")) }
                                         installingUrls = installingUrls - builtin.userScriptUrl
                                     }
                                 }
@@ -338,8 +340,8 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
 
                     item {
                         Text(
-                            text = "脚本在页面加载完成后注入运行，可在每个页面的「脚本」菜单里临时开关。" +
-                                "首次打开 app 会自动安装推荐脚本；有来源地址的脚本会按上面设置的间隔在后台自动更新。",
+                            text = tr("脚本在页面加载完成后注入运行，可在每个页面的「脚本」菜单里临时开关。") +
+                                tr("首次打开 app 会自动安装推荐脚本；有来源地址的脚本会按上面设置的间隔在后台自动更新。"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
@@ -360,7 +362,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
             ) {
                 Icon(
                     imageVector = MiuixIcons.Glass.Add,
-                    contentDescription = "新建脚本",
+                    contentDescription = tr("新建脚本"),
                     tint = Color.White,
                     modifier = Modifier.size(26.dp),
                 )
@@ -369,7 +371,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
 
         AppGlassDialog(
             show = deleteTarget != null,
-            title = "删除脚本",
+            title = tr("删除脚本"),
             summary = deleteTarget?.name,
             backdrop = backdrop,
             onDismissRequest = { deleting = null },
@@ -382,7 +384,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     onClick = { deleting = null },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = {
@@ -392,7 +394,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Destructive,
                 ) {
-                    Text(text = "删除", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("删除"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -439,7 +441,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
         backdrop = if (glass) backdrop else null,
     ) {
         GlassPopupItem(
-            text = "导入脚本",
+            text = tr("导入脚本"),
             onClick = {
                 showMore = false
                 importing = true
@@ -447,18 +449,18 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
             icon = MiuixIcons.Glass.Download,
         )
         GlassPopupItem(
-            text = if (updatingAll) "更新中…" else "全部更新",
+            text = if (updatingAll) tr("更新中…") else tr("全部更新"),
             enabled = !updatingAll,
             onClick = {
                 showMore = false
                 if (store.items.none { it.sourceUrl.isNotBlank() }) {
-                    toast("没有可更新的脚本")
+                    toast(tr("没有可更新的脚本"))
                 } else {
                     updatingAll = true
                     scope.launch {
                         val (ok, total) = store.refreshAll()
                         updatingAll = false
-                        toast("已更新 $ok/$total 个脚本")
+                        toast(tr("已更新 {0}/{1} 个脚本", ok, total))
                     }
                 }
             },
@@ -516,11 +518,11 @@ private fun ScriptCard(
                 val failed = script.error.isNotBlank() && !refreshing
                 Text(
                     text = when {
-                        refreshing -> "正在更新…"
-                        failed -> "更新失败：" + script.error
-                        script.sourceUrl.isBlank() -> "本地脚本"
-                        script.updatedAt == 0L -> "尚未更新，点右侧刷新"
-                        else -> "更新于 " + formatTime(script.updatedAt)
+                        refreshing -> tr("正在更新…")
+                        failed -> tr("更新失败：") + script.error
+                        script.sourceUrl.isBlank() -> tr("本地脚本")
+                        script.updatedAt == 0L -> tr("尚未更新，点右侧刷新")
+                        else -> tr("更新于 ") + formatTime(script.updatedAt)
                     },
                     fontSize = 12.sp,
                     color = if (failed) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -540,11 +542,11 @@ private fun ScriptCard(
             AppSwitch(checked = script.enabled, onCheckedChange = onToggle)
             if (script.sourceUrl.isNotBlank()) {
                 IconButton(onClick = onRefresh) {
-                    Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = "更新")
+                    Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = tr("更新"))
                 }
             }
             IconButton(onClick = onDelete) {
-                Icon(imageVector = MiuixIcons.Glass.Delete, contentDescription = "删除")
+                Icon(imageVector = MiuixIcons.Glass.Delete, contentDescription = tr("删除"))
             }
         }
     }
@@ -565,8 +567,8 @@ private fun ScriptDialog(
 
     AppGlassDialog(
         show = show,
-        title = if (initial == null) "新建脚本" else "编辑脚本",
-        summary = "JavaScript 会在页面加载完成后执行",
+        title = if (initial == null) tr("新建脚本") else tr("编辑脚本"),
+        summary = tr("JavaScript 会在页面加载完成后执行"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -575,7 +577,7 @@ private fun ScriptDialog(
                 value = name,
                 onValueChange = { name = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "名称",
+                label = tr("名称"),
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
@@ -583,7 +585,7 @@ private fun ScriptDialog(
                 value = match,
                 onValueChange = { match = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "匹配（可留空，如 *://*.example.com/*）",
+                label = tr("匹配（可留空，如 *://*.example.com/*）"),
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
@@ -597,7 +599,7 @@ private fun ScriptDialog(
             if (initial != null) {
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("启用", fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurface)
+                    Text(tr("启用"), fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurface)
                     Spacer(Modifier.weight(1f))
                     AppSwitch(checked = enabled, onCheckedChange = { enabled = it })
                 }
@@ -608,14 +610,14 @@ private fun ScriptDialog(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { if (code.isNotBlank()) onConfirmMatch(name, code, enabled, match) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "保存", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("保存"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -633,8 +635,8 @@ private fun ImportDialog(
     var url by remember(show) { mutableStateOf("") }
     AppGlassDialog(
         show = show,
-        title = "导入脚本",
-        summary = "支持 .user.js 链接或本地文件；去广告规则会自动转交「去广告」",
+        title = tr("导入脚本"),
+        summary = tr("支持 .user.js 链接或本地文件；去广告规则会自动转交「去广告」"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -643,26 +645,26 @@ private fun ImportDialog(
                 value = url,
                 onValueChange = { url = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "脚本地址（http / https，.user.js）",
+                label = tr("脚本地址（http / https，.user.js）"),
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
             AppTextButton(
-                text = "从本地文件导入",
+                text = tr("从本地文件导入"),
                 onClick = onPickFile,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { if (url.isNotBlank()) onImport(url.trim()) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "导入", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("导入"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -706,7 +708,7 @@ private fun BuiltinScriptCard(script: BuiltinScript, installing: Boolean, onAdd:
             }
             Spacer(Modifier.width(8.dp))
             AppTextButton(
-                text = if (installing) "安装中…" else "安装",
+                text = if (installing) tr("安装中…") else tr("安装"),
                 enabled = !installing,
                 onClick = { onAdd(script) },
                 primary = true,

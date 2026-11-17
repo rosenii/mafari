@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdBlockBridge
 import dev.dsh.miuixbrowser.download.Downloader
@@ -475,9 +477,9 @@ class WebAppActivity : ComponentActivity() {
                     referer = webView.url,
                     withCookies = true,
                 )
-                Toast.makeText(this, "已开始下载，可在 Mafari「下载」中查看", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, tr("已开始下载，可在 Mafari「下载」中查看"), Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "这类下载请在 Mafari 浏览器中打开该网站再试", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, tr("这类下载请在 Mafari 浏览器中打开该网站再试"), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -547,7 +549,7 @@ class WebAppActivity : ComponentActivity() {
                                 referer = webView.url,
                                 withCookies = true,
                             )
-                            Toast.makeText(this, "已开始下载，可在 Mafari「下载」中查看", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, tr("已开始下载，可在 Mafari「下载」中查看"), Toast.LENGTH_SHORT).show()
                         } else {
                             onResult?.invoke(false, "unsupported url")
                         }
@@ -804,7 +806,7 @@ class WebAppActivity : ComponentActivity() {
                 fpInjector.prepare(fallback)
                 webView.loadUrl(fallback)
             } else {
-                Toast.makeText(this, "未安装对应应用", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, tr("未安装对应应用"), Toast.LENGTH_SHORT).show()
             }
         }
     }

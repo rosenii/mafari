@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
@@ -84,11 +86,11 @@ object GeckoProtection {
 
     val DOH_PROVIDERS = listOf(
         DohProvider("Cloudflare", "https://mozilla.cloudflare-dns.com/dns-query"),
-        DohProvider("阿里 DNS", "https://dns.alidns.com/dns-query"),
-        DohProvider("腾讯 DNSPod", "https://doh.pub/dns-query"),
+        DohProvider(tr("阿里 DNS"), "https://dns.alidns.com/dns-query"),
+        DohProvider(tr("腾讯 DNSPod"), "https://doh.pub/dns-query"),
         DohProvider("Google", "https://dns.google/dns-query"),
         DohProvider("Quad9", "https://dns.quad9.net/dns-query"),
-        DohProvider("自定义", ""),
+        DohProvider(tr("自定义"), ""),
     )
 
     private var prefs: SharedPreferences? = null
@@ -155,22 +157,22 @@ object GeckoProtection {
 
     /** 已开启的保护项名称（与设置页同名，按设置页顺序）；设置页摘要和首页隐私报告共用 */
     fun activeLabels(): List<String> = buildList {
-        if (etp >= 2) add("增强型跟踪保护")
-        if (stripTracking) add("清理网址跟踪参数")
-        if (bounceTracking) add("弹跳跟踪保护")
-        if (purgeTrackers) add("定期清理跟踪者数据")
-        if (fingerprint) add("指纹保护")
-        if (resistFingerprint) add("强力抗指纹")
+        if (etp >= 2) add(tr("增强型跟踪保护"))
+        if (stripTracking) add(tr("清理网址跟踪参数"))
+        if (bounceTracking) add(tr("弹跳跟踪保护"))
+        if (purgeTrackers) add(tr("定期清理跟踪者数据"))
+        if (fingerprint) add(tr("指纹保护"))
+        if (resistFingerprint) add(tr("强力抗指纹"))
         if (gpc) add("GPC")
-        if (trimReferrer) add("精简 Referer")
-        if (webrtcLeak) add("防 WebRTC 泄露 IP")
-        if (webrtcOff) add("禁用 WebRTC")
-        if (firstPartyIsolate) add("严格第一方隔离")
-        if (httpsOnly) add("仅 HTTPS")
-        if (dohMode > 0) add("安全 DNS")
+        if (trimReferrer) add(tr("精简 Referer"))
+        if (webrtcLeak) add(tr("防 WebRTC 泄露 IP"))
+        if (webrtcOff) add(tr("禁用 WebRTC"))
+        if (firstPartyIsolate) add(tr("严格第一方隔离"))
+        if (httpsOnly) add(tr("仅 HTTPS"))
+        if (dohMode > 0) add(tr("安全 DNS"))
         if (ech) add("ECH")
-        if (noPrefetch) add("禁用预取")
-        if (disableWebgl) add("禁用 WebGL")
+        if (noPrefetch) add(tr("禁用预取"))
+        if (disableWebgl) add(tr("禁用 WebGL"))
     }
 
     /**
@@ -178,13 +180,13 @@ object GeckoProtection {
      * 反跟踪：Gecko 默认就是标准档，只有手动关闭才算未开启。
      */
     fun reportItems(): List<Pair<String, Boolean>> = listOf(
-        "反跟踪" to (etp != 1),
-        "指纹保护" to (fingerprint || resistFingerprint),
-        "清理跟踪参数" to stripTracking,
-        "弹跳跟踪保护" to bounceTracking,
-        "WebRTC 防泄露" to (webrtcLeak || webrtcOff),
-        "仅 HTTPS" to httpsOnly,
-        "安全 DNS" to (dohMode > 0),
+        tr("反跟踪") to (etp != 1),
+        tr("指纹保护") to (fingerprint || resistFingerprint),
+        tr("清理跟踪参数") to stripTracking,
+        tr("弹跳跟踪保护") to bounceTracking,
+        tr("WebRTC 防泄露") to (webrtcLeak || webrtcOff),
+        tr("仅 HTTPS") to httpsOnly,
+        tr("安全 DNS") to (dohMode > 0),
         "GPC" to gpc,
     )
 

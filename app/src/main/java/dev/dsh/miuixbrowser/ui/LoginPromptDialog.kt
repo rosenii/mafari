@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.R
 import dev.dsh.miuixbrowser.browser.LoginPrompt
 import dev.dsh.miuixbrowser.browser.PasswordCsv
@@ -79,7 +81,7 @@ internal fun BoxScope.LoginPromptDialog(
 
     AppGlassDialog(
         show = prompt is LoginPrompt.Save,
-        title = save?.let { if (it.update) "更新密码？" else "保存密码？" },
+        title = save?.let { if (it.update) tr("更新密码？") else tr("保存密码？") },
         summary = save?.let { PasswordCsv.displayHost(it.origin) },
         backdrop = backdrop,
         onDismissRequest = dismiss,
@@ -105,9 +107,9 @@ private class LastPrompt {
 @Composable
 private fun SaveContent(p: LoginPrompt.Save, onClear: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        AccountCard(origin = p.origin, title = p.username.ifEmpty { "（无用户名）" }, subtitle = "密码  ••••••••")
+        AccountCard(origin = p.origin, title = p.username.ifEmpty { tr("（无用户名）") }, subtitle = tr("密码  ••••••••"))
         Text(
-            text = if (p.update) "将替换已保存的旧密码，密码会加密保存在本机" else "密码会加密保存在本机",
+            text = if (p.update) tr("将替换已保存的旧密码，密码会加密保存在本机") else tr("密码会加密保存在本机"),
             modifier = Modifier.padding(top = 10.dp, bottom = 14.dp, start = 2.dp),
             fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -120,7 +122,7 @@ private fun SaveContent(p: LoginPrompt.Save, onClear: () -> Unit) {
                 },
                 modifier = Modifier.weight(1f),
             ) {
-                Text(text = "不保存", style = MiuixTheme.textStyles.button)
+                Text(text = tr("不保存"), style = MiuixTheme.textStyles.button)
             }
             AppDialogButton(
                 onClick = {
@@ -130,7 +132,7 @@ private fun SaveContent(p: LoginPrompt.Save, onClear: () -> Unit) {
                 modifier = Modifier.weight(1f),
                 role = GlassDialogButtonRole.Primary,
             ) {
-                Text(text = if (p.update) "更新" else "保存", style = MiuixTheme.textStyles.button)
+                Text(text = if (p.update) tr("更新") else tr("保存"), style = MiuixTheme.textStyles.button)
             }
         }
     }
@@ -174,7 +176,7 @@ private fun BoxScope.SelectPopup(
             SelectHeader()
             p?.items?.forEachIndexed { index, item ->
                 CompactAccountRow(
-                    title = item.username.ifEmpty { "（无用户名）" },
+                    title = item.username.ifEmpty { tr("（无用户名）") },
                     summary = PasswordCsv.displayHost(item.origin),
                     onClick = {
                         onClear()
@@ -201,7 +203,7 @@ private fun SelectHeader() {
             modifier = Modifier.size(16.dp),
         )
         Text(
-            text = "密码",
+            text = tr("密码"),
             modifier = Modifier.padding(start = 6.dp),
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,

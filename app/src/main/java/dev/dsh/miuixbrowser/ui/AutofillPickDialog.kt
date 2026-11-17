@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.PasswordCsv
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,8 +52,8 @@ internal fun AutofillPickDialog(
     Box(modifier = Modifier.fillMaxWidth()) {
         AppGlassDialog(
             show = show,
-            title = "选择账号",
-            summary = "用于「$targetLabel」",
+            title = tr("选择账号"),
+            summary = tr("用于「{0}」", targetLabel),
             backdrop = null,
             onDismissRequest = onDismiss,
             onDismissFinished = onDismissFinished,
@@ -64,13 +66,13 @@ internal fun AutofillPickDialog(
                     items(rows, key = { it.guid }) { row -> PickAccountRow(row, onClick = { onPick(row) }) }
                 }
                 Text(
-                    text = "选定后，之后在此应用里会直接列出这个账号",
+                    text = tr("选定后，之后在此应用里会直接列出这个账号"),
                     modifier = Modifier.padding(top = 10.dp, bottom = 14.dp, start = 2.dp),
                     fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -109,7 +111,7 @@ private fun PickAccountRow(row: PickRow, onClick: () -> Unit) {
         }
         Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
             Text(
-                text = row.username.ifEmpty { "（无用户名）" },
+                text = row.username.ifEmpty { tr("（无用户名）") },
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 color = MiuixTheme.colorScheme.onSurface,

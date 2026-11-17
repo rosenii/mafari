@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.R
 import dev.dsh.miuixbrowser.SendTabActivity
 import dev.dsh.miuixbrowser.engine.EngineSupport
@@ -42,7 +44,7 @@ fun shareUrlSystem(context: Context, url: String, title: String = "") {
                 putExtra(Intent.EXTRA_TEXT, url)
                 if (title.isNotBlank()) putExtra(Intent.EXTRA_SUBJECT, title)
             },
-            "分享链接",
+            tr("分享链接"),
         )
         if (android.os.Build.VERSION.SDK_INT >= 34 && canSendTab()) {
             runCatching {
@@ -57,7 +59,7 @@ fun shareUrlSystem(context: Context, url: String, title: String = "") {
                 )
                 val action = android.service.chooser.ChooserAction.Builder(
                     android.graphics.drawable.Icon.createWithResource(context, R.drawable.ic_send_device),
-                    "发送到设备",
+                    tr("发送到设备"),
                     pi,
                 ).build()
                 chooser.putExtra(Intent.EXTRA_CHOOSER_CUSTOM_ACTIONS, arrayOf(action))
@@ -90,7 +92,7 @@ fun ShareDialog(
     LaunchedEffect(show) { if (show) FxaSync.refreshDevices() }
     AppGlassDialog(
         show = show,
-        title = "分享",
+        title = tr("分享"),
         summary = title.ifBlank { url },
         backdrop = backdrop,
         onDismissRequest = onDismiss,
@@ -98,14 +100,14 @@ fun ShareDialog(
         Column(Modifier.fillMaxWidth()) {
             val devices = FxaSync.devices
             Text(
-                text = "发送到其他设备",
+                text = tr("发送到其他设备"),
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(bottom = 4.dp),
             )
             if (devices.isEmpty()) {
                 Text(
-                    text = "没有其他设备：请在其他设备上登录同一个 Firefox 帐户",
+                    text = tr("没有其他设备：请在其他设备上登录同一个 Firefox 帐户"),
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(vertical = 8.dp),
@@ -126,7 +128,7 @@ fun ShareDialog(
                                         val ok = FxaSync.sendTabResult(d, title, url)
                                         Toast.makeText(
                                             context,
-                                            if (ok) "已发送到 ${d.name}" else "发送失败",
+                                            if (ok) tr("已发送到 {0}", d.name) else tr("发送失败"),
                                             Toast.LENGTH_SHORT,
                                         ).show()
                                     }
@@ -138,14 +140,14 @@ fun ShareDialog(
             }
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { onDismiss(); shareUrlSystem(context, url, title) },
                     modifier = Modifier.weight(1f),
                     role = top.yukonga.miuix.kmp.glass.GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "更多分享方式", style = MiuixTheme.textStyles.button, maxLines = 1)
+                    Text(text = tr("更多分享方式"), style = MiuixTheme.textStyles.button, maxLines = 1)
                 }
             }
         }

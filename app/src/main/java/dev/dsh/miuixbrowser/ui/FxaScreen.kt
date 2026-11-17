@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.rememberRemoteIcon
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.engine.gecko.findActivity
@@ -95,7 +97,7 @@ fun FxaScreen(
             starting = true
             val url = FxaSync.beginLogin()
             if (url != null) loginUrl = url
-            else Toast.makeText(context, FxaSync.lastMessage ?: "无法登录", Toast.LENGTH_SHORT).show()
+            else Toast.makeText(context, FxaSync.lastMessage ?: tr("无法登录"), Toast.LENGTH_SHORT).show()
             starting = false
         }
     }
@@ -133,7 +135,7 @@ fun FxaScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "Firefox帐户同步",
+                    title = tr("Firefox帐户同步"),
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,
@@ -204,20 +206,20 @@ fun FxaScreen(
                     bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                 ),
             ) {
-                item { SmallTitle(text = "帐户") }
+                item { SmallTitle(text = tr("帐户")) }
                 item {
                     Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                         when (ui) {
-                            is FxaUi.Loading -> ArrowPreference(title = "正在读取帐户状态…", onClick = {})
+                            is FxaUi.Loading -> ArrowPreference(title = tr("正在读取帐户状态…"), onClick = {})
                             is FxaUi.SignedOut, is FxaUi.NeedsReauth, is FxaUi.Authenticating -> ArrowPreference(
-                                title = if (ui is FxaUi.NeedsReauth) "登录已失效，重新登录" else "登录 Mozilla 帐户",
-                                summary = if (ui is FxaUi.Authenticating) "正在等待登录完成…" else "同步您的Firefox数据",
+                                title = if (ui is FxaUi.NeedsReauth) tr("登录已失效，重新登录") else tr("登录 Mozilla 帐户"),
+                                summary = if (ui is FxaUi.Authenticating) tr("正在等待登录完成…") else tr("同步您的Firefox数据"),
                                 onClick = { startLogin() },
                             )
                             is FxaUi.SignedIn -> {
                                 // ① 帐户信息：左侧头像（自定义头像异步加载，没有则用主色头像图标）
                                 ArrowPreference(
-                                    title = ui.displayName?.takeIf { it.isNotBlank() } ?: ui.email.ifBlank { "已登录" },
+                                    title = ui.displayName?.takeIf { it.isNotBlank() } ?: ui.email.ifBlank { tr("已登录") },
                                     summary = ui.email.takeIf { it.isNotBlank() && ui.displayName != null },
                                     startAction = { FxaAvatar(ui.avatarUrl) },
                                     onClick = {},
@@ -235,7 +237,7 @@ fun FxaScreen(
                                         inPage = true,
                                     ) {
                                         Text(
-                                            text = if (FxaSync.syncing) "同步中…" else "立即同步",
+                                            text = if (FxaSync.syncing) tr("同步中…") else tr("立即同步"),
                                             style = MiuixTheme.textStyles.button,
                                             maxLines = 1,
                                         )
@@ -246,7 +248,7 @@ fun FxaScreen(
                                         inPage = true,
                                     ) {
                                         Text(
-                                            text = "退出登录",
+                                            text = tr("退出登录"),
                                             style = MiuixTheme.textStyles.button,
                                             color = MiuixTheme.colorScheme.error,
                                             maxLines = 1,
@@ -256,7 +258,7 @@ fun FxaScreen(
                                 // ③ 自动同步
                                 AppDropdownPreference(
                                     backdrop = bd,
-                                    title = "自动同步",
+                                    title = tr("自动同步"),
                                     items = FxaSync.AUTO_LABELS,
                                     selectedIndex = FxaSync.autoMode.coerceIn(0, FxaSync.AUTO_LABELS.lastIndex),
                                     onSelectedIndexChange = { FxaSync.updateAutoMode(it) },
@@ -269,20 +271,20 @@ fun FxaScreen(
                 if (ui is FxaUi.SignedIn) {
                     item {
                         val status = when {
-                            FxaSync.syncing -> "同步中…"
+                            FxaSync.syncing -> tr("同步中…")
                             FxaSync.lastMessage != null -> FxaSync.lastMessage!!
-                            FxaSync.lastSuccess > 0 -> "已同步"
-                            else -> "尚未同步"
+                            FxaSync.lastSuccess > 0 -> tr("已同步")
+                            else -> tr("尚未同步")
                         }
                         val last = if (FxaSync.lastSuccess > 0) {
                             java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
                                 .format(java.util.Date(FxaSync.lastSuccess))
-                        } else "暂无"
-                        FxaHintText("同步状态：$status\n上次成功同步：$last")
+                        } else tr("暂无")
+                        FxaHintText(tr("同步状态：{0}\n上次成功同步：{1}", status, last))
                     }
                 }
                 if (ui is FxaUi.SignedIn) {
-                    item { SmallTitle(text = "已同步的内容") }
+                    item { SmallTitle(text = tr("已同步的内容")) }
                     item {
                         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                             FxaSync.Category.entries.forEach { cat ->
@@ -291,9 +293,9 @@ fun FxaScreen(
                                 ArrowPreference(
                                     title = cat.label,
                                     summary = when {
-                                        g == null -> "读取中…"
-                                        g.count == 0 -> "暂无"
-                                        else -> "共 ${g.count} 项，点击查看"
+                                        g == null -> tr("读取中…")
+                                        g.count == 0 -> tr("暂无")
+                                        else -> tr("共 {0} 项，点击查看", g.count)
                                     },
                                     enabled = canOpen,
                                     onClick = { listState.reset(); sheetCat = cat; sheetOpen = true },
@@ -302,13 +304,13 @@ fun FxaScreen(
                         }
                     }
                     if (FxaSync.receivedTabs.isNotEmpty()) {
-                        item { SmallTitle(text = "收到的标签页") }
+                        item { SmallTitle(text = tr("收到的标签页")) }
                         item {
                             Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                                 FxaSync.receivedTabs.forEach { t ->
                                     ArrowPreference(
                                         title = t.title.ifBlank { t.url },
-                                        summary = "来自 ${t.from}",
+                                        summary = tr("来自 {0}", t.from),
                                         onClick = { FxaSync.dismissReceived(t); onOpenUrl(t.url) },
                                     )
                                 }
@@ -316,7 +318,7 @@ fun FxaScreen(
                         }
                     }
                     if (FxaSync.devices.isNotEmpty() && currentUrl.startsWith("http")) {
-                        item { SmallTitle(text = "发送当前页到…") }
+                        item { SmallTitle(text = tr("发送当前页到…")) }
                         item {
                             Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                                 FxaSync.devices.forEach { d ->
@@ -325,7 +327,7 @@ fun FxaScreen(
                                         summary = currentTitle.ifBlank { currentUrl },
                                         onClick = {
                                             FxaSync.sendTab(d, currentTitle, currentUrl)
-                                            Toast.makeText(context, "正在发送…", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, tr("正在发送…"), Toast.LENGTH_SHORT).show()
                                         },
                                     )
                                 }
@@ -335,11 +337,11 @@ fun FxaScreen(
                 }
                 item {
                     FxaHintText(
-                        "同步书签、历史记录、标签页和密码，使用 Firefox 官方 Sync 协议，账号数据端到端加密。\n" +
-                            "书签和历史记录只增不删：Firefox 中的书签会出现在「${FxaBookmarkBridge.PULL_ROOT}」分组，本地书签会推送到「移动设备书签」。\n" +
-                            "书签和历史的删除、重命名暂不互相同步，推送的历史访问时间会记为同步时刻。\n" +
-                            "密码双向同步（含删除和修改，冲突时以密码修改时间较新者为准）：本机密码仍只存放在「设置 → 隐私与安全 → 密码」的加密库里，" +
-                            "这里只列出站点和用户名，不显示密码；备注仅保存在本机，不会同步。退出登录会清空同步用的中转库，本机密码不受影响。",
+                        tr("同步书签、历史记录、标签页和密码，使用 Firefox 官方 Sync 协议，账号数据端到端加密。\n") +
+                            tr("书签和历史记录只增不删：Firefox 中的书签会出现在「{0}」分组，本地书签会推送到「移动设备书签」。\n", FxaBookmarkBridge.PULL_ROOT) +
+                            tr("书签和历史的删除、重命名暂不互相同步，推送的历史访问时间会记为同步时刻。\n") +
+                            tr("密码双向同步（含删除和修改，冲突时以密码修改时间较新者为准）：本机密码仍只存放在「设置 → 隐私与安全 → 密码」的加密库里，") +
+                            tr("这里只列出站点和用户名，不显示密码；备注仅保存在本机，不会同步。退出登录会清空同步用的中转库，本机密码不受影响。"),
                     )
                 }
             }
@@ -354,8 +356,8 @@ fun FxaScreen(
                 state = listState,
                 backdrop = bd,
                 onDismiss = { sheetOpen = false },
-                searchHint = "搜索" + cat.label,
-                emptyText = "暂无",
+                searchHint = tr("搜索{0}", cat.label),
+                emptyText = tr("暂无"),
                 reloadKey = cat,
                 load = { q, limit ->
                     if (cat == FxaSync.Category.Passwords) {
@@ -392,14 +394,14 @@ private fun FxaAvatar(avatarUrl: String?) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap,
-                contentDescription = "Firefox 帐户头像",
+                contentDescription = tr("Firefox 帐户头像"),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.size(40.dp).clip(CircleShape),
             )
         } else {
             Icon(
                 imageVector = AppIcons.Account,
-                contentDescription = "Firefox 帐户头像",
+                contentDescription = tr("Firefox 帐户头像"),
                 tint = MiuixTheme.colorScheme.primary,
                 modifier = Modifier.size(36.dp),
             )

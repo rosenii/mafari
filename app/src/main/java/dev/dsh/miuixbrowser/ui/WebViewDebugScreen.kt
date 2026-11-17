@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.ClipData
@@ -71,7 +73,7 @@ fun WebViewDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "WebView 调试",
+                    title = tr("WebView 调试"),
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,
@@ -97,7 +99,7 @@ fun WebViewDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    item { SmallTitle(text = "内核信息") }
+                    item { SmallTitle(text = tr("内核信息")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -124,12 +126,12 @@ fun WebViewDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         }
                     }
 
-                    item { SmallTitle(text = "日志") }
+                    item { SmallTitle(text = tr("日志")) }
                     item {
                         WebViewDebugGroup {
                             AppSwitchPreference(
-                                title = "运行日志",
-                                summary = "记录启动、标签、去广告等运行信息到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭。与 Gecko 调试共用同一开关",
+                                title = tr("运行日志"),
+                                summary = tr("记录启动、标签、去广告等运行信息到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭。与 Gecko 调试共用同一开关"),
                                 checked = Diag.enabledState,
                                 onCheckedChange = {
                                     Diag.setPersisted(context, it)
@@ -137,62 +139,62 @@ fun WebViewDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                 },
                             )
                             AppSwitchPreference(
-                                title = "控制台日志",
-                                summary = "把网页 console 输出和 JavaScript 报错写进运行日志（需开启运行日志）",
+                                title = tr("控制台日志"),
+                                summary = tr("把网页 console 输出和 JavaScript 报错写进运行日志（需开启运行日志）"),
                                 checked = d.consoleLog,
                                 onCheckedChange = { d.updateConsoleLog(it) },
                                 enabled = Diag.enabledState,
                             )
                             AppSwitchPreference(
-                                title = "页面加载日志",
-                                summary = "记录页面开始 / 完成加载、加载失败，以及返回 4xx / 5xx 的请求（需开启运行日志）",
+                                title = tr("页面加载日志"),
+                                summary = tr("记录页面开始 / 完成加载、加载失败，以及返回 4xx / 5xx 的请求（需开启运行日志）"),
                                 checked = d.pageLog,
                                 onCheckedChange = { d.updatePageLog(it) },
                                 enabled = Diag.enabledState,
                             )
                             ArrowPreference(
-                                title = "复制日志路径",
-                                summary = "把 diag.txt 的完整路径复制到剪贴板，用文件管理器打开",
+                                title = tr("复制日志路径"),
+                                summary = tr("把 diag.txt 的完整路径复制到剪贴板，用文件管理器打开"),
                                 onClick = {
                                     val path = Diag.logFile(context).absolutePath
                                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     cm.setPrimaryClip(ClipData.newPlainText("diag", path))
-                                    Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr("已复制"), Toast.LENGTH_SHORT).show()
                                 },
                             )
                             ArrowPreference(
-                                title = "清空日志",
-                                summary = "清空 diag.txt 的内容，不改变开关",
+                                title = tr("清空日志"),
+                                summary = tr("清空 diag.txt 的内容，不改变开关"),
                                 onClick = {
                                     Diag.clear(context)
                                     refresh++
-                                    Toast.makeText(context, "已清空", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr("已清空"), Toast.LENGTH_SHORT).show()
                                 },
                             )
                         }
                     }
 
-                    item { SmallTitle(text = "调试") }
+                    item { SmallTitle(text = tr("调试")) }
                     item {
                         WebViewDebugGroup {
                             AppSwitchPreference(
-                                title = "USB 远程调试",
-                                summary = "允许电脑 Chrome 通过 USB 连接，在 chrome://inspect 里检查本应用的网页（元素 / 控制台 / 网络），立即生效",
+                                title = tr("USB 远程调试"),
+                                summary = tr("允许电脑 Chrome 通过 USB 连接，在 chrome://inspect 里检查本应用的网页（元素 / 控制台 / 网络），立即生效"),
                                 checked = d.remoteDebug,
                                 onCheckedChange = { d.updateRemoteDebug(it) },
                             )
                         }
                     }
 
-                    item { SmallTitle(text = "维护") }
+                    item { SmallTitle(text = tr("维护")) }
                     item {
                         WebViewDebugGroup {
                             ArrowPreference(
-                                title = "清除 WebView 网页缓存",
-                                summary = "只清 HTTP 缓存，不影响 Cookie、登录状态和站点数据",
+                                title = tr("清除 WebView 网页缓存"),
+                                summary = tr("只清 HTTP 缓存，不影响 Cookie、登录状态和站点数据"),
                                 onClick = {
                                     WebViewDebug.clearWebCache(context)
-                                    Toast.makeText(context, "已清除", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr("已清除"), Toast.LENGTH_SHORT).show()
                                 },
                             )
                         }

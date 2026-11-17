@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.script.UserscriptMeta
 import dev.dsh.miuixbrowser.GmNotifications
 import dev.dsh.miuixbrowser.browser.BrowserTab
@@ -408,14 +410,14 @@ internal object GeckoGm {
      * 就绪不了 / 读取失败抛 [java.io.IOException]。
      */
     fun exportCookies(timeoutMs: Long = 20_000): String {
-        if (Looper.myLooper() == Looper.getMainLooper()) throw java.io.IOException("不能在主线程读取 Cookie")
+        if (Looper.myLooper() == Looper.getMainLooper()) throw java.io.IOException(tr("不能在主线程读取 Cookie"))
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         var p = bgPort
         while (p == null && SystemClock.elapsedRealtime() < deadline) {
             Thread.sleep(250)
             p = bgPort
         }
-        val port = p ?: throw java.io.IOException("Gecko 内核尚未就绪，请先打开一个 Gecko 标签页再试")
+        val port = p ?: throw java.io.IOException(tr("Gecko 内核尚未就绪，请先打开一个 Gecko 标签页再试"))
         val rid = java.util.UUID.randomUUID().toString()
         val latch = java.util.concurrent.CountDownLatch(1)
         cookieWaiters[rid] = latch
@@ -428,8 +430,8 @@ internal object GeckoGm {
         } catch (_: InterruptedException) {
         }
         cookieWaiters.remove(rid)
-        val res = cookieResults.remove(rid) ?: throw java.io.IOException("读取 Gecko Cookie 超时")
-        if (!res.optBoolean("ok")) throw java.io.IOException("读取 Gecko Cookie 失败：" + res.optString("error"))
+        val res = cookieResults.remove(rid) ?: throw java.io.IOException(tr("读取 Gecko Cookie 超时"))
+        if (!res.optBoolean("ok")) throw java.io.IOException(tr("读取 Gecko Cookie 失败：") + res.optString("error"))
         return (res.optJSONArray("cookies") ?: JSONArray()).toString()
     }
 
@@ -437,13 +439,13 @@ internal object GeckoGm {
     fun stagePendingCookies(context: Context, json: String) {
         val app = context.applicationContext
         val sealed = SecureStore.write(app, json, SecureStore.PURPOSE_GECKO_COOKIES)
-            ?: throw java.io.IOException("无法用本机密钥加密 Cookie，已取消恢复 Cookie")
+            ?: throw java.io.IOException(tr("无法用本机密钥加密 Cookie，已取消恢复 Cookie"))
         val target = File(app.filesDir, PENDING_COOKIES_FILE)
         val tmp = File(app.filesDir, "$PENDING_COOKIES_FILE.tmp")
         tmp.writeText(sealed)
         if (!tmp.renameTo(target)) {
             target.delete()
-            if (!tmp.renameTo(target)) throw java.io.IOException("暂存 Cookie 失败")
+            if (!tmp.renameTo(target)) throw java.io.IOException(tr("暂存 Cookie 失败"))
         }
     }
 

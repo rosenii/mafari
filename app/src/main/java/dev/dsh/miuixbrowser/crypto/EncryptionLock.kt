@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.crypto
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.ui.AppGlassDialog
 import dev.dsh.miuixbrowser.ui.AppIcons
 import dev.dsh.miuixbrowser.ui.LiquidGlassButton
@@ -39,7 +41,7 @@ fun EncryptionLockButton(onClick: () -> Unit, liquid: LiquidBackdrop?, topScroll
     ) {
         Icon(
             imageVector = AppIcons.Lock,
-            contentDescription = "加密保护",
+            contentDescription = tr("加密保护"),
             modifier = Modifier.size(22.dp),
             tint = MiuixTheme.colorScheme.primary,
         )
@@ -58,21 +60,21 @@ fun EncryptionInfoDialog(
     val suite = CipherSuites.default
     AppGlassDialog(
         show = show,
-        title = "加密保护中",
-        summary = "本页数据已使用加密套件保护",
+        title = tr("加密保护中"),
+        summary = tr("本页数据已使用加密套件保护"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            InfoLine("加密套件", suite.shortName + "（后量子混合）")
-            InfoLine("密钥派生", suite.kdfDescription.substringBefore(" →"))
-            InfoLine("数据加密", "AES-256-GCM")
-            InfoLine("密钥保护", "Android Keystore")
-            InfoLine("本页", scope)
+            InfoLine(tr("加密套件"), suite.shortName + tr("（后量子混合）"))
+            InfoLine(tr("密钥派生"), suite.kdfDescription.substringBefore(" →"))
+            InfoLine(tr("数据加密"), "AES-256-GCM")
+            InfoLine(tr("密钥保护"), "Android Keystore")
+            InfoLine(tr("本页"), scope)
             Spacer(Modifier.height(16.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 LiquidGlassPillButton(
-                    text = "知道了",
+                    text = tr("知道了"),
                     onClick = onDismiss,
                     backdrop = liquid,
                     modifier = Modifier.weight(1f),

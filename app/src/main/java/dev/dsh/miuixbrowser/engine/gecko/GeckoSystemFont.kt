@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
 import android.graphics.Paint
@@ -95,8 +97,8 @@ internal object GeckoSystemFont {
         cached = runCatching { fromProcess() ?: fromFontsXml() }
             .onFailure { reason = "异常 ${it.javaClass.simpleName}: ${it.message}"; Diag.log("system font: resolve failed $reason") }
             .getOrNull()
-        lastNote = cached?.let { "${it.main}（${it.source}，${it.files.size} 个字体文件）" }
-            ?: "未识别（退回 sans-serif）：$reason"
+        lastNote = cached?.let { tr("{0}（{1}，{2} 个字体文件）", it.main, it.source, it.files.size) }
+            ?: tr("未识别（退回 sans-serif）：{0}", reason)
         if (cached == null) Diag.log("system font: $lastNote")
         done = true
         return cached
@@ -117,7 +119,7 @@ internal object GeckoSystemFont {
         val family = best.second.family
         val files = infos.filter { it.second.family == family }.map { it.first }.take(MAX_LINKS)
         Diag.log("system font: themed ${best.first.path} -> $family (${files.size} files)")
-        return Result(family, emptyMap(), "系统主题字体", files)
+        return Result(family, emptyMap(), tr("系统主题字体"), files)
     }
 
     private fun isThemedPath(path: String): Boolean =
@@ -132,7 +134,7 @@ internal object GeckoSystemFont {
                 Typeface.create("sans-serif", Typeface.NORMAL),
                 Typeface.create("sans-serif", Typeface.BOLD),
             )
-            faces.forEach { paint.typeface = it; paint.measureText("Ag中文あ한") }
+            faces.forEach { paint.typeface = it; paint.measureText(tr("Ag中文あ한")) }
         }
         val paths = LinkedHashSet<String>()
         runCatching {
@@ -154,14 +156,14 @@ internal object GeckoSystemFont {
 
     private fun fromFontsXml(): Result? {
         val cfg = CONFIGS.map(::File).firstOrNull { it.isFile && it.canRead() }
-        if (cfg == null) { reason = "读不到 fonts.xml"; return null }
+        if (cfg == null) { reason = tr("读不到 fonts.xml"); return null }
         val families = cfg.let(::parse)
         val sans = families.firstOrNull { it.name == "sans-serif" }
-        if (sans == null) { reason = "fonts.xml 里没有 sans-serif"; return null }
+        if (sans == null) { reason = tr("fonts.xml 里没有 sans-serif"); return null }
         val regular = pickRegular(sans)
-        if (regular == null) { reason = "sans-serif 没有字体文件"; return null }
+        if (regular == null) { reason = tr("sans-serif 没有字体文件"); return null }
         val main = nameOf(regular)
-        if (main == null) { reason = "读不到 ${regular.file} 的族名"; return null }
+        if (main == null) { reason = tr("读不到 {0} 的族名", regular.file); return null }
         val cjk = LinkedHashMap<String, String>()
         for (lang in listOf("zh-Hans", "zh-Hant", "ja", "ko")) {
             val fam = families.firstOrNull { it.name == null && it.lang?.split(',', ' ')?.any { l -> l.trim().startsWith(lang) } == true }

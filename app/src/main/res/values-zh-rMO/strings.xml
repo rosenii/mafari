@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mafari</string>
+    <!-- 系统「自动填充服务」选择列表里显示的名字 -->
+    <string name="autofill_service_label">Mafari 密碼</string>
+</resources>

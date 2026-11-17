@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.download
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.cancelCompat
 import dev.dsh.miuixbrowser.data.AppDatabase
 import dev.dsh.miuixbrowser.engine.gecko.GeckoGm
@@ -305,9 +307,9 @@ object Downloader {
                     ExternalDownloader.hand(appCtx, url, ua, fileName, mimeType, referer, cookie)
                 }
                 if (handed) {
-                    toast(appCtx, "已交给 ${ExternalDownloader.labelOf(ExternalDownloader.target)} 下载")
+                    toast(appCtx, tr("已交给 {0} 下载", ExternalDownloader.labelOf(ExternalDownloader.target)))
                 } else {
-                    toast(appCtx, "无法调用第三方下载器，已改用内置下载器")
+                    toast(appCtx, tr("无法调用第三方下载器，已改用内置下载器"))
                     startInternal(appCtx, url, userAgent, fileName, mimeType, onComplete, referer, withCookies, geckoCookies)
                 }
             }
@@ -412,8 +414,8 @@ object Downloader {
                     val finished = tasks.firstOrNull { it.id == id }
                     updateAndPersist(id) { it.copy(state = DownloadState.DONE, error = null) }
                     settle(id, true)
-                    DownloadService.instance?.finish(finished?.name ?: "文件")
-                    toast(app, "下载完成：${finished?.name ?: "文件"}")
+                    DownloadService.instance?.finish(finished?.name ?: tr("文件"))
+                    toast(app, tr("下载完成：{0}", finished?.name ?: tr("文件")))
                     return@launch
                 } catch (e: CancellationException) {
                     return@launch
@@ -422,7 +424,7 @@ object Downloader {
                     restarts++
                     wipeData(id)
                     if (restarts > MAX_RESTARTS) {
-                        failTask(id, e.message ?: "文件反复变化")
+                        failTask(id, e.message ?: tr("文件反复变化"))
                         return@launch
                     }
                     update(id) { it.copy(error = e.message) }
@@ -445,7 +447,7 @@ object Downloader {
     private fun failTask(id: Long, message: String) {
         updateAndPersist(id) { it.copy(state = DownloadState.FAILED, error = message) }
         settle(id, false, message)
-        DownloadService.instance?.fail("下载失败：$message")
+        DownloadService.instance?.fail(tr("下载失败：{0}", message))
     }
 
     /** 远端已变化：删掉数据与指纹，下一轮从头开始 */
@@ -499,13 +501,13 @@ object Downloader {
                 if (location.isNullOrBlank()) throw IllegalStateException("HTTP $code")
                 url = URL(url, location)
                 if (!url.protocol.equals("http", true) && !url.protocol.equals("https", true)) {
-                    throw IllegalStateException("不支持的重定向：${url.protocol}")
+                    throw IllegalStateException(tr("不支持的重定向：{0}", url.protocol))
                 }
                 return@repeat
             }
             return c
         }
-        throw IllegalStateException("重定向次数过多")
+        throw IllegalStateException(tr("重定向次数过多"))
     }
 
     /** 协程取消（暂停 / 删除）时主动断开连接，否则阻塞中的 read 会一直占着线程继续写文件 */
@@ -546,10 +548,10 @@ object Downloader {
     /** 服务器没按 If-Range 重发整文件、但响应头里的指纹和记录的不一致：文件变了 */
     private fun checkUnchanged(task: DownloadTask, c: HttpURLConnection) {
         val etag = strongEtag(c)
-        if (task.etag != null && etag != null && etag != task.etag) throw RestartDownload("远端文件已更新（ETag 变化），重新下载")
+        if (task.etag != null && etag != null && etag != task.etag) throw RestartDownload(tr("远端文件已更新（ETag 变化），重新下载"))
         val modified = lastModifiedOf(c)
         if (task.etag == null && task.lastModified != null && modified != null && modified != task.lastModified) {
-            throw RestartDownload("远端文件已更新（修改时间变化），重新下载")
+            throw RestartDownload(tr("远端文件已更新（修改时间变化），重新下载"))
         }
     }
 
@@ -579,14 +581,14 @@ object Downloader {
                 export(id, data)
                 return
             }
-            throw RestartDownload("临时文件已丢失，重新下载")
+            throw RestartDownload(tr("临时文件已丢失，重新下载"))
         }
 
         // 分段任务：按落盘的分段进度续传
         if (task.segCount > 0) {
             val saved = segSaved[id]
             if (!seg.exists() || seg.length() != task.total || saved == null || saved.size != task.segCount) {
-                throw RestartDownload("分段进度丢失，重新下载")
+                throw RestartDownload(tr("分段进度丢失，重新下载"))
             }
             downloadSegmented(id, seg)
             markFetched(id)
@@ -609,16 +611,16 @@ object Downloader {
         var conn = connect(task, if (existing > 0) "bytes=$existing-" else null, if (existing > 0) validatorOf(task) else null)
         try {
             val code = conn.responseCode
-            if (code == 416 && existing > 0) throw RestartDownload("续传位置越界，重新下载")
+            if (code == 416 && existing > 0) throw RestartDownload(tr("续传位置越界，重新下载"))
             if (code !in 200..299) throw IllegalStateException("HTTP $code")
 
             var append = false
             if (existing > 0) {
                 if (code == 206) {
                     val range = parseContentRange(conn)
-                    if (range == null || range.start != existing) throw RestartDownload("续传位置不匹配，重新下载")
+                    if (range == null || range.start != existing) throw RestartDownload(tr("续传位置不匹配，重新下载"))
                     if (task.total > 0 && range.total > 0 && range.total != task.total) {
-                        throw RestartDownload("远端文件长度变化，重新下载")
+                        throw RestartDownload(tr("远端文件长度变化，重新下载"))
                     }
                     checkUnchanged(task, conn)
                     append = true
@@ -674,7 +676,7 @@ object Downloader {
             }
             val total = tasks.firstOrNull { it.id == id }?.total ?: 0L
             if (total > 0 && written < total) {
-                throw IllegalStateException("连接中断（$written / $total），可继续下载")
+                throw IllegalStateException(tr("连接中断（{0} / {1}），可继续下载", written, total))
             }
             update(id) { it.copy(total = written, bytes = written) }
             markFetched(id)
@@ -735,14 +737,14 @@ object Downloader {
         val task = tasks.firstOrNull { it.id == id } ?: return
         val total = task.total
         val threads = task.segCount
-        val saved = segSaved[id] ?: throw RestartDownload("分段进度丢失，重新下载")
+        val saved = segSaved[id] ?: throw RestartDownload(tr("分段进度丢失，重新下载"))
         val done = AtomicLongArray(threads).also { arr -> saved.forEachIndexed { i, v -> arr.set(i, v) } }
         val chunk = total / threads
         fun segStart(i: Int) = i * chunk
         fun segEnd(i: Int) = if (i == threads - 1) total - 1 else segStart(i) + chunk - 1
         // 每段已完成字节数不可能超过段长：对不上说明进度文件有问题
         for (i in 0 until threads) {
-            if (done.get(i) < 0 || done.get(i) > segEnd(i) - segStart(i) + 1) throw RestartDownload("分段进度异常，重新下载")
+            if (done.get(i) < 0 || done.get(i) > segEnd(i) - segStart(i) + 1) throw RestartDownload(tr("分段进度异常，重新下载"))
         }
         fun sum(): Long = (0 until threads).sumOf { done.get(it) }
 
@@ -782,7 +784,7 @@ object Downloader {
             } finally {
                 checkpoint()
             }
-            if (sum() != total) throw IllegalStateException("分段数据不完整（${sum()} / $total）")
+            if (sum() != total) throw IllegalStateException(tr("分段数据不完整（{0} / {1}）", sum(), total))
             update(id) { it.copy(bytes = total) }
         }
     }
@@ -805,12 +807,12 @@ object Downloader {
                 val code = connection.responseCode
                 if (code != 206) {
                     // 带着指纹却返回 200：If-Range 没通过，文件变了；否则就是服务器忽略了 Range
-                    if (code == 200 && validatorOf(task) != null) throw RestartDownload("远端文件已更新，重新下载")
+                    if (code == 200 && validatorOf(task) != null) throw RestartDownload(tr("远端文件已更新，重新下载"))
                     throw IllegalStateException("HTTP $code")
                 }
                 val range = parseContentRange(connection)
                 if (range == null || range.start != from || (range.total > 0 && range.total != task.total)) {
-                    throw RestartDownload("分段响应与记录不一致，重新下载")
+                    throw RestartDownload(tr("分段响应与记录不一致，重新下载"))
                 }
                 checkUnchanged(task, connection)
                 connection.inputStream.use { input ->
@@ -829,7 +831,7 @@ object Downloader {
                         position += n
                         done.addAndGet(index, n.toLong())
                     }
-                    if (position != end + 1) throw IllegalStateException("分段 ${index + 1} 数据不完整")
+                    if (position != end + 1) throw IllegalStateException(tr("分段 {0} 数据不完整", index + 1))
                 }
             }
         } finally {
@@ -840,9 +842,9 @@ object Downloader {
     /** 数据下完后一次性写入 /sdcard/Download/mafari。失败时删掉未完成的条目，数据文件保留，重试只重做这一步 */
     private suspend fun export(id: Long, file: File) {
         val task = tasks.firstOrNull { it.id == id } ?: return
-        val uri = createEntry(app, task) ?: throw IllegalStateException("无法创建文件")
+        val uri = createEntry(app, task) ?: throw IllegalStateException(tr("无法创建文件"))
         try {
-            val out = app.contentResolver.openOutputStream(uri) ?: throw IllegalStateException("无法写入文件")
+            val out = app.contentResolver.openOutputStream(uri) ?: throw IllegalStateException(tr("无法写入文件"))
             out.use { o ->
                 file.inputStream().use { input ->
                     val buffer = ByteArray(256 * 1024)

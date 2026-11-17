@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
@@ -108,10 +110,10 @@ object GmNotifications {
 
     private fun ensureChannels(nm: NotificationManager) {
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "脚本通知", NotificationManager.IMPORTANCE_DEFAULT),
+            NotificationChannel(CHANNEL, tr("脚本通知"), NotificationManager.IMPORTANCE_DEFAULT),
         )
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_SILENT, "脚本通知（静音）", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CHANNEL_SILENT, tr("脚本通知（静音）"), NotificationManager.IMPORTANCE_LOW),
         )
     }
 }

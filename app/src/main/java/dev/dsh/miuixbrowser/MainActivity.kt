@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.BrowserState
 import dev.dsh.miuixbrowser.browser.ShortcutHelper
 import dev.dsh.miuixbrowser.data.FavoritesStore
@@ -116,7 +118,7 @@ class MainActivity : ComponentActivity() {
     private fun forwardToOtherBrowser(uri: Uri) {
         runCatching {
             val view = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
-            val chooser = Intent.createChooser(view, "打开链接").apply {
+            val chooser = Intent.createChooser(view, tr("打开链接")).apply {
                 putExtra(
                     Intent.EXTRA_EXCLUDE_COMPONENTS,
                     arrayOf(ComponentName(this@MainActivity, MainActivity::class.java)),

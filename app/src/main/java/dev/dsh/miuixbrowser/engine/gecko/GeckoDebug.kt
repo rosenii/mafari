@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
@@ -211,28 +213,28 @@ object GeckoDebug {
     /** 调试页「渲染信息」：标签 → 值（点击整块复制） */
     fun infoLines(context: Context): List<Pair<String, String>> {
         val bc = runCatching { Class.forName("org.mozilla.geckoview.BuildConfig") }.getOrNull()
-        fun field(name: String) = runCatching { bc?.getField(name)?.get(null)?.toString() }.getOrNull() ?: "未知"
+        fun field(name: String) = runCatching { bc?.getField(name)?.get(null)?.toString() }.getOrNull() ?: tr("未知")
         val hz = maxRefreshRate(context)
         val cur = runCatching {
             (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
                 .getDisplay(Display.DEFAULT_DISPLAY).refreshRate
         }.getOrDefault(0f)
         return listOf(
-            "Gecko 版本" to field("MOZ_APP_VERSION"),
-            "构建 ID" to field("MOZ_APP_BUILDID"),
-            "渲染后端" to "SurfaceView（GeckoView 默认）",
-            "屏幕刷新率" to "当前 ${"%.0f".format(cur)} Hz / 最高 ${"%.0f".format(hz)} Hz",
-            "运行时" to if (GeckoRuntimeHolder.peek() != null) "已启动" else "未启动（打开 Gecko 标签后启动）",
-            "进程隔离" to when (val r = runtimeIsolated()) {
+            tr("Gecko 版本") to field("MOZ_APP_VERSION"),
+            tr("构建 ID") to field("MOZ_APP_BUILDID"),
+            tr("渲染后端") to tr("SurfaceView（GeckoView 默认）"),
+            tr("屏幕刷新率") to tr("当前 {0} Hz / 最高 {1} Hz", "%.0f".format(cur), "%.0f".format(hz)),
+            tr("运行时") to if (GeckoRuntimeHolder.peek() != null) tr("已启动") else tr("未启动（打开 Gecko 标签后启动）"),
+            tr("进程隔离") to when (val r = runtimeIsolated()) {
                 // 以运行时实际状态为准：开启 = 运行中，否则 = 关闭；运行时未启动 / 读不到时按设置显示
-                null -> if (isolatedProcess) "运行中" else "关闭"
-                else -> if (r) "运行中" else "关闭"
+                null -> if (isolatedProcess) tr("运行中") else tr("关闭")
+                else -> if (r) tr("运行中") else tr("关闭")
             },
-            "运行日志" to if (Diag.enabled) "已开启" else "关闭",
-            "自动填充" to GeckoAutofill.describe(context),
-            "默认字体" to when {
-                !systemFont -> "未开启"
-                GeckoProtection.resistFingerprint -> GeckoSystemFont.describe() + "；强力抗指纹已开启，Gecko 只会向网页暴露基础字体"
+            tr("运行日志") to if (Diag.enabled) tr("已开启") else tr("关闭"),
+            tr("自动填充") to GeckoAutofill.describe(context),
+            tr("默认字体") to when {
+                !systemFont -> tr("未开启")
+                GeckoProtection.resistFingerprint -> GeckoSystemFont.describe() + tr("；强力抗指纹已开启，Gecko 只会向网页暴露基础字体")
                 else -> GeckoSystemFont.describe()
             },
         )

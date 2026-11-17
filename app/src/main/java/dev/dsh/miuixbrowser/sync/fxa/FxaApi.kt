@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.sync.fxa
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import androidx.lifecycle.ProcessLifecycleOwner
 import mozilla.appservices.fxaclient.FxaServer
@@ -171,7 +173,7 @@ internal object FxaApi {
      */
     private fun initRustComponentsEarly() {
         runCatching { initRustComponents() }
-            .onFailure { httpInitError = "Rust 组件初始化失败：" + (it.cause?.message ?: it.message ?: it.javaClass.simpleName) }
+            .onFailure { httpInitError = tr("Rust 组件初始化失败：") + (it.cause?.message ?: it.message ?: it.javaClass.simpleName) }
     }
 
     private fun installHttpClient() {
@@ -239,7 +241,7 @@ internal object FxaApi {
                 override fun onEvents(events: List<AccountEvent>) {
                     events.filterIsInstance<AccountEvent.DeviceCommandIncoming>()
                         .map { it.command }.filterIsInstance<DeviceCommandIncoming.TabReceived>()
-                        .forEach { cmd -> cmd.entries.forEach { l.onTabReceived(cmd.from?.displayName ?: "其他设备", it.title, it.url) } }
+                        .forEach { cmd -> cmd.entries.forEach { l.onTabReceived(cmd.from?.displayName ?: tr("其他设备"), it.title, it.url) } }
                 }
             }, owner, false)
         }
@@ -359,7 +361,7 @@ internal object FxaApi {
     private fun newSendTab(title: String, url: String): DeviceCommandOutgoing {
         val ctor = DeviceCommandOutgoing.SendTab::class.java.constructors
             .filter { c -> c.parameterTypes.none { it.name.contains("DefaultConstructorMarker") } }
-            .maxByOrNull { it.parameterTypes.size } ?: error("SendTab 构造函数不可用")
+            .maxByOrNull { it.parameterTypes.size } ?: error(tr("SendTab 构造函数不可用"))
         val args = ctor.parameterTypes.mapIndexed { i, t ->
             when {
                 i == 0 -> title

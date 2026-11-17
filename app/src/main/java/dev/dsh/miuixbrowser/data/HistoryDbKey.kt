@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.Diag
 import android.os.SystemClock
 import net.zetetic.database.sqlcipher.SQLiteDatabase
@@ -50,7 +52,7 @@ internal object HistoryDbKey {
      * 抛 [MigrationException] = 迁移失败但数据完好；抛其他异常 = 新旧密钥都打不开，由调用方决定是否 [discard] 后重建。
      */
     fun open(file: File, hex: String): SQLiteDatabase {
-        require(HEX64.matches(hex)) { "数据库密钥格式不对" }
+        require(HEX64.matches(hex)) { tr("数据库密钥格式不对") }
         recoverInterrupted(file, hex)
         if (!file.exists()) return openRaw(file, hex) // 新库：直接是原始密钥
         openRawOrNull(file, hex)?.let { return it }   // 已迁移过：快路径，错密钥在这里很快就失败，不吃 KDF
@@ -132,12 +134,12 @@ internal object HistoryDbKey {
         backup.copyTo(tmp, overwrite = true)
         if (tmp.length() != backup.length()) {
             tmp.delete()
-            throw MigrationException("还原备份时长度不一致")
+            throw MigrationException(tr("还原备份时长度不一致"))
         }
         for (s in SIDE_SUFFIXES) File(file.path + s).delete()
         if (!tmp.renameTo(file)) {
             tmp.delete()
-            throw MigrationException("还原备份失败")
+            throw MigrationException(tr("还原备份失败"))
         }
         backup.delete()
     }
@@ -162,11 +164,11 @@ internal object HistoryDbKey {
             val mode = old.rawQuery("PRAGMA journal_mode=DELETE", emptyArray<String>()).use { c ->
                 if (c.moveToFirst()) c.getString(0) else ""
             }
-            if (!mode.equals("delete", ignoreCase = true)) throw MigrationException("无法切换日志模式：$mode")
+            if (!mode.equals("delete", ignoreCase = true)) throw MigrationException(tr("无法切换日志模式：{0}", mode))
             // 整份备份：先写临时文件，长度核对后才改名成 .premigrate
             file.copyTo(backupTmp, overwrite = true)
-            if (backupTmp.length() != file.length()) throw MigrationException("备份长度不一致")
-            if (!backupTmp.renameTo(backup)) throw MigrationException("备份改名失败")
+            if (backupTmp.length() != file.length()) throw MigrationException(tr("备份长度不一致"))
+            if (!backupTmp.renameTo(backup)) throw MigrationException(tr("备份改名失败"))
 
             // sqlcipher-android 4.x 的 execSQL 拒绝会返回结果集的语句（「Queries can be performed using ... rawQuery methods only」），
             // PRAGMA rekey 就属于这一类：必须走 rawQuery 并读一下游标让语句真正执行
@@ -176,8 +178,8 @@ internal object HistoryDbKey {
             val fresh = openRaw(file, hex)
             try {
                 val after = tableCounts(fresh)
-                if (after != before) throw MigrationException("迁移后行数不一致：$before -> $after")
-                if (oldHealthy && !integrityOk(fresh)) throw MigrationException("迁移后完整性检查未通过")
+                if (after != before) throw MigrationException(tr("迁移后行数不一致：{0} -> {1}", before, after))
+                if (oldHealthy && !integrityOk(fresh)) throw MigrationException(tr("迁移后完整性检查未通过"))
             } finally {
                 runCatching { fresh.close() }
             }
@@ -189,7 +191,7 @@ internal object HistoryDbKey {
             // 备份存在 = 已经动过主库，还原；不存在 = 主库根本没动
             runCatching { restoreBackup(file) }
             Diag.log("history db key: migrate failed, data kept: ${e.message}")
-            throw if (e is MigrationException) e else MigrationException(e.message ?: "迁移失败", e)
+            throw if (e is MigrationException) e else MigrationException(e.message ?: tr("迁移失败"), e)
         }
     }
 }

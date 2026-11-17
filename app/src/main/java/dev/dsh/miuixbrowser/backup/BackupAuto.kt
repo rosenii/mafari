@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.backup
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.crypto.SecureStore
 import dev.dsh.miuixbrowser.sync.GitStore
 import dev.dsh.miuixbrowser.sync.GitSyncClient
@@ -27,7 +29,7 @@ object BackupAuto {
     private const val K_LAST = "last_auto"
     private const val K_CATEGORIES = "categories"
 
-    val INTERVAL_LABELS = listOf("手动", "每天", "每 3 天", "每周")
+    val INTERVAL_LABELS = listOf(tr("手动"), tr("每天"), tr("每 3 天"), tr("每周"))
     private val INTERVAL_DAYS = intArrayOf(0, 1, 3, 7)
 
     private fun prefs(context: Context) =
@@ -58,8 +60,8 @@ object BackupAuto {
     fun setPassword(context: Context, plain: String) {
         val app = context.applicationContext
         val sealed = SecureStore.write(app, plain, SecureStore.PURPOSE_BACKUP_PASSWORD)
-            ?: throw IllegalStateException("无法用本机密钥加密保存口令")
-        if (!prefs(app).edit().putString(K_PASSWORD, sealed).commit()) throw IllegalStateException("保存失败")
+            ?: throw IllegalStateException(tr("无法用本机密钥加密保存口令"))
+        if (!prefs(app).edit().putString(K_PASSWORD, sealed).commit()) throw IllegalStateException(tr("保存失败"))
     }
 
     /** 清除默认口令，同时关闭自动推送（没有口令无法无人值守加密）。 */
@@ -116,12 +118,12 @@ object BackupAuto {
      */
     suspend fun pushAllNow(context: Context): PushResult = withContext(Dispatchers.IO) {
         val app = context.applicationContext
-        val password = password(app) ?: return@withContext PushResult(0, 0, "请先在「备份与同步」里设置默认口令")
+        val password = password(app) ?: return@withContext PushResult(0, 0, tr("请先在「备份与同步」里设置默认口令"))
         val dav = WebDavStore.list(app).map { it.config }
         val git = GitStore.list(app).map { it.config }
-        if (dav.isEmpty() && git.isEmpty()) return@withContext PushResult(0, 0, "还没有配置 WebDAV 服务器或 Git 仓库")
+        if (dav.isEmpty() && git.isEmpty()) return@withContext PushResult(0, 0, tr("还没有配置 WebDAV 服务器或 Git 仓库"))
         val categories = effectiveCategories(app)
-        if (categories.isEmpty()) return@withContext PushResult(0, 0, "没有选择要备份的内容")
+        if (categories.isEmpty()) return@withContext PushResult(0, 0, tr("没有选择要备份的内容"))
 
         val chars = password.toCharArray()
         val buffer = ByteArrayOutputStream()

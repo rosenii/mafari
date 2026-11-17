@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.crypto
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters
 import org.bouncycastle.pqc.crypto.mlkem.MLKEMExtractor
@@ -65,12 +67,12 @@ interface KeyProvider {
 /** 固定密钥对（内存里），用于备份文件：每次导出现生成一对，不依赖设备 Keystore。 */
 class StaticKeyProvider(private val pair: SuiteKeyPair) : KeyProvider {
     override fun publicKey(suite: CipherSuite): SuitePublicKey {
-        if (pair.pub.suiteId != suite.id) throw CryptoException("密钥与算法套件不匹配")
+        if (pair.pub.suiteId != suite.id) throw CryptoException(tr("密钥与算法套件不匹配"))
         return pair.pub
     }
 
     override fun privateKey(suite: CipherSuite): SuitePrivateKey {
-        if (pair.priv.suiteId != suite.id) throw CryptoException("密钥与算法套件不匹配")
+        if (pair.priv.suiteId != suite.id) throw CryptoException(tr("密钥与算法套件不匹配"))
         return pair.priv
     }
 }
@@ -121,7 +123,7 @@ object CipherSuites {
             id = HYBRID_768,
             name = "X25519+ML-KEM-768 / HKDF-SHA-384 / AES-256-GCM",
             shortName = "X25519 + ML-KEM-768",
-            kemDescription = "X25519 + ML-KEM-768 混合 KEM（后量子）；两个共享密钥拼接后派生，任一算法被攻破仍安全",
+            kemDescription = tr("X25519 + ML-KEM-768 混合 KEM（后量子）；两个共享密钥拼接后派生，任一算法被攻破仍安全"),
             kdfDescription = "HKDF-SHA-384 → KEK",
             pq = MLKEMParameters.ml_kem_768,
             pqPkLen = 1184,
@@ -135,7 +137,7 @@ object CipherSuites {
             id = HYBRID_1024,
             name = "X25519+ML-KEM-1024 / HKDF-SHA-512 / AES-256-GCM",
             shortName = "X25519 + ML-KEM-1024",
-            kemDescription = "X25519 + ML-KEM-1024 混合 KEM（后量子，更高安全等级）；两个共享密钥拼接后派生",
+            kemDescription = tr("X25519 + ML-KEM-1024 混合 KEM（后量子，更高安全等级）；两个共享密钥拼接后派生"),
             kdfDescription = "HKDF-SHA-512 → KEK",
             pq = MLKEMParameters.ml_kem_1024,
             pqPkLen = 1568,
@@ -153,7 +155,7 @@ object CipherSuites {
 
     fun find(id: Int): CipherSuite? = registry[id]
 
-    fun get(id: Int): CipherSuite = registry[id] ?: throw CryptoException("不支持的算法套件：$id")
+    fun get(id: Int): CipherSuite = registry[id] ?: throw CryptoException(tr("不支持的算法套件：{0}", id))
 }
 
 /** 信封公共前缀：所有套件共用，其后的布局由套件自己决定。 */
@@ -175,11 +177,11 @@ internal object Envelope {
     }
 
     fun parsePrefix(envelope: ByteArray): Prefix {
-        if (envelope.size < PREFIX_LEN) throw CryptoException("信封过短")
-        if (!envelope.copyOfRange(0, 3).contentEquals(MAGIC)) throw CryptoException("不是 Mafari 加密信封")
+        if (envelope.size < PREFIX_LEN) throw CryptoException(tr("信封过短"))
+        if (!envelope.copyOfRange(0, 3).contentEquals(MAGIC)) throw CryptoException(tr("不是 Mafari 加密信封"))
         val version = envelope[3].toInt() and 0xFF
-        if (version != VERSION) throw CryptoException("不支持的信封版本：$version")
-        if (envelope[5].toInt() != 0) throw CryptoException("不支持的信封标志位")
+        if (version != VERSION) throw CryptoException(tr("不支持的信封版本：{0}", version))
+        if (envelope[5].toInt() != 0) throw CryptoException(tr("不支持的信封标志位"))
         return Prefix(version, envelope[4].toInt() and 0xFF, envelope.copyOfRange(6, PREFIX_LEN))
     }
 }
@@ -277,7 +279,7 @@ internal class HybridSuite(
     override fun open(pub: SuitePublicKey, priv: SuitePrivateKey, envelope: ByteArray, context: String): ByteArray {
         requireKey(pub.suiteId, pub.bytes.size, publicKeyLen)
         requireKey(priv.suiteId, priv.bytes.size, privateKeyLen)
-        if (envelope.size < overhead) throw CryptoException("信封过短")
+        if (envelope.size < overhead) throw CryptoException(tr("信封过短"))
 
         val head = envelope.copyOfRange(0, headerLen)
         val ephPub = envelope.copyOfRange(Envelope.PREFIX_LEN, Envelope.PREFIX_LEN + X_LEN)
@@ -327,7 +329,7 @@ internal class HybridSuite(
     }
 
     private fun requireKey(suiteId: Int, size: Int, expected: Int) {
-        if (suiteId != id || size != expected) throw CryptoException("密钥与算法套件不匹配")
+        if (suiteId != id || size != expected) throw CryptoException(tr("密钥与算法套件不匹配"))
     }
 
     private companion object {
@@ -384,6 +386,6 @@ internal fun aesGcm(encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: Byt
         cipher.updateAAD(aad)
         return cipher.doFinal(input)
     } catch (e: GeneralSecurityException) {
-        throw CryptoException(if (encrypt) "加密失败" else "解密失败：数据被篡改、上下文不符或密钥不对", e)
+        throw CryptoException(if (encrypt) tr("加密失败") else tr("解密失败：数据被篡改、上下文不符或密钥不对"), e)
     }
 }

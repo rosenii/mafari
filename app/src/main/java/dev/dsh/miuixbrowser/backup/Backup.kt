@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.backup
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.browser.PasswordCsv
 import dev.dsh.miuixbrowser.browser.PasswordEntry
@@ -130,7 +132,7 @@ object BackupFormat {
         rng: SecureRandom = SecureRandom(),
         suiteId: Int = CipherSuites.DEFAULT_ID,
     ): ByteArray {
-        require(password.isNotEmpty()) { "口令不能为空" }
+        require(password.isNotEmpty()) { tr("口令不能为空") }
         require(units.size <= MAX_UNITS)
 
         val suite = CipherSuites.get(suiteId)
@@ -198,7 +200,7 @@ object BackupFormat {
             val privBytes = try {
                 aesGcm(false, wrapKey, iv, header.aad, wrapped)
             } catch (e: CryptoException) {
-                throw CryptoException("口令错误，或备份文件已损坏 / 被篡改", e)
+                throw CryptoException(tr("口令错误，或备份文件已损坏 / 被篡改"), e)
             } finally {
                 wrapKey.fill(0)
             }
@@ -210,41 +212,41 @@ object BackupFormat {
             repeat(header.unitCount) {
                 val name = String(ByteArray(input.readUnsignedShort()).also { b -> input.readFully(b) }, Charsets.UTF_8)
                 val envLen = input.readInt()
-                if (envLen < 0 || envLen > input.available()) throw CryptoException("备份文件被截断")
+                if (envLen < 0 || envLen > input.available()) throw CryptoException(tr("备份文件被截断"))
                 val envelope = ByteArray(envLen).also { b -> input.readFully(b) }
                 units[name] = engine.open(envelope, context + name)
             }
-            if (input.available() != 0) throw CryptoException("备份文件尾部有多余数据")
+            if (input.available() != 0) throw CryptoException(tr("备份文件尾部有多余数据"))
             return Contents(header.createdAt, String(header.label, Charsets.UTF_8), units, header.version, suite.id)
         } catch (e: IOException) {
-            throw CryptoException("备份文件格式错误或被截断", e)
+            throw CryptoException(tr("备份文件格式错误或被截断"), e)
         }
     }
 
     /** 解析到「包裹 IV」之前的全部头部（也就是 AAD 的范围）。 */
     private fun readHeader(file: ByteArray, input: DataInputStream): Header {
         val magic = ByteArray(4).also { input.readFully(it) }
-        if (!magic.contentEquals(MAGIC)) throw CryptoException("不是 Mafari 备份文件")
+        if (!magic.contentEquals(MAGIC)) throw CryptoException(tr("不是 Mafari 备份文件"))
         val version = input.readUnsignedByte()
-        if (version !in 1..VERSION) throw CryptoException("不支持的备份版本：$version")
+        if (version !in 1..VERSION) throw CryptoException(tr("不支持的备份版本：{0}", version))
 
         val kdfId = input.readUnsignedByte()
-        if (kdfId != KDF_ARGON2ID) throw CryptoException("不支持的口令派生算法")
+        if (kdfId != KDF_ARGON2ID) throw CryptoException(tr("不支持的口令派生算法"))
         val kdf = KdfParams(input.readInt(), input.readUnsignedByte(), input.readUnsignedByte())
         if (kdf.memoryKiB !in 8..MAX_MEMORY_KIB || kdf.iterations !in 1..MAX_ITERATIONS || kdf.parallelism !in 1..4) {
-            throw CryptoException("口令派生参数超出允许范围")
+            throw CryptoException(tr("口令派生参数超出允许范围"))
         }
         // v1 没有套件号字段，固定为套件 1
         val suite = if (version >= 2) CipherSuites.get(input.readUnsignedByte()) else CipherSuites.get(V1_SUITE_ID)
         val unitCount = input.readUnsignedShort()
-        if (unitCount > MAX_UNITS) throw CryptoException("备份单元数异常")
+        if (unitCount > MAX_UNITS) throw CryptoException(tr("备份单元数异常"))
         val createdAt = input.readLong()
         val label = ByteArray(input.readUnsignedShort()).also { input.readFully(it) }
         val salt = ByteArray(SALT_LEN).also { input.readFully(it) }
-        if (version >= 2 && input.readUnsignedShort() != suite.publicKeyLen) throw CryptoException("备份公钥长度与算法套件不符")
+        if (version >= 2 && input.readUnsignedShort() != suite.publicKeyLen) throw CryptoException(tr("备份公钥长度与算法套件不符"))
         val pub = ByteArray(suite.publicKeyLen).also { input.readFully(it) }
         if (version >= 2 && input.readUnsignedShort() != suite.privateKeyLen + TAG_LEN) {
-            throw CryptoException("备份私钥长度与算法套件不符")
+            throw CryptoException(tr("备份私钥长度与算法套件不符"))
         }
         val aadLen = file.size - input.available()
         return Header(version, kdfId, kdf, suite, unitCount, createdAt, label, salt, pub, file.copyOfRange(0, aadLen))
@@ -252,7 +254,7 @@ object BackupFormat {
 
     /** 口令 → 32 字节密钥。新增 KDF：在这里加一个编号，并在 [readHeader] 放行。 */
     internal fun deriveKey(kdfId: Int, password: CharArray, salt: ByteArray, kdf: KdfParams): ByteArray {
-        if (kdfId != KDF_ARGON2ID) throw CryptoException("不支持的口令派生算法")
+        if (kdfId != KDF_ARGON2ID) throw CryptoException(tr("不支持的口令派生算法"))
         val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
             .withVersion(Argon2Parameters.ARGON2_VERSION_13)
             .withIterations(kdf.iterations)
@@ -276,17 +278,17 @@ object BackupFormat {
  * 没选 / 当时为空（书签、历史等没有内容）的类别一律保持原样，不会用空数据覆盖。
  */
 enum class BackupCategory(val id: String, val title: String, val summary: String) {
-    BOOKMARKS("bookmarks", "书签", "收藏与文件夹"),
-    HISTORY("history", "历史记录", "浏览历史"),
-    TABS("tabs", "标签列表", "已打开的普通标签页，不含无痕"),
-    PASSWORDS("passwords", "密码", "已保存的账号、密码和备注"),
-    SETTINGS("settings", "应用设置", "设置、搜索引擎、代理、菜单等"),
-    SCRIPTS("scripts", "用户脚本", "油猴脚本及其开关"),
-    SCRIPT_DATA("script_data", "脚本数据", "脚本用 GM_setValue 保存的值"),
-    ADBLOCK("adblock", "去广告规则", "订阅、开关与自定义规则"),
+    BOOKMARKS("bookmarks", tr("书签"), tr("收藏与文件夹")),
+    HISTORY("history", tr("历史记录"), tr("浏览历史")),
+    TABS("tabs", tr("标签列表"), tr("已打开的普通标签页，不含无痕")),
+    PASSWORDS("passwords", tr("密码"), tr("已保存的账号、密码和备注")),
+    SETTINGS("settings", tr("应用设置"), tr("设置、搜索引擎、代理、菜单等")),
+    SCRIPTS("scripts", tr("用户脚本"), tr("油猴脚本及其开关")),
+    SCRIPT_DATA("script_data", tr("脚本数据"), tr("脚本用 GM_setValue 保存的值")),
+    ADBLOCK("adblock", tr("去广告规则"), tr("订阅、开关与自定义规则")),
     // id 仍是 "gecko_cookies"：沿用旧备份与已保存的勾选；现在 Gecko / WebView 两种内核都用它
-    COOKIES("gecko_cookies", "Cookie", "当前内核的登录状态，仅持久 Cookie"),
-    FXA("fxa", "Firefox 帐户同步", "帐户身份、登录令牌与同步设置，恢复后无需重新登录");
+    COOKIES("gecko_cookies", "Cookie", tr("当前内核的登录状态，仅持久 Cookie")),
+    FXA("fxa", tr("Firefox 帐户同步"), tr("帐户身份、登录令牌与同步设置，恢复后无需重新登录"));
 
     companion object {
         fun byId(id: String): BackupCategory? = entries.firstOrNull { it.id == id }
@@ -507,11 +509,11 @@ object BackupManager {
         }
 
         if (BackupCategory.PASSWORDS in categories) {
-            val db = AppDatabase.get(app) ?: throw IOException("加密数据库不可用，无法备份密码")
+            val db = AppDatabase.get(app) ?: throw IOException(tr("加密数据库不可用，无法备份密码"))
             val rows = PasswordDb.exportAll(app, db)
             val total = PasswordDb.count(db)
             // 有记录却一条都解不开：不能悄悄生成缺密码的备份
-            if (total > 0 && rows.isEmpty()) throw IOException("无法解密已保存的密码（密钥已失效或数据损坏），未生成备份")
+            if (total > 0 && rows.isEmpty()) throw IOException(tr("无法解密已保存的密码（密钥已失效或数据损坏），未生成备份"))
             skipped += (total - rows.size).coerceAtLeast(0)
             if (rows.isNotEmpty()) {
                 units[PASSWORDS_UNIT] = passwordsToJson(rows).toByteArray(Charsets.UTF_8)
@@ -671,7 +673,7 @@ object BackupManager {
         while (true) {
             val n = input.read(buf)
             if (n < 0) break
-            if (out.size() + n > MAX_BACKUP_BYTES) throw CryptoException("文件过大，不像是 Mafari 备份")
+            if (out.size() + n > MAX_BACKUP_BYTES) throw CryptoException(tr("文件过大，不像是 Mafari 备份"))
             out.write(buf, 0, n)
         }
         return out.toByteArray()
@@ -692,7 +694,7 @@ object BackupManager {
 
         val meta = contents.units["meta.json"]
             ?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() }
-            ?: throw CryptoException("备份缺少元数据，可能不是 Mafari 备份")
+            ?: throw CryptoException(tr("备份缺少元数据，可能不是 Mafari 备份"))
 
         val prefs = LinkedHashMap<BackupCategory, LinkedHashMap<String, LinkedHashMap<String, Any>>>()
         val files = LinkedHashMap<String, ByteArray>()
@@ -727,7 +729,7 @@ object BackupManager {
                     val rows = try {
                         TabDb.parseBackup(String(bytes, Charsets.UTF_8))
                     } catch (e: Exception) {
-                        throw CryptoException("备份中的标签列表数据已损坏", e)
+                        throw CryptoException(tr("备份中的标签列表数据已损坏"), e)
                     }
                     if (rows.isNotEmpty()) tabs = rows
                 }
@@ -735,7 +737,7 @@ object BackupManager {
                     val rows = try {
                         passwordsFromJson(String(bytes, Charsets.UTF_8))
                     } catch (e: Exception) {
-                        throw CryptoException("备份中的密码数据已损坏", e)
+                        throw CryptoException(tr("备份中的密码数据已损坏"), e)
                     }
                     if (rows.isNotEmpty()) passwords = rows
                 }
@@ -756,7 +758,7 @@ object BackupManager {
         if (passwords != null) present.add(BackupCategory.PASSWORDS)
         // 帐户身份必须带着 mafari_fxa_sync 的登录标记才算有数据（否则重启后不会初始化同步，等于白恢复）
         if (fxaPrefs[FXA_SYNC_PREFS]?.get(FXA_SIGNED_IN_KEY) == true && fxaPrefs.size > 1) present.add(BackupCategory.FXA)
-        if (present.isEmpty()) throw CryptoException("备份里没有可恢复的数据")
+        if (present.isEmpty()) throw CryptoException(tr("备份里没有可恢复的数据"))
 
         val unavailable = emptySet<BackupCategory>()
         val cookieEngine = if (cookies == null) null else when (meta.optString(META_COOKIE_ENGINE)) {
@@ -768,7 +770,7 @@ object BackupManager {
             createdAt = contents.createdAt,
             label = contents.label,
             versionName = meta.optString("versionName"),
-            suiteName = CipherSuites.find(contents.suiteId)?.shortName ?: "套件 ${contents.suiteId}",
+            suiteName = CipherSuites.find(contents.suiteId)?.shortName ?: tr("套件 {0}", contents.suiteId),
             formatVersion = contents.version,
             categories = BackupCategory.entries.filter { it in present },
             unavailable = unavailable,
@@ -786,11 +788,11 @@ object BackupManager {
         val root = try {
             JSONObject(String(bytes, Charsets.UTF_8))
         } catch (e: Exception) {
-            throw CryptoException("备份中的 $pref 数据已损坏", e)
+            throw CryptoException(tr("备份中的 {0} 数据已损坏", pref), e)
         }
         val out = LinkedHashMap<String, Any>()
         for (key in root.keys()) {
-            val entry = root.optJSONObject(key) ?: throw CryptoException("备份中的 $pref 数据格式错误")
+            val entry = root.optJSONObject(key) ?: throw CryptoException(tr("备份中的 {0} 数据格式错误", pref))
             try {
                 val value: Any = when (entry.getString("t")) {
                     "s" -> {
@@ -800,8 +802,8 @@ object BackupManager {
                         val purpose = DEVICE_ENCRYPTED[pref]?.get(key)
                         if (purpose != null) {
                             // 备份里存的是明文：写回前用本机密钥重新封装，和正常运行时的存储形态一致
-                            if (EncryptionEngine.isEncryptedString(text)) throw CryptoException("备份中的 $pref 数据格式错误")
-                            SecureStore.write(app, text, purpose) ?: throw CryptoException("无法用本机密钥加密收藏 / 历史，恢复已取消")
+                            if (EncryptionEngine.isEncryptedString(text)) throw CryptoException(tr("备份中的 {0} 数据格式错误", pref))
+                            SecureStore.write(app, text, purpose) ?: throw CryptoException(tr("无法用本机密钥加密收藏 / 历史，恢复已取消"))
                         } else {
                             text
                         }
@@ -814,13 +816,13 @@ object BackupManager {
                         val arr = entry.getJSONArray("v")
                         LinkedHashSet<String>().also { set -> for (i in 0 until arr.length()) set.add(arr.getString(i)) }
                     }
-                    else -> throw CryptoException("备份中的 $pref 含有未知类型的数据")
+                    else -> throw CryptoException(tr("备份中的 {0} 含有未知类型的数据", pref))
                 }
                 out[key] = value
             } catch (e: CryptoException) {
                 throw e
             } catch (e: Exception) {
-                throw CryptoException("备份中的 $pref 数据格式错误", e)
+                throw CryptoException(tr("备份中的 {0} 数据格式错误", pref), e)
             }
         }
         return out
@@ -836,7 +838,7 @@ object BackupManager {
     fun applyRestore(context: Context, plan: RestorePlan, selected: Set<BackupCategory> = plan.defaultSelection) {
         val app = context.applicationContext
         val chosen = plan.categories.filter { it in selected && it !in plan.unavailable }
-        if (chosen.isEmpty()) throw IOException("没有选择要恢复的内容")
+        if (chosen.isEmpty()) throw IOException(tr("没有选择要恢复的内容"))
 
         for (cat in chosen) {
             val byPref = plan.prefs[cat].orEmpty()
@@ -849,7 +851,7 @@ object BackupManager {
                 // 密码：合并而不是清空重写——同站点同用户名按修改时间较新者为准，备份之外的本机密码不会被删
                 // （清空会留下删除墓碑，登录 Firefox 同步后会把这些删除传到服务器）。导入的记录标为待上传，同步时推出去
                 BackupCategory.PASSWORDS -> plan.passwords?.let { rows ->
-                    val db = AppDatabase.get(app) ?: throw IOException("加密数据库不可用，无法恢复密码")
+                    val db = AppDatabase.get(app) ?: throw IOException(tr("加密数据库不可用，无法恢复密码"))
                     PasswordDb.importEntries(app, db, rows)
                 }
                 BackupCategory.SCRIPT_DATA -> runCatching { GmStore.clearAll(app) }
@@ -877,7 +879,7 @@ object BackupManager {
                     tmp.writeBytes(bytes)
                     if (!tmp.renameTo(target)) {
                         target.delete()
-                        if (!tmp.renameTo(target)) throw IOException("写入 $rel 失败")
+                        if (!tmp.renameTo(target)) throw IOException(tr("写入 {0} 失败", rel))
                     }
                 }
             }
@@ -914,7 +916,7 @@ object BackupManager {
                 is Set<*> -> editor.putStringSet(key, value.map { it.toString() }.toSet())
             }
         }
-        if (!editor.commit()) throw IOException("写入 $name 失败")
+        if (!editor.commit()) throw IOException(tr("写入 {0} 失败", name))
     }
 
     /** 重启应用：拉起启动 Activity（清空任务栈），随后结束当前进程，让所有内存缓存重新从磁盘加载。 */
@@ -935,9 +937,9 @@ object BackupManager {
         categories: Set<BackupCategory> = BackupCategory.DEFAULT_SELECTION,
     ): Summary {
         try {
-            if (categories.isEmpty()) throw IOException("没有选择要备份的内容")
+            if (categories.isEmpty()) throw IOException(tr("没有选择要备份的内容"))
             val c = collect(context, categories)
-            if (c.included.isEmpty()) throw IOException("所选内容里目前没有数据，未生成备份")
+            if (c.included.isEmpty()) throw IOException(tr("所选内容里目前没有数据，未生成备份"))
             val label = "Mafari ${BuildConfig.VERSION_NAME} | ${CipherSuites.default.name} | Argon2id"
             val bytes = BackupFormat.write(c.units, password, label)
             out.write(bytes)

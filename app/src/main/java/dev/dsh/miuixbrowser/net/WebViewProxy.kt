@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.net
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.engine.gecko.GeckoProxy
@@ -90,12 +92,12 @@ object WebViewProxy {
         this.authPass = pass
 
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-            if (enabled) fail("当前 WebView 不支持代理，请更新 Android System WebView")
+            if (enabled) fail(tr("当前 WebView 不支持代理，请更新 Android System WebView"))
             return
         }
         val controller = runCatching { ProxyController.getInstance() }.getOrNull()
         if (controller == null) {
-            if (enabled) fail("无法获取 WebView 代理控制器")
+            if (enabled) fail(tr("无法获取 WebView 代理控制器"))
             return
         }
 
@@ -106,7 +108,7 @@ object WebViewProxy {
                 runCatching { controller.clearProxyOverride(directExecutor, Runnable { }) }
                 applied = null
             }
-            lastError = if (enabled) "代理主机或端口无效，已回到直连" else null
+            lastError = if (enabled) tr("代理主机或端口无效，已回到直连") else null
             return
         }
 
@@ -129,7 +131,7 @@ object WebViewProxy {
                         return@post
                     }
                     if (r == null) {
-                        fail("SOCKS5 本地中转启动失败：${made.exceptionOrNull()?.message}")
+                        fail(tr("SOCKS5 本地中转启动失败：{0}", made.exceptionOrNull()?.message))
                         return@post
                     }
                     relay = r
@@ -159,7 +161,7 @@ object WebViewProxy {
             lastError = null
             Diag.log("proxy: applied $rule")
         } catch (e: Exception) {
-            fail("代理规则无效或不被当前 WebView 支持：${e.message}")
+            fail(tr("代理规则无效或不被当前 WebView 支持：{0}", e.message))
         }
     }
 

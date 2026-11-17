@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.util
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.net.Uri
 import java.net.URLEncoder
 
@@ -83,7 +85,7 @@ fun toUrl(input: String, searchTemplate: String = "https://www.baidu.com/s?wd=%s
 
 fun hostOf(url: String): String {
     val trimmed = url.trim()
-    if (trimmed.startsWith("data:", ignoreCase = true)) return "内嵌图片"
+    if (trimmed.startsWith("data:", ignoreCase = true)) return tr("内嵌图片")
     val host = runCatching { Uri.parse(trimmed).host }.getOrNull()
     return if (!host.isNullOrBlank()) host else trimmed.take(48)
 }

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.backup.BackupAuto
 import dev.dsh.miuixbrowser.browser.DefaultBrowser
@@ -132,20 +134,20 @@ private const val STEP_DEFAULT = 8
 private const val STEP_POLICY = 9
 
 private val STEP_TITLES = listOf(
-    "欢迎使用", "高级材质", "设置壁纸", "布置首页", "整理菜单栏", "备份与同步", "设置口令", "隐私保护", "默认浏览器", "隐私政策",
+    tr("欢迎使用"), tr("高级材质"), tr("设置壁纸"), tr("布置首页"), tr("整理菜单栏"), tr("备份与同步"), tr("设置口令"), tr("隐私保护"), tr("默认浏览器"), tr("隐私政策"),
 )
 
 private val STEP_SUBTITLES = listOf(
-    "Mafari 浏览器，接下来用几步帮你完成基础设置",
-    "先挑一种界面材质，后面的所有设置页都会按它显示，之后可在 设置 → 外观 里更换",
-    "给主页挑一张喜欢的图片，也可以先跳过，之后在 设置 → 外观 里更换",
-    "选好起始页、导航栏位置和地址栏显示，再决定首页放哪些内容",
-    "长按图标拖动即可排序，拖到分割线下方就隐藏；部分按钮长按还有更多功能",
-    "数据在你自己手里：多种方式备份，随时换机恢复",
-    "这是 Mafari 加密备份与同步使用的唯一口令",
-    "一键开启，或按需逐项打开",
-    "让其他应用里的网页链接直接用 Mafari 打开",
-    "请阅读到底部，然后点击「完成」",
+    tr("Mafari 浏览器，接下来用几步帮你完成基础设置"),
+    tr("先挑一种界面材质，后面的所有设置页都会按它显示，之后可在 设置 → 外观 里更换"),
+    tr("给主页挑一张喜欢的图片，也可以先跳过，之后在 设置 → 外观 里更换"),
+    tr("选好起始页、导航栏位置和地址栏显示，再决定首页放哪些内容"),
+    tr("长按图标拖动即可排序，拖到分割线下方就隐藏；部分按钮长按还有更多功能"),
+    tr("数据在你自己手里：多种方式备份，随时换机恢复"),
+    tr("这是 Mafari 加密备份与同步使用的唯一口令"),
+    tr("一键开启，或按需逐项打开"),
+    tr("让其他应用里的网页链接直接用 Mafari 打开"),
+    tr("请阅读到底部，然后点击「完成」"),
 )
 
 @Composable
@@ -242,7 +244,7 @@ internal fun OnboardingScreen(
                                 cornerRadius = 18.dp,
                                 minHeight = 36.dp,
                             ) {
-                                Text(text = "跳过", fontSize = 14.sp, style = MiuixTheme.textStyles.button)
+                                Text(text = tr("跳过"), fontSize = 14.sp, style = MiuixTheme.textStyles.button)
                             }
                         } else {
                             Spacer(Modifier.height(36.dp))
@@ -297,12 +299,12 @@ internal fun OnboardingScreen(
                         val last = step == ONBOARDING_STEP_COUNT - 1
                         when (step) {
                             STEP_WELCOME -> {
-                                BigButton(text = "开始设置", primary = true, onClick = { onStepChange(STEP_MATERIAL) })
+                                BigButton(text = tr("开始设置"), primary = true, onClick = { onStepChange(STEP_MATERIAL) })
                             }
                             STEP_WALLPAPER -> {
                                 val hasWallpaper = settings.wallpaper.isNotBlank()
                                 BigButton(
-                                    text = if (hasWallpaper) "继续" else "选择壁纸",
+                                    text = if (hasWallpaper) tr("继续") else tr("选择壁纸"),
                                     primary = true,
                                     onClick = {
                                         if (hasWallpaper) onStepChange(STEP_HOME) else picker.launch(arrayOf("image/*"))
@@ -310,13 +312,13 @@ internal fun OnboardingScreen(
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     BigButton(
-                                        text = "上一步",
+                                        text = tr("上一步"),
                                         primary = false,
                                         onClick = { onStepChange(step - 1) },
                                         modifier = Modifier.weight(1f),
                                     )
                                     BigButton(
-                                        text = if (hasWallpaper) "重新选择" else "跳过此步",
+                                        text = if (hasWallpaper) tr("重新选择") else tr("跳过此步"),
                                         primary = false,
                                         onClick = {
                                             if (hasWallpaper) picker.launch(arrayOf("image/*")) else onStepChange(STEP_HOME)
@@ -328,16 +330,16 @@ internal fun OnboardingScreen(
                             else -> {
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     BigButton(
-                                        text = "上一步",
+                                        text = tr("上一步"),
                                         primary = false,
                                         onClick = { onStepChange(step - 1) },
                                         modifier = Modifier.weight(1f),
                                     )
                                     BigButton(
                                         text = when {
-                                            !last -> "继续"
-                                            policyReached -> "完成"
-                                            else -> "请先读到底部"
+                                            !last -> tr("继续")
+                                            policyReached -> tr("完成")
+                                            else -> tr("请先读到底部")
                                         },
                                         primary = true,
                                         enabled = !last || policyReached,
@@ -564,9 +566,9 @@ private fun ColumnScope.WelcomeStep() {}
 @Composable
 private fun MaterialStep(settings: AppSettings, bd: Backdrop?) {
     val options = listOf(
-        Triple(BLUR_MIUIX, "柔光玻璃", "半透明磨砂质感，柔和通透"),
-        Triple(BLUR_LIQUID, "液态玻璃", "带折射的液态质感，效果最华丽，更耗性能"),
-        Triple(BLUR_OFF, "纯色", "不做模糊与玻璃效果，最省电、最流畅"),
+        Triple(BLUR_MIUIX, tr("柔光玻璃"), tr("半透明磨砂质感，柔和通透")),
+        Triple(BLUR_LIQUID, tr("液态玻璃"), tr("带折射的液态质感，效果最华丽，更耗性能")),
+        Triple(BLUR_OFF, tr("纯色"), tr("不做模糊与玻璃效果，最省电、最流畅")),
     )
     GuideCard(bd) {
         options.forEachIndexed { index, (mode, title, summary) ->
@@ -610,7 +612,7 @@ private fun MaterialStep(settings: AppSettings, bd: Backdrop?) {
             }
         }
     }
-    HintText("选择后下方的卡片、按钮和弹窗会立刻换成对应材质，可以先试一试。")
+    HintText(tr("选择后下方的卡片、按钮和弹窗会立刻换成对应材质，可以先试一试。"))
 }
 
 /* ------------------------------ 2. 壁纸 ------------------------------ */
@@ -631,7 +633,7 @@ private fun ColumnScope.WallpaperStep(settings: AppSettings, bd: Backdrop?) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap,
-                contentDescription = "壁纸预览",
+                contentDescription = tr("壁纸预览"),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
@@ -639,7 +641,7 @@ private fun ColumnScope.WallpaperStep(settings: AppSettings, bd: Backdrop?) {
             )
         } else {
             Text(
-                text = "尚未选择壁纸",
+                text = tr("尚未选择壁纸"),
                 fontSize = 14.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
@@ -649,8 +651,8 @@ private fun ColumnScope.WallpaperStep(settings: AppSettings, bd: Backdrop?) {
         AppSwitchPreference(
             checked = settings.wallpaperBlur,
             onCheckedChange = { settings.updateWallpaperBlur(it) },
-            title = "模糊壁纸",
-            summary = "主页壁纸做高斯模糊，减少对内容的干扰",
+            title = tr("模糊壁纸"),
+            summary = tr("主页壁纸做高斯模糊，减少对内容的干扰"),
         )
     }
 }
@@ -662,64 +664,64 @@ private fun HomeStep(settings: AppSettings, bd: Backdrop?) {
     val context = LocalContext.current
     var showUrlDialog by remember { mutableStateOf(false) }
 
-    SectionLabel("启动与布局")
+    SectionLabel(tr("启动与布局"))
     GuideCard(bd) {
         AppDropdownPreference(
             backdrop = bd,
-            title = "自定义起始页",
-            summary = "启动应用、点主页按钮、新建标签页时打开什么",
-            items = listOf("默认主页", "新建标签页", "指定页面"),
+            title = tr("自定义起始页"),
+            summary = tr("启动应用、点主页按钮、新建标签页时打开什么"),
+            items = listOf(tr("默认主页"), tr("新建标签页"), tr("指定页面")),
             selectedIndex = settings.homeMode.coerceIn(0, 2),
             // 指定页面要先填网址，确认后才切换；其它两项立即生效
             onSelectedIndexChange = { if (it == HOME_MODE_CUSTOM) showUrlDialog = true else settings.updateHomeMode(it) },
         )
         if (settings.homeMode == HOME_MODE_CUSTOM) {
             InfoRow(
-                title = "指定页面地址",
-                summary = settings.homeCustomUrl.ifBlank { "未设置" },
+                title = tr("指定页面地址"),
+                summary = settings.homeCustomUrl.ifBlank { tr("未设置") },
                 trailing = {
-                    AppTextButton(text = "修改", onClick = { showUrlDialog = true }, minWidth = 56.dp, minHeight = 32.dp)
+                    AppTextButton(text = tr("修改"), onClick = { showUrlDialog = true }, minWidth = 56.dp, minHeight = 32.dp)
                 },
             )
         }
         AppDropdownPreference(
             backdrop = bd,
-            title = "导航栏位置",
-            summary = "顶部 / 底部：随页面滚动自动隐藏；固定：始终显示",
-            items = listOf("顶部", "底部", "始终最小化", "固定在底部", "固定在顶部"),
+            title = tr("导航栏位置"),
+            summary = tr("顶部 / 底部：随页面滚动自动隐藏；固定：始终显示"),
+            items = listOf(tr("顶部"), tr("底部"), tr("始终最小化"), tr("固定在底部"), tr("固定在顶部")),
             selectedIndex = settings.barPosition.coerceIn(0, 4),
             onSelectedIndexChange = { settings.updateBarPosition(it) },
         )
         AppDropdownPreference(
             backdrop = bd,
-            title = "地址栏显示",
-            items = listOf("网站标题", "主域名", "完整网址"),
+            title = tr("地址栏显示"),
+            items = listOf(tr("网站标题"), tr("主域名"), tr("完整网址")),
             selectedIndex = settings.addressDisplay.coerceIn(0, 2),
             onSelectedIndexChange = { settings.updateAddressDisplay(it) },
         )
         AppDropdownPreference(
             backdrop = bd,
-            title = "标签栏样式",
-            items = listOf("文字显示", "卡片显示"),
+            title = tr("标签栏样式"),
+            items = listOf(tr("文字显示"), tr("卡片显示")),
             selectedIndex = settings.tabsStyle.coerceIn(0, 1),
             onSelectedIndexChange = { settings.updateTabsStyle(it) },
         )
     }
 
-    SectionLabel("首页内容")
+    SectionLabel(tr("首页内容"))
     GuideCard(bd) {
         AppSwitchPreference(
             checked = settings.homeShowLogo,
             onCheckedChange = { settings.updateHomeShowLogo(it) },
-            title = "LOGO 标识",
+            title = tr("LOGO 标识"),
         )
         listOf(
-            Triple(HOME_QUICK, "快捷菜单", "常用功能一键直达"),
-            Triple(HOME_FAVORITES, "个人收藏", "把常逛的网站放在首页"),
-            Triple(HOME_GROUPS, "书签分组", "按文件夹快速打开书签"),
-            Triple(HOME_PRIVACY, "隐私报告", "已拦截的广告与跟踪统计"),
-            Triple(HOME_RECENT, "最近浏览", "无痕标签页的首页不显示"),
-            Triple(HOME_DOWNLOADS, "下载项", "最近的下载任务"),
+            Triple(HOME_QUICK, tr("快捷菜单"), tr("常用功能一键直达")),
+            Triple(HOME_FAVORITES, tr("个人收藏"), tr("把常逛的网站放在首页")),
+            Triple(HOME_GROUPS, tr("书签分组"), tr("按文件夹快速打开书签")),
+            Triple(HOME_PRIVACY, tr("隐私报告"), tr("已拦截的广告与跟踪统计")),
+            Triple(HOME_RECENT, tr("最近浏览"), tr("无痕标签页的首页不显示")),
+            Triple(HOME_DOWNLOADS, tr("下载项"), tr("最近的下载任务")),
         ).forEach { (kind, title, summary) ->
             AppSwitchPreference(
                 checked = settings.isHomeShown(kind),
@@ -729,14 +731,14 @@ private fun HomeStep(settings: AppSettings, bd: Backdrop?) {
             )
         }
     }
-    HintText("进入首页后，长按卡片标题可上下拖动排序，卡片右上角的 × 可以把它从首页移除。")
+    HintText(tr("进入首页后，长按卡片标题可上下拖动排序，卡片右上角的 × 可以把它从首页移除。"))
 
     // 指定页面：输入网址，确认后才切换到「指定页面」
     var urlText by remember(showUrlDialog) { mutableStateOf(settings.homeCustomUrl) }
     AppGlassDialog(
         show = showUrlDialog,
-        title = "指定页面",
-        summary = "请输入完整网址，例如 https://www.baidu.com",
+        title = tr("指定页面"),
+        summary = tr("请输入完整网址，例如 https://www.baidu.com"),
         backdrop = bd,
         onDismissRequest = { showUrlDialog = false },
     ) {
@@ -745,7 +747,7 @@ private fun HomeStep(settings: AppSettings, bd: Backdrop?) {
                 value = urlText,
                 onValueChange = { urlText = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "网址",
+                label = tr("网址"),
                 singleLine = true,
             )
             Row(
@@ -753,13 +755,13 @@ private fun HomeStep(settings: AppSettings, bd: Backdrop?) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AppDialogButton(onClick = { showUrlDialog = false }, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = {
                         val text = urlText.trim()
                         if (text.isEmpty() || !looksLikeUrl(text)) {
-                            Toast.makeText(context, "请输入有效的网址", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, tr("请输入有效的网址"), Toast.LENGTH_SHORT).show()
                         } else {
                             settings.updateHomeCustomUrl(text)
                             settings.updateHomeMode(HOME_MODE_CUSTOM)
@@ -769,7 +771,7 @@ private fun HomeStep(settings: AppSettings, bd: Backdrop?) {
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "保存", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("保存"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -784,17 +786,17 @@ private val MENU_LONG_PRESS = setOf(
 )
 
 private fun longPressSummary(action: MenuAction): String = when (action) {
-    MenuAction.ScriptMenu -> "长按进入「脚本管理」，单击是当前页面的脚本菜单"
-    MenuAction.Favorite -> "长按进入「书签」库，单击是收藏当前页面"
-    MenuAction.Bookmarks -> "长按弹出「新建书签」，自动填入当前页的标题和网址；单击是打开书签"
-    MenuAction.GeckoExtensions -> "长按进入「拓展」管理页，单击是拓展快捷菜单"
+    MenuAction.ScriptMenu -> tr("长按进入「脚本管理」，单击是当前页面的脚本菜单")
+    MenuAction.Favorite -> tr("长按进入「书签」库，单击是收藏当前页面")
+    MenuAction.Bookmarks -> tr("长按弹出「新建书签」，自动填入当前页的标题和网址；单击是打开书签")
+    MenuAction.GeckoExtensions -> tr("长按进入「拓展」管理页，单击是拓展快捷菜单")
     else -> ""
 }
 
 @Composable
 private fun MenuStep(settings: AppSettings, menuOrder: MenuOrderStore, bd: Backdrop?) {
     val context = LocalContext.current
-    SectionLabel("试一试")
+    SectionLabel(tr("试一试"))
     GuideCard(bd) {
         Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
             // 直接用真正的菜单宫格：这里的拖动排序 / 隐藏会立刻保存，进入浏览器后「更多」面板就是这个样子
@@ -802,7 +804,7 @@ private fun MenuStep(settings: AppSettings, menuOrder: MenuOrderStore, bd: Backd
                 labelFor = { it.label },
                 order = menuOrder.order,
                 hidden = menuOrder.hidden,
-                onAction = { Toast.makeText(context, "这里只是预览，进入浏览器后点开「更多」即可使用", Toast.LENGTH_SHORT).show() },
+                onAction = { Toast.makeText(context, tr("这里只是预览，进入浏览器后点开「更多」即可使用"), Toast.LENGTH_SHORT).show() },
                 onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
                 longPressActions = MENU_LONG_PRESS,
                 onLongPressAction = { action ->
@@ -812,9 +814,9 @@ private fun MenuStep(settings: AppSettings, menuOrder: MenuOrderStore, bd: Backd
             )
         }
     }
-    HintText("长按任意图标并拖动：松手前拖到分割线下方就是隐藏，再拖回上方即恢复。「设置」不能隐藏，以免找不到入口。")
+    HintText(tr("长按任意图标并拖动：松手前拖到分割线下方就是隐藏，再拖回上方即恢复。「设置」不能隐藏，以免找不到入口。"))
 
-    SectionLabel("长按还能做什么")
+    SectionLabel(tr("长按还能做什么"))
     GuideCard(bd) {
         val items = MENU_LONG_PRESS.filter { it != MenuAction.GeckoExtensions || EngineSupport.GECKO_BUNDLED }
         items.forEachIndexed { index, action ->
@@ -828,37 +830,37 @@ private fun MenuStep(settings: AppSettings, menuOrder: MenuOrderStore, bd: Backd
 
 @Composable
 private fun BackupStep(bd: Backdrop?, onOpenBackup: () -> Unit, onOpenFxa: () -> Unit) {
-    SectionLabel("备份方式")
+    SectionLabel(tr("备份方式"))
     GuideCard(bd) {
-        InfoRow("本地加密备份文件", "导出 .mfbak 加密备份，换机或重装时选择文件即可恢复")
+        InfoRow(tr("本地加密备份文件"), tr("导出 .mfbak 加密备份，换机或重装时选择文件即可恢复"))
         RowDivider()
-        InfoRow("WebDAV 云备份", "备份到你自己的 WebDAV 服务器，可保留多份历史")
+        InfoRow(tr("WebDAV 云备份"), tr("备份到你自己的 WebDAV 服务器，可保留多份历史"))
         RowDivider()
-        InfoRow("Git 仓库备份", "推送到你自己的 Git 仓库，支持访问令牌或 Deploy key")
+        InfoRow(tr("Git 仓库备份"), tr("推送到你自己的 Git 仓库，支持访问令牌或 Deploy key"))
         RowDivider()
-        InfoRow("自动推送", "设好口令和云端后，可按天 / 每 3 天 / 每周自动备份")
-        CardButton(text = "打开备份与同步页", onClick = onOpenBackup, primary = false)
+        InfoRow(tr("自动推送"), tr("设好口令和云端后，可按天 / 每 3 天 / 每周自动备份"))
+        CardButton(text = tr("打开备份与同步页"), onClick = onOpenBackup, primary = false)
     }
 
     // 带 Firefox 同步的版本（sync_lite / gecko）才显示帐户同步；Floccus 书签同步只有 gecko 版有
     if (EngineSupport.SYNC_BUNDLED) {
-        SectionLabel("Firefox 帐户同步")
+        SectionLabel(tr("Firefox 帐户同步"))
         GuideCard(bd) {
             InfoRow(
-                title = "和电脑、其他手机上的 Firefox 互通",
-                summary = "登录 Mozilla 帐户，同步书签、历史记录、标签页和密码；也能把当前网页发送到其他设备",
+                title = tr("和电脑、其他手机上的 Firefox 互通"),
+                summary = tr("登录 Mozilla 帐户，同步书签、历史记录、标签页和密码；也能把当前网页发送到其他设备"),
             )
             if (EngineSupport.GECKO_BUNDLED) {
                 RowDivider()
                 InfoRow(
-                    title = "Floccus 书签同步",
-                    summary = "在 设置 → 拓展 里安装 Floccus，可通过 Nextcloud / WebDAV / Git 在不同浏览器之间同步书签",
+                    title = tr("Floccus 书签同步"),
+                    summary = tr("在 设置 → 拓展 里安装 Floccus，可通过 Nextcloud / WebDAV / Git 在不同浏览器之间同步书签"),
                 )
             }
-            CardButton(text = "登录 / 管理 Firefox 帐户", onClick = onOpenFxa)
+            CardButton(text = tr("登录 / 管理 Firefox 帐户"), onClick = onOpenFxa)
         }
     } else {
-        HintText("当前是 lite 版，不含 Firefox 帐户同步；需要时可以改装 sync_lite 或 gecko 版，数据不会丢。")
+        HintText(tr("当前是 lite 版，不含 Firefox 帐户同步；需要时可以改装 sync_lite 或 gecko 版，数据不会丢。"))
     }
 }
 
@@ -872,20 +874,20 @@ private fun PasswordStep(bd: Backdrop?) {
 
     GuideCard(bd) {
         InfoRow(
-            title = "唯一口令",
-            summary = "备份文件、WebDAV / Git 云备份和自动推送都用它加密。口令加密保存在本机，不会上传。",
+            title = tr("唯一口令"),
+            summary = tr("备份文件、WebDAV / Git 云备份和自动推送都用它加密。口令加密保存在本机，不会上传。"),
         )
         RowDivider()
         InfoRow(
-            title = "请务必记牢",
-            summary = "忘记口令后，已加密的备份无法找回。口令至少 8 位。",
+            title = tr("请务必记牢"),
+            summary = tr("忘记口令后，已加密的备份无法找回。口令至少 8 位。"),
         )
         RowDivider()
         InfoRow(
-            title = if (pwSet) "已设置" else "尚未设置",
-            summary = if (pwSet) "备份时不再询问口令，随时可以修改" else "现在设置，或之后在 备份与同步 里设置",
+            title = if (pwSet) tr("已设置") else tr("尚未设置"),
+            summary = if (pwSet) tr("备份时不再询问口令，随时可以修改") else tr("现在设置，或之后在 备份与同步 里设置"),
         )
-        CardButton(text = if (pwSet) "修改口令" else "设置口令", onClick = { showDialog = true })
+        CardButton(text = if (pwSet) tr("修改口令") else tr("设置口令"), onClick = { showDialog = true })
     }
 
     DefaultPasswordDialog(
@@ -899,9 +901,9 @@ private fun PasswordStep(bd: Backdrop?) {
             if (r.isSuccess) {
                 pwSet = true
                 showDialog = false
-                Toast.makeText(context, "口令已保存", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, tr("口令已保存"), Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, "保存失败：" + (r.exceptionOrNull()?.message ?: "未知错误"), Toast.LENGTH_LONG).show()
+                Toast.makeText(context, tr("保存失败：") + (r.exceptionOrNull()?.message ?: tr("未知错误")), Toast.LENGTH_LONG).show()
             }
         },
         onClear = {
@@ -932,34 +934,34 @@ private fun PrivacyStep(settings: AppSettings, bd: Backdrop?) {
     val items: List<PrivacyItem> = if (gecko) {
         val p = GeckoProtection
         listOf(
-            PrivacyItem("增强型跟踪保护", "拦截广告、统计与社交跟踪（标准档）", p.etp != 1) { p.updateEtp(if (it) 2 else 1) },
-            PrivacyItem("清理网址跟踪参数", "去掉 utm_*、fbclid、gclid 等跟踪参数", p.stripTracking) { p.updateStripTracking(it) },
-            PrivacyItem("弹跳跟踪保护", "清除经由中转站点建立的跟踪数据", p.bounceTracking) { p.updateBounceTracking(it) },
-            PrivacyItem("指纹保护", "拦截已知指纹脚本，并随机化少量设备信息", p.fingerprint) { p.updateFingerprint(it) },
-            PrivacyItem("全局隐私控制（GPC）", "向网站声明不同意出售 / 共享个人数据", p.gpc) { p.updateGpc(it) },
-            PrivacyItem("精简 Referer", "跨站请求只带来源域名", p.trimReferrer) { p.updateTrimReferrer(it) },
-            PrivacyItem("防 WebRTC 泄露 IP", "不向网页暴露内网 / 多网卡地址，视频通话仍可用", p.webrtcLeak) { p.updateWebrtcLeak(it) },
-            PrivacyItem("仅 HTTPS 模式", "自动把 http 升级为 https", p.httpsOnly) { p.updateHttpsOnly(it) },
-            PrivacyItem("安全 DNS（DoH）", "加密域名解析，失败时回退系统 DNS", p.dohMode > 0) { p.updateDohMode(if (it) 1 else 0) },
+            PrivacyItem(tr("增强型跟踪保护"), tr("拦截广告、统计与社交跟踪（标准档）"), p.etp != 1) { p.updateEtp(if (it) 2 else 1) },
+            PrivacyItem(tr("清理网址跟踪参数"), tr("去掉 utm_*、fbclid、gclid 等跟踪参数"), p.stripTracking) { p.updateStripTracking(it) },
+            PrivacyItem(tr("弹跳跟踪保护"), tr("清除经由中转站点建立的跟踪数据"), p.bounceTracking) { p.updateBounceTracking(it) },
+            PrivacyItem(tr("指纹保护"), tr("拦截已知指纹脚本，并随机化少量设备信息"), p.fingerprint) { p.updateFingerprint(it) },
+            PrivacyItem(tr("全局隐私控制（GPC）"), tr("向网站声明不同意出售 / 共享个人数据"), p.gpc) { p.updateGpc(it) },
+            PrivacyItem(tr("精简 Referer"), tr("跨站请求只带来源域名"), p.trimReferrer) { p.updateTrimReferrer(it) },
+            PrivacyItem(tr("防 WebRTC 泄露 IP"), tr("不向网页暴露内网 / 多网卡地址，视频通话仍可用"), p.webrtcLeak) { p.updateWebrtcLeak(it) },
+            PrivacyItem(tr("仅 HTTPS 模式"), tr("自动把 http 升级为 https"), p.httpsOnly) { p.updateHttpsOnly(it) },
+            PrivacyItem(tr("安全 DNS（DoH）"), tr("加密域名解析，失败时回退系统 DNS"), p.dohMode > 0) { p.updateDohMode(if (it) 1 else 0) },
         )
     } else {
         listOf(
-            PrivacyItem("去广告", "拦截广告与第三方统计请求，隐藏页面广告元素", AdBlock.enabled) {
+            PrivacyItem(tr("去广告"), tr("拦截广告与第三方统计请求，隐藏页面广告元素"), AdBlock.enabled) {
                 if (it) settings.updatePageEnhancements(true)
                 AdBlock.updateEnabled(it)
             },
-            PrivacyItem("拒绝第三方 Cookie", "减少跨站跟踪；个别「用某某账号登录」可能受影响", settings.cookieMode >= 2) {
+            PrivacyItem(tr("拒绝第三方 Cookie"), tr("减少跨站跟踪；个别「用某某账号登录」可能受影响"), settings.cookieMode >= 2) {
                 if (it) {
                     if (settings.cookieMode < 2) settings.updateCookieMode(2)
                 } else {
                     settings.updateCookieMode(0)
                 }
             },
-            PrivacyItem("发送「请勿追踪」", "向网站发送 Do Not Track 请求头", settings.sendDnt) { settings.updateSendDnt(it) },
-            PrivacyItem("指纹保护", "Canvas / WebGL / 音频 / 字体，让网站难以靠设备特征识别你", AdBlock.fpMaster) {
+            PrivacyItem(tr("发送「请勿追踪」"), tr("向网站发送 Do Not Track 请求头"), settings.sendDnt) { settings.updateSendDnt(it) },
+            PrivacyItem(tr("指纹保护"), tr("Canvas / WebGL / 音频 / 字体，让网站难以靠设备特征识别你"), AdBlock.fpMaster) {
                 AdBlock.setFingerprintMaster(it)
             },
-            PrivacyItem("禁用 WebRTC", "防止真实 IP 泄露；视频通话 / 在线会议将不可用", settings.webrtcDisabled) {
+            PrivacyItem(tr("禁用 WebRTC"), tr("防止真实 IP 泄露；视频通话 / 在线会议将不可用"), settings.webrtcDisabled) {
                 settings.updateWebrtcDisabled(it)
             },
         )
@@ -976,12 +978,12 @@ private fun PrivacyStep(settings: AppSettings, bd: Backdrop?) {
         AppSwitchPreference(
             checked = allOn,
             onCheckedChange = { on -> items.forEach { it.set(on) } },
-            title = "一键开启隐私保护",
-            summary = if (allOn) "已开启全部 ${items.size} 项" else "已开启 $onCount / ${items.size} 项",
+            title = tr("一键开启隐私保护"),
+            summary = if (allOn) tr("已开启全部 {0} 项", items.size) else tr("已开启 {0} / {1} 项", onCount, items.size),
         )
     }
 
-    SectionLabel("包含的保护项 · $edition 版 · " + if (gecko) "Gecko 内核" else "系统 WebView 内核")
+    SectionLabel(tr("包含的保护项 · {0} 版 · ", edition) + if (gecko) tr("Gecko 内核") else tr("系统 WebView 内核"))
     GuideCard(bd) {
         items.forEachIndexed { index, item ->
             if (index > 0) RowDivider()
@@ -995,9 +997,9 @@ private fun PrivacyStep(settings: AppSettings, bd: Backdrop?) {
     }
     HintText(
         if (gecko) {
-            "更多保护（严格模式、强力抗指纹、第一方隔离等）在 设置 → 隐私与安全 → Gecko 高级保护 里。"
+            tr("更多保护（严格模式、强力抗指纹、第一方隔离等）在 设置 → 隐私与安全 → Gecko 高级保护 里。")
         } else {
-            "指纹保护和禁用 WebRTC 可能影响个别网页 / 视频通话，可随时在 设置 → 隐私与安全 里单独调整。"
+            tr("指纹保护和禁用 WebRTC 可能影响个别网页 / 视频通话，可随时在 设置 → 隐私与安全 里单独调整。")
         },
     )
 }
@@ -1028,16 +1030,16 @@ private fun DefaultBrowserStep(bd: Backdrop?) {
 
     GuideCard(bd) {
         InfoRow(
-            title = if (isDefault) "已是默认浏览器" else "还不是默认浏览器",
+            title = if (isDefault) tr("已是默认浏览器") else tr("还不是默认浏览器"),
             summary = if (isDefault) {
-                "其他应用里的网页链接会直接用 Mafari 打开"
+                tr("其他应用里的网页链接会直接用 Mafari 打开")
             } else {
-                "设置后，聊天、邮件等应用里点开的网页链接会直接用 Mafari 打开。不想设置也可以继续，之后在 设置 → 高级 里随时设置。"
+                tr("设置后，聊天、邮件等应用里点开的网页链接会直接用 Mafari 打开。不想设置也可以继续，之后在 设置 → 高级 里随时设置。")
             },
         )
         if (!isDefault) {
             CardButton(
-                text = "设为默认浏览器",
+                text = tr("设为默认浏览器"),
                 onClick = {
                     val ok = runCatching {
                         requestAt = SystemClock.elapsedRealtime()
@@ -1046,7 +1048,7 @@ private fun DefaultBrowserStep(bd: Backdrop?) {
                     if (!ok) {
                         Toast.makeText(
                             context,
-                            "无法打开系统设置，请在 系统设置 → 应用 → 默认应用 里选择 Mafari",
+                            tr("无法打开系统设置，请在 系统设置 → 应用 → 默认应用 里选择 Mafari"),
                             Toast.LENGTH_LONG,
                         ).show()
                     }

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.backup.BackupAuto
 import dev.dsh.miuixbrowser.backup.BackupCategory
 import dev.dsh.miuixbrowser.backup.BackupFormat
@@ -114,13 +116,13 @@ private enum class ExportTarget { FILE, WEBDAV, GIT }
 private fun schemeRows(): List<Pair<String, String>> {
     val suite = CipherSuites.default
     return listOf(
-        "算法套件" to "#${suite.id} · ${suite.shortName}",
-        "密钥封装" to suite.kemDescription,
-        "密钥派生" to suite.kdfDescription,
-        "密钥保护" to "每单元随机 DEK，经 KEK 以 AES-256-GCM 封装",
-        "数据加密" to "AES-256-GCM · 信封 v${Envelope.VERSION}",
-        "口令保护" to "Argon2id（64 MiB · 3 轮）",
-        "文件格式" to ".${BackupFormat.EXTENSION} v${BackupFormat.VERSION} · 每次导出换新密钥对",
+        tr("算法套件") to "#${suite.id} · ${suite.shortName}",
+        tr("密钥封装") to suite.kemDescription,
+        tr("密钥派生") to suite.kdfDescription,
+        tr("密钥保护") to tr("每单元随机 DEK，经 KEK 以 AES-256-GCM 封装"),
+        tr("数据加密") to tr("AES-256-GCM · 信封 v{0}", Envelope.VERSION),
+        tr("口令保护") to tr("Argon2id（64 MiB · 3 轮）"),
+        tr("文件格式") to tr(".{0} v{1} · 每次导出换新密钥对", BackupFormat.EXTENSION, BackupFormat.VERSION),
     )
 }
 
@@ -129,12 +131,12 @@ private fun formatTime(ms: Long): String =
 
 /** 导出 / 上传 / 推送成功后的一行提示。 */
 private fun doneText(context: Context, prefix: String, summary: BackupManager.Summary): String =
-    prefix + "：" + summary.included.joinToString("、") { it.title } + " · " +
+    prefix + "：" + summary.included.joinToString(tr("、")) { it.title } + " · " +
         android.text.format.Formatter.formatFileSize(context, summary.bytes.toLong()) +
-        (if (summary.empty.isNotEmpty()) "\n没有数据，已跳过：" + summary.empty.joinToString("、") { it.title } else "") +
-        (if (summary.skipped > 0) "\n无法解密而跳过 ${summary.skipped} 项" else "")
+        (if (summary.empty.isNotEmpty()) tr("\n没有数据，已跳过：") + summary.empty.joinToString(tr("、")) { it.title } else "") +
+        (if (summary.skipped > 0) tr("\n无法解密而跳过 {0} 项", summary.skipped) else "")
 
-private fun failText(prefix: String, e: Throwable?): String = prefix + "：" + (e?.message ?: "未知错误")
+private fun failText(prefix: String, e: Throwable?): String = tr("{0}：{1}", prefix, e?.message ?: tr("未知错误"))
 
 /** 远端的一份历史备份：WebDAV 为文件，Git 为提交。[id] 交回 download(id) 取回内容；[tag] 是下拉里附带的短标识（Git 的提交号）。 */
 private data class RemoteBackup(val id: String, val time: Long, val tag: String? = null)
@@ -142,7 +144,7 @@ private data class RemoteBackup(val id: String, val time: Long, val tag: String?
 private fun historyLabel(b: RemoteBackup, newest: Boolean): String =
     (if (b.time > 0) formatTime(b.time) else b.id) +
         (b.tag?.let { " · $it" } ?: "") +
-        (if (newest) " · 最新" else "")
+        (if (newest) tr(" · 最新") else "")
 
 /** 弹窗 / sheet 里「已保存配置」的一行。 */
 private data class ProfileRow(val id: String, val title: String, val subtitle: String, val syncAlso: Boolean)
@@ -191,7 +193,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
                         val out = context.contentResolver.openOutputStream(uri, "w")
-                            ?: error("无法写入所选位置")
+                            ?: error(tr("无法写入所选位置"))
                         out.use { BackupManager.export(context, it, password, BackupAuto.effectiveCategories(context)) }
                     }.onFailure {
                         password.fill('\u0000')
@@ -203,7 +205,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 val summary = result.getOrNull()
                 Toast.makeText(
                     context,
-                    if (summary != null) doneText(context, "已导出", summary) else failText("导出失败", result.exceptionOrNull()),
+                    if (summary != null) doneText(context, tr("已导出"), summary) else failText(tr("导出失败"), result.exceptionOrNull()),
                     Toast.LENGTH_LONG,
                 ).show()
             }
@@ -263,8 +265,8 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 val text = withContext(Dispatchers.IO) {
                     runCatching {
                         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readNBytes(32 * 1024 + 1) }
-                            ?: error("无法读取所选文件")
-                        if (bytes.size > 32 * 1024) error("文件过大，不像是私钥")
+                            ?: error(tr("无法读取所选文件"))
+                        if (bytes.size > 32 * 1024) error(tr("文件过大，不像是私钥"))
                         String(bytes, Charsets.UTF_8)
                     }
                 }
@@ -272,7 +274,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 if (got != null) {
                     gitImportedKey = got
                 } else {
-                    Toast.makeText(context, failText("导入失败", text.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, failText(tr("导入失败"), text.exceptionOrNull()), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -283,7 +285,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
 
     /** 先过生物识别（失败可退回锁屏密码），通过才执行 [onOk]。 */
     fun requireAuth(subtitle: String, onOk: () -> Unit) {
-        BiometricGate.authenticate(context, "验证身份", subtitle) { ok -> if (ok) onOk() }
+        BiometricGate.authenticate(context, tr("验证身份"), subtitle) { ok -> if (ok) onOk() }
     }
 
     /** 用 [password] 解密并校验当前待恢复的来源；[fromDefault] 为真时失败会退回手动输入口令。 */
@@ -300,7 +302,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 runCatching {
                     val bytes = remote ?: uri?.let { u ->
                         context.contentResolver.openInputStream(u)?.use { BackupManager.readAll(it) }
-                    } ?: error("无法读取所选文件")
+                    } ?: error(tr("无法读取所选文件"))
                     BackupManager.prepareRestore(context, bytes, password)
                 }.onFailure { password.fill('\u0000') }
             }
@@ -312,12 +314,12 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 restoreSelected = plan.defaultSelection
                 restorePlan = plan
             } else if (fromDefault) {
-                Toast.makeText(context, failText("默认口令未能解密", result.exceptionOrNull()) + "，请手动输入口令", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, failText(tr("默认口令未能解密"), result.exceptionOrNull()) + tr("，请手动输入口令"), Toast.LENGTH_LONG).show()
                 showRestorePassword = true
             } else {
                 restoreUri = null
                 restoreBytes = null
-                Toast.makeText(context, failText("无法恢复", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                Toast.makeText(context, failText(tr("无法恢复"), result.exceptionOrNull()), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -343,10 +345,10 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
     fun openHistory(target: ExportTarget) {
         val dav = webdavConfig
         val git = gitConfig
-        requireAuth(if (target == ExportTarget.GIT) "从仓库恢复备份" else "从服务器恢复备份") {
+        requireAuth(if (target == ExportTarget.GIT) tr("从仓库恢复备份") else tr("从服务器恢复备份")) {
             exportTarget = ExportTarget.FILE
             historySource = target
-            setRemoteTask(target, "正在获取历史备份…")
+            setRemoteTask(target, tr("正在获取历史备份…"))
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
@@ -360,8 +362,8 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 setRemoteTask(target, null)
                 val list = result.getOrNull()
                 when {
-                    list == null -> Toast.makeText(context, failText("获取失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
-                    list.isEmpty() -> Toast.makeText(context, "还没有可恢复的备份", Toast.LENGTH_SHORT).show()
+                    list == null -> Toast.makeText(context, failText(tr("获取失败"), result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                    list.isEmpty() -> Toast.makeText(context, tr("还没有可恢复的备份"), Toast.LENGTH_SHORT).show()
                     else -> {
                         historyItems = list.sortedByDescending { it.time }
                         historyIndex = 0
@@ -378,7 +380,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
         val dav = webdavConfig
         val git = gitConfig
         showHistory = false
-        setRemoteTask(target, "正在下载所选备份…")
+        setRemoteTask(target, tr("正在下载所选备份…"))
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
@@ -389,7 +391,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
             setRemoteTask(target, null)
             val bytes = result.getOrNull()
             if (bytes != null) beginRestore(null, bytes)
-            else Toast.makeText(context, failText("下载失败", result.exceptionOrNull()), Toast.LENGTH_LONG).show()
+            else Toast.makeText(context, failText(tr("下载失败"), result.exceptionOrNull()), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -408,7 +410,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
             if (git == null) {
                 password.fill('\u0000')
             } else {
-                gitTask = "加密推送中"
+                gitTask = tr("加密推送中")
                 scope.launch {
                     val result = withContext(Dispatchers.IO) {
                         runCatching {
@@ -426,7 +428,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                     }
                     Toast.makeText(
                         context,
-                        if (summary != null) doneText(context, "已推送", summary) else failText("推送失败", result.exceptionOrNull()),
+                        if (summary != null) doneText(context, tr("已推送"), summary) else failText(tr("推送失败"), result.exceptionOrNull()),
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -434,7 +436,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
         } else if (cfg == null) {
             password.fill('\u0000')
         } else {
-            webdavTask = "加密上传中"
+            webdavTask = tr("加密上传中")
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
@@ -452,7 +454,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 }
                 Toast.makeText(
                     context,
-                    if (summary != null) doneText(context, "已上传", summary) else failText("上传失败", result.exceptionOrNull()),
+                    if (summary != null) doneText(context, tr("已上传"), summary) else failText(tr("上传失败"), result.exceptionOrNull()),
                     Toast.LENGTH_LONG,
                 ).show()
             }
@@ -472,7 +474,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "备份与同步",
+                    title = tr("备份与同步"),
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,
@@ -491,7 +493,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 onDismiss = { showLockInfo = false },
                 backdrop = backdrop,
                 liquid = liquid,
-                scope = "备份文件：Argon2id 口令 + 套件加密；同步凭据：套件加密",
+                scope = tr("备份文件：Argon2id 口令 + 套件加密；同步凭据：套件加密"),
             )
             Column(
                 modifier = Modifier
@@ -510,7 +512,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 ) {
                     // ———— Firefox同步（置顶）————
                     if (EngineSupport.SYNC_BUNDLED) {
-                        item { SmallTitle(text = "Firefox同步") }
+                        item { SmallTitle(text = tr("Firefox同步")) }
                         item {
                             Card(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -518,11 +520,11 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             ) {
                                 val fxa = FxaSync.ui
                                 ArrowPreference(
-                                    title = "Firefox帐户同步",
+                                    title = tr("Firefox帐户同步"),
                                     summary = when (fxa) {
-                                        is FxaUi.SignedIn -> "已登录" + fxa.email.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                                        is FxaUi.NeedsReauth -> "登录已失效，点击重新登录"
-                                        else -> "登录Mozilla账号，同步您的Firefox数据"
+                                        is FxaUi.SignedIn -> tr("已登录") + fxa.email.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                                        is FxaUi.NeedsReauth -> tr("登录已失效，点击重新登录")
+                                        else -> tr("登录Mozilla账号，同步您的Firefox数据")
                                     },
                                     onClick = onOpenFxa,
                                 )
@@ -530,18 +532,18 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         }
                     }
                     // ———— 口令与备份配置：默认加密口令 + 自动推送同步 + 备份内容 ————
-                    item { SmallTitle(text = "口令与备份配置") }
+                    item { SmallTitle(text = tr("口令与备份配置")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                             insideMargin = PaddingValues(0.dp),
                         ) {
                             ArrowPreference(
-                                title = "默认加密口令",
-                                summary = if (defaultPwSet) "已设置，备份时不再询问" else "未设置，每次备份都要输入",
+                                title = tr("默认加密口令"),
+                                summary = if (defaultPwSet) tr("已设置，备份时不再询问") else tr("未设置，每次备份都要输入"),
                                 enabled = !working,
                                 onClick = {
-                                    requireAuth("查看 / 修改默认口令") {
+                                    requireAuth(tr("查看 / 修改默认口令")) {
                                         defaultPwInitial = BackupAuto.password(context).orEmpty()
                                         showDefaultPw = true
                                     }
@@ -549,8 +551,8 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             )
                             AppDropdownPreference(
                                 backdrop = sheetBackdrop,
-                                title = "自动推送同步",
-                                summary = if (autoPushReady) null else "需先设默认口令并配置云同步",
+                                title = tr("自动推送同步"),
+                                summary = if (autoPushReady) null else tr("需先设默认口令并配置云同步"),
                                 items = BackupAuto.INTERVAL_LABELS,
                                 selectedIndex = autoMode.coerceIn(0, 3),
                                 onSelectedIndexChange = {
@@ -561,21 +563,21 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             )
                             // 备份内容：一行入口，点开弹窗启停各类内容（所有备份方式共用）
                             ArrowPreference(
-                                title = "备份内容",
+                                title = tr("备份内容"),
                                 summary = if (hasContent) {
-                                    "已选 ${effectiveCategories.size} / ${BackupCategory.entries.size} 类"
+                                    tr("已选 {0} / {1} 类", effectiveCategories.size, BackupCategory.entries.size)
                                 } else {
-                                    "未选择，选择后才能备份"
+                                    tr("未选择，选择后才能备份")
                                 },
                                 enabled = !working,
                                 onClick = { showCategoryDialog = true },
                             )
                         }
                     }
-                    item { Note("启动应用时按间隔执行，备份「备份内容」里选中的类别，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。") }
+                    item { Note(tr("启动应用时按间隔执行，备份「备份内容」里选中的类别，推送到当前连接的 WebDAV / Git，以及列表里开启「一并同步」的其他项。")) }
 
                     // ———— 云同步：WebDAV / Git 左右切换 ————
-                    item { SmallTitle(text = "WebDAV/Git同步") }
+                    item { SmallTitle(text = tr("WebDAV/Git同步")) }
                     // WebDAV / Git 分栏：在卡片外、标题正下方
                     item {
                         GlassTabRow(
@@ -606,8 +608,8 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                                     val task = webdavTask
                                     Column {
                                         ArrowPreference(
-                                            title = "服务器",
-                                            summary = cfg?.let { WebDavNames.hostLabel(it.url) } ?: "未配置，点击添加",
+                                            title = tr("服务器"),
+                                            summary = cfg?.let { WebDavNames.hostLabel(it.url) } ?: tr("未配置，点击添加"),
                                             enabled = !working,
                                             onClick = {
                                                 webdavConfigError = null
@@ -625,13 +627,13 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                                             status = when {
                                                 task != null && exportTarget != ExportTarget.WEBDAV -> task
                                                 cfg == null -> null
-                                                lastUpload > 0 -> "上次上传 " + formatTime(lastUpload)
-                                                else -> "尚未上传"
+                                                lastUpload > 0 -> tr("上次上传 ") + formatTime(lastUpload)
+                                                else -> tr("尚未上传")
                                             },
-                                            primary = if (task != null && exportTarget == ExportTarget.WEBDAV) task else "上传备份",
+                                            primary = if (task != null && exportTarget == ExportTarget.WEBDAV) task else tr("上传备份"),
                                             primaryEnabled = cfg != null && !working && hasContent,
                                             onPrimary = { startExport(ExportTarget.WEBDAV) },
-                                            secondary = "从服务器恢复",
+                                            secondary = tr("从服务器恢复"),
                                             secondaryEnabled = cfg != null && !working,
                                             onSecondary = { openHistory(ExportTarget.WEBDAV) },
                                         )
@@ -641,8 +643,8 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                                     val task = gitTask
                                     Column {
                                         ArrowPreference(
-                                            title = "仓库",
-                                            summary = cfg?.let { GitNames.repoLabel(it.url) + if (it.useSsh) " · Deploy key" else "" } ?: "未配置，点击添加",
+                                            title = tr("仓库"),
+                                            summary = cfg?.let { GitNames.repoLabel(it.url) + if (it.useSsh) " · Deploy key" else "" } ?: tr("未配置，点击添加"),
                                             enabled = !working,
                                             onClick = {
                                                 gitConfigError = null
@@ -660,13 +662,13 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                                             status = when {
                                                 task != null && exportTarget != ExportTarget.GIT -> task
                                                 cfg == null -> null
-                                                lastPush > 0 -> "上次推送 " + formatTime(lastPush)
-                                                else -> "尚未推送"
+                                                lastPush > 0 -> tr("上次推送 ") + formatTime(lastPush)
+                                                else -> tr("尚未推送")
                                             },
-                                            primary = if (task != null && exportTarget == ExportTarget.GIT) task else "推送备份",
+                                            primary = if (task != null && exportTarget == ExportTarget.GIT) task else tr("推送备份"),
                                             primaryEnabled = cfg != null && !working && hasContent,
                                             onPrimary = { startExport(ExportTarget.GIT) },
-                                            secondary = "从仓库恢复",
+                                            secondary = tr("从仓库恢复"),
                                             secondaryEnabled = cfg != null && !working,
                                             onSecondary = { openHistory(ExportTarget.GIT) },
                                         )
@@ -678,14 +680,14 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                     }
                     item {
                         if (syncTab == TAB_WEBDAV) {
-                            Note("存于服务器 ${WebDavNames.REMOTE_DIR} 文件夹，保留最近 ${WebDavNames.KEEP_BACKUPS} 份；账号加密存本机。")
+                            Note(tr("存于服务器 {0} 文件夹，保留最近 {1} 份；账号加密存本机。", WebDavNames.REMOTE_DIR, WebDavNames.KEEP_BACKUPS))
                         } else {
-                            Note("仅保留最近 ${GitNames.HISTORY_KEEP} 个提交，旧的会强制推送裁掉；建议私有仓库。")
+                            Note(tr("仅保留最近 {0} 个提交，旧的会强制推送裁掉；建议私有仓库。", GitNames.HISTORY_KEEP))
                         }
                     }
 
                     // ———— 本地备份与恢复 ————
-                    item { SmallTitle(text = "本地备份与恢复") }
+                    item { SmallTitle(text = tr("本地备份与恢复")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -694,23 +696,23 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             // 两行文字条目（不再是并排的两个按钮）
                             Column {
                                 ArrowPreference(
-                                    title = "导出备份",
-                                    summary = if (busy) "正在加密并导出…" else "加密后保存为 .${BackupFormat.EXTENSION} 文件",
+                                    title = tr("导出备份"),
+                                    summary = if (busy) tr("正在加密并导出…") else tr("加密后保存为 .{0} 文件", BackupFormat.EXTENSION),
                                     enabled = !working && hasContent,
                                     onClick = { startExport(ExportTarget.FILE) },
                                 )
                                 ArrowPreference(
-                                    title = "从文件恢复",
-                                    summary = if (restoring) "正在解密并校验…" else "选择备份文件，解密后恢复",
+                                    title = tr("从文件恢复"),
+                                    summary = if (restoring) tr("正在解密并校验…") else tr("选择备份文件，解密后恢复"),
                                     enabled = !working,
-                                    onClick = { requireAuth("从本地备份文件恢复") { openLauncher.launch(arrayOf("*/*")) } },
+                                    onClick = { requireAuth(tr("从本地备份文件恢复")) { openLauncher.launch(arrayOf("*/*")) } },
                                 )
                             }
                         }
                     }
-                    item { Note("恢复只覆盖备份里有的内容，恢复前可再勾选；完成后自动重启。") }
+                    item { Note(tr("恢复只覆盖备份里有的内容，恢复前可再勾选；完成后自动重启。")) }
 
-                    item { SmallTitle(text = "加密方案") }
+                    item { SmallTitle(text = tr("加密方案")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -736,7 +738,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             }
                         }
                     }
-                    item { Note("口令不会保存，忘记后无法解密。") }
+                    item { Note(tr("口令不会保存，忘记后无法解密。")) }
                 }
             }
 
@@ -755,14 +757,14 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
 
             ServerSheet(
                 show = showWebDavSheet,
-                title = "WebDAV 服务器",
-                addTitle = "添加新配置",
-                addSummary = "连接另一台 WebDAV 服务器",
+                title = tr("WebDAV 服务器"),
+                addTitle = tr("添加新配置"),
+                addSummary = tr("连接另一台 WebDAV 服务器"),
                 rows = webdavProfiles.map {
                     ProfileRow(
                         it.id,
                         WebDavNames.hostLabel(it.config.url),
-                        it.config.username.ifEmpty { "匿名" },
+                        it.config.username.ifEmpty { tr("匿名") },
                         it.syncAlso,
                     )
                 },
@@ -797,15 +799,15 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
 
             ServerSheet(
                 show = showGitSheet,
-                title = "Git 仓库",
-                addTitle = "添加新配置",
-                addSummary = "连接另一个 Git 仓库",
+                title = tr("Git 仓库"),
+                addTitle = tr("添加新配置"),
+                addSummary = tr("连接另一个 Git 仓库"),
                 rows = gitProfiles.map {
                     ProfileRow(
                         it.id,
                         GitNames.repoLabel(it.config.url),
-                        (if (it.config.useSsh) "Deploy key" else "令牌") +
-                            " · " + it.config.branch.ifEmpty { "默认分支" },
+                        (if (it.config.useSsh) "Deploy key" else tr("令牌")) +
+                            " · " + it.config.branch.ifEmpty { tr("默认分支") },
                         it.syncAlso,
                     )
                 },
@@ -853,9 +855,9 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         defaultPwSet = true
                         showDefaultPw = false
                         defaultPwInitial = ""
-                        Toast.makeText(context, "默认口令已保存", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, tr("默认口令已保存"), Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, failText("保存失败", r.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, failText(tr("保存失败"), r.exceptionOrNull()), Toast.LENGTH_LONG).show()
                     }
                 },
                 onClear = {
@@ -872,9 +874,9 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 backdrop = sheetBackdrop,
                 onDismiss = { showPasswordDialog = false },
                 confirmText = when (exportTarget) {
-                    ExportTarget.FILE -> "导出"
-                    ExportTarget.WEBDAV -> "上传"
-                    ExportTarget.GIT -> "推送"
+                    ExportTarget.FILE -> tr("导出")
+                    ExportTarget.WEBDAV -> tr("上传")
+                    ExportTarget.GIT -> tr("推送")
                 },
                 onConfirm = { password ->
                     showPasswordDialog = false
@@ -911,9 +913,9 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         if (result.isSuccess) {
                             reloadGit()
                             showGitConfig = false
-                            Toast.makeText(context, "仓库已连接并保存", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, tr("仓库已连接并保存"), Toast.LENGTH_SHORT).show()
                         } else {
-                            gitConfigError = result.exceptionOrNull()?.message ?: "未知错误"
+                            gitConfigError = result.exceptionOrNull()?.message ?: tr("未知错误")
                         }
                     }
                 },
@@ -951,9 +953,9 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                         if (result.isSuccess) {
                             reloadWebDav()
                             showWebDavConfig = false
-                            Toast.makeText(context, "服务器已连接并保存", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, tr("服务器已连接并保存"), Toast.LENGTH_SHORT).show()
                         } else {
-                            webdavConfigError = result.exceptionOrNull()?.message ?: "未知错误"
+                            webdavConfigError = result.exceptionOrNull()?.message ?: tr("未知错误")
                         }
                     }
                 },
@@ -967,7 +969,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
 
             HistoryPickerDialog(
                 show = showHistory,
-                summary = if (historySource == ExportTarget.GIT) "仓库里的历史提交" else "服务器上的历史备份",
+                summary = if (historySource == ExportTarget.GIT) tr("仓库里的历史提交") else tr("服务器上的历史备份"),
                 items = historyItems.map { historyLabel(it, it === historyItems.firstOrNull()) },
                 selectedIndex = historyIndex,
                 onSelect = { historyIndex = it },
@@ -1004,7 +1006,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                     scope.launch {
                         val result = withContext(Dispatchers.IO) { runCatching { BackupManager.applyRestore(context, p, restoreSelected) } }
                         if (result.isSuccess) {
-                            Toast.makeText(context, "恢复完成，正在重启…", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, tr("恢复完成，正在重启…"), Toast.LENGTH_SHORT).show()
                             delay(600)
                             BackupManager.restartApp(context)
                         } else {
@@ -1012,7 +1014,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                             restorePlan = null
                             Toast.makeText(
                                 context,
-                                failText("恢复失败", result.exceptionOrNull()) + "，建议重启后检查数据",
+                                failText(tr("恢复失败"), result.exceptionOrNull()) + tr("，建议重启后检查数据"),
                                 Toast.LENGTH_LONG,
                             ).show()
                         }
@@ -1110,7 +1112,7 @@ private fun ServerSheet(
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
             if (rows.isNotEmpty()) {
-                SheetLabel("已连接")
+                SheetLabel(tr("已连接"))
                 rows.forEach { row ->
                     val active = row.id == activeId
                     SheetRow(
@@ -1134,7 +1136,7 @@ private fun ServerSheet(
                             ) {
                                 if (active) {
                                     Text(
-                                        text = "当前",
+                                        text = tr("当前"),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = MiuixTheme.colorScheme.primary,
@@ -1148,7 +1150,7 @@ private fun ServerSheet(
                                         AppSwitch(checked = row.syncAlso, onCheckedChange = { onToggleSync(row.id, it) })
                                         Spacer(Modifier.height(2.dp))
                                         Text(
-                                            text = "一并同步",
+                                            text = tr("一并同步"),
                                             fontSize = 11.sp,
                                             maxLines = 1,
                                             softWrap = false,
@@ -1156,7 +1158,7 @@ private fun ServerSheet(
                                         )
                                     }
                                     Text(
-                                        text = "使用",
+                                        text = tr("使用"),
                                         fontSize = 13.sp,
                                         color = MiuixTheme.colorScheme.primary,
                                         maxLines = 1,
@@ -1171,9 +1173,9 @@ private fun ServerSheet(
                         },
                     )
                 }
-                Note("自动推送时，除当前连接的以外，开启「一并同步」的也会同步。", horizontal = 4.dp)
+                Note(tr("自动推送时，除当前连接的以外，开启「一并同步」的也会同步。"), horizontal = 4.dp)
             }
-            SheetLabel("新增")
+            SheetLabel(tr("新增"))
             SheetRow(title = addTitle, summary = addSummary, onClick = onAdd)
         }
     }
@@ -1215,7 +1217,7 @@ private fun DialogActions(
     confirmRole: GlassDialogButtonRole = GlassDialogButtonRole.Primary,
     onDelete: (() -> Unit)? = null,
     deleteEnabled: Boolean = true,
-    deleteText: String = "删除此配置",
+    deleteText: String = tr("删除此配置"),
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -1223,7 +1225,7 @@ private fun DialogActions(
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             AppDialogButton(onClick = onCancel, enabled = cancelEnabled, modifier = Modifier.weight(1f)) {
-                Text(text = "取消", style = MiuixTheme.textStyles.button)
+                Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
             }
             AppDialogButton(
                 onClick = onConfirm,
@@ -1260,9 +1262,9 @@ private fun CategoryDialog(
 ) {
     AppGlassDialog(
         show = show,
-        title = "备份内容",
-        summary = "所有备份方式共用，改动立即生效" +
-            if (BackupCategory.COOKIES in selected || BackupCategory.PASSWORDS in selected || BackupCategory.FXA in selected) "\n密码、Cookie 和 Firefox 帐户登录状态含登录凭据，请妥善保管备份文件与口令。" else "",
+        title = tr("备份内容"),
+        summary = tr("所有备份方式共用，改动立即生效") +
+            if (BackupCategory.COOKIES in selected || BackupCategory.PASSWORDS in selected || BackupCategory.FXA in selected) tr("\n密码、Cookie 和 Firefox 帐户登录状态含登录凭据，请妥善保管备份文件与口令。") else "",
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1288,7 +1290,7 @@ private fun CategoryDialog(
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "完成", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("完成"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -1309,7 +1311,7 @@ private fun HistoryPickerDialog(
 ) {
     AppGlassDialog(
         show = show,
-        title = "选择要恢复的备份",
+        title = tr("选择要恢复的备份"),
         summary = summary,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
@@ -1317,7 +1319,7 @@ private fun HistoryPickerDialog(
         Column(modifier = Modifier.fillMaxWidth()) {
             AppDropdownPreference(
                 backdrop = backdrop,
-                title = "历史备份",
+                title = tr("历史备份"),
                 items = items,
                 selectedIndex = selectedIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0)),
                 onSelectedIndexChange = onSelect,
@@ -1325,7 +1327,7 @@ private fun HistoryPickerDialog(
                 insideMargin = PaddingValues(vertical = 12.dp),
             )
             DialogActions(
-                confirmText = "恢复此份",
+                confirmText = tr("恢复此份"),
                 confirmEnabled = items.isNotEmpty(),
                 onConfirm = onConfirm,
                 onCancel = onDismiss,
@@ -1350,8 +1352,8 @@ private fun PasswordDialog(
 
     AppGlassDialog(
         show = show,
-        title = "设置备份口令",
-        summary = "仅用于加密，忘记后无法找回",
+        title = tr("设置备份口令"),
+        summary = tr("仅用于加密，忘记后无法找回"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1361,7 +1363,7 @@ private fun PasswordDialog(
                     value = password,
                     onValueChange = { password = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "口令（至少 $MIN_PASSWORD_LEN 位）",
+                    label = tr("口令（至少 {0} 位）", MIN_PASSWORD_LEN),
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -1370,13 +1372,13 @@ private fun PasswordDialog(
                     value = confirm,
                     onValueChange = { confirm = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "再次输入",
+                    label = tr("再次输入"),
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
             }
-            FieldHint(if (tooShort) "口令至少 $MIN_PASSWORD_LEN 位" else if (mismatch) "两次输入不一致" else null)
+            FieldHint(if (tooShort) tr("口令至少 {0} 位", MIN_PASSWORD_LEN) else if (mismatch) tr("两次输入不一致") else null)
             DialogActions(
                 confirmText = confirmText,
                 confirmEnabled = valid,
@@ -1408,8 +1410,8 @@ internal fun DefaultPasswordDialog(
 
     AppGlassDialog(
         show = show,
-        title = "默认加密口令",
-        summary = if (isSet) "输入新口令可替换；加密存本机，忘记后无法找回备份" else "加密存本机，忘记后无法找回备份",
+        title = tr("默认加密口令"),
+        summary = if (isSet) tr("输入新口令可替换；加密存本机，忘记后无法找回备份") else tr("加密存本机，忘记后无法找回备份"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1419,7 +1421,7 @@ internal fun DefaultPasswordDialog(
                     value = password,
                     onValueChange = { password = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "口令（至少 $MIN_PASSWORD_LEN 位）",
+                    label = tr("口令（至少 {0} 位）", MIN_PASSWORD_LEN),
                     singleLine = true,
                     visualTransformation = transform,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -1428,13 +1430,13 @@ internal fun DefaultPasswordDialog(
                     value = confirm,
                     onValueChange = { confirm = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "再次输入",
+                    label = tr("再次输入"),
                     singleLine = true,
                     visualTransformation = transform,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
                 Text(
-                    text = if (visible) "隐藏口令" else "显示口令",
+                    text = if (visible) tr("隐藏口令") else tr("显示口令"),
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier
@@ -1443,14 +1445,14 @@ internal fun DefaultPasswordDialog(
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                 )
             }
-            FieldHint(if (tooShort) "口令至少 $MIN_PASSWORD_LEN 位" else if (mismatch) "两次输入不一致" else null)
+            FieldHint(if (tooShort) tr("口令至少 {0} 位", MIN_PASSWORD_LEN) else if (mismatch) tr("两次输入不一致") else null)
             DialogActions(
-                confirmText = "保存",
+                confirmText = tr("保存"),
                 confirmEnabled = valid,
                 onConfirm = { onSave(password) },
                 onCancel = onDismiss,
                 onDelete = if (isSet) onClear else null,
-                deleteText = "清除默认口令",
+                deleteText = tr("清除默认口令"),
             )
         }
     }
@@ -1467,8 +1469,8 @@ private fun RestorePasswordDialog(
 
     AppGlassDialog(
         show = show,
-        title = "输入备份口令",
-        summary = "导出这份备份时设置的口令",
+        title = tr("输入备份口令"),
+        summary = tr("导出这份备份时设置的口令"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1477,13 +1479,13 @@ private fun RestorePasswordDialog(
                 value = password,
                 onValueChange = { password = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "口令",
+                label = tr("口令"),
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
             DialogActions(
-                confirmText = "解密",
+                confirmText = tr("解密"),
                 confirmEnabled = password.isNotEmpty(),
                 onConfirm = { onConfirm(password.toCharArray()) },
                 onCancel = onDismiss,
@@ -1519,19 +1521,19 @@ private fun RestoreConfirmDialog(
     val cookieCrossNote = plan?.cookieEngine
         ?.takeIf { BackupCategory.COOKIES in selected && it != BackupManager.currentCookieEngine(appContext) }
         ?.let {
-            "Cookie 来自 ${cookieEngineLabel(it)} 内核，将恢复到当前的 ${cookieEngineLabel(BackupManager.currentCookieEngine(appContext))} 内核；" +
-                "SameSite 等细节两个内核处理略有差别，个别站点可能需要重新登录。"
+            tr("Cookie 来自 {0} 内核，将恢复到当前的 {1} 内核；", cookieEngineLabel(it), cookieEngineLabel(BackupManager.currentCookieEngine(appContext))) +
+                tr("SameSite 等细节两个内核处理略有差别，个别站点可能需要重新登录。")
         }
     AppGlassDialog(
         show = show,
-        title = "恢复这份备份？",
+        title = tr("恢复这份备份？"),
         summary = summary,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = "备份里有以下内容，勾选的会覆盖当前对应的数据；没有勾选 / 备份里没有的保持原样。",
+                text = tr("备份里有以下内容，勾选的会覆盖当前对应的数据；没有勾选 / 备份里没有的保持原样。"),
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(bottom = 4.dp),
@@ -1549,9 +1551,9 @@ private fun RestoreConfirmDialog(
                         onCheckedChange = { onToggle(cat, it) },
                         title = cat.title,
                         summary = when {
-                            unavailable -> "本机不支持，无法恢复"
-                            cat == BackupCategory.PASSWORDS -> "与本机合并，不删除本机已有的密码"
-                            cat == BackupCategory.FXA -> "覆盖本机的 Firefox 帐户登录状态；原设备若还在用，两台会共用同一设备身份"
+                            unavailable -> tr("本机不支持，无法恢复")
+                            cat == BackupCategory.PASSWORDS -> tr("与本机合并，不删除本机已有的密码")
+                            cat == BackupCategory.FXA -> tr("覆盖本机的 Firefox 帐户登录状态；原设备若还在用，两台会共用同一设备身份")
                             else -> cat.summary
                         },
                         enabled = !unavailable,
@@ -1567,13 +1569,13 @@ private fun RestoreConfirmDialog(
                 )
             }
             Text(
-                text = "覆盖后无法撤销，完成后自动重启。",
+                text = tr("覆盖后无法撤销，完成后自动重启。"),
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(top = 8.dp),
             )
             DialogActions(
-                confirmText = if (chosen.isEmpty()) "恢复并重启" else "恢复 ${chosen.size} 项并重启",
+                confirmText = if (chosen.isEmpty()) tr("恢复并重启") else tr("恢复 {0} 项并重启", chosen.size),
                 confirmEnabled = chosen.isNotEmpty(),
                 onConfirm = onConfirm,
                 onCancel = onDismiss,
@@ -1644,8 +1646,8 @@ private fun WebDavConfigDialog(
 
     AppGlassDialog(
         show = show,
-        title = if (initial != null) "编辑服务器" else "添加服务器",
-        summary = "备份存于 ${WebDavNames.REMOTE_DIR} 文件夹，密码加密存本机",
+        title = if (initial != null) tr("编辑服务器") else tr("添加服务器"),
+        summary = tr("备份存于 {0} 文件夹，密码加密存本机", WebDavNames.REMOTE_DIR),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1655,7 +1657,7 @@ private fun WebDavConfigDialog(
                     value = url,
                     onValueChange = { url = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "服务器地址（https://…）",
+                    label = tr("服务器地址（https://…）"),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
@@ -1663,24 +1665,24 @@ private fun WebDavConfigDialog(
                     value = user,
                     onValueChange = { user = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "用户名",
+                    label = tr("用户名"),
                     singleLine = true,
                 )
                 TextField(
                     value = pass,
                     onValueChange = { pass = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "密码",
+                    label = tr("密码"),
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 )
             }
             FieldHint(
-                error ?: if (url.isNotBlank() && normalized == null) "地址需以 http:// 或 https:// 开头" else null,
+                error ?: if (url.isNotBlank() && normalized == null) tr("地址需以 http:// 或 https:// 开头") else null,
             )
             DialogActions(
-                confirmText = if (testing) "连接中…" else "测试并保存",
+                confirmText = if (testing) tr("连接中…") else tr("测试并保存"),
                 confirmEnabled = normalized != null && !testing,
                 onConfirm = { normalized?.let { onSave(WebDavConfig(it, user.trim(), pass)) } },
                 onCancel = onDismiss,
@@ -1729,14 +1731,14 @@ private fun GitConfigDialog(
 
     AppGlassDialog(
         show = show,
-        title = if (initial != null) "编辑仓库" else "添加仓库",
-        summary = if (useKey) "Deploy key 需写权限，加密存本机" else "令牌填在下方，勿写进地址",
+        title = if (initial != null) tr("编辑仓库") else tr("添加仓库"),
+        summary = if (useKey) tr("Deploy key 需写权限，加密存本机") else tr("令牌填在下方，勿写进地址"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             GlassTabRow(
-                tabs = listOf("令牌", "Deploy key"),
+                tabs = listOf(tr("令牌"), "Deploy key"),
                 selectedIndex = if (useKey) 1 else 0,
                 onSelect = { if (!testing) useKey = it == 1 },
                 backdrop = null,
@@ -1747,7 +1749,7 @@ private fun GitConfigDialog(
                     value = url,
                     onValueChange = { url = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = if (useKey) "仓库地址（git@主机:用户/仓库.git）" else "仓库地址（https://…）",
+                    label = if (useKey) tr("仓库地址（git@主机:用户/仓库.git）") else tr("仓库地址（https://…）"),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
@@ -1756,7 +1758,7 @@ private fun GitConfigDialog(
                         value = key,
                         onValueChange = { key = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "私钥（粘贴 -----BEGIN … 全文）",
+                        label = tr("私钥（粘贴 -----BEGIN … 全文）"),
                         minLines = 2,
                         maxLines = 3,
                         visualTransformation = PasswordVisualTransformation(),
@@ -1766,13 +1768,13 @@ private fun GitConfigDialog(
                         enabled = !testing,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(text = "从文件导入私钥", style = MiuixTheme.textStyles.button)
+                        Text(text = tr("从文件导入私钥"), style = MiuixTheme.textStyles.button)
                     }
                     TextField(
                         value = keyPass,
                         onValueChange = { keyPass = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "私钥口令（没有则留空）",
+                        label = tr("私钥口令（没有则留空）"),
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -1782,14 +1784,14 @@ private fun GitConfigDialog(
                         value = user,
                         onValueChange = { user = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "用户名（可选）",
+                        label = tr("用户名（可选）"),
                         singleLine = true,
                     )
                     TextField(
                         value = token,
                         onValueChange = { token = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = "访问令牌 / 密码",
+                        label = tr("访问令牌 / 密码"),
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -1799,7 +1801,7 @@ private fun GitConfigDialog(
                     value = branch,
                     onValueChange = { branch = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "分支（留空用默认）",
+                    label = tr("分支（留空用默认）"),
                     singleLine = true,
                 )
             }
@@ -1807,14 +1809,14 @@ private fun GitConfigDialog(
                 when {
                     error != null -> error
                     url.isNotBlank() && normalizedUrl == null ->
-                        if (useKey) "SSH 地址形如 git@主机:用户/仓库.git" else "地址需为 http(s)://主机/路径，且不含账号密码"
-                    useKey && key.isNotBlank() && normalizedKey == null -> "私钥格式不对：需要 OpenSSH / PEM 文本"
-                    normalizedBranch == null -> "分支名不合法"
+                        if (useKey) tr("SSH 地址形如 git@主机:用户/仓库.git") else tr("地址需为 http(s)://主机/路径，且不含账号密码")
+                    useKey && key.isNotBlank() && normalizedKey == null -> tr("私钥格式不对：需要 OpenSSH / PEM 文本")
+                    normalizedBranch == null -> tr("分支名不合法")
                     else -> null
                 },
             )
             DialogActions(
-                confirmText = if (testing) "连接中…" else "测试并保存",
+                confirmText = if (testing) tr("连接中…") else tr("测试并保存"),
                 confirmEnabled = valid && !testing,
                 onConfirm = {
                     if (normalizedUrl != null && normalizedBranch != null) {

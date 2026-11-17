@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.sync.fxa
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.data.AppDatabase
 import dev.dsh.miuixbrowser.data.FavoritesStore
 import dev.dsh.miuixbrowser.data.PasswordDb
@@ -50,7 +52,7 @@ internal object FxaSync {
         private set
 
     /** 自动同步间隔（帐户页「自动同步」）。0 = 手动。应用在前台 / 进程存活期间按间隔检查，到点就同步。 */
-    val AUTO_LABELS = listOf("手动", "1 小时", "6 小时", "12 小时", "每天", "每周")
+    val AUTO_LABELS = listOf(tr("手动"), tr("1 小时"), tr("6 小时"), tr("12 小时"), tr("每天"), tr("每周"))
     private val AUTO_HOURS = longArrayOf(0, 1, 6, 12, 24, 168)
     private const val PREFS = "mafari_fxa_sync"
     private const val K_AUTO = "auto_mode"
@@ -90,7 +92,7 @@ internal object FxaSync {
     fun dismissReceived(t: Incoming) { receivedTabs = receivedTabs - t }
 
     /** 「已同步的内容」页的分类。 */
-    enum class Category(val label: String) { Bookmarks("书签"), History("历史记录"), Tabs("其他设备的标签页"), Passwords("密码") }
+    enum class Category(val label: String) { Bookmarks(tr("书签")), History(tr("历史记录")), Tabs(tr("其他设备的标签页")), Passwords(tr("密码")) }
 
     /** [title] 主文字；[summary] 次级文字（密码只给用户名，绝不含密码）；[url] 非 null 时可点开。 */
     class SyncedItem(val title: String, val summary: String?, val url: String?)
@@ -184,8 +186,8 @@ internal object FxaSync {
         }
         if (url == null) {
             ui = FxaUi.SignedOut
-            val reason = initError ?: error ?: FxaApi.httpInitError?.let { "网络组件初始化失败：$it" } ?: initError
-            lastMessage = "无法获取登录地址" + (reason?.let { "：$it" } ?: "，请检查网络后重试")
+            val reason = initError ?: error ?: FxaApi.httpInitError?.let { tr("网络组件初始化失败：{0}", it) } ?: initError
+            lastMessage = tr("无法获取登录地址") + (reason?.let { tr("：{0}", it) } ?: tr("，请检查网络后重试"))
         }
         return url
     }
@@ -206,7 +208,7 @@ internal object FxaSync {
         handledState = state
         scope.launch {
             runCatching { FxaApi.finishLogin(code, state) }
-                .onFailure { lastMessage = "登录失败：${it.message}"; ui = FxaUi.SignedOut }
+                .onFailure { lastMessage = tr("登录失败：{0}", it.message); ui = FxaUi.SignedOut }
         }
         android.os.Handler(android.os.Looper.getMainLooper()).post { onRedirectHandled?.invoke() }
         return true
@@ -235,14 +237,14 @@ internal object FxaSync {
      * 为了不依赖库里「只同步某个引擎」的接口签名，这里同步的是全部类别，文案只汇报密码。
      */
     suspend fun syncAndReport(): String {
-        if (ui !is FxaUi.SignedIn) return "未登录"
-        if (syncing) return "正在同步中，请稍候"
+        if (ui !is FxaUi.SignedIn) return tr("未登录")
+        if (syncing) return tr("正在同步中，请稍候")
         val w = kotlinx.coroutines.CompletableDeferred<String>()
         waiter = w
         syncNow()
         val r = withTimeoutOrNull(90_000) { w.await() }
         if (r == null) waiter = null
-        return r ?: "同步超时，请稍后重试"
+        return r ?: tr("同步超时，请稍后重试")
     }
 
     private fun syncOnce() {
@@ -313,7 +315,7 @@ internal object FxaSync {
         val db = AppDatabase.get(appContext) ?: return@withContext ListPage(emptyList(), 0)
         ListPage(
             PasswordDb.search(db, query, limit, syncedOnly = true)
-                .map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { "（无用户名）" }, null) },
+                .map { SyncedItem(it.origin.substringAfter("://"), it.username.ifBlank { tr("（无用户名）") }, null) },
             PasswordDb.count(db, query, syncedOnly = true),
         )
     }
@@ -321,7 +323,7 @@ internal object FxaSync {
     /** 发送标签页并返回是否成功（供分享对话框 toast）。 */
     suspend fun sendTabResult(device: PDevice, title: String, url: String): Boolean {
         val ok = runCatching { FxaApi.sendTab(device.id, title, url) }.getOrDefault(false)
-        lastMessage = if (ok) "已发送到 ${device.name}" else "发送失败"
+        lastMessage = if (ok) tr("已发送到 {0}", device.name) else tr("发送失败")
         return ok
     }
 
@@ -329,7 +331,7 @@ internal object FxaSync {
     fun sendTab(device: PDevice, title: String, url: String, onResult: ((Boolean) -> Unit)? = null) {
         scope.launch {
             val ok = runCatching { FxaApi.sendTab(device.id, title, url) }.getOrDefault(false)
-            lastMessage = if (ok) "已发送到 ${device.name}" else "发送失败"
+            lastMessage = if (ok) tr("已发送到 {0}", device.name) else tr("发送失败")
             onResult?.invoke(ok)
         }
     }
@@ -361,30 +363,30 @@ internal object FxaSync {
         override fun onSyncStarted() { syncing = true }
         override fun onSyncIdle() {
             syncing = false
-            lastMessage = "同步完成"
+            lastMessage = tr("同步完成")
             lastSuccess = System.currentTimeMillis()
             runCatching { prefs().edit().putLong(K_LAST_OK, lastSuccess).apply() }
             scope.launch {
                 // 合并失败不再静默：同步完成但本地合并出错时，如实告诉用户
                 val pw = runCatching { FxaPasswordBridge.reconcile(appContext) }
                 val failed = listOf(
-                    "书签" to runCatching { FxaBookmarkBridge.reconcile(appContext) },
-                    "历史记录" to runCatching { FxaHistoryBridge.reconcile(appContext) },
-                    "密码" to pw,
+                    tr("书签") to runCatching { FxaBookmarkBridge.reconcile(appContext) },
+                    tr("历史记录") to runCatching { FxaHistoryBridge.reconcile(appContext) },
+                    tr("密码") to pw,
                 ).filter { it.second.isFailure }
                 if (failed.isNotEmpty()) {
-                    lastMessage = "同步完成，但" + failed.joinToString("、") { it.first } + "合并失败：" +
-                        (failed.first().second.exceptionOrNull()?.message ?: "未知错误")
+                    lastMessage = tr("同步完成，但") + failed.joinToString(tr("、")) { it.first } + tr("合并失败：") +
+                        (failed.first().second.exceptionOrNull()?.message ?: tr("未知错误"))
                 }
                 val r = pw.getOrNull()
                 waiter?.complete(
                     when {
-                        pw.isFailure -> "密码同步失败：" + (pw.exceptionOrNull()?.message ?: "未知错误")
-                        r == null || (r.pulled == 0 && r.pushed == 0 && r.deletedRemote == 0) -> "密码已是最新"
-                        else -> "密码同步完成：" + listOfNotNull(
-                            r.pulled.takeIf { it > 0 }?.let { "收到 $it 条" },
-                            r.pushed.takeIf { it > 0 }?.let { "发出 $it 条" },
-                            r.deletedRemote.takeIf { it > 0 }?.let { "服务器已删除 $it 条" },
+                        pw.isFailure -> tr("密码同步失败：") + (pw.exceptionOrNull()?.message ?: tr("未知错误"))
+                        r == null || (r.pulled == 0 && r.pushed == 0 && r.deletedRemote == 0) -> tr("密码已是最新")
+                        else -> tr("密码同步完成：") + listOfNotNull(
+                            r.pulled.takeIf { it > 0 }?.let { tr("收到 {0} 条", it) },
+                            r.pushed.takeIf { it > 0 }?.let { tr("发出 {0} 条", it) },
+                            r.deletedRemote.takeIf { it > 0 }?.let { tr("服务器已删除 {0} 条", it) },
                         ).joinToString("，")
                     },
                 )
@@ -395,8 +397,8 @@ internal object FxaSync {
         }
         override fun onSyncError(message: String?) {
             syncing = false
-            lastMessage = "同步失败：$message"
-            waiter?.complete("同步失败：${message ?: "未知错误"}")
+            lastMessage = tr("同步失败：{0}", message)
+            waiter?.complete(tr("同步失败：{0}", message ?: tr("未知错误")))
             waiter = null
         }
         override fun onTabReceived(from: String, title: String, url: String) {

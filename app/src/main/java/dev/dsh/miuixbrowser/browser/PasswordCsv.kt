@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.browser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 
 /*
  * 密码的纯 JVM 部分（不依赖 Android，可直接单元测试）：数据模型 + 其他浏览器 / 密码管理器导出的 CSV 解析。
@@ -88,13 +90,13 @@ object PasswordCsv {
         return when {
             has("loginuri", "loginusername", "loginpassword") -> "Bitwarden"
             has("httprealm", "formactionorigin") || (has("guid", "timecreated", "timepasswordchanged")) -> "Firefox"
-            has("otpauth") -> "Safari / iCloud 钥匙串"
+            has("otpauth") -> tr("Safari / iCloud 钥匙串")
             has("grouping", "fav") && has("url") -> "LastPass"
             has("type") && has("title") && has("url") -> "1Password"
             has("loginname", "website") || has("account", "loginname") -> "KeePass"
             has("website", "title") -> "Dashlane"
             has("name", "url", "username", "password") -> "Chrome / Edge"
-            has("url", "password") || has("website", "password") -> "通用 CSV"
+            has("url", "password") || has("website", "password") -> tr("通用 CSV")
             else -> null
         }
     }
@@ -105,9 +107,9 @@ object PasswordCsv {
      */
     fun parse(text: String): Result {
         val rows = parseRows(text)
-        if (rows.isEmpty()) throw FormatException("文件是空的")
+        if (rows.isEmpty()) throw FormatException(tr("文件是空的"))
         val header = rows[0]
-        val format = detectFormat(header) ?: throw FormatException("无法识别表头：需要至少包含「网址」和「密码」两列")
+        val format = detectFormat(header) ?: throw FormatException(tr("无法识别表头：需要至少包含「网址」和「密码」两列"))
 
         // 规范列 → 列下标（同一规范列出现多次时取第一个）
         val col = HashMap<String, Int>()
@@ -118,7 +120,7 @@ object PasswordCsv {
         // Bitwarden 的 type 列（login / note / card / identity）：只收 login
         val typeIdx = header.indexOfFirst { normHeader(it) == "type" }
         val bitwarden = format == "Bitwarden"
-        if (col["url"] == null || col["password"] == null) throw FormatException("缺少「网址」或「密码」列")
+        if (col["url"] == null || col["password"] == null) throw FormatException(tr("缺少「网址」或「密码」列"))
 
         val out = ArrayList<PasswordEntry>()
         val seen = HashSet<String>()

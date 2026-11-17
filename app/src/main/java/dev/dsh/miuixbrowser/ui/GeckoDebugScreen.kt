@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.engine.gecko.GeckoDebug
 import dev.dsh.miuixbrowser.util.Diag
 import android.widget.Toast
@@ -63,7 +65,7 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "Gecko 调试",
+                    title = tr("Gecko 调试"),
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,
@@ -89,7 +91,7 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
                 ) {
-                    item { SmallTitle(text = "渲染信息") }
+                    item { SmallTitle(text = tr("渲染信息")) }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -119,69 +121,69 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         }
                     }
 
-                    item { SmallTitle(text = "滚动与渲染") }
+                    item { SmallTitle(text = tr("滚动与渲染")) }
                     item {
                         DebugGroup {
                             AppSwitchPreference(
-                                title = "原生沉浸",
-                                summary = "网页顶部留白随滚动收起，且收起时不重新布局网页（实验）。网页异常或顶部被遮挡时请关闭，关闭后留白固定",
+                                title = tr("原生沉浸"),
+                                summary = tr("网页顶部留白随滚动收起，且收起时不重新布局网页（实验）。网页异常或顶部被遮挡时请关闭，关闭后留白固定"),
                                 checked = d.nativeImmersive,
                                 onCheckedChange = { d.updateNativeImmersive(it) },
                             )
                             AppSwitchPreference(
-                                title = "默认字体使用系统字体",
-                                summary = "用系统字体（含系统里换的主题字体）作为浏览器默认字体，不使用 Gecko 自带的默认字体；网页自己指定的字体不受影响。更换系统字体后重启应用生效；开启「强力抗指纹」时 Gecko 只暴露基础字体，此开关无效",
+                                title = tr("默认字体使用系统字体"),
+                                summary = tr("用系统字体（含系统里换的主题字体）作为浏览器默认字体，不使用 Gecko 自带的默认字体；网页自己指定的字体不受影响。更换系统字体后重启应用生效；开启「强力抗指纹」时 Gecko 只暴露基础字体，此开关无效"),
                                 checked = d.systemFont,
                                 onCheckedChange = { d.updateSystemFont(it) },
                             )
                             AppSwitchPreference(
-                                title = "请求高刷新率",
-                                summary = "向系统声明屏幕最高刷新率，避免滑动时被降到低刷新率",
+                                title = tr("请求高刷新率"),
+                                summary = tr("向系统声明屏幕最高刷新率，避免滑动时被降到低刷新率"),
                                 checked = d.highRefresh,
                                 onCheckedChange = { d.updateHighRefresh(it) },
                             )
                         }
                     }
 
-                    item { SmallTitle(text = "进程") }
+                    item { SmallTitle(text = tr("进程")) }
                     item {
                         DebugGroup {
                             AppSwitchPreference(
-                                title = "进程隔离",
-                                summary = "网页在独立隔离进程里运行。重启应用后生效。Gecko 已知问题（bug 2023367）：开启后 H.264 视频（多数 MP4）无法播放，AV1 等可播，暂无解决办法，需要看视频请保持关闭",
+                                title = tr("进程隔离"),
+                                summary = tr("网页在独立隔离进程里运行。重启应用后生效。Gecko 已知问题（bug 2023367）：开启后 H.264 视频（多数 MP4）无法播放，AV1 等可播，暂无解决办法，需要看视频请保持关闭"),
                                 checked = d.isolatedProcess,
                                 onCheckedChange = {
                                     d.updateIsolatedProcess(it)
-                                    Toast.makeText(context, "重启应用后生效", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr("重启应用后生效"), Toast.LENGTH_SHORT).show()
                                 },
                             )
                         }
                     }
 
-                    item { SmallTitle(text = "诊断") }
+                    item { SmallTitle(text = tr("诊断")) }
                     item {
                         DebugGroup {
                             AppSwitchPreference(
-                                title = "渲染性能叠层",
-                                summary = "在页面上显示 WebRender 帧率与耗时统计；仅用于排查，会增加开销",
+                                title = tr("渲染性能叠层"),
+                                summary = tr("在页面上显示 WebRender 帧率与耗时统计；仅用于排查，会增加开销"),
                                 checked = d.profiler,
                                 onCheckedChange = { d.updateProfiler(it) },
                             )
                             AppSwitchPreference(
-                                title = "运行日志",
-                                summary = "记录 Surface 创建 / 销毁等到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭",
+                                title = tr("运行日志"),
+                                summary = tr("记录 Surface 创建 / 销毁等到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭"),
                                 checked = Diag.enabledState,
                                 onCheckedChange = { d.updateDiagLog(context, it) },
                             )
                             AppSwitchPreference(
-                                title = "USB 远程调试",
-                                summary = "允许桌面 Firefox 通过 USB 连接并检查页面，立即生效",
+                                title = tr("USB 远程调试"),
+                                summary = tr("允许桌面 Firefox 通过 USB 连接并检查页面，立即生效"),
                                 checked = d.remoteDebug,
                                 onCheckedChange = { d.updateRemoteDebug(it) },
                             )
                             AppSwitchPreference(
-                                title = "允许 about:config",
-                                summary = "允许打开 about:config 手动修改偏好，立即生效；误改可能导致网页异常",
+                                title = tr("允许 about:config"),
+                                summary = tr("允许打开 about:config 手动修改偏好，立即生效；误改可能导致网页异常"),
                                 checked = d.aboutConfig,
                                 onCheckedChange = { d.updateAboutConfig(it) },
                             )

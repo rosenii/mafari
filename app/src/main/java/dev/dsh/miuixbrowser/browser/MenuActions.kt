@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.browser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.data.Favorite
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.ui.AppIcons
@@ -30,41 +32,41 @@ enum class MenuAction(
     val label: String,
     val icon: ImageVector,
 ) {
-    NewTab("new_tab", "新建标签", MiuixIcons.Glass.Add),
-    Incognito("incognito", "无痕浏览", MiuixIcons.Glass.Hide),
-    Desktop("desktop", "桌面版", MiuixIcons.Glass.GridView),
-    Find("find", "页内查找", MiuixIcons.Glass.Search),
-    Translate("translate", "翻译", MiuixIcons.Glass.Translate),
-    Favorite("favorite", "收藏", MiuixIcons.Glass.Favorites),
-    Bookmarks("bookmarks", "书签", AppIcons.Bookmark),
-    Share("share", "分享", MiuixIcons.Glass.Share),
-    Refresh("refresh", "刷新", MiuixIcons.Glass.Refresh),
-    CopyLink("copy", "复制链接", MiuixIcons.Glass.Copy),
-    External("external", "外部打开", MiuixIcons.Glass.Link),
-    AddToDesktop("send_to_desktop", "添加到桌面", AppIcons.AddToDesktop),
-    Settings("settings", "设置", MiuixIcons.Glass.Settings),
-    Home("home", "主页", MiuixIcons.Home),
-    Downloads("downloads", "下载", MiuixIcons.Glass.Download),
-    Scan("scan", "扫一扫", AppIcons.Scan),
-    GeckoExtensions("gecko_extensions", "拓展", AppIcons.Puzzle),
-    ScriptMenu("script_menu", "脚本", AppIcons.Script),
-    History("history", "历史", MiuixIcons.Glass.WorldClock),
+    NewTab("new_tab", tr("新建标签"), MiuixIcons.Glass.Add),
+    Incognito("incognito", tr("无痕浏览"), MiuixIcons.Glass.Hide),
+    Desktop("desktop", tr("桌面版"), MiuixIcons.Glass.GridView),
+    Find("find", tr("页内查找"), MiuixIcons.Glass.Search),
+    Translate("translate", tr("翻译"), MiuixIcons.Glass.Translate),
+    Favorite("favorite", tr("收藏"), MiuixIcons.Glass.Favorites),
+    Bookmarks("bookmarks", tr("书签"), AppIcons.Bookmark),
+    Share("share", tr("分享"), MiuixIcons.Glass.Share),
+    Refresh("refresh", tr("刷新"), MiuixIcons.Glass.Refresh),
+    CopyLink("copy", tr("复制链接"), MiuixIcons.Glass.Copy),
+    External("external", tr("外部打开"), MiuixIcons.Glass.Link),
+    AddToDesktop("send_to_desktop", tr("添加到桌面"), AppIcons.AddToDesktop),
+    Settings("settings", tr("设置"), MiuixIcons.Glass.Settings),
+    Home("home", tr("主页"), MiuixIcons.Home),
+    Downloads("downloads", tr("下载"), MiuixIcons.Glass.Download),
+    Scan("scan", tr("扫一扫"), AppIcons.Scan),
+    GeckoExtensions("gecko_extensions", tr("拓展"), AppIcons.Puzzle),
+    ScriptMenu("script_menu", tr("脚本"), AppIcons.Script),
+    History("history", tr("历史"), MiuixIcons.Glass.WorldClock),
 
     /** 网络请求（两个内核）：以弹窗列出本页发出的请求域名，一键屏蔽 / 放行 */
-    Requests("requests", "网络请求", AppIcons.Globe),
-    CloseTab("close", "关闭标签", MiuixIcons.Glass.Close),
+    Requests("requests", tr("网络请求"), AppIcons.Globe),
+    CloseTab("close", tr("关闭标签"), MiuixIcons.Glass.Close),
 
     /** 清理缓存：效果同「设置 → 清理缓存」 */
-    CleanCache("clean_cache", "清理缓存", AppIcons.CleanCache),
+    CleanCache("clean_cache", tr("清理缓存"), AppIcons.CleanCache),
 
     /** 同步：一键把加密备份上传到所有 WebDAV 服务器 / Git 仓库 */
-    Sync("sync", "同步", AppIcons.SyncCloud),
+    Sync("sync", tr("同步"), AppIcons.SyncCloud),
 
     /** 去广告开关（仅 WebView 内核）：开启时图标变红，角标是本页拦截数 */
-    AdBlock("adblock", "去广告", AppIcons.AdShield),
+    AdBlock("adblock", tr("去广告"), AppIcons.AdShield),
 
     /** Firefox 账户（仅带 Firefox 同步的版本）：点开进入「Firefox账户同步」，登录后图标换成账号头像 */
-    Account("account", "账户", AppIcons.Account),
+    Account("account", tr("账户"), AppIcons.Account),
 }
 
 /** 菜单「同步」是否进行中：更多菜单和首页快捷菜单共用，两处的图标 / 文字一起变化 */

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.ScanHelper
 import android.Manifest
 import android.content.Intent
@@ -133,7 +135,7 @@ private fun ScanScreen(onResult: (String) -> Unit, onClose: () -> Unit) {
         if (uri == null) return@rememberLauncherForActivityResult
         val scanner = createScanner()
         if (scanner == null) {
-            toast(context, "扫码组件初始化失败")
+            toast(context, tr("扫码组件初始化失败"))
             return@rememberLauncherForActivityResult
         }
         runCatching {
@@ -141,13 +143,13 @@ private fun ScanScreen(onResult: (String) -> Unit, onClose: () -> Unit) {
             scanner.process(image)
                 .addOnSuccessListener { codes ->
                     val text = codes.firstNotNullOfOrNull { it.rawValue?.takeIf { v -> v.isNotBlank() } }
-                    if (text != null) onResult(text) else toast(context, "未识别到二维码")
+                    if (text != null) onResult(text) else toast(context, tr("未识别到二维码"))
                 }
-                .addOnFailureListener { toast(context, "识别失败") }
+                .addOnFailureListener { toast(context, tr("识别失败")) }
                 .addOnCompleteListener { runCatching { scanner.close() } }
         }.onFailure {
             runCatching { scanner.close() }
-            toast(context, "无法读取这张图片")
+            toast(context, tr("无法读取这张图片"))
         }
     }
 
@@ -180,9 +182,9 @@ private fun ScanScreen(onResult: (String) -> Unit, onClose: () -> Unit) {
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
         ) {
-            Pill("关闭", onClick = onClose)
+            Pill(tr("关闭"), onClick = onClose)
             Text(
-                "扫一扫",
+                tr("扫一扫"),
                 color = Color.White,
                 fontSize = 17.sp,
                 modifier = Modifier.padding(top = 8.dp),
@@ -196,15 +198,15 @@ private fun ScanScreen(onResult: (String) -> Unit, onClose: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (granted) {
-                Text("将二维码 / 条码放入框内", color = Color(0xCCFFFFFF), fontSize = 14.sp, textAlign = TextAlign.Center)
+                Text(tr("将二维码 / 条码放入框内"), color = Color(0xCCFFFFFF), fontSize = 14.sp, textAlign = TextAlign.Center)
             }
             Row(
                 Modifier.padding(top = 20.dp),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp),
             ) {
-                Pill("相册", onClick = { pickImage.launch("image/*") })
+                Pill(tr("相册"), onClick = { pickImage.launch("image/*") })
                 if (granted && hasTorch) {
-                    Pill(if (torchOn) "关闭手电筒" else "手电筒", onClick = { torchOn = !torchOn })
+                    Pill(if (torchOn) tr("关闭手电筒") else tr("手电筒"), onClick = { torchOn = !torchOn })
                 }
             }
         }
@@ -231,15 +233,15 @@ private fun PermissionHint(permanentlyDenied: Boolean, onRequest: () -> Unit, on
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("扫码需要使用相机", color = Color.White, fontSize = 17.sp)
+        Text(tr("扫码需要使用相机"), color = Color.White, fontSize = 17.sp)
         Text(
-            "你也可以点下方「相册」，识别相册里的二维码图片。",
+            tr("你也可以点下方「相册」，识别相册里的二维码图片。"),
             color = Color(0xB3FFFFFF),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
         )
-        Pill(if (permanentlyDenied) "去系统设置开启相机权限" else "授予相机权限", onClick = if (permanentlyDenied) onOpenSettings else onRequest)
+        Pill(if (permanentlyDenied) tr("去系统设置开启相机权限") else tr("授予相机权限"), onClick = if (permanentlyDenied) onOpenSettings else onRequest)
     }
 }
 
@@ -260,7 +262,7 @@ private fun CameraLayer(torchOn: Boolean, onCameraBound: (hasTorch: Boolean) -> 
         val scanner = createScanner()
         var provider: ProcessCameraProvider? = null
         if (scanner == null) {
-            toast(context, "扫码组件初始化失败")
+            toast(context, tr("扫码组件初始化失败"))
         } else {
             val future = ProcessCameraProvider.getInstance(context)
             future.addListener({
@@ -276,7 +278,7 @@ private fun CameraLayer(torchOn: Boolean, onCameraBound: (hasTorch: Boolean) -> 
                     val bound = p.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
                     camera = bound
                     onCameraBound(bound.cameraInfo.hasFlashUnit())
-                }.onFailure { toast(context, "相机启动失败") }
+                }.onFailure { toast(context, tr("相机启动失败")) }
             }, ContextCompat.getMainExecutor(context))
         }
         onDispose {

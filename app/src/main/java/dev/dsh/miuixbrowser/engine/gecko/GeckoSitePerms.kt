@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
@@ -43,31 +45,31 @@ object GeckoSitePerms {
 
     /** 本类自己保存全局默认的项（摄像头 / 麦克风 / 定位 / 通知在 AppSettings 里） */
     val GLOBAL_ITEMS = listOf(
-        Item(STORAGE, "持久存储"),
-        Item(STORAGE_ACCESS, "跨站 Cookie"),
-        Item(DRM, "受 DRM 控制的内容"),
-        Item(LOCAL_DEVICE, "设备应用和服务"),
-        Item(LOCAL_NETWORK, "本地网络设备"),
+        Item(STORAGE, tr("持久存储")),
+        Item(STORAGE_ACCESS, tr("跨站 Cookie")),
+        Item(DRM, tr("受 DRM 控制的内容")),
+        Item(LOCAL_DEVICE, tr("设备应用和服务")),
+        Item(LOCAL_NETWORK, tr("本地网络设备")),
     )
 
     /** 例外网站里可以按站点覆盖的全部项 */
     val EXCEPTION_ITEMS = listOf(
-        Item(CAMERA, "摄像头"),
-        Item(LOCATION, "位置"),
-        Item(MIC, "麦克风"),
-        Item(NOTIFICATION, "通知"),
+        Item(CAMERA, tr("摄像头")),
+        Item(LOCATION, tr("位置")),
+        Item(MIC, tr("麦克风")),
+        Item(NOTIFICATION, tr("通知")),
     ) + GLOBAL_ITEMS
 
     /** WebView 引擎里可以按站点覆盖的项 */
     val WEBVIEW_ITEMS = listOf(
-        Item(CAMERA, "摄像头"),
-        Item(MIC, "麦克风"),
-        Item(LOCATION, "位置"),
-        Item(NOTIFICATION, "网站通知"),
-        Item(CLIPBOARD, "剪贴板读写"),
-        Item(MEDIA, "网站媒体发声"),
-        Item(REDIRECT, "网页重定向"),
-        Item(EXTERNAL_APP, "打开其他应用"),
+        Item(CAMERA, tr("摄像头")),
+        Item(MIC, tr("麦克风")),
+        Item(LOCATION, tr("位置")),
+        Item(NOTIFICATION, tr("网站通知")),
+        Item(CLIPBOARD, tr("剪贴板读写")),
+        Item(MEDIA, tr("网站媒体发声")),
+        Item(REDIRECT, tr("网页重定向")),
+        Item(EXTERNAL_APP, tr("打开其他应用")),
     )
 
     /** 默认值：持久存储、DRM 保持原来的「直接允许」（浏览所需），其余与 Firefox 一致，询问 */
@@ -183,6 +185,6 @@ object GeckoSitePerms {
     /** 一个站点的例外摘要：「摄像头：允许 · 位置：拒绝」 */
     fun summaryOf(host: String, items: List<Item> = EXCEPTION_ITEMS): String =
         items.mapNotNull { item ->
-            exceptions[host]?.get(item.key)?.let { "${item.label}：${if (it == 1) "允许" else "拒绝"}" }
+            exceptions[host]?.get(item.key)?.let { "${item.label}：${if (it == 1) tr("允许") else tr("拒绝")}" }
         }.joinToString(" · ")
 }

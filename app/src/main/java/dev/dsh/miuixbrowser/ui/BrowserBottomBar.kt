@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.app.Activity
 import android.os.Build
 import android.content.Intent
@@ -334,11 +336,11 @@ internal fun BottomBar(
                 .padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PressIcon(icon = MiuixIcons.Glass.Back, description = "后退", enabled = canGoBack, onClick = onBack)
+            PressIcon(icon = MiuixIcons.Glass.Back, description = tr("后退"), enabled = canGoBack, onClick = onBack)
             if (canGoForward) {
                 PressIcon(
                     icon = MiuixIcons.Glass.Back,
-                    description = "前进",
+                    description = tr("前进"),
                     enabled = true,
                     flip = true,
                     onClick = onForward,
@@ -346,7 +348,7 @@ internal fun BottomBar(
             } else {
                 PressIcon(
                     icon = MiuixIcons.Home,
-                    description = "主页",
+                    description = tr("主页"),
                     enabled = true,
                     onClick = onHome,
                 )
@@ -407,7 +409,7 @@ internal fun BottomBar(
             }
 
             TabIcon(count = tabCount, onClick = onTabs, onLongClick = onNewTab)
-            PressIcon(icon = MiuixIcons.Glass.More, description = "更多", onClick = onMore)
+            PressIcon(icon = MiuixIcons.Glass.More, description = tr("更多"), onClick = onMore)
         }
     }
 }
@@ -526,7 +528,7 @@ internal fun TabIcon(count: Int, onClick: () -> Unit, onLongClick: () -> Unit) {
         Box(modifier = Modifier.size(31.dp), contentAlignment = Alignment.Center) {
             IconWithContourShadow(
                 imageVector = AppIcons.Tabs,
-                description = "标签页",
+                description = tr("标签页"),
                 tint = color,
                 scale = scale,
                 boxSize = 30.dp,
@@ -647,7 +649,7 @@ internal fun AddressReaderButton(active: Boolean, onClick: () -> Unit) {
         val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
         Icon(
             imageVector = AppIcons.Reader,
-            contentDescription = if (active) "退出阅读模式" else "阅读模式",
+            contentDescription = if (active) tr("退出阅读模式") else tr("阅读模式"),
             tint = tint,
             modifier = Modifier.size(iconSize),
         )
@@ -675,7 +677,7 @@ internal fun AddressScriptButton(onClick: () -> Unit) {
         val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
         Icon(
             imageVector = AppIcons.Script,
-            contentDescription = "正在运行的脚本",
+            contentDescription = tr("正在运行的脚本"),
             tint = MiuixTheme.colorScheme.primary,
             // 视觉上略微下移（只移图标，点击区域不变）
             modifier = Modifier.offset(y = 1.dp).size(iconSize),
@@ -705,7 +707,7 @@ internal fun AddressRefreshButton(onClick: () -> Unit) {
         val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
         Icon(
             imageVector = AppIcons.Refresh,
-            contentDescription = "刷新",
+            contentDescription = tr("刷新"),
             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             // 视觉上略微下移（只移图标，点击区域不变）
             modifier = Modifier.offset(y = 1.dp).size(iconSize),
@@ -772,7 +774,7 @@ internal fun AddressField(
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
         if (value.isEmpty()) {
             Text(
-                text = "搜索或输入网址",
+                text = tr("搜索或输入网址"),
                 fontSize = 15.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 // 回主页时地址栏宽度还在弹簧动画里：占位文字必须单行不换行，否则会先折成多行再展开

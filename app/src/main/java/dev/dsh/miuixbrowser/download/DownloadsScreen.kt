@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.download
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.R
 import dev.dsh.miuixbrowser.data.DOWNLOAD_MIN_MB_DEFAULT
 import dev.dsh.miuixbrowser.data.DOWNLOAD_MIN_MB_OPTIONS
@@ -233,7 +235,7 @@ fun DownloadsScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             PageGlassTopBar(
-                title = "下载",
+                title = tr("下载"),
                 backdrop = backdrop,
                 glass = glass,
                 scrollBehavior = scrollBehavior,
@@ -260,7 +262,7 @@ fun DownloadsScreen(
                     contentPadding = PaddingValues(top = topInset, bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
                 ) {
                     item {
-                        SmallTitle(text = "下载配置")
+                        SmallTitle(text = tr("下载配置"))
                     }
                     item {
                         val threadOptions = DOWNLOAD_THREAD_OPTIONS
@@ -275,35 +277,35 @@ fun DownloadsScreen(
                             // 下载器放第一行；只有「内置下载器」才会用到多线程，选系统 / 每次询问 / 第三方时整组隐藏
                             val extApps = remember { ExternalDownloader.installed(context) }
                             val extValues = listOf("", ExternalDownloader.SYSTEM, ExternalDownloader.CHOOSER) + extApps.map { it.pkg }
-                            val extLabels = listOf("内置下载器", "系统下载器", "每次询问") + extApps.map { it.label }
+                            val extLabels = listOf(tr("内置下载器"), tr("系统下载器"), tr("每次询问")) + extApps.map { it.label }
                             val extIndex = extValues.indexOf(externalDownloader).coerceAtLeast(0)
                             AppDropdownPreference(
                                 backdrop = if (glass) backdrop else null,
-                                title = "下载器",
-                                summary = "选择系统或第三方下载器后，网页下载确认后直接交给它（应用自更新仍用内置）",
+                                title = tr("下载器"),
+                                summary = tr("选择系统或第三方下载器后，网页下载确认后直接交给它（应用自更新仍用内置）"),
                                 items = extLabels,
                                 selectedIndex = extIndex,
                                 onSelectedIndexChange = { onExternalDownloaderChange(extValues[it]) },
                             )
                             if (extIndex == 0) {
                                 AppSwitchPreference(
-                                    title = "多线程下载",
-                                    summary = "大文件分段并行下载",
+                                    title = tr("多线程下载"),
+                                    summary = tr("大文件分段并行下载"),
                                     checked = multiThread,
                                     onCheckedChange = onMultiThreadChange,
                                 )
                                 if (multiThread) {
                                     AppDropdownPreference(
                                         backdrop = if (glass) backdrop else null,
-                                        title = "线程数",
+                                        title = tr("线程数"),
                                         items = threadOptions.map { it.toString() },
                                         selectedIndex = threadOptions.indexOf(threads).coerceAtLeast(0),
                                         onSelectedIndexChange = { onThreadsChange(threadOptions[it]) },
                                     )
                                     AppDropdownPreference(
                                         backdrop = if (glass) backdrop else null,
-                                        title = "多线程阈值",
-                                        summary = "超过该阈值才使用多线程下载",
+                                        title = tr("多线程阈值"),
+                                        summary = tr("超过该阈值才使用多线程下载"),
                                         items = minMbOptions.map { downloadThresholdLabel(it) },
                                         selectedIndex = minMbOptions.indexOf(multiThreadMinMb).coerceAtLeast(0),
                                         onSelectedIndexChange = { onMultiThreadMinMbChange(minMbOptions[it]) },
@@ -315,7 +317,7 @@ fun DownloadsScreen(
                     if (tasks.isEmpty()) {
                         item {
                             Text(
-                                text = "还没有下载任务。网页里的下载会先弹确认框，再保存到 /sdcard/Download/mafari。",
+                                text = tr("还没有下载任务。网页里的下载会先弹确认框，再保存到 /sdcard/Download/mafari。"),
                                 fontSize = 13.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(24.dp),
@@ -327,9 +329,9 @@ fun DownloadsScreen(
                                 modifier = Modifier.fillMaxWidth().padding(end = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                SmallTitle(text = "下载文件", modifier = Modifier.weight(1f))
+                                SmallTitle(text = tr("下载文件"), modifier = Modifier.weight(1f))
                                 Text(
-                                    text = "全部清除",
+                                    text = tr("全部清除"),
                                     fontSize = 14.sp,
                                     color = Color(0xFFE53935),
                                     modifier = Modifier
@@ -390,9 +392,9 @@ fun DownloadsScreen(
                                         Spacer(Modifier.height(3.dp))
                                         Text(
                                             text = when (task.state) {
-                                                DownloadState.DONE -> Downloader.sizeText(task.bytes) + " · 已保存"
-                                                DownloadState.PAUSED -> "已暂停 · ${Downloader.progressSizeText(task.bytes, task.total)}"
-                                                DownloadState.FAILED -> "失败 · ${task.error ?: "未知错误"}"
+                                                DownloadState.DONE -> Downloader.sizeText(task.bytes) + tr(" · 已保存")
+                                                DownloadState.PAUSED -> tr("已暂停 · {0}", Downloader.progressSizeText(task.bytes, task.total))
+                                                DownloadState.FAILED -> tr("失败 · {0}", task.error ?: tr("未知错误"))
                                                 DownloadState.RUNNING -> {
                                                     val percent = (Downloader.progressOf(task) * 100).toInt()
                                                     "$percent% · ${Downloader.progressSizeText(task.bytes, task.total)}"
@@ -417,21 +419,21 @@ fun DownloadsScreen(
                                             minWidth = actionBtn,
                                             minHeight = actionBtn,
                                         ) {
-                                            Icon(imageVector = MiuixIcons.Glass.Pause, contentDescription = "暂停", modifier = actionIcon)
+                                            Icon(imageVector = MiuixIcons.Glass.Pause, contentDescription = tr("暂停"), modifier = actionIcon)
                                         }
                                         DownloadState.PAUSED -> IconButton(
                                             onClick = { Downloader.resume(context, task.id) },
                                             minWidth = actionBtn,
                                             minHeight = actionBtn,
                                         ) {
-                                            Icon(imageVector = MiuixIcons.Glass.Play, contentDescription = "继续", modifier = actionIcon)
+                                            Icon(imageVector = MiuixIcons.Glass.Play, contentDescription = tr("继续"), modifier = actionIcon)
                                         }
                                         DownloadState.FAILED -> IconButton(
                                             onClick = { Downloader.retry(context, task.id) },
                                             minWidth = actionBtn,
                                             minHeight = actionBtn,
                                         ) {
-                                            Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = "重试", modifier = actionIcon)
+                                            Icon(imageVector = MiuixIcons.Glass.Refresh, contentDescription = tr("重试"), modifier = actionIcon)
                                         }
                                         DownloadState.DONE -> Unit
                                     }
@@ -443,7 +445,7 @@ fun DownloadsScreen(
                                         minWidth = actionBtn,
                                         minHeight = actionBtn,
                                     ) {
-                                        Icon(imageVector = MiuixIcons.Glass.Close, contentDescription = "删除", modifier = actionIcon)
+                                        Icon(imageVector = MiuixIcons.Glass.Close, contentDescription = tr("删除"), modifier = actionIcon)
                                     }
                                 }
                                 if (task.state == DownloadState.RUNNING || task.state == DownloadState.PAUSED) {
@@ -463,9 +465,9 @@ fun DownloadsScreen(
 
         AppGlassDialog(
             show = deleteTask != null,
-            title = "删除文件",
+            title = tr("删除文件"),
             summary = deleteTask?.let {
-                if (it.state == DownloadState.DONE) it.name else it.name + "\n\n将取消下载并清除未完成的临时数据"
+                if (it.state == DownloadState.DONE) it.name else it.name + tr("\n\n将取消下载并清除未完成的临时数据")
             },
             backdrop = if (glass) backdrop else null,
             onDismissRequest = { pendingDelete = null },
@@ -484,7 +486,7 @@ fun DownloadsScreen(
                         onClick = { pendingDelete = null },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text(text = "取消", style = MiuixTheme.textStyles.button)
+                        Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                     }
                     AppDialogButton(
                         onClick = {
@@ -496,7 +498,7 @@ fun DownloadsScreen(
                         modifier = Modifier.weight(1f),
                         role = GlassDialogButtonRole.Destructive,
                     ) {
-                        Text(text = "删除", style = MiuixTheme.textStyles.button)
+                        Text(text = tr("删除"), style = MiuixTheme.textStyles.button)
                     }
                 }
             }
@@ -504,8 +506,8 @@ fun DownloadsScreen(
 
         AppGlassDialog(
             show = showClearAll,
-            title = "清空下载记录",
-            summary = "将清空全部 ${tasks.size} 条下载记录，进行中的任务会被取消",
+            title = tr("清空下载记录"),
+            summary = tr("将清空全部 {0} 条下载记录，进行中的任务会被取消", tasks.size),
             backdrop = if (glass) backdrop else null,
             onDismissRequest = { showClearAll = false },
         ) {
@@ -520,7 +522,7 @@ fun DownloadsScreen(
                         onClick = { showClearAll = false },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text(text = "取消", style = MiuixTheme.textStyles.button)
+                        Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                     }
                     AppDialogButton(
                         onClick = {
@@ -535,7 +537,7 @@ fun DownloadsScreen(
                         modifier = Modifier.weight(1f),
                         role = GlassDialogButtonRole.Destructive,
                     ) {
-                        Text(text = "清空", style = MiuixTheme.textStyles.button)
+                        Text(text = tr("清空"), style = MiuixTheme.textStyles.button)
                     }
                 }
             }
@@ -561,7 +563,7 @@ private fun DeleteLocalFileRow(checked: Boolean, onToggle: () -> Unit) {
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            text = "同时删除本地文件",
+            text = tr("同时删除本地文件"),
             fontSize = 15.sp,
             color = MiuixTheme.colorScheme.onSurface,
         )
@@ -587,16 +589,16 @@ private fun groupByDay(tasks: List<DownloadTask>): List<DayGroup> {
         val label: String
         if (ms < 946684800000L) { // 2000 年以前：旧版本留下的无效 id，没有可靠时间
             key = 0
-            label = "更早"
+            label = tr("更早")
         } else {
             cal.timeInMillis = ms
             key = dayKey(cal)
             label = when {
-                key == todayKey -> "今天"
-                key == yesterdayKey -> "昨天"
+                key == todayKey -> tr("今天")
+                key == yesterdayKey -> tr("昨天")
                 cal.get(Calendar.YEAR) == now.get(Calendar.YEAR) ->
-                    "${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日"
-                else -> "${cal.get(Calendar.YEAR)}年${cal.get(Calendar.MONTH) + 1}月${cal.get(Calendar.DAY_OF_MONTH)}日"
+                    tr("{0}月{1}日", cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+                else -> tr("{0}年{1}月{2}日", cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
             }
         }
         buckets.getOrPut(key) { label to mutableListOf() }.second.add(task)

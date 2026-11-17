@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.crypto
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
@@ -26,12 +28,12 @@ object BiometricGate {
             BiometricManager.BIOMETRIC_SUCCESS -> Unit
             BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED, BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> {
                 // 没有设置任何锁屏：系统无法验证，放行并提示
-                Toast.makeText(context, "未设置锁屏，已跳过验证", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, tr("未设置锁屏，已跳过验证"), Toast.LENGTH_SHORT).show()
                 onResult(true)
                 return
             }
             else -> {
-                Toast.makeText(context, "暂时无法使用系统验证", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, tr("暂时无法使用系统验证"), Toast.LENGTH_SHORT).show()
                 onResult(false)
                 return
             }
@@ -52,7 +54,7 @@ object BiometricGate {
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                     val silent = errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED ||
                         errorCode == BiometricPrompt.BIOMETRIC_ERROR_CANCELED
-                    if (!silent) Toast.makeText(context, "验证失败：" + (errString ?: "未知错误"), Toast.LENGTH_SHORT).show()
+                    if (!silent) Toast.makeText(context, tr("验证失败：") + (errString ?: tr("未知错误")), Toast.LENGTH_SHORT).show()
                     onResult(false)
                 }
                 // onAuthenticationFailed：单次识别不通过，系统会让用户重试，不是终态，无需处理

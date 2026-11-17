@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.UpdateDownload
 import dev.dsh.miuixbrowser.browser.UpdatePhase
 import dev.dsh.miuixbrowser.browser.UpdateSheet
@@ -782,7 +784,7 @@ fun BrowserScreen(
             is ScanHelper.Target.Open -> state.newTab(target.url)
             is ScanHelper.Target.CopyOnly -> {
                 clipboard.setText(AnnotatedString(target.text))
-                android.widget.Toast.makeText(context, "已复制扫描内容", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, tr("已复制扫描内容"), android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -791,7 +793,7 @@ fun BrowserScreen(
     fun launchScan() {
         val started = runCatching { scanLauncher.launch(ScanHelper.intent(context)) }.isSuccess
         if (!started) {
-            android.widget.Toast.makeText(context, "无法打开扫一扫", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, tr("无法打开扫一扫"), android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -842,7 +844,7 @@ fun BrowserScreen(
         val attempts = listOf(
             buildIntent(Intent.ACTION_GET_CONTENT),
             buildIntent(Intent.ACTION_OPEN_DOCUMENT),
-            Intent.createChooser(buildIntent(Intent.ACTION_GET_CONTENT), "选择文件"),
+            Intent.createChooser(buildIntent(Intent.ACTION_GET_CONTENT), tr("选择文件")),
         )
         for (intent in attempts) {
             val launched = runCatching { filePickerLauncher.launch(intent) }
@@ -852,7 +854,7 @@ fun BrowserScreen(
         }
         choice.callback.onReceiveValue(null)
         fileChooserChoice = null
-        android.widget.Toast.makeText(context, "未找到可用的文件选择器", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(context, tr("未找到可用的文件选择器"), android.widget.Toast.LENGTH_SHORT).show()
     }
 
     /** 拍照或录像：MediaStore pending 输出 + 相机 Intent */
@@ -912,7 +914,7 @@ fun BrowserScreen(
             runCatching { resolver.delete(uri, null, null) }
             choice.callback.onReceiveValue(null)
             fileChooserChoice = null
-            android.widget.Toast.makeText(context, "未找到相机应用", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, tr("未找到相机应用"), android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1022,16 +1024,16 @@ fun BrowserScreen(
             // 拓展只属于 Gecko：WebView 标签不识别、不安装拓展链接（无内核版里连 GeckoExtensionStore 都不碰）
             val store = if (EngineSupport.GECKO_BUNDLED && tab.isGecko) GeckoExtensionStore else null
             if (store != null && store.beginLinkInstall(link)) {
-                android.widget.Toast.makeText(context, "正在安装拓展…", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, tr("正在安装拓展…"), android.widget.Toast.LENGTH_SHORT).show()
                 scope.launch {
                     try {
                         store.install(context, link)
                             .onSuccess {
-                                android.widget.Toast.makeText(context, "已添加 ${it.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, tr("已添加 {0}", it.name), android.widget.Toast.LENGTH_SHORT).show()
                             }
                             .onFailure {
-                                if (it.message != "已取消安装") {
-                                    android.widget.Toast.makeText(context, it.message ?: "安装失败", android.widget.Toast.LENGTH_SHORT).show()
+                                if (it.message != tr("已取消安装")) {
+                                    android.widget.Toast.makeText(context, it.message ?: tr("安装失败"), android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                     } finally {
@@ -1073,7 +1075,7 @@ fun BrowserScreen(
             )
         }
         tab.onBlobStart = {
-            android.widget.Toast.makeText(context, "正在读取文件…", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, tr("正在读取文件…"), android.widget.Toast.LENGTH_SHORT).show()
         }
         tab.onBlobReady = { dataUri, fileName, mime, tempPath ->
             // 上一个还没确认的 blob 被新的顶替：先删它的缓存文件，避免泄漏
@@ -1448,7 +1450,7 @@ fun BrowserScreen(
                         onHide = { kind ->
                             settings.updateHomeShow(kind, false)
                             android.widget.Toast.makeText(
-                                context, "已隐藏，可在 设置 → 布局 → 定制主页 中恢复", android.widget.Toast.LENGTH_SHORT,
+                                context, tr("已隐藏，可在 设置 → 布局 → 定制主页 中恢复"), android.widget.Toast.LENGTH_SHORT,
                             ).show()
                         },
                         editing = favEditing,
@@ -1591,7 +1593,7 @@ fun BrowserScreen(
             // 否则超出的部分被地址栏裁掉，看不见也点不到。
             val addressStyle = TextStyle(fontSize = 15.sp)
             val placeholderPx = textMeasurer.measure(
-                text = AnnotatedString("搜索或输入网址"),
+                text = AnnotatedString(tr("搜索或输入网址")),
                 style = addressStyle,
                 maxLines = 1,
             ).size.width
@@ -1696,7 +1698,7 @@ fun BrowserScreen(
                         )
                         Icon(
                             imageVector = MiuixIcons.Glass.Search,
-                            contentDescription = "搜索或输入网址",
+                            contentDescription = tr("搜索或输入网址"),
                             tint = MiuixTheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp),
                         )
@@ -1824,7 +1826,7 @@ fun BrowserScreen(
                                         type = "text/plain"
                                         putExtra(Intent.EXTRA_TEXT, tab.url)
                                     },
-                                    "分享链接",
+                                    tr("分享链接"),
                                 ),
                             )
                         }
@@ -1857,7 +1859,7 @@ fun BrowserScreen(
                 val us = byId[id]
                 RunningScript(
                     id = id,
-                    name = us?.name?.ifBlank { null } ?: "未命名脚本",
+                    name = us?.name?.ifBlank { null } ?: tr("未命名脚本"),
                     icon = us?.icon.orEmpty(),
                     iconBase = us?.sourceUrl.orEmpty(),
                     iconFallbackHost = us?.let { UserscriptEngine.fallbackIconHost(UserscriptEngine.parse(it.code)) }.orEmpty(),
@@ -1883,10 +1885,10 @@ fun BrowserScreen(
             MenuAction.Favorite -> if (tab.url.isNotBlank()) {
                 val favName = tab.title.ifBlank { hostOf(tab.url) }
                 val msg = if (favorites.exists(favName, tab.url)) {
-                    "已添加此书签"
+                    tr("已添加此书签")
                 } else {
                     favorites.add(favName, tab.url)
-                    "添加书签成功"
+                    tr("添加书签成功")
                 }
                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
             }
@@ -1922,7 +1924,7 @@ fun BrowserScreen(
                 val freed = runCatching { dev.dsh.miuixbrowser.browser.CacheCleaner.cleanAll(context) }.getOrDefault(0L)
                 android.widget.Toast.makeText(
                     context,
-                    if (freed > 0) "已清理 " + android.text.format.Formatter.formatFileSize(context, freed) else "没有可清理的缓存",
+                    if (freed > 0) tr("已清理 ") + android.text.format.Formatter.formatFileSize(context, freed) else tr("没有可清理的缓存"),
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -1932,11 +1934,11 @@ fun BrowserScreen(
                     val r = runCatching { BackupAuto.pushAllNow(context) }.getOrNull()
                     MenuSyncState.syncing = false
                     val msg = when {
-                        r == null -> "同步失败"
+                        r == null -> tr("同步失败")
                         r.error != null -> r.error ?: ""
-                        r.failed == 0 -> "同步完成，已上传到 ${r.ok} 个目标"
-                        r.ok == 0 -> "同步失败（${r.failed} 个目标上传失败）"
-                        else -> "同步完成：${r.ok} 个成功，${r.failed} 个失败"
+                        r.failed == 0 -> tr("同步完成，已上传到 {0} 个目标", r.ok)
+                        r.ok == 0 -> tr("同步失败（{0} 个目标上传失败）", r.failed)
+                        else -> tr("同步完成：{0} 个成功，{1} 个失败", r.ok, r.failed)
                     }
                     android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -1944,7 +1946,7 @@ fun BrowserScreen(
             // 去广告开关：只有 WebView 内核有（Gecko 标签下菜单里是置灰的）
             MenuAction.AdBlock -> if (!tab.isGecko) {
                 AdBlock.updateEnabled(!AdBlock.enabled)
-                android.widget.Toast.makeText(context, if (AdBlock.enabled) "去广告已开启" else "去广告已关闭", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, if (AdBlock.enabled) tr("去广告已开启") else tr("去广告已关闭"), android.widget.Toast.LENGTH_SHORT).show()
             } else {
                 dev.dsh.miuixbrowser.engine.gecko.showGeckoUnsupportedToast(context)
             }
@@ -2054,8 +2056,8 @@ fun BrowserScreen(
             show = activeSheet != Sheet.None,
             title = when (lastActiveSheet) {
                 Sheet.Link -> hostOf(linkUrl)
-                Sheet.Image -> "图片"
-                Sheet.Element -> "页面元素"
+                Sheet.Image -> tr("图片")
+                Sheet.Element -> tr("页面元素")
                 Sheet.Menu -> null // 更多菜单不显示标题
                 Sheet.Tabs -> null // 标签页自定义头部（渐进模糊 + 添加/删除）
                 else -> null
@@ -2082,7 +2084,7 @@ fun BrowserScreen(
                         )
                         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                             TabsSegmented(
-                                labels = listOf("标签页", "无痕浏览页"),
+                                labels = listOf(tr("标签页"), tr("无痕浏览页")),
                                 selected = tabsPage,
                                 onSelect = { tabsPage = it },
                             )
@@ -2094,7 +2096,7 @@ fun BrowserScreen(
                         ) {
                             Icon(
                                 imageVector = MiuixIcons.Glass.Delete,
-                                contentDescription = "全部删除",
+                                contentDescription = tr("全部删除"),
                                 modifier = Modifier.size(22.dp),
                                 tint = MiuixTheme.colorScheme.onSurface,
                             )
@@ -2176,15 +2178,15 @@ fun BrowserScreen(
                         ) { (index, item) ->
                             SheetRow(
                                 title = buildString {
-                                    if (item.incognito) append("无痕 · ")
-                                    append(item.title.ifBlank { "新标签页" })
+                                    if (item.incognito) append(tr("无痕 · "))
+                                    append(item.title.ifBlank { tr("新标签页") })
                                 },
                                 subtitle = item.url.ifBlank { null },
                                 highlight = index == state.activeIndex,
                                 trailing = {
                                     BarButton(
                                         icon = MiuixIcons.Glass.Close,
-                                        description = "关闭",
+                                        description = tr("关闭"),
                                         // 只剩一个标签时也能清除：清掉后按「自定义起始页」新建一个，并收起列表回到它
                                         onClick = {
                                             val last = state.tabs.size == 1
@@ -2207,7 +2209,7 @@ fun BrowserScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = if (pageIncognito) "没有无痕浏览页" else "没有标签页",
+                                    text = if (pageIncognito) tr("没有无痕浏览页") else tr("没有标签页"),
                                     fontSize = 14.sp,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
@@ -2222,9 +2224,9 @@ fun BrowserScreen(
                 MenuGrid(
                     labelFor = { action ->
                         if (action == MenuAction.Desktop) {
-                            if (tab.desktopMode) "移动版" else "桌面版"
+                            if (tab.desktopMode) tr("移动版") else tr("桌面版")
                         } else if (action == MenuAction.Sync && MenuSyncState.syncing) {
-                            "同步中"
+                            tr("同步中")
                         } else {
                             action.label
                         }
@@ -2304,31 +2306,31 @@ fun BrowserScreen(
             }
 
             Sheet.Link -> {
-                SheetRow(title = "打开链接") {
+                SheetRow(title = tr("打开链接")) {
                     sheet = Sheet.None
                     tab.loadUrl(linkUrl)
                 }
-                SheetRow(title = "在新标签页打开") {
+                SheetRow(title = tr("在新标签页打开")) {
                     sheet = Sheet.None
                     state.newTab(linkUrl, tab.incognito, fromLink = true)
                 }
-                SheetRow(title = "复制链接") {
+                SheetRow(title = tr("复制链接")) {
                     sheet = Sheet.None
                     clipboard.setText(AnnotatedString(linkUrl))
                 }
-                SheetRow(title = "在外部浏览器打开") {
+                SheetRow(title = tr("在外部浏览器打开")) {
                     sheet = Sheet.None
                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl))) }
                 }
                 // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
                 if (settings.pageEnhancements && !tab.isGecko) {
                     SheetRow(
-                        title = "标记为广告",
-                        subtitle = "选中这个广告位，可记住规则下次自动隐藏",
+                        title = tr("标记为广告"),
+                        subtitle = tr("选中这个广告位，可记住规则下次自动隐藏"),
                     ) {
                         sheet = Sheet.None
                         tab.markAdAtTouch {
-                            android.widget.Toast.makeText(context, "没找到可标记的元素", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, tr("没找到可标记的元素"), android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -2338,10 +2340,10 @@ fun BrowserScreen(
                 val inlineImage = imageUrl.startsWith("data:", ignoreCase = true)
                 val blobImage = imageUrl.startsWith("blob:", ignoreCase = true)
                 SheetRow(
-                    title = "保存图片",
+                    title = tr("保存图片"),
                     subtitle = when {
-                        inlineImage -> "内嵌图片"
-                        blobImage -> "页面内图片"
+                        inlineImage -> tr("内嵌图片")
+                        blobImage -> tr("页面内图片")
                         else -> hostOf(imageUrl)
                     },
                 ) {
@@ -2352,7 +2354,7 @@ fun BrowserScreen(
                             val ok = Downloader.saveDataUri(context, imageUrl, name)
                             android.widget.Toast.makeText(
                                 context,
-                                if (ok) "已保存到 Download/mafari" else "保存失败",
+                                if (ok) tr("已保存到 Download/mafari") else tr("保存失败"),
                                 android.widget.Toast.LENGTH_SHORT,
                             ).show()
                         }
@@ -2373,11 +2375,11 @@ fun BrowserScreen(
                     }
                 }
                 if (!inlineImage && !blobImage) {
-                    SheetRow(title = "复制图片地址") {
+                    SheetRow(title = tr("复制图片地址")) {
                         sheet = Sheet.None
                         clipboard.setText(AnnotatedString(imageUrl))
                     }
-                    SheetRow(title = "在新标签页打开") {
+                    SheetRow(title = tr("在新标签页打开")) {
                         sheet = Sheet.None
                         state.newTab(imageUrl, tab.incognito, fromLink = true)
                     }
@@ -2385,12 +2387,12 @@ fun BrowserScreen(
                 // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
                 if (settings.pageEnhancements && !tab.isGecko) {
                     SheetRow(
-                        title = "标记为广告",
-                        subtitle = "选中这个广告位，可记住规则下次自动隐藏",
+                        title = tr("标记为广告"),
+                        subtitle = tr("选中这个广告位，可记住规则下次自动隐藏"),
                     ) {
                         sheet = Sheet.None
                         tab.markAdAtTouch {
-                            android.widget.Toast.makeText(context, "没找到可标记的元素", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, tr("没找到可标记的元素"), android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -2400,7 +2402,7 @@ fun BrowserScreen(
                 val hit = elementHit
                 if (hit != null) {
                     if (hit.imageUrl.isNotBlank()) {
-                        SheetRow(title = "保存图片", subtitle = hostOf(hit.imageUrl)) {
+                        SheetRow(title = tr("保存图片"), subtitle = hostOf(hit.imageUrl)) {
                             sheet = Sheet.None
                             pendingDownload = DownloadRequest(
                                 url = hit.imageUrl,
@@ -2418,17 +2420,17 @@ fun BrowserScreen(
                         }
                     }
                     SheetRow(
-                        title = "标记为广告并移除",
-                        subtitle = "记住这条规则，下次访问该站点自动隐藏",
+                        title = tr("标记为广告并移除"),
+                        subtitle = tr("记住这条规则，下次访问该站点自动隐藏"),
                     ) {
                         sheet = Sheet.None
                         if (!AdBlock.addUserCosmetic(hostOf(tab.url), hit.selector)) {
                             // 选择器不安全 / 站点名不合法时规则没有保存，不能让人以为下次会自动隐藏
-                            android.widget.Toast.makeText(context, "这个元素无法生成规则，本次仅移除", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, tr("这个元素无法生成规则，本次仅移除"), android.widget.Toast.LENGTH_SHORT).show()
                         }
                         tab.evaluateJs(removeElementJs(hit.selector))
                     }
-                    SheetRow(title = "仅移除该元素") {
+                    SheetRow(title = tr("仅移除该元素")) {
                         sheet = Sheet.None
                         tab.evaluateJs(removeElementJs(hit.selector))
                     }
@@ -2443,8 +2445,8 @@ fun BrowserScreen(
 
         AppGlassDialog(
             show = showDefaultBrowserPrompt,
-            title = "设为默认浏览器",
-            summary = "设为系统默认浏览器后，其他应用里的网页链接会直接用 Mafari 打开。之后也可以在 设置 → 高级 里设置。",
+            title = tr("设为默认浏览器"),
+            summary = tr("设为系统默认浏览器后，其他应用里的网页链接会直接用 Mafari 打开。之后也可以在 设置 → 高级 里设置。"),
             backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
             onDismissRequest = {
                 showDefaultBrowserPrompt = false
@@ -2459,7 +2461,7 @@ fun BrowserScreen(
                     },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = {
@@ -2470,7 +2472,7 @@ fun BrowserScreen(
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "设为默认", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("设为默认"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -2491,13 +2493,13 @@ fun BrowserScreen(
         val downloadRequest = pendingDownload
         AppGlassDialog(
             show = downloadRequest != null,
-            title = "下载文件",
+            title = tr("下载文件"),
             summary = downloadRequest?.let {
                 it.fileName + "\n" +
                     when {
-                        it.tempPath != null -> "页面内文件（blob）"
-                        it.dataUri != null -> "页面内文件（data）"
-                        else -> "保存到 /sdcard/Download/mafari"
+                        it.tempPath != null -> tr("页面内文件（blob）")
+                        it.dataUri != null -> tr("页面内文件（data）")
+                        else -> tr("保存到 /sdcard/Download/mafari")
                     }
             },
             backdrop = if (glassAvailable) glassBackdrop else null,
@@ -2521,7 +2523,7 @@ fun BrowserScreen(
                             },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(text = "取消", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                         }
                         AppDialogButton(
                             onClick = {
@@ -2563,7 +2565,7 @@ fun BrowserScreen(
                                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                                             android.widget.Toast.makeText(
                                                 context,
-                                                if (saved) "已保存到 Download/mafari" else "保存失败",
+                                                if (saved) tr("已保存到 Download/mafari") else tr("保存失败"),
                                                 android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
@@ -2573,7 +2575,7 @@ fun BrowserScreen(
                             modifier = Modifier.weight(1f),
                             role = GlassDialogButtonRole.Primary,
                         ) {
-                            Text(text = "下载", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("下载"), style = MiuixTheme.textStyles.button)
                         }
                     }
                 }
@@ -2590,8 +2592,8 @@ fun BrowserScreen(
                     val a = captureChoice.params.acceptTypes?.joinToString(",")?.lowercase().orEmpty()
                     a.contains("image") && a.contains("video")
                 },
-            title = "选择来源",
-            summary = "网页需要图片或视频",
+            title = tr("选择来源"),
+            summary = tr("网页需要图片或视频"),
             backdrop = if (glassAvailable) glassBackdrop else null,
             onDismissRequest = {
                 captureChoice?.callback?.onReceiveValue(null)
@@ -2606,7 +2608,7 @@ fun BrowserScreen(
                     modifier = Modifier.fillMaxWidth(),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "拍照", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("拍照"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = {
@@ -2614,7 +2616,7 @@ fun BrowserScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(text = "录像", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("录像"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = {
@@ -2622,7 +2624,7 @@ fun BrowserScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(text = "从文件选择", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("从文件选择"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -2752,7 +2754,7 @@ fun BrowserScreen(
         }
         AppGlassDialog(
             show = permPrompt != null,
-            title = "允许网站" + (permPrompt?.what ?: "") + "？",
+            title = tr("允许网站{0}？", permPrompt?.what ?: ""),
             summary = permPrompt?.origin,
             backdrop = if (glassAvailable) glassBackdrop else null,
             onDismissRequest = {
@@ -2769,7 +2771,7 @@ fun BrowserScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "记住此网站的选择",
+                        text = tr("记住此网站的选择"),
                         modifier = Modifier.weight(1f),
                         color = MiuixTheme.colorScheme.onSurface,
                     )
@@ -2781,14 +2783,14 @@ fun BrowserScreen(
                     onClick = { answerPrompt(false) },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(text = "拒绝", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("拒绝"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { answerPrompt(true) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "允许", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("允许"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -2808,7 +2810,7 @@ fun BrowserScreen(
         val scriptImportUrl = pendingScript
         AppGlassDialog(
             show = scriptImportUrl != null,
-            title = "导入脚本？",
+            title = tr("导入脚本？"),
             summary = scriptImportUrl,
             backdrop = if (glassAvailable) glassBackdrop else null,
             onDismissRequest = { pendingScript = null },
@@ -2823,7 +2825,7 @@ fun BrowserScreen(
                             onClick = { pendingScript = null },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(text = "取消", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                         }
                         AppDialogButton(
                             onClick = {
@@ -2842,7 +2844,7 @@ fun BrowserScreen(
                             modifier = Modifier.weight(1f),
                             role = GlassDialogButtonRole.Primary,
                         ) {
-                            Text(text = "导入", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("导入"), style = MiuixTheme.textStyles.button)
                         }
                     }
                 }
@@ -2851,11 +2853,11 @@ fun BrowserScreen(
 
         AppGlassDialog(
             show = showClearTabsConfirm,
-            title = if (tabsPage == 1) "删除全部无痕浏览页？" else "删除全部标签页？",
+            title = if (tabsPage == 1) tr("删除全部无痕浏览页？") else tr("删除全部标签页？"),
             summary = if (tabsPage == 1) {
-                "将关闭所有无痕浏览页，普通标签页不受影响。"
+                tr("将关闭所有无痕浏览页，普通标签页不受影响。")
             } else {
-                "将关闭所有标签页，无痕浏览页不受影响，并新建一个空白标签。"
+                tr("将关闭所有标签页，无痕浏览页不受影响，并新建一个空白标签。")
             },
             backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
             onDismissRequest = { showClearTabsConfirm = false },
@@ -2868,7 +2870,7 @@ fun BrowserScreen(
                     onClick = { showClearTabsConfirm = false },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = {
@@ -2879,7 +2881,7 @@ fun BrowserScreen(
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Destructive,
                 ) {
-                    Text(text = "全部删除", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("全部删除"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -2916,7 +2918,7 @@ fun BrowserScreen(
             onConfirm = { name, url, group, pinned ->
                 favorites.add(name, url, group, pinned)
                 showBookmarkCreate = false
-                android.widget.Toast.makeText(context, "添加书签成功", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, tr("添加书签成功"), android.widget.Toast.LENGTH_SHORT).show()
             },
         )
 
@@ -3181,16 +3183,16 @@ internal fun UaDialog(
     var custom by remember(show) { mutableStateOf(initial) }
     AppBottomSheet(
         show = show,
-        title = "UA 标识管理",
+        title = tr("UA 标识管理"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 24.dp)) {
             UA_PRESETS.forEach { preset ->
                 val presetIcon = when (preset.name) {
-                    "跟随系统" -> MiuixIcons.Glass.Settings
+                    tr("跟随系统") -> MiuixIcons.Glass.Settings
                     "Android Chrome" -> MiuixIcons.Glass.Phone
-                    "桌面 Chrome" -> MiuixIcons.Glass.HorizontalSplit
+                    tr("桌面 Chrome") -> MiuixIcons.Glass.HorizontalSplit
                     "iPhone Safari" -> MiuixIcons.Glass.Phone
                     else -> MiuixIcons.Glass.Info
                 }
@@ -3233,7 +3235,7 @@ internal fun UaDialog(
                         Spacer(Modifier.width(8.dp))
                         Icon(
                             imageVector = MiuixIcons.Basic.Check,
-                            contentDescription = "已选中",
+                            contentDescription = tr("已选中"),
                             tint = MiuixTheme.colorScheme.primary,
                             modifier = Modifier.size(22.dp),
                         )
@@ -3245,7 +3247,7 @@ internal fun UaDialog(
                 value = custom,
                 onValueChange = { custom = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "UA 字符串",
+                label = tr("UA 字符串"),
                 singleLine = true,
             )
             Spacer(Modifier.height(16.dp))
@@ -3254,14 +3256,14 @@ internal fun UaDialog(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { onConfirm(custom) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "使用", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("使用"), style = MiuixTheme.textStyles.button)
                 }
             }
         }
@@ -3281,7 +3283,7 @@ internal fun FindDialog(
     var text by remember { mutableStateOf("") }
     AppGlassDialog(
         show = show,
-        title = "查找页内",
+        title = tr("查找页内"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -3293,7 +3295,7 @@ internal fun FindDialog(
                     onQuery(it)
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = "查找内容",
+                label = tr("查找内容"),
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
@@ -3303,17 +3305,17 @@ internal fun FindDialog(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AppDialogButton(onClick = onPrev, modifier = Modifier.weight(1f)) {
-                    Text(text = "上一个", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("上一个"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(onClick = onNext, modifier = Modifier.weight(1f)) {
-                    Text(text = "下一个", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("下一个"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "关闭", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
                 }
             }
         }

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.net
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -22,9 +24,9 @@ object HttpFetcher {
     const val UA = "Mozilla/5.0 (Linux; Android) mafari"
 
     /** 服务器返回了非 2xx。[code] 供调用方判断（例如 401/403 带 Referer 重试）。 */
-    class HttpStatusException(val code: Int) : IOException("服务器返回 HTTP $code")
+    class HttpStatusException(val code: Int) : IOException(tr("服务器返回 HTTP {0}", code))
 
-    class TooLargeException : IOException("文件过大")
+    class TooLargeException : IOException(tr("文件过大"))
 
     class Options(
         val connectTimeoutMs: Int = 5_000,
@@ -55,10 +57,10 @@ object HttpFetcher {
             try {
                 val code = conn.responseCode
                 if (code in 300..399) {
-                    val location = conn.getHeaderField("Location") ?: throw IOException("重定向缺少目标地址")
+                    val location = conn.getHeaderField("Location") ?: throw IOException(tr("重定向缺少目标地址"))
                     current = URL(URL(current), location).toString()
                     if (!current.startsWith("http://", true) && !current.startsWith("https://", true)) {
-                        throw IOException("不支持的重定向目标")
+                        throw IOException(tr("不支持的重定向目标"))
                     }
                     continue
                 }
@@ -79,20 +81,20 @@ object HttpFetcher {
                 val type = (conn.contentType ?: "").substringBefore(';').trim()
                 return Response(code, out.toByteArray(), type, current)
             } catch (e: UnknownHostException) {
-                throw IOException("无法解析域名，请检查网络或链接")
+                throw IOException(tr("无法解析域名，请检查网络或链接"))
             } catch (e: SocketTimeoutException) {
-                throw IOException("连接超时")
+                throw IOException(tr("连接超时"))
             } catch (e: SSLException) {
-                throw IOException("HTTPS 连接失败（证书或协议错误）")
+                throw IOException(tr("HTTPS 连接失败（证书或协议错误）"))
             } catch (e: IOException) {
                 throw e
             } catch (e: Exception) {
-                throw IOException(e.message ?: "下载失败")
+                throw IOException(e.message ?: tr("下载失败"))
             } finally {
                 conn.disconnect()
             }
         }
-        throw IOException("重定向次数过多")
+        throw IOException(tr("重定向次数过多"))
     }
 
     fun getText(url: String, options: Options = Options()): String = get(url, options).text()

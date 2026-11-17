@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.R
 import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.data.AppSettings
@@ -18,12 +20,12 @@ data class AppIconOption(
 object AppIconManager {
 
     val ICONS = listOf(
-        AppIconOption("默认", "IconDefaultV2", R.drawable.icon_preview_default),
-        AppIconOption("多彩", "IconColorfulV2", R.drawable.icon_preview_colorful),
-        AppIconOption("立体", "IconSolidV2", R.drawable.icon_preview_solid3d),
-        AppIconOption("深色", "IconDarkV2", R.drawable.icon_preview_dark),
-        AppIconOption("极简", "IconMinimalV2", R.drawable.icon_preview_minimal),
-        AppIconOption("极暗", "IconUltraDarkV2", R.drawable.icon_preview_ultradark),
+        AppIconOption(tr("默认"), "IconDefaultV2", R.drawable.icon_preview_default),
+        AppIconOption(tr("多彩"), "IconColorfulV2", R.drawable.icon_preview_colorful),
+        AppIconOption(tr("立体"), "IconSolidV2", R.drawable.icon_preview_solid3d),
+        AppIconOption(tr("深色"), "IconDarkV2", R.drawable.icon_preview_dark),
+        AppIconOption(tr("极简"), "IconMinimalV2", R.drawable.icon_preview_minimal),
+        AppIconOption(tr("极暗"), "IconUltraDarkV2", R.drawable.icon_preview_ultradark),
     )
 
     // 下标常量（与 ICONS、AppSettings.appIcon 对应）

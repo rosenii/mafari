@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.CookieControl
 import dev.dsh.miuixbrowser.download.Downloader
@@ -709,7 +711,7 @@ class GeckoTabEngine(
             ): GeckoResult<String>? {
                 val label = "Gecko ${error.category}/${error.code}"
                 val spec = ErrorPages.fromKind(geckoErrorKind(error), label, "category=${error.category} code=${error.code}")
-                val page = tab.geckoLoadError("加载失败（错误 ${error.category}/${error.code}）", uri, spec)
+                val page = tab.geckoLoadError(tr("加载失败（错误 {0}/{1}）", error.category, error.code), uri, spec)
                 return page?.let { GeckoResult.fromValue(it) }
             }
         }
@@ -835,15 +837,15 @@ class GeckoTabEngine(
                     p == GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION ->
                         tab.geckoRequestLocation(host, answer)
                     p == GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION ->
-                        tab.geckoRequestSimple(host, GeckoSitePerms.NOTIFICATION, "向你发送通知", answer)
+                        tab.geckoRequestSimple(host, GeckoSitePerms.NOTIFICATION, tr("向你发送通知"), answer)
                     p == GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE ->
-                        tab.geckoRequestSimple(host, GeckoSitePerms.STORAGE, "使用持久存储", answer)
+                        tab.geckoRequestSimple(host, GeckoSitePerms.STORAGE, tr("使用持久存储"), answer)
                     p == GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS ->
-                        tab.geckoRequestSimple(host, GeckoSitePerms.DRM, "播放受 DRM 控制的内容", answer)
+                        tab.geckoRequestSimple(host, GeckoSitePerms.DRM, tr("播放受 DRM 控制的内容"), answer)
                     p == PERM_STORAGE_ACCESS -> {
                         val third = runCatching { perm.javaClass.getField("thirdPartyOrigin").get(perm) as? String }
                             .getOrNull()?.let { hostOf(it) }.orEmpty()
-                        val what = if (third.isNotEmpty()) "使用 $third 的跨站 Cookie" else "使用跨站 Cookie"
+                        val what = if (third.isNotEmpty()) tr("使用 {0} 的跨站 Cookie", third) else tr("使用跨站 Cookie")
                         tab.geckoRequestSimple(host, GeckoSitePerms.STORAGE_ACCESS, what, answer)
                     }
                     // 自动播放：由 media.autoplay.default 统一控制，这里只对个别站点级请求做一致回应
@@ -853,9 +855,9 @@ class GeckoTabEngine(
                         answer(GeckoSitePerms.autoplay == 0)
                     // 较新的 nightly 才有的两项：用名字反射取常量，旧版本没有也不影响编译
                     p == PERM_LOCAL_DEVICE ->
-                        tab.geckoRequestSimple(host, GeckoSitePerms.LOCAL_DEVICE, "访问你设备上的其他应用和服务", answer)
+                        tab.geckoRequestSimple(host, GeckoSitePerms.LOCAL_DEVICE, tr("访问你设备上的其他应用和服务"), answer)
                     p == PERM_LOCAL_NETWORK ->
-                        tab.geckoRequestSimple(host, GeckoSitePerms.LOCAL_NETWORK, "访问你本地网络中的设备", answer)
+                        tab.geckoRequestSimple(host, GeckoSitePerms.LOCAL_NETWORK, tr("访问你本地网络中的设备"), answer)
                     // 其余（VR 等）：本应用没有对应界面，一律拒绝
                     else -> answer(false)
                 }
@@ -924,7 +926,7 @@ class GeckoTabEngine(
     private fun spoolBody(response: WebResponse, uri: String, disposition: String?, mime: String?) {
         val body = response.body
         if (body == null) {
-            tab.geckoBlobError("无法读取下载内容")
+            tab.geckoBlobError(tr("无法读取下载内容"))
             return
         }
         val name = Downloader.fileNameFrom(uri, disposition)
@@ -939,7 +941,7 @@ class GeckoTabEngine(
                     tab.geckoBlobReady(Downloader.withExtension(name, mime), mime, file.absolutePath)
                 } else {
                     runCatching { file.delete() }
-                    tab.geckoBlobError("文件读取不完整或写入失败")
+                    tab.geckoBlobError(tr("文件读取不完整或写入失败"))
                 }
             }
         }.start()

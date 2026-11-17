@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.sync.fxa.FxaUi
 import dev.dsh.miuixbrowser.MafariAutofillService
 import dev.dsh.miuixbrowser.browser.PasswordCsv
@@ -96,7 +98,7 @@ private fun isAutofillServiceOn(context: Context): Boolean =
 private fun openAutofillSettings(context: Context) {
     val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:" + context.packageName))
     runCatching { context.startActivity(intent) }.onFailure {
-        Toast.makeText(context, "请在系统设置里搜索「自动填充服务」并选择 Mafari 密码", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, tr("请在系统设置里搜索「自动填充服务」并选择 Mafari 密码"), Toast.LENGTH_LONG).show()
     }
 }
 
@@ -174,11 +176,11 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
 
     /** 验证身份后解开单条密码交给 [block]。 */
     fun withSecret(guid: String, block: (PasswordEntry) -> Unit) {
-        BiometricGate.authenticate(context, "验证身份", "验证后才能查看或复制密码") { ok ->
+        BiometricGate.authenticate(context, tr("验证身份"), tr("验证后才能查看或复制密码")) { ok ->
             if (!ok) return@authenticate
             scope.launch {
                 val e = withContext(Dispatchers.IO) { AppDatabase.get(context)?.let { PasswordDb.reveal(context, it, guid) } }
-                if (e == null) Toast.makeText(context, "无法解密这条密码（密钥已失效或数据损坏）", Toast.LENGTH_LONG).show() else block(e)
+                if (e == null) Toast.makeText(context, tr("无法解密这条密码（密钥已失效或数据损坏）"), Toast.LENGTH_LONG).show() else block(e)
             }
         }
     }
@@ -210,7 +212,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "密码",
+                    title = tr("密码"),
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,
@@ -225,7 +227,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 onDismiss = { showLockInfo = false },
                 backdrop = backdrop,
                 liquid = liquid,
-                scope = "密码：SQLCipher 整库 AES-256，密码与备注再用加密套件逐条加密",
+                scope = tr("密码：SQLCipher 整库 AES-256，密码与备注再用加密套件逐条加密"),
             )
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
@@ -243,17 +245,17 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 ) {
                     // ① 自动填充：系统服务入口 + 三个开关（两个内核共用，开关同时作用于 Gecko 内置填充和系统自动填充服务）
                     item {
-                        SmallTitle(text = "自动填充")
+                        SmallTitle(text = tr("自动填充"))
                         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                             ArrowPreference(
-                                title = "系统自动填充服务",
-                                summary = if (serviceOn) "已启用 · 系统 WebView 与 Gecko 网页的登录框都可填充"
-                                else "未启用 · 点此在系统设置里选择「Mafari 密码」，即可全局使用本密码填充服务",
+                                title = tr("系统自动填充服务"),
+                                summary = if (serviceOn) tr("已启用 · 系统 WebView 与 Gecko 网页的登录框都可填充")
+                                else tr("未启用 · 点此在系统设置里选择「Mafari 密码」，即可全局使用本密码填充服务"),
                                 onClick = { openAutofillSettings(context) },
                             )
                             AppSwitchPreference(
-                                title = "保存密码",
-                                summary = "登录后询问是否保存或更新 · 无痕标签页不保存",
+                                title = tr("保存密码"),
+                                summary = tr("登录后询问是否保存或更新 · 无痕标签页不保存"),
                                 checked = saveOn,
                                 onCheckedChange = {
                                     saveOn = it
@@ -261,8 +263,8 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                                 },
                             )
                             AppSwitchPreference(
-                                title = "自动填充",
-                                summary = "点登录框时选择已保存的账号并填入",
+                                title = tr("自动填充"),
+                                summary = tr("点登录框时选择已保存的账号并填入"),
                                 checked = fillOn,
                                 onCheckedChange = {
                                     fillOn = it
@@ -270,8 +272,8 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                                 },
                             )
                             AppSwitchPreference(
-                                title = "填充前验证身份",
-                                summary = "填入密码前先通过生物识别或锁屏密码",
+                                title = tr("填充前验证身份"),
+                                summary = tr("填入密码前先通过生物识别或锁屏密码"),
                                 checked = verifyOn,
                                 onCheckedChange = {
                                     verifyOn = it
@@ -284,11 +286,11 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
 
                     // ② 导入与同步
                     item {
-                        SmallTitle(text = "导入与同步")
+                        SmallTitle(text = tr("导入与同步"))
                         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                             ArrowPreference(
-                                title = if (importing) "正在导入…" else "从 CSV 文件导入",
-                                summary = "Chrome · Edge · Firefox · Safari · Bitwarden · 1Password · LastPass · KeePass 导出的密码文件",
+                                title = if (importing) tr("正在导入…") else tr("从 CSV 文件导入"),
+                                summary = tr("Chrome · Edge · Firefox · Safari · Bitwarden · 1Password · LastPass · KeePass 导出的密码文件"),
                                 onClick = {
                                     if (!importing) picker.launch(arrayOf("text/csv", "text/comma-separated-values", "application/csv", "text/plain", "application/vnd.ms-excel", "*/*"))
                                 },
@@ -299,12 +301,12 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                                 if (signedIn != null) {
                                     // 已登录：右侧是刷新图标，点它同步 Firefox 密码并 toast 结果
                                     BasicComponent(
-                                        title = "Firefox 同步",
-                                        summary = "已登录" + signedIn.email.takeIf { it.isNotBlank() }?.let { "•$it" }.orEmpty(),
+                                        title = tr("Firefox 同步"),
+                                        summary = tr("已登录") + signedIn.email.takeIf { it.isNotBlank() }?.let { "•$it" }.orEmpty(),
                                         endActions = {
                                             Icon(
                                                 imageVector = AppIcons.Refresh,
-                                                contentDescription = "同步 Firefox 密码",
+                                                contentDescription = tr("同步 Firefox 密码"),
                                                 modifier = Modifier.size(22.dp),
                                                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = if (fxaSyncing || FxaSync.syncing) 0.4f else 1f),
                                             )
@@ -314,8 +316,8 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                                     )
                                 } else {
                                     ArrowPreference(
-                                        title = "Firefox 同步",
-                                        summary = "未登录，点击前往Firefox帐户同步页登录",
+                                        title = tr("Firefox 同步"),
+                                        summary = tr("未登录，点击前往Firefox帐户同步页登录"),
                                         onClick = onOpenFxa,
                                     )
                                 }
@@ -325,22 +327,22 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
 
                     // ③ 管理：已保存的密码（点开底部 sheet，搜索 + 分页）+ 清空
                     item {
-                        SmallTitle(text = "管理")
+                        SmallTitle(text = tr("管理"))
                         Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues(0.dp)) {
                             ArrowPreference(
-                                title = "已保存的密码",
+                                title = tr("已保存的密码"),
                                 summary = when {
-                                    count == null -> "读取中…"
-                                    total == 0 -> "还没有保存的密码，可从其他浏览器或密码管理器导出 CSV 后导入"
-                                    else -> "共 $total 项，点击查看"
+                                    count == null -> tr("读取中…")
+                                    total == 0 -> tr("还没有保存的密码，可从其他浏览器或密码管理器导出 CSV 后导入")
+                                    else -> tr("共 {0} 项，点击查看", total)
                                 },
                                 enabled = total > 0,
                                 onClick = { listState.reset(); listOpen = true },
                             )
                             if (total > 0) {
                                 ArrowPreference(
-                                    title = "清除所有密码",
-                                    summary = "删除本机保存的全部 $total 条密码，不可恢复",
+                                    title = tr("清除所有密码"),
+                                    summary = tr("删除本机保存的全部 {0} 条密码，不可恢复", total),
                                     onClick = { confirmClear = true },
                                 )
                             }
@@ -348,8 +350,8 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                     }
                     item {
                         Text(
-                            text = "密码保存在本机的加密数据库里，数据库密钥由系统密钥库保护，密码字段还会再经加密套件逐条加密；" +
-                                "查看或复制密码前需要通过系统验证。导入用的 CSV 文件里是明文密码，导入完成后请及时删除。",
+                            text = tr("密码保存在本机的加密数据库里，数据库密钥由系统密钥库保护，密码字段还会再经加密套件逐条加密；") +
+                                tr("查看或复制密码前需要通过系统验证。导入用的 CSV 文件里是明文密码，导入完成后请及时删除。"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
@@ -360,12 +362,12 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 // ---- 已保存的密码列表（弹出单条详情 / 删除确认时先收起，避免 sheet 与对话框叠在一起；关掉后自动回到列表）
                 SearchableListSheet<PasswordDb.Item>(
                     show = listOpen && detail == null && confirmDelete == null,
-                    title = "已保存的密码",
+                    title = tr("已保存的密码"),
                     state = listState,
                     backdrop = bd,
                     onDismiss = { listOpen = false },
-                    searchHint = "搜索网站或用户名",
-                    emptyText = "还没有保存的密码",
+                    searchHint = tr("搜索网站或用户名"),
+                    emptyText = tr("还没有保存的密码"),
                     reloadKey = PasswordDb.version,
                     key = { it.guid },
                     // 搜索 + LIMIT 都在数据库里做，不读整表
@@ -379,7 +381,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 ) { item ->
                     ListSheetRow(
                         title = originTitle(context, item.origin) + (item.httpRealm?.let { " · $it" } ?: ""),
-                        summary = item.username.ifEmpty { "（无用户名）" },
+                        summary = item.username.ifEmpty { tr("（无用户名）") },
                         onClick = {
                             shownPassword = null
                             detail = item
@@ -396,7 +398,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                         }
                         if (r?.success == true) {
                             Text(
-                                text = "CSV 文件里是明文密码，请现在就删除它（也包括下载目录和云盘里的副本）。",
+                                text = tr("CSV 文件里是明文密码，请现在就删除它（也包括下载目录和云盘里的副本）。"),
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(top = 6.dp),
@@ -406,7 +408,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                             onClick = { report = null },
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                             role = GlassDialogButtonRole.Primary,
-                        ) { Text(text = "好", style = MiuixTheme.textStyles.button) }
+                        ) { Text(text = tr("好"), style = MiuixTheme.textStyles.button) }
                     }
                 }
 
@@ -422,29 +424,29 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                     if (d != null) Column(Modifier.fillMaxWidth()) {
                         // 用户名：右侧复制（不需要验证）
                         DetailLine(
-                            label = "用户名",
-                            value = d.username.ifEmpty { "（无）" },
+                            label = tr("用户名"),
+                            value = d.username.ifEmpty { tr("（无）") },
                         ) {
-                            if (d.username.isNotEmpty()) DetailIconButton(AppIcons.Copy, "复制用户名") { copySecret(context, "用户名", d.username) }
+                            if (d.username.isNotEmpty()) DetailIconButton(AppIcons.Copy, tr("复制用户名")) { copySecret(context, tr("用户名"), d.username) }
                         }
                         // 密码：右侧「眼睛 + 复制」，显示和复制都要先通过生物验证；眼睛闭合 = 已隐藏，睁开 = 已显示，点一下切换
                         DetailLine(
-                            label = "密码",
+                            label = tr("密码"),
                             value = shownPassword ?: "••••••••••",
                         ) {
-                            DetailIconButton(if (shownPassword != null) AppIcons.Eye else AppIcons.EyeOff, if (shownPassword != null) "隐藏密码" else "显示密码") {
+                            DetailIconButton(if (shownPassword != null) AppIcons.Eye else AppIcons.EyeOff, if (shownPassword != null) tr("隐藏密码") else tr("显示密码")) {
                                 if (shownPassword != null) shownPassword = null
                                 else withSecret(d.guid) { shownPassword = it.password }
                             }
-                            DetailIconButton(AppIcons.Copy, "复制密码") {
-                                withSecret(d.guid) { copySecret(context, "密码", it.password, sensitive = true) }
+                            DetailIconButton(AppIcons.Copy, tr("复制密码")) {
+                                withSecret(d.guid) { copySecret(context, tr("密码"), it.password, sensitive = true) }
                             }
                         }
-                        if (d.timePasswordChanged > 0) DetailLine("修改时间", formatTime(d.timePasswordChanged))
+                        if (d.timePasswordChanged > 0) DetailLine(tr("修改时间"), formatTime(d.timePasswordChanged))
                         // 关联的原生 App（在 App 里选「选择账号…」时建立）：这里可以逐个解除
                         linkedApps.forEach { pkg ->
-                            DetailLine(label = "关联的应用", value = MafariAutofillService.appLabel(context, pkg)) {
-                                DetailTextAction("解除") {
+                            DetailLine(label = tr("关联的应用"), value = MafariAutofillService.appLabel(context, pkg)) {
+                                DetailTextAction(tr("解除")) {
                                     scope.launch { withContext(Dispatchers.IO) { AppDatabase.get(context)?.let { PasswordDb.unlinkApp(it, d.guid, pkg) } } }
                                 }
                             }
@@ -453,12 +455,12 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                             AppDialogButton(
                                 onClick = { confirmDelete = d },
                                 modifier = Modifier.weight(1f),
-                            ) { Text(text = "删除", style = MiuixTheme.textStyles.button, color = MiuixTheme.colorScheme.error) }
+                            ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button, color = MiuixTheme.colorScheme.error) }
                             AppDialogButton(
                                 onClick = { detail = null; shownPassword = null },
                                 modifier = Modifier.weight(1f),
                                 role = GlassDialogButtonRole.Primary,
-                            ) { Text(text = "完成", style = MiuixTheme.textStyles.button) }
+                            ) { Text(text = tr("完成"), style = MiuixTheme.textStyles.button) }
                         }
                     }
                 }
@@ -467,13 +469,13 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 val del = confirmDelete
                 AppGlassDialog(
                     show = del != null,
-                    title = "删除这条密码？",
-                    summary = del?.let { originTitle(context, it.origin) + " · " + it.username.ifEmpty { "（无用户名）" } },
+                    title = tr("删除这条密码？"),
+                    summary = del?.let { originTitle(context, it.origin) + " · " + it.username.ifEmpty { tr("（无用户名）") } },
                     backdrop = bd,
                     onDismissRequest = { confirmDelete = null },
                 ) {
                     ConfirmButtons(
-                        confirmText = "删除",
+                        confirmText = tr("删除"),
                         onCancel = { confirmDelete = null },
                         onConfirm = {
                             val g = del?.guid
@@ -491,13 +493,13 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                 // ---- 清空确认
                 AppGlassDialog(
                     show = confirmClear,
-                    title = "清除所有密码？",
-                    summary = "本机保存的全部 $total 条密码将被删除，不可恢复",
+                    title = tr("清除所有密码？"),
+                    summary = tr("本机保存的全部 {0} 条密码将被删除，不可恢复", total),
                     backdrop = bd,
                     onDismissRequest = { confirmClear = false },
                 ) {
                     ConfirmButtons(
-                        confirmText = "全部清除",
+                        confirmText = tr("全部清除"),
                         onCancel = { confirmClear = false },
                         onConfirm = {
                             confirmClear = false
@@ -556,7 +558,7 @@ private fun DetailIconButton(icon: androidx.compose.ui.graphics.vector.ImageVect
 private fun ConfirmButtons(confirmText: String, onCancel: () -> Unit, onConfirm: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         AppDialogButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
-            Text(text = "取消", style = MiuixTheme.textStyles.button)
+            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
         }
         AppDialogButton(onClick = onConfirm, modifier = Modifier.weight(1f), role = GlassDialogButtonRole.Destructive) {
             Text(text = confirmText, style = MiuixTheme.textStyles.button)
@@ -568,25 +570,25 @@ private fun ConfirmButtons(confirmText: String, onCancel: () -> Unit, onConfirm:
 private fun runImport(context: Context, uri: android.net.Uri): ImportReport {
     return try {
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readNBytes(PasswordCsv.MAX_BYTES + 1) }
-            ?: return ImportReport("导入失败", listOf("无法读取所选文件"), false)
+            ?: return ImportReport(tr("导入失败"), listOf(tr("无法读取所选文件")), false)
         if (bytes.size > PasswordCsv.MAX_BYTES) {
-            return ImportReport("导入失败", listOf("文件超过 ${PasswordCsv.MAX_BYTES / 1024 / 1024} MB，不像是密码文件"), false)
+            return ImportReport(tr("导入失败"), listOf(tr("文件超过 {0} MB，不像是密码文件", PasswordCsv.MAX_BYTES / 1024 / 1024)), false)
         }
         val parsed = PasswordCsv.parse(PasswordCsv.decode(bytes))
-        val db = AppDatabase.get(context) ?: return ImportReport("导入失败", listOf("加密数据库不可用，无法保存密码"), false)
+        val db = AppDatabase.get(context) ?: return ImportReport(tr("导入失败"), listOf(tr("加密数据库不可用，无法保存密码")), false)
         val stats = PasswordDb.importEntries(context, db, parsed.entries)
         val lines = ArrayList<String>()
-        lines.add("识别为：${parsed.format}")
-        lines.add("新增 ${stats.added} 条" + if (stats.updated > 0) "，更新 ${stats.updated} 条" else "")
-        if (stats.unchanged > 0) lines.add("${stats.unchanged} 条已存在，未改动")
-        if (parsed.skipped > 0) lines.add("${parsed.skipped} 行被跳过（缺少网址 / 密码、网址不是 http(s)、或重复）")
-        if (parsed.totalRows == 0) lines.add("文件里没有数据行")
-        ImportReport("导入完成", lines, true)
+        lines.add(tr("识别为：{0}", parsed.format))
+        lines.add(tr("新增 {0} 条", stats.added) + if (stats.updated > 0) tr("，更新 {0} 条", stats.updated) else "")
+        if (stats.unchanged > 0) lines.add(tr("{0} 条已存在，未改动", stats.unchanged))
+        if (parsed.skipped > 0) lines.add(tr("{0} 行被跳过（缺少网址 / 密码、网址不是 http(s)、或重复）", parsed.skipped))
+        if (parsed.totalRows == 0) lines.add(tr("文件里没有数据行"))
+        ImportReport(tr("导入完成"), lines, true)
     } catch (e: PasswordCsv.FormatException) {
-        ImportReport("无法导入", listOf(e.message ?: "文件格式不对"), false)
+        ImportReport(tr("无法导入"), listOf(e.message ?: tr("文件格式不对")), false)
     } catch (e: Exception) {
         Diag.log("password import failed: ${e.javaClass.simpleName}")
-        ImportReport("导入失败", listOf("保存时出错，已全部撤销，没有导入任何密码"), false)
+        ImportReport(tr("导入失败"), listOf(tr("保存时出错，已全部撤销，没有导入任何密码")), false)
     }
 }
 
@@ -598,7 +600,7 @@ private fun copySecret(context: Context, label: String, text: String, sensitive:
         clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
     }
     cm.setPrimaryClip(clip)
-    Toast.makeText(context, "已复制$label", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, tr("已复制{0}", label), Toast.LENGTH_SHORT).show()
 }
 
 private fun formatTime(ms: Long): String =

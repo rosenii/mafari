@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.rememberFavicon
 import dev.dsh.miuixbrowser.crypto.EncryptionInfoDialog
 import dev.dsh.miuixbrowser.crypto.EncryptionLockButton
@@ -121,10 +123,10 @@ import java.util.Locale
 
 /** 清除历史的时间范围；millis 为 null 表示全部 */
 private enum class ClearRange(val label: String, val millis: Long?) {
-    Day("清除最近 1 天", 24L * 60 * 60 * 1000),
-    Week("清除最近一周", 7L * 24 * 60 * 60 * 1000),
-    Month("清除最近一月", 30L * 24 * 60 * 60 * 1000),
-    All("全部清除", null),
+    Day(tr("清除最近 1 天"), 24L * 60 * 60 * 1000),
+    Week(tr("清除最近一周"), 7L * 24 * 60 * 60 * 1000),
+    Month(tr("清除最近一月"), 30L * 24 * 60 * 60 * 1000),
+    All(tr("全部清除"), null),
 }
 
 /**
@@ -191,16 +193,16 @@ fun LibraryScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         runCatching {
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: error("无法读取所选文件")
+                ?: error(tr("无法读取所选文件"))
             val result = favorites.importBookmarks(decodeBookmarkText(bytes))
             val msg = when {
-                result.added > 0 -> "已导入 ${result.added} 条书签"
-                result.found > 0 -> "识别到 ${result.found} 条书签，均已存在，无需重复导入"
-                else -> "未识别到书签（文件 ${bytes.size} 字节；支持 Chrome / Edge / Firefox 导出的 HTML 或 JSON）"
+                result.added > 0 -> tr("已导入 {0} 条书签", result.added)
+                result.found > 0 -> tr("识别到 {0} 条书签，均已存在，无需重复导入", result.found)
+                else -> tr("未识别到书签（文件 {0} 字节；支持 Chrome / Edge / Firefox 导出的 HTML 或 JSON）", bytes.size)
             }
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
         }.onFailure {
-            Toast.makeText(context, "导入失败：${it.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, tr("导入失败：{0}", it.message), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -210,7 +212,7 @@ fun LibraryScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             PageGlassTopBar(
-                title = if (pagerState.currentPage == TAB_BOOKMARKS) "书签" else "历史",
+                title = if (pagerState.currentPage == TAB_BOOKMARKS) tr("书签") else tr("历史"),
                 backdrop = backdrop,
                 glass = glass,
                 scrollBehavior = scrollBehavior,
@@ -231,7 +233,7 @@ fun LibraryScreen(
                     ) {
                         Icon(
                             imageVector = MiuixIcons.Glass.Search,
-                            contentDescription = "搜索",
+                            contentDescription = tr("搜索"),
                             modifier = Modifier.size(22.dp),
                             tint = MiuixTheme.colorScheme.onSurface,
                         )
@@ -246,12 +248,12 @@ fun LibraryScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
-                                label = if (pagerState.currentPage == TAB_BOOKMARKS) "搜索书签" else "搜索历史",
+                                label = if (pagerState.currentPage == TAB_BOOKMARKS) tr("搜索书签") else tr("搜索历史"),
                                 singleLine = true,
                             )
                         }
                         GlassTabRow(
-                            tabs = listOf("书签", "历史"),
+                            tabs = listOf(tr("书签"), tr("历史")),
                             selectedIndex = pagerState.currentPage,
                             onSelect = { index ->
                                 scope.launch { pagerState.animateScrollToPage(index) }
@@ -269,7 +271,7 @@ fun LibraryScreen(
             onDismiss = { showLockInfo = false },
             backdrop = backdrop,
             liquid = liquid,
-            scope = "书签：加密套件加密；历史：SQLCipher 整库 AES-256",
+            scope = tr("书签：加密套件加密；历史：SQLCipher 整库 AES-256"),
         )
         val topInset = innerPadding.calculateTopPadding()
         Box(modifier = Modifier.fillMaxSize()) {
@@ -326,7 +328,7 @@ fun LibraryScreen(
                     ) {
                         Icon(
                             imageVector = MiuixIcons.Glass.Add,
-                            contentDescription = "书签操作",
+                            contentDescription = tr("书签操作"),
                             tint = Color.White,
                             modifier = Modifier.size(26.dp),
                         )
@@ -340,7 +342,7 @@ fun LibraryScreen(
                     backdrop = backdrop,
                 ) {
                     GlassPopupItem(
-                        text = "新建书签",
+                        text = tr("新建书签"),
                         onClick = {
                             showMenu = false
                             creatingFav = true
@@ -348,8 +350,8 @@ fun LibraryScreen(
                         icon = MiuixIcons.Glass.Add,
                     )
                     GlassPopupItem(
-                        text = "导入",
-                        summary = "Chrome / Edge / Firefox 书签（HTML / JSON）",
+                        text = tr("导入"),
+                        summary = tr("Chrome / Edge / Firefox 书签（HTML / JSON）"),
                         onClick = {
                             showMenu = false
                             importLauncher.launch(arrayOf("*/*"))
@@ -357,8 +359,8 @@ fun LibraryScreen(
                         icon = MiuixIcons.Glass.Download,
                     )
                     GlassPopupItem(
-                        text = "导出",
-                        summary = "保存到 Download/mafari",
+                        text = tr("导出"),
+                        summary = tr("保存到 Download/mafari"),
                         onClick = {
                             showMenu = false
                             exportBookmarks(context, favorites.exportNetscapeHtml())
@@ -383,7 +385,7 @@ fun LibraryScreen(
                     ) {
                         Icon(
                             imageVector = MiuixIcons.Glass.Delete,
-                            contentDescription = "清空历史",
+                            contentDescription = tr("清空历史"),
                             tint = Color(0xFFE53935),
                             modifier = Modifier.size(26.dp),
                         )
@@ -423,16 +425,16 @@ fun LibraryScreen(
         }
         AppGlassDialog(
             show = showClearConfirm,
-            title = "清除历史记录",
+            title = tr("清除历史记录"),
             backdrop = backdrop,
             onDismissRequest = { showClearConfirm = false },
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = if (confirmCount > 0) {
-                        "将删除${clearRange.label.removePrefix("清除")}共 $confirmCount 条历史记录，此操作无法撤销。"
+                        tr("将删除{0}共 {1} 条历史记录，此操作无法撤销。", clearRange.label.removePrefix(tr("清除")), confirmCount)
                     } else {
-                        "${clearRange.label.removePrefix("清除")}没有可删除的历史记录。"
+                        tr("{0}没有可删除的历史记录。", clearRange.label.removePrefix(tr("清除")))
                     },
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -443,13 +445,13 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     LiquidGlassPillButton(
-                        text = "取消",
+                        text = tr("取消"),
                         onClick = { showClearConfirm = false },
                         backdrop = liquid,
                         modifier = Modifier.weight(1f),
                     )
                     LiquidGlassPillButton(
-                        text = "确认删除",
+                        text = tr("确认删除"),
                         onClick = {
                             val within = clearRange.millis
                             if (within == null) store.clear() else store.clearWithin(within)
@@ -469,7 +471,7 @@ fun LibraryScreen(
         var renameText by remember(groupToRename) { mutableStateOf(groupToRename.orEmpty()) }
         AppGlassDialog(
             show = groupToRename != null,
-            title = "编辑分组",
+            title = tr("编辑分组"),
             backdrop = backdrop,
             onDismissRequest = { renamingGroup = null },
         ) {
@@ -478,7 +480,7 @@ fun LibraryScreen(
                     value = renameText,
                     onValueChange = { renameText = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = "分组路径（用 / 分层）",
+                    label = tr("分组路径（用 / 分层）"),
                     useLabelAsPlaceholder = true,
                     singleLine = true,
                 )
@@ -488,7 +490,7 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     LiquidGlassPillButton(
-                        text = "删除",
+                        text = tr("删除"),
                         onClick = {
                             deletingGroup = groupToRename
                             renamingGroup = null
@@ -498,12 +500,12 @@ fun LibraryScreen(
                         role = LiquidRole.Destructive,
                     )
                     LiquidGlassPillButton(
-                        text = "保存",
+                        text = tr("保存"),
                         onClick = {
                             val old = groupToRename
                             if (old != null) {
                                 if (renameText.isBlank()) {
-                                    Toast.makeText(context, "分组名不能为空", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, tr("分组名不能为空"), Toast.LENGTH_SHORT).show()
                                     return@LiquidGlassPillButton
                                 }
                                 favorites.renameGroup(old, renameText)
@@ -521,13 +523,13 @@ fun LibraryScreen(
         val groupToDelete = deletingGroup
         AppGlassDialog(
             show = groupToDelete != null && !favorites.isProtectedGroup(groupToDelete),
-            title = "删除分组",
+            title = tr("删除分组"),
             backdrop = backdrop,
             onDismissRequest = { deletingGroup = null },
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "将删除分组「${groupToDelete.orEmpty()}」（含子分组）及其中的 ${groupToDelete?.let { favorites.itemsInTree(it).size } ?: 0} 个书签，此操作无法撤销。",
+                    text = tr("将删除分组「{0}」（含子分组）及其中的 {1} 个书签，此操作无法撤销。", groupToDelete.orEmpty(), groupToDelete?.let { favorites.itemsInTree(it).size } ?: 0),
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -537,13 +539,13 @@ fun LibraryScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     LiquidGlassPillButton(
-                        text = "取消",
+                        text = tr("取消"),
                         onClick = { deletingGroup = null },
                         backdrop = liquid,
                         modifier = Modifier.weight(1f),
                     )
                     LiquidGlassPillButton(
-                        text = "删除",
+                        text = tr("删除"),
                         onClick = {
                             groupToDelete?.let { favorites.removeGroup(it) }
                             deletingGroup = null
@@ -646,11 +648,11 @@ private fun <T> OptionPillRow(
 
 /** 书签排序方式。书签没有单独的创建时间，「新 / 旧」按添加顺序（新建、导入、同步进来的先后）。 */
 private enum class BookmarkSortMode(val id: String, val label: String) {
-    NewOld("new_old", "新-旧"),
-    OldNew("old_new", "旧-新"),
+    NewOld("new_old", tr("新-旧")),
+    OldNew("old_new", tr("旧-新")),
     AZ("az", "A-Z"),
     ZA("za", "Z-A"),
-    Custom("custom", "自定义");
+    Custom("custom", tr("自定义"));
 
     companion object {
         fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: OldNew
@@ -659,7 +661,7 @@ private enum class BookmarkSortMode(val id: String, val label: String) {
 
 /** 书签树节点：[path] 是完整分组路径（以 / 分层）；[items] 是直接放在该文件夹里的书签。 */
 private class BmNode(val path: String) {
-    val name: String = path.substringAfterLast('/').ifBlank { "未命名" }
+    val name: String = path.substringAfterLast('/').ifBlank { tr("未命名") }
     val children = ArrayList<BmNode>()
     val items = ArrayList<Favorite>()
     /** 含全部子孙文件夹的（已按搜索词过滤的）书签总数 */
@@ -907,7 +909,7 @@ private fun BookmarksPage(
     // 排序方式固定在顶部（与历史页的分组同款），放在列表外面，滑动时不随列表滚走
     if (favorites.items.isNotEmpty()) {
         OptionPillRow(
-            label = "排序",
+            label = tr("排序"),
             options = BookmarkSortMode.entries.map { it to it.label },
             selected = sortMode,
             onSelect = { m ->
@@ -930,7 +932,7 @@ private fun BookmarksPage(
         if (favorites.items.isEmpty()) {
             item {
                 Text(
-                    text = "还没有书签。点右下角按钮新建，或从 Chrome / Firefox 导入。",
+                    text = tr("还没有书签。点右下角按钮新建，或从 Chrome / Firefox 导入。"),
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(24.dp),
@@ -940,7 +942,7 @@ private fun BookmarksPage(
         if (noMatch) {
             item {
                 Text(
-                    text = "没有匹配的书签",
+                    text = tr("没有匹配的书签"),
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(24.dp),
@@ -1123,8 +1125,8 @@ private fun BookmarkFolderRow(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = listOfNotNull(
-                        if (folderCount > 0) "$folderCount 个分组" else null,
-                        "$bookmarkCount 个书签",
+                        if (folderCount > 0) tr("{0} 个分组", folderCount) else null,
+                        tr("{0} 个书签", bookmarkCount),
                     ).joinToString(" · "),
                     fontSize = 11.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -1136,7 +1138,7 @@ private fun BookmarkFolderRow(
             AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
                 Icon(
                     imageVector = MiuixIcons.Glass.ChevronBackward,
-                    contentDescription = if (open) "收起" else "展开",
+                    contentDescription = if (open) tr("收起") else tr("展开"),
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
                 )
@@ -1257,7 +1259,7 @@ private fun BookmarkRow(
                 ) {
                     Icon(
                         imageVector = AppIcons.Pin,
-                        contentDescription = "已置顶",
+                        contentDescription = tr("已置顶"),
                         tint = MiuixTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(9.dp).graphicsLayer { rotationZ = 45f },
                     )
@@ -1283,7 +1285,7 @@ private fun BookmarkRow(
                 )
             }
             Text(
-                text = "编辑",
+                text = tr("编辑"),
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.primary,
                 modifier = Modifier
@@ -1370,7 +1372,7 @@ private fun BookmarkGroupHeader(
             ) {
                 Icon(
                     imageVector = MiuixIcons.Regular.ListView,
-                    contentDescription = "拖动排序",
+                    contentDescription = tr("拖动排序"),
                     tint = if (isDragged) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.size(24.dp),
                 )
@@ -1386,7 +1388,7 @@ private fun BookmarkGroupHeader(
             ) {
                 Icon(
                     imageVector = AppIcons.Pin,
-                    contentDescription = "固定在最上面",
+                    contentDescription = tr("固定在最上面"),
                     tint = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = 45f },
                 )
@@ -1416,7 +1418,7 @@ private fun BookmarkGroupHeader(
         AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
             Icon(
                 imageVector = MiuixIcons.Glass.ChevronBackward,
-                contentDescription = if (open) "收起" else "展开",
+                contentDescription = if (open) tr("收起") else tr("展开"),
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
             )
@@ -1464,7 +1466,7 @@ private fun HistoryPage(
         ) {
             if (loaded) {
                 Text(
-                    text = if (q.isEmpty()) "还没有浏览记录" else "没有匹配的历史记录",
+                    text = if (q.isEmpty()) tr("还没有浏览记录") else tr("没有匹配的历史记录"),
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -1484,7 +1486,7 @@ private fun HistoryPage(
     // 分组方式固定在顶部：放在列表外面，滑动时不随列表滚走，顶栏折叠后仍吸附在最上方
     Column(modifier = Modifier.fillMaxSize()) {
                 OptionPillRow(
-                    label = "分组",
+                    label = tr("分组"),
                     options = HistoryGroupMode.entries.map { it to it.label },
                     selected = mode,
                     onSelect = { m ->
@@ -1563,7 +1565,7 @@ private fun HistoryPage(
                     ) {
                         Icon(
                             imageVector = MiuixIcons.Glass.Close,
-                            contentDescription = "删除",
+                            contentDescription = tr("删除"),
                             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.size(16.dp),
                         )
@@ -1580,10 +1582,10 @@ private fun HistoryPage(
 private const val HISTORY_PAGE = 200
 
 enum class HistoryGroupMode(val id: String, val label: String) {
-    Day("day", "按日"),
-    Week("week", "按周"),
-    Month("month", "按月"),
-    Year("year", "按年");
+    Day("day", tr("按日")),
+    Week("week", tr("按周")),
+    Month("month", tr("按月")),
+    Year("year", tr("按年"));
 
     companion object {
         fun fromId(id: String?) = entries.firstOrNull { it.id == id } ?: Day
@@ -1619,36 +1621,36 @@ private fun groupHistory(entries: List<HistoryEntry>, mode: HistoryGroupMode): L
     }
     val cur = nowStart.timeInMillis
     val prev = shift(nowStart, -1).timeInMillis
-    val md = SimpleDateFormat("M月d日", Locale.getDefault())
-    val wk = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
+    val md = SimpleDateFormat(tr("M月d日"), dev.dsh.miuixbrowser.i18n.I18n.locale())
+    val wk = arrayOf(tr("周日"), tr("周一"), tr("周二"), tr("周三"), tr("周四"), tr("周五"), tr("周六"))
     fun title(start: java.util.Calendar): String {
         val t = start.timeInMillis
         val sameYear = start.get(java.util.Calendar.YEAR) == nowStart.get(java.util.Calendar.YEAR)
         return when (mode) {
             HistoryGroupMode.Day -> when (t) {
-                cur -> "今天"
-                prev -> "昨天"
+                cur -> tr("今天")
+                prev -> tr("昨天")
                 else -> md.format(Date(t)) + " " + wk[start.get(java.util.Calendar.DAY_OF_WEEK) - 1]
             }
             HistoryGroupMode.Week -> {
                 val end = shift(start, 1).apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
                 val range = md.format(Date(t)) + " - " + md.format(end.time)
                 when (t) {
-                    cur -> "本周 · $range"
-                    prev -> "上周 · $range"
+                    cur -> tr("本周 · {0}", range)
+                    prev -> tr("上周 · {0}", range)
                     else -> range
                 }
             }
             HistoryGroupMode.Month -> when (t) {
-                cur -> "本月"
-                prev -> "上月"
-                else -> if (sameYear) "${start.get(java.util.Calendar.MONTH) + 1}月"
-                else "${start.get(java.util.Calendar.YEAR)}年${start.get(java.util.Calendar.MONTH) + 1}月"
+                cur -> tr("本月")
+                prev -> tr("上月")
+                else -> if (sameYear) tr("{0}月", start.get(java.util.Calendar.MONTH) + 1)
+                else tr("{0}年{1}月", start.get(java.util.Calendar.YEAR), start.get(java.util.Calendar.MONTH) + 1)
             }
             HistoryGroupMode.Year -> when (t) {
-                cur -> "今年"
-                prev -> "去年"
-                else -> "${start.get(java.util.Calendar.YEAR)}年"
+                cur -> tr("今年")
+                prev -> tr("去年")
+                else -> tr("{0}年", start.get(java.util.Calendar.YEAR))
             }
         }
     }
@@ -1694,7 +1696,7 @@ private fun HistoryGroupHeader(title: String, count: Int, open: Boolean, onClick
         AppSmallButton(onClick = onClick, size = 36.dp, inPage = true) {
             Icon(
                 imageVector = MiuixIcons.Glass.ChevronBackward,
-                contentDescription = if (open) "收起" else "展开",
+                contentDescription = if (open) tr("收起") else tr("展开"),
                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
             )
@@ -1730,14 +1732,14 @@ private fun exportBookmarks(context: android.content.Context, html: String) {
         }
         val resolver = context.contentResolver
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: error("无法创建文件")
+            ?: error(tr("无法创建文件"))
         resolver.openOutputStream(uri)?.use { it.write(html.toByteArray()) }
         values.clear()
         values.put(MediaStore.Downloads.IS_PENDING, 0)
         resolver.update(uri, values, null, null)
-        Toast.makeText(context, "已导出到 Download/mafari/$name", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, tr("已导出到 Download/mafari/{0}", name), Toast.LENGTH_LONG).show()
     }.onFailure {
-        Toast.makeText(context, "导出失败：${it.message}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, tr("导出失败：{0}", it.message), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1762,7 +1764,7 @@ private fun GroupSelectRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "分组",
+            text = tr("分组"),
             fontSize = 15.sp,
             color = MiuixTheme.colorScheme.onSurface,
         )
@@ -1780,7 +1782,7 @@ private fun GroupSelectRow(
         Spacer(Modifier.width(6.dp))
         Icon(
             imageVector = MiuixIcons.Glass.ChevronBackward,
-            contentDescription = if (open) "收起" else "展开",
+            contentDescription = if (open) tr("收起") else tr("展开"),
             tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = angle },
         )
@@ -1855,7 +1857,7 @@ internal fun FavoriteEditorDialog(
     var hostWidth by remember { mutableStateOf(0) }
     AppGlassDialog(
         show = show,
-        title = if (initial == null) "新建书签" else "编辑书签",
+        title = if (initial == null) tr("新建书签") else tr("编辑书签"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -1875,7 +1877,7 @@ internal fun FavoriteEditorDialog(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "名称",
+                    text = tr("名称"),
                     fontSize = 15.sp,
                     color = MiuixTheme.colorScheme.onSurface,
                 )
@@ -1893,7 +1895,7 @@ internal fun FavoriteEditorDialog(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "网址",
+                    text = tr("网址"),
                     fontSize = 15.sp,
                     color = MiuixTheme.colorScheme.onSurface,
                 )
@@ -1927,7 +1929,7 @@ internal fun FavoriteEditorDialog(
                     groupPopup = false
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = "或输入/新建分组路径(以/分层)",
+                label = tr("或输入/新建分组路径(以/分层)"),
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
@@ -1946,13 +1948,13 @@ internal fun FavoriteEditorDialog(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "同层置顶",
+                        text = tr("同层置顶"),
                         fontSize = 15.sp,
                         color = MiuixTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "排到所在分组的书签最前，分组文件夹仍在书签上面",
+                        text = tr("排到所在分组的书签最前，分组文件夹仍在书签上面"),
                         fontSize = 11.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
@@ -1967,7 +1969,7 @@ internal fun FavoriteEditorDialog(
             ) {
                 if (initial != null && onDelete != null) {
                     LiquidGlassPillButton(
-                        text = "删除",
+                        text = tr("删除"),
                         onClick = onDelete,
                         backdrop = liquidBackdrop,
                         modifier = Modifier.weight(1f),
@@ -1975,14 +1977,14 @@ internal fun FavoriteEditorDialog(
                     )
                 } else {
                     LiquidGlassPillButton(
-                        text = "取消",
+                        text = tr("取消"),
                         onClick = onDismiss,
                         backdrop = liquidBackdrop,
                         modifier = Modifier.weight(1f),
                     )
                 }
                 LiquidGlassPillButton(
-                    text = "保存",
+                    text = tr("保存"),
                     onClick = {
                         // 规整路径：去掉各段首尾空格和多余的 /（如 "a/b/ " → "a/b"）
                         val path = group.split('/').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("/")

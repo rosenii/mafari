@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.sync
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.backup.BackupFormat
 import dev.dsh.miuixbrowser.backup.BackupManager
@@ -91,7 +93,7 @@ object WebDavNames {
 
 class WebDavClient(private val config: WebDavConfig) {
 
-    private val base: String = WebDavNames.normalizeBaseUrl(config.url) ?: throw WebDavException("服务器地址需以 http:// 或 https:// 开头")
+    private val base: String = WebDavNames.normalizeBaseUrl(config.url) ?: throw WebDavException(tr("服务器地址需以 http:// 或 https:// 开头"))
 
     private val http = OkHttpClient.Builder()
         // 强制 HTTP/1.1：部分 WebDAV 服务 / 前置代理在 HTTP/2 下处理 PUT 有问题（返回 405，或只创建 0 字节文件）
@@ -124,23 +126,23 @@ class WebDavClient(private val config: WebDavConfig) {
         } catch (e: WebDavException) {
             throw e
         } catch (e: IllegalArgumentException) {
-            throw WebDavException("服务器地址格式不正确", e)
+            throw WebDavException(tr("服务器地址格式不正确"), e)
         } catch (e: javax.net.ssl.SSLException) {
-            throw WebDavException("TLS 连接失败（证书无效或协议不匹配）", e)
+            throw WebDavException(tr("TLS 连接失败（证书无效或协议不匹配）"), e)
         } catch (e: IOException) {
-            throw WebDavException("无法连接服务器：" + (e.message ?: e.javaClass.simpleName), e)
+            throw WebDavException(tr("无法连接服务器：") + (e.message ?: e.javaClass.simpleName), e)
         }
     }
 
     private fun fail(code: Int, what: String): Nothing = throw WebDavException(
         when (code) {
-            401 -> "用户名或密码错误"
-            403 -> "没有权限：$what"
-            404 -> "地址不存在：$what"
-            405 -> "服务器不支持 WebDAV：$what"
-            409 -> "上级目录不存在：$what"
-            507 -> "服务器空间不足"
-            else -> "$what 失败（HTTP $code）"
+            401 -> tr("用户名或密码错误")
+            403 -> tr("没有权限：{0}", what)
+            404 -> tr("地址不存在：{0}", what)
+            405 -> tr("服务器不支持 WebDAV：{0}", what)
+            409 -> tr("上级目录不存在：{0}", what)
+            507 -> tr("服务器空间不足")
+            else -> tr("{0} 失败（HTTP {1}）", what, code)
         },
     )
 
@@ -152,7 +154,7 @@ class WebDavClient(private val config: WebDavConfig) {
 
     /** 连通性与账号检测：先看地址本身能否 PROPFIND，再确保备份目录存在。 */
     fun test() {
-        call(propfind("$base/", 0)) { if (it.code != 207 && it.code != 200) fail(it.code, "连接服务器") }
+        call(propfind("$base/", 0)) { if (it.code != 207 && it.code != 200) fail(it.code, tr("连接服务器")) }
         ensureDir()
     }
 
@@ -162,13 +164,13 @@ class WebDavClient(private val config: WebDavConfig) {
             when (it.code) {
                 207, 200 -> true
                 404 -> false
-                else -> fail(it.code, "访问 ${WebDavNames.REMOTE_DIR} 文件夹")
+                else -> fail(it.code, tr("访问 {0} 文件夹", WebDavNames.REMOTE_DIR))
             }
         }
         if (exists) return
         call(request(dir).method("MKCOL", null).build()) {
             // 201 新建；405 已存在（部分服务器 PROPFIND 与 MKCOL 判断不一致）
-            if (it.code != 201 && it.code != 405 && it.code != 200) fail(it.code, "创建 ${WebDavNames.REMOTE_DIR} 文件夹")
+            if (it.code != 201 && it.code != 405 && it.code != 200) fail(it.code, tr("创建 {0} 文件夹", WebDavNames.REMOTE_DIR))
         }
     }
 
@@ -179,7 +181,7 @@ class WebDavClient(private val config: WebDavConfig) {
             when (it.code) {
                 207, 200 -> WebDavNames.parseBackupNames(it.body?.string().orEmpty())
                 404 -> emptyList()
-                else -> fail(it.code, "读取备份列表")
+                else -> fail(it.code, tr("读取备份列表"))
             }
         }
     }
@@ -192,19 +194,19 @@ class WebDavClient(private val config: WebDavConfig) {
         call(request(url).put(body).build()) {
             // 301/302/303 重定向会把 PUT 改成 GET，此时返回 200 但文件并没有上传
             if (it.request.method != "PUT") {
-                throw WebDavException("服务器把上传请求重定向到了别处（HTTP ${it.code}），请检查地址是否缺少路径或应使用 https://")
+                throw WebDavException(tr("服务器把上传请求重定向到了别处（HTTP {0}），请检查地址是否缺少路径或应使用 https://", it.code))
             }
             when (it.code) {
                 in 200..204 -> Unit
-                405 -> throw WebDavException("服务器拒绝了上传请求（HTTP 405）：该地址可能不允许 PUT，或服务器 / 代理与应用的 WebDAV 请求不兼容")
-                else -> fail(it.code, "上传备份")
+                405 -> throw WebDavException(tr("服务器拒绝了上传请求（HTTP 405）：该地址可能不允许 PUT，或服务器 / 代理与应用的 WebDAV 请求不兼容"))
+                else -> fail(it.code, tr("上传备份"))
             }
         }
         // 校验：服务器上的大小必须与本地一致；部分服务会「成功」但只留下 0 字节文件
         val remoteSize = remoteSize(name)
         if (remoteSize != null && remoteSize != bytes.size.toLong()) {
             runCatching { delete(name) }
-            throw WebDavException("上传后校验失败：服务器上的文件为 $remoteSize 字节，应为 ${bytes.size} 字节")
+            throw WebDavException(tr("上传后校验失败：服务器上的文件为 {0} 字节，应为 {1} 字节", remoteSize, bytes.size))
         }
         // 清理失败不影响上传结果
         runCatching { listBackups().drop(WebDavNames.KEEP_BACKUPS).forEach { old -> delete(old) } }
@@ -227,12 +229,12 @@ class WebDavClient(private val config: WebDavConfig) {
     fun download(name: String): ByteArray {
         require(WebDavNames.isBackupName(name))
         return call(request(WebDavNames.fileUrl(base, name)).get().build()) {
-            if (!it.isSuccessful) fail(it.code, "下载备份")
-            val stream = it.body?.byteStream() ?: throw WebDavException("服务器返回了空内容")
+            if (!it.isSuccessful) fail(it.code, tr("下载备份"))
+            val stream = it.body?.byteStream() ?: throw WebDavException(tr("服务器返回了空内容"))
             try {
                 BackupManager.readAll(stream)
             } catch (e: CryptoException) {
-                throw WebDavException(e.message ?: "备份文件过大", e)
+                throw WebDavException(e.message ?: tr("备份文件过大"), e)
             }
         }
     }
@@ -243,7 +245,7 @@ class WebDavClient(private val config: WebDavConfig) {
 
     /** 下载服务器上最新的一份；没有备份则抛 [WebDavException]。 */
     fun downloadLatest(): Pair<String, ByteArray> {
-        val name = listBackups().firstOrNull() ?: throw WebDavException("服务器上还没有备份")
+        val name = listBackups().firstOrNull() ?: throw WebDavException(tr("服务器上还没有备份"))
         return name to download(name)
     }
 }
@@ -294,7 +296,7 @@ object WebDavStore {
         val e = prefs(app).edit().putString(K_PROFILES, arr.toString())
         if (active == null) e.remove(K_ACTIVE) else e.putString(K_ACTIVE, active)
         if (arr.length() == 0) e.remove(K_LAST_UPLOAD)
-        if (!e.commit()) throw WebDavException("保存失败")
+        if (!e.commit()) throw WebDavException(tr("保存失败"))
     }
 
     /** 所有已保存的服务器（无法解密的条目会被略过）。 */
@@ -337,7 +339,7 @@ object WebDavStore {
         val app = context.applicationContext
         val arr = rawArray(app)
         val sealed = if (config.password.isEmpty()) "" else
-            SecureStore.write(app, config.password, SecureStore.PURPOSE_WEBDAV) ?: throw WebDavException("无法用本机密钥加密保存密码")
+            SecureStore.write(app, config.password, SecureStore.PURPOSE_WEBDAV) ?: throw WebDavException(tr("无法用本机密钥加密保存密码"))
         var index = -1
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.browser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.download.DownloadState
 import dev.dsh.miuixbrowser.download.Downloader
@@ -140,17 +142,17 @@ object UpdateDownload {
         if (ok) {
             apkUri = Downloader.tasks.firstOrNull { it.id == taskId }?.uri
             if (apkUri == null) {
-                error = "找不到下载好的安装包"
+                error = tr("找不到下载好的安装包")
                 phase = UpdatePhase.FAILED
             } else {
                 phase = UpdatePhase.DONE
-                Toast.makeText(context, "更新已下载完成，点击安装", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, tr("更新已下载完成，点击安装"), Toast.LENGTH_SHORT).show()
             }
         } else if (err == "cancelled") {
             // 在下载页里删掉了任务
             phase = UpdatePhase.IDLE
         } else {
-            error = err ?: "未知错误"
+            error = err ?: tr("未知错误")
             phase = UpdatePhase.FAILED
         }
     }
@@ -172,14 +174,14 @@ object UpdateDownload {
         val readable = uri != null && runCatching { context.contentResolver.openInputStream(uri)?.close() }.isSuccess
         if (uri == null || !readable) {
             // 安装包被删了（比如在下载页里删除）
-            Toast.makeText(context, "安装包已不存在，请重新下载", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, tr("安装包已不存在，请重新下载"), Toast.LENGTH_SHORT).show()
             apkUri = null
             taskId = 0L
             phase = UpdatePhase.IDLE
             return
         }
         if (!context.packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(context, "请先允许 Mafari 安装应用，返回后再点「安装」", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, tr("请先允许 Mafari 安装应用，返回后再点「安装」"), Toast.LENGTH_LONG).show()
             runCatching {
                 context.startActivity(
                     Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
@@ -195,7 +197,7 @@ object UpdateDownload {
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
             )
         }.isSuccess
-        if (!ok) Toast.makeText(context, "无法唤起系统安装器，请在下载页打开安装包", Toast.LENGTH_LONG).show()
+        if (!ok) Toast.makeText(context, tr("无法唤起系统安装器，请在下载页打开安装包"), Toast.LENGTH_LONG).show()
     }
 }
 
@@ -264,7 +266,7 @@ fun UpdateSheet(
     val phase = if (tracked) UpdateDownload.phase else UpdatePhase.IDLE
     AppBottomSheet(
         show = show,
-        title = if (phase == UpdatePhase.DONE) "更新已就绪" else "发现新版本",
+        title = if (phase == UpdatePhase.DONE) tr("更新已就绪") else tr("发现新版本"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -309,9 +311,9 @@ fun UpdateSheet(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(
                         text = when {
-                            phase == UpdatePhase.PICKING -> "正在选择下载线路…"
-                            task?.state == DownloadState.PAUSED -> "已暂停（可在下载页继续）"
-                            else -> Downloader.progressSizeText(task?.bytes ?: 0L, task?.total ?: 0L).ifBlank { "正在连接…" }
+                            phase == UpdatePhase.PICKING -> tr("正在选择下载线路…")
+                            task?.state == DownloadState.PAUSED -> tr("已暂停（可在下载页继续）")
+                            else -> Downloader.progressSizeText(task?.bytes ?: 0L, task?.total ?: 0L).ifBlank { tr("正在连接…") }
                         },
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -327,7 +329,7 @@ fun UpdateSheet(
             } else if (phase == UpdatePhase.FAILED) {
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "下载失败：" + (UpdateDownload.error ?: "未知错误"),
+                    text = tr("下载失败：{0}", UpdateDownload.error ?: tr("未知错误")),
                     fontSize = 13.sp,
                     color = Color(0xFFE5484D),
                 )
@@ -341,13 +343,13 @@ fun UpdateSheet(
                 when (phase) {
                     UpdatePhase.PICKING, UpdatePhase.DOWNLOADING -> {
                         AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                            Text(text = "收起", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("收起"), style = MiuixTheme.textStyles.button)
                         }
                         AppDialogButton(
                             onClick = { UpdateDownload.cancel(context) },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(text = "取消下载", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("取消下载"), style = MiuixTheme.textStyles.button)
                         }
                     }
                     UpdatePhase.DONE -> {
@@ -356,7 +358,7 @@ fun UpdateSheet(
                             modifier = Modifier.weight(1f),
                             role = GlassDialogButtonRole.Primary,
                         ) {
-                            Text(text = "安装", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("安装"), style = MiuixTheme.textStyles.button)
                         }
                     }
                     UpdatePhase.FAILED -> {
@@ -367,7 +369,7 @@ fun UpdateSheet(
                             },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(text = "关闭", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
                         }
                         AppDialogButton(
                             onClick = {
@@ -377,7 +379,7 @@ fun UpdateSheet(
                             modifier = Modifier.weight(1f),
                             role = GlassDialogButtonRole.Primary,
                         ) {
-                            Text(text = "重试", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("重试"), style = MiuixTheme.textStyles.button)
                         }
                     }
                     UpdatePhase.IDLE -> {
@@ -385,7 +387,7 @@ fun UpdateSheet(
                             onClick = { if (onIgnore != null) onIgnore(release) else onDismiss() },
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text(text = if (onIgnore != null) "忽略此版本" else "取消", style = MiuixTheme.textStyles.button)
+                            Text(text = if (onIgnore != null) tr("忽略此版本") else tr("取消"), style = MiuixTheme.textStyles.button)
                         }
                         AppDialogButton(
                             onClick = {
@@ -397,7 +399,7 @@ fun UpdateSheet(
                             role = GlassDialogButtonRole.Primary,
                         ) {
                             Text(
-                                text = if (release.apkUrl.isNullOrBlank()) "查看更新" else "下载",
+                                text = if (release.apkUrl.isNullOrBlank()) tr("查看更新") else tr("下载"),
                                 style = MiuixTheme.textStyles.button,
                             )
                         }

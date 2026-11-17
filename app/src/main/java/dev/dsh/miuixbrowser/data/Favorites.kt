@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.crypto.SecureStore
 import dev.dsh.miuixbrowser.util.Diag
 import dev.dsh.miuixbrowser.util.hostOf
@@ -710,7 +712,7 @@ class FavoritesStore(context: Context) {
         sb.appendLine("<DL><p>")
         fun writeFolder(path: String, depth: Int) {
             val pad = "    ".repeat(depth)
-            val title = path.substringAfterLast('/').ifBlank { "未命名" }
+            val title = path.substringAfterLast('/').ifBlank { tr("未命名") }
             sb.appendLine("$pad<DT><H3>${escapeHtml(title)}</H3>")
             sb.appendLine("$pad<DL><p>")
             childrenOf[path]?.forEach { writeFolder(it, depth + 1) }

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.RequestLog
 import android.widget.Toast
@@ -64,7 +66,7 @@ fun RequestLogSheet(
 
     AppBottomSheet(
         show = show,
-        title = "网络请求",
+        title = tr("网络请求"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -77,8 +79,8 @@ fun RequestLogSheet(
         ) {
             item {
                 AppSwitchPreference(
-                    title = "记录和管理网页请求",
-                    summary = "统计请求域名，可屏蔽 / 放行；开启后刷新生效",
+                    title = tr("记录和管理网页请求"),
+                    summary = tr("统计请求域名，可屏蔽 / 放行；开启后刷新生效"),
                     checked = AdBlock.requestLogEnabled,
                     onCheckedChange = {
                         AdBlock.updateRequestLog(it)
@@ -87,9 +89,9 @@ fun RequestLogSheet(
                 )
             }
             val hint = when {
-                !AdBlock.requestLogEnabled -> "统计已关闭"
-                !isGecko && !AdBlock.enabled -> "去广告已关闭，仅统计不拦截"
-                rows.isNotEmpty() -> "${rows.size} 个域名 · ${rows.sumOf { it.total }} 次请求"
+                !AdBlock.requestLogEnabled -> tr("统计已关闭")
+                !isGecko && !AdBlock.enabled -> tr("去广告已关闭，仅统计不拦截")
+                rows.isNotEmpty() -> tr("{0} 个域名 · {1} 次请求", rows.size, rows.sumOf { it.total })
                 else -> null
             }
             if (hint != null) {
@@ -107,14 +109,14 @@ fun RequestLogSheet(
             } else if (rows.isEmpty()) {
                 item {
                     Text(
-                        text = "暂无请求，刷新页面后再看",
+                        text = tr("暂无请求，刷新页面后再看"),
                         fontSize = 14.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.fillMaxWidth().padding(24.dp),
                     )
                 }
             } else {
-                item { SmallTitle(text = "本页域名") }
+                item { SmallTitle(text = tr("本页域名")) }
                 item {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Column {
@@ -130,26 +132,26 @@ fun RequestLogSheet(
             val blocked = AdBlock.userBlocked.toList()
             val allowed = AdBlock.userAllowed.toList()
             if (blocked.isNotEmpty()) {
-                item { SmallTitle(text = "我屏蔽的域名（含子域名）") }
+                item { SmallTitle(text = tr("我屏蔽的域名（含子域名）")) }
                 item {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Column {
                             blocked.forEachIndexed { i, h ->
                                 if (i > 0) RowDivider()
-                                ManagedHostRow(h, "移除") { AdBlock.removeUserBlock(h); toast("已移除屏蔽") }
+                                ManagedHostRow(h, tr("移除")) { AdBlock.removeUserBlock(h); toast(tr("已移除屏蔽")) }
                             }
                         }
                     }
                 }
             }
             if (allowed.isNotEmpty()) {
-                item { SmallTitle(text = "我放行的域名（含子域名）") }
+                item { SmallTitle(text = tr("我放行的域名（含子域名）")) }
                 item {
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                         Column {
                             allowed.forEachIndexed { i, h ->
                                 if (i > 0) RowDivider()
-                                ManagedHostRow(h, "移除") { AdBlock.removeUserAllow(h); toast("已移除放行") }
+                                ManagedHostRow(h, tr("移除")) { AdBlock.removeUserAllow(h); toast(tr("已移除放行")) }
                             }
                         }
                     }
@@ -165,13 +167,13 @@ private fun RequestRow(row: RequestLog.Row, toast: (String) -> Unit) {
     val userBlock = AdBlock.userBlockEntry(row.host)
     val userAllow = AdBlock.userAllowEntry(row.host)
     val (status, actionText) = when {
-        userBlock != null -> "已屏蔽（手动" + (if (userBlock != row.host) "：$userBlock" else "") + "）" to "取消屏蔽"
-        userAllow != null -> "已放行（手动" + (if (userAllow != row.host) "：$userAllow" else "") + "）" to "取消放行"
+        userBlock != null -> (if (userBlock != row.host) tr("已屏蔽（手动：{0}）", userBlock) else tr("已屏蔽（手动）")) to tr("取消屏蔽")
+        userAllow != null -> (if (userAllow != row.host) tr("已放行（手动：{0}）", userAllow) else tr("已放行（手动）")) to tr("取消放行")
         // Gecko 自带防护拦的：只展示，本应用无法放行
-        row.blocked > 0 && row.reason == AdBlock.R_BROWSER -> "已拦截（Gecko 防护）" to ""
+        row.blocked > 0 && row.reason == AdBlock.R_BROWSER -> tr("已拦截（Gecko 防护）") to ""
         // 手动屏蔽已被移除后，这一行留着的旧拦截记录不再算「已拦截」
-        row.blocked > 0 && row.reason != AdBlock.R_USER -> "已拦截（" + (if (row.reason == AdBlock.R_TRACKER) "跟踪域名" else "规则") + "）" to "放行"
-        else -> "已放行" to "屏蔽"
+        row.blocked > 0 && row.reason != AdBlock.R_USER -> tr("已拦截（{0}）", if (row.reason == AdBlock.R_TRACKER) tr("跟踪域名") else tr("规则")) to tr("放行")
+        else -> tr("已放行") to tr("屏蔽")
     }
     val statusColor = if (userBlock != null || (userAllow == null && row.blocked > 0)) {
         MiuixTheme.colorScheme.error
@@ -191,7 +193,7 @@ private fun RequestRow(row: RequestLog.Row, toast: (String) -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${row.total} 次" + (if (row.blocked > 0) "，拦截 ${row.blocked} 次" else "") + " · $status",
+                text = tr("{0} 次", row.total) + (if (row.blocked > 0) tr("，拦截 {0} 次", row.blocked) else "") + " · $status",
                 fontSize = 12.sp,
                 color = statusColor,
                 maxLines = 1,
@@ -203,13 +205,13 @@ private fun RequestRow(row: RequestLog.Row, toast: (String) -> Unit) {
             text = actionText,
             onClick = {
                 when {
-                    userBlock != null -> { AdBlock.removeUserBlock(userBlock); toast("已取消屏蔽，刷新页面生效") }
-                    userAllow != null -> { AdBlock.removeUserAllow(userAllow); toast("已取消放行") }
-                    row.blocked > 0 -> { AdBlock.allowRequestHost(row.host); toast("已放行 ${row.host}，刷新页面生效") }
-                    else -> { AdBlock.blockHost(row.host); toast("已屏蔽 ${row.host}，刷新页面生效") }
+                    userBlock != null -> { AdBlock.removeUserBlock(userBlock); toast(tr("已取消屏蔽，刷新页面生效")) }
+                    userAllow != null -> { AdBlock.removeUserAllow(userAllow); toast(tr("已取消放行")) }
+                    row.blocked > 0 -> { AdBlock.allowRequestHost(row.host); toast(tr("已放行 {0}，刷新页面生效", row.host)) }
+                    else -> { AdBlock.blockHost(row.host); toast(tr("已屏蔽 {0}，刷新页面生效", row.host)) }
                 }
             },
-            primary = actionText == "屏蔽",
+            primary = actionText == tr("屏蔽"),
         )
     }
 }

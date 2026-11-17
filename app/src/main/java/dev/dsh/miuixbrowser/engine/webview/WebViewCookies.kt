@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.webview
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.engine.gecko.await
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -46,18 +48,18 @@ object WebViewCookies {
 
     /** IO 线程：返回持久 Cookie 的 JSON 数组字符串（会话 Cookie 不含）。读不了就抛 [IOException]。 */
     fun export(context: Context): String {
-        if (Looper.myLooper() == Looper.getMainLooper()) throw IOException("不能在主线程读取 Cookie")
+        if (Looper.myLooper() == Looper.getMainLooper()) throw IOException(tr("不能在主线程读取 Cookie"))
         val app = context.applicationContext
 
         // flush() 会阻塞到落盘完成；落盘之后才能读到最新的库
         try {
             CookieManager.getInstance().flush()
         } catch (t: Throwable) {
-            throw IOException("WebView 无法刷新 Cookie：${t.message}", t)
+            throw IOException(tr("WebView 无法刷新 Cookie：{0}", t.message), t)
         }
 
         val source = findCookieDb(app)
-            ?: throw IOException("找不到 WebView 的 Cookie 数据库（可能是 WebView 版本不兼容），已取消备份 Cookie")
+            ?: throw IOException(tr("找不到 WebView 的 Cookie 数据库（可能是 WebView 版本不兼容），已取消备份 Cookie"))
 
         val tmpDir = File(app.cacheDir, "webview-cookie-export").apply {
             deleteRecursively()
@@ -74,7 +76,7 @@ object WebViewCookies {
         } catch (e: IOException) {
             throw e
         } catch (t: Throwable) {
-            throw IOException("读取 WebView Cookie 失败：${t.message}", t)
+            throw IOException(tr("读取 WebView Cookie 失败：{0}", t.message), t)
         } finally {
             tmpDir.deleteRecursively()
         }
@@ -95,9 +97,9 @@ object WebViewCookies {
             db.rawQuery("PRAGMA table_info(cookies)", null).use { c ->
                 while (c.moveToNext()) columns.add(c.getString(c.getColumnIndexOrThrow("name")))
             }
-            if (columns.isEmpty()) throw IOException("WebView Cookie 库里没有 cookies 表，格式不兼容")
+            if (columns.isEmpty()) throw IOException(tr("WebView Cookie 库里没有 cookies 表，格式不兼容"))
             val missing = REQUIRED_COLUMNS.filter { it !in columns }
-            if (missing.isNotEmpty()) throw IOException("WebView Cookie 库缺少列 ${missing.joinToString()}，格式不兼容")
+            if (missing.isNotEmpty()) throw IOException(tr("WebView Cookie 库缺少列 {0}，格式不兼容", missing.joinToString()))
 
             val hasEncrypted = "encrypted_value" in columns
             val hasSameSite = "samesite" in columns
@@ -117,7 +119,7 @@ object WebViewCookies {
                     val encryptedLen = c.getInt(8)
                     // 明文值为空而 encrypted_value 有内容：这台设备的 WebView 把值加密了，读出来是密文，不能写进备份
                     if (value.isEmpty() && encryptedLen > 0) {
-                        throw IOException("WebView 的 Cookie 值是加密存储的，无法备份")
+                        throw IOException(tr("WebView 的 Cookie 值是加密存储的，无法备份"))
                     }
                     val expiresUtc = c.getLong(4)
                     val hasExpires = c.getInt(9) != 0
@@ -162,11 +164,11 @@ object WebViewCookies {
      * 一条都没写进去时抛 [IOException]；部分失败只体现在返回值里。
      */
     fun importCookies(context: Context, json: String): ImportResult {
-        if (Looper.myLooper() == Looper.getMainLooper()) throw IOException("不能在主线程写入 Cookie")
+        if (Looper.myLooper() == Looper.getMainLooper()) throw IOException(tr("不能在主线程写入 Cookie"))
         val list = try {
             JSONArray(json)
         } catch (e: Exception) {
-            throw IOException("Cookie 数据格式错误", e)
+            throw IOException(tr("Cookie 数据格式错误"), e)
         }
         val cm = CookieManager.getInstance()
         val main = Handler(Looper.getMainLooper())
@@ -180,7 +182,7 @@ object WebViewCookies {
                 cleared.countDown()
             }
         }
-        if (!cleared.await(15, TimeUnit.SECONDS)) throw IOException("清除 WebView 现有 Cookie 超时，已取消恢复 Cookie")
+        if (!cleared.await(15, TimeUnit.SECONDS)) throw IOException(tr("清除 WebView 现有 Cookie 超时，已取消恢复 Cookie"))
 
         val nowSec = System.currentTimeMillis() / 1000.0
         val ok = AtomicInteger()
@@ -214,12 +216,12 @@ object WebViewCookies {
                     }
                 }
             }
-            if (!done.await(30, TimeUnit.SECONDS)) throw IOException("写入 WebView Cookie 超时")
+            if (!done.await(30, TimeUnit.SECONDS)) throw IOException(tr("写入 WebView Cookie 超时"))
         }
         cm.flush()
 
         if (ok.get() == 0 && list.length() > 0 && skipped < list.length()) {
-            throw IOException("没有任何 Cookie 能写入 WebView")
+            throw IOException(tr("没有任何 Cookie 能写入 WebView"))
         }
         return ImportResult(ok.get(), bad.get(), skipped)
     }

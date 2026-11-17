@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.ScriptMenuCommand
 import dev.dsh.miuixbrowser.browser.rememberRemoteIcon
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -63,7 +65,7 @@ data class RunningScript(
 )
 
 private val OnlineGreen = Color(0xFF34C759)
-private const val NO_MENU_TEXT = "脚本未注册快捷菜单"
+private val NO_MENU_TEXT: String get() = tr("脚本未注册快捷菜单")
 
 /**
  * 脚本快捷菜单（底部 Sheet）。
@@ -103,7 +105,7 @@ fun ScriptMenuSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "脚本快捷菜单",
+                        text = tr("脚本快捷菜单"),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = MiuixTheme.colorScheme.onSurface,
@@ -121,7 +123,7 @@ fun ScriptMenuSheet(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = if (scriptsEnabled) "${scripts.size}个脚本运行中" else "脚本已停用",
+                            text = if (scriptsEnabled) tr("{0}个脚本运行中", scripts.size) else tr("脚本已停用"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -135,7 +137,7 @@ fun ScriptMenuSheet(
             // ---- 脚本列表 ----
             if (scripts.isEmpty()) {
                 Text(
-                    text = if (scriptsEnabled) "当前页面没有运行中的脚本" else "开启后将在刷新页面时运行脚本",
+                    text = if (scriptsEnabled) tr("当前页面没有运行中的脚本") else tr("开启后将在刷新页面时运行脚本"),
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier

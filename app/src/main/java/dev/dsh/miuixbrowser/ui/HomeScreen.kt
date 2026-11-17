@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.download.DownloadState
 import dev.dsh.miuixbrowser.download.Downloader
@@ -653,7 +655,7 @@ internal fun StartPage(
                             )
                             HOME_RECENT -> HomeCard(
                                 modifier = itemMod.then(handle),
-                                title = "最近浏览",
+                                title = tr("最近浏览"),
                                 wallpaperBackdrop = wallpaperBackdrop,
                                 liquidBackdrop = liquidBackdrop,
                                 blurEnabled = blurEnabled,
@@ -664,7 +666,7 @@ internal fun StartPage(
                             ) {
                                 val items = recent.take(3)
                                 if (items.isEmpty()) {
-                                    HomeEmptyText("还没有浏览记录")
+                                    HomeEmptyText(tr("还没有浏览记录"))
                                 } else {
                                     items.forEach { entry ->
                                         HomeRow(
@@ -677,7 +679,7 @@ internal fun StartPage(
                             }
                             else -> HomeCard(
                                 modifier = itemMod.then(handle),
-                                title = "下载项",
+                                title = tr("下载项"),
                                 wallpaperBackdrop = wallpaperBackdrop,
                                 liquidBackdrop = liquidBackdrop,
                                 blurEnabled = blurEnabled,
@@ -688,16 +690,16 @@ internal fun StartPage(
                             ) {
                                 val tasks = Downloader.tasks.toList().takeLast(3).reversed()
                                 if (tasks.isEmpty()) {
-                                    HomeEmptyText("还没有下载任务")
+                                    HomeEmptyText(tr("还没有下载任务"))
                                 } else {
                                     tasks.forEach { t ->
                                         HomeRow(
                                             primary = t.name,
                                             secondary = when (t.state) {
-                                                DownloadState.RUNNING -> "下载中 ${(Downloader.progressOf(t) * 100).toInt()}%"
-                                                DownloadState.PAUSED -> "已暂停"
-                                                DownloadState.DONE -> "已完成"
-                                                DownloadState.FAILED -> "失败"
+                                                DownloadState.RUNNING -> tr("下载中 {0}%", (Downloader.progressOf(t) * 100).toInt())
+                                                DownloadState.PAUSED -> tr("已暂停")
+                                                DownloadState.DONE -> tr("已完成")
+                                                DownloadState.FAILED -> tr("失败")
                                             },
                                             onClick = guard(onOpenDownloads),
                                         )
@@ -734,7 +736,7 @@ internal fun FavoritesBlock(
     onAdd: () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        HomeBlockHeader(title = "收藏", headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
+        HomeBlockHeader(title = tr("收藏"), headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
 
         Spacer(Modifier.height(6.dp))
         // 容量 = 行数 × 3；超出时最后一格让给「更多」
@@ -774,7 +776,7 @@ internal fun FavoritesBlock(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "+ 添加收藏",
+                            text = tr("+ 添加收藏"),
                             fontSize = 13.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -1039,7 +1041,7 @@ internal fun PrivacyReportCard(
     val frequent = PrivacyStats.frequent(context)
     HomeCard(
         modifier = modifier,
-        title = "隐私报告",
+        title = tr("隐私报告"),
         wallpaperBackdrop = wallpaperBackdrop,
         liquidBackdrop = liquidBackdrop,
         blurEnabled = blurEnabled,
@@ -1049,10 +1051,10 @@ internal fun PrivacyReportCard(
         onRemove = onRemove,
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PrivacyStat(blocked.toString(), "已拦截广告", Modifier.weight(1f))
+            PrivacyStat(blocked.toString(), tr("已拦截广告"), Modifier.weight(1f))
             PrivacyStat(
                 if (AdBlock.fingerprintActive) AdBlock.fpReads.toString() else "—",
-                if (AdBlock.fingerprintActive) "已处理指纹读取" else "指纹保护未开启",
+                if (AdBlock.fingerprintActive) tr("已处理指纹读取") else tr("指纹保护未开启"),
                 Modifier.weight(1f),
             )
         }
@@ -1065,11 +1067,11 @@ internal fun PrivacyReportCard(
         )
         Spacer(Modifier.height(8.dp))
         if (frequent.isEmpty()) {
-            HomeEmptyText("近 24 小时没有网站频繁请求敏感权限")
+            HomeEmptyText(tr("近 24 小时没有网站频繁请求敏感权限"))
         } else {
             frequent.take(2).forEach { f ->
                 Text(
-                    text = "${f.host} 近 24 小时请求${f.kinds.joinToString("、")} ${f.count} 次",
+                    text = tr("{0} 近 24 小时请求{1} {2} 次", f.host, f.kinds.joinToString(tr("、")), f.count),
                     fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -1078,7 +1080,7 @@ internal fun PrivacyReportCard(
                 )
             }
             if (frequent.size > 2) {
-                HomeEmptyText("另有 ${frequent.size - 2} 个网站")
+                HomeEmptyText(tr("另有 {0} 个网站", frequent.size - 2))
             }
         }
     }
@@ -1100,7 +1102,7 @@ private fun GeckoPrivacyReportCard(
     val items = GeckoProtection.reportItems()
     HomeCard(
         modifier = modifier,
-        title = "隐私报告",
+        title = tr("隐私报告"),
         wallpaperBackdrop = wallpaperBackdrop,
         liquidBackdrop = liquidBackdrop,
         blurEnabled = blurEnabled,
@@ -1140,7 +1142,7 @@ private fun GeckoPrivacyStatusCell(name: String, on: Boolean, modifier: Modifier
         )
         Spacer(Modifier.width(4.dp))
         Text(
-            text = if (on) "已开启" else "未开启",
+            text = if (on) tr("已开启") else tr("未开启"),
             fontSize = 11.sp,
             color = if (on) scheme.primary else scheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
             maxLines = 1,
@@ -1365,7 +1367,7 @@ internal fun FavoriteMoreTile(
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "更多",
+            text = tr("更多"),
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             color = MiuixTheme.colorScheme.onSurface,
@@ -1473,7 +1475,7 @@ internal fun HomeBlockHeader(
         )
         if (editing) {
             AppTextButton(
-                text = "完成",
+                text = tr("完成"),
                 onClick = onDone,
                 primary = true,
                 inPage = true,
@@ -1534,7 +1536,7 @@ internal fun GroupsBlock(
     onAdd: () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        HomeBlockHeader(title = "书签分组", headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
+        HomeBlockHeader(title = tr("书签分组"), headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
 
         Spacer(Modifier.height(6.dp))
         val capacity = rows.coerceIn(1, HOME_GROUP_ROWS_MAX) * HOME_GROUP_COLS
@@ -1768,7 +1770,7 @@ internal fun QuickMenuBlock(
     onAdd: () -> Unit,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        HomeBlockHeader(title = "快捷菜单", headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
+        HomeBlockHeader(title = tr("快捷菜单"), headerModifier = headerModifier, editing = editing, onDone = onToggleEdit)
 
         Spacer(Modifier.height(6.dp))
         val capacity = rows.coerceIn(1, HOME_QUICK_ROWS_MAX) * HOME_QUICK_COLS
@@ -1888,7 +1890,7 @@ private fun QuickMenuTile(
             if (editing) TileRemoveBadge(onClick = onRemove)
         }
         Text(
-            text = if (syncing) "同步中" else action.label,
+            text = if (syncing) tr("同步中") else action.label,
             fontSize = 10.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -2230,9 +2232,9 @@ internal fun BoxScope.GroupBookmarkPopup(
             title = path.substringAfterLast('/').ifBlank { path },
             showBack = path != rootPath,
             onBack = { path = path.substringBeforeLast('/') },
-            trailing = "${folders.size + marks.size} 项",
+            trailing = tr("{0} 项", folders.size + marks.size),
             isEmpty = folders.isEmpty() && marks.isEmpty(),
-            emptyText = "这个分组还没有书签",
+            emptyText = tr("这个分组还没有书签"),
             headerAction = { GroupLayoutToggle(showGridIcon = !gridMode, onClick = { onGridModeChange(!gridMode) }) },
             body = { bodyModifier ->
                 if (gridMode) {
@@ -2345,12 +2347,12 @@ internal fun BoxScope.GroupChoosePopup(
         GroupPopupPanel(
             side = geo.side,
             height = geo.height,
-            title = if (path.isEmpty()) "选择分组" else path.substringAfterLast('/'),
+            title = if (path.isEmpty()) tr("选择分组") else path.substringAfterLast('/'),
             showBack = path.isNotEmpty(),
             onBack = { path = path.substringBeforeLast('/', "") },
-            trailing = "${children.size} 项",
+            trailing = tr("{0} 项", children.size),
             isEmpty = children.isEmpty(),
-            emptyText = "还没有分组",
+            emptyText = tr("还没有分组"),
         ) {
             items(children, key = { it }) { p ->
                 GroupPopupFolderRow(
@@ -2377,7 +2379,7 @@ internal fun GroupPickerDialog(
 ) {
     AppGlassDialog(
         show = show,
-        title = "添加书签分组",
+        title = tr("添加书签分组"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
         preBlurred = LocalWallpaperPreBlurred.current,
@@ -2388,7 +2390,7 @@ internal fun GroupPickerDialog(
             val paths = if (show) groupTreeOrder(withAncestors(favorites.groups())) else emptyList()
             val picked = pickedIds.toSet()
             if (paths.isEmpty()) {
-                HomeEmptyText("还没有书签分组，请先在书签页新建")
+                HomeEmptyText(tr("还没有书签分组，请先在书签页新建"))
             } else {
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
                     items(paths.size, key = { paths[it] }) { i ->
@@ -2423,7 +2425,7 @@ internal fun GroupPickerDialog(
                                 modifier = Modifier.weight(1f),
                             )
                             Text(
-                                text = if (added) "已添加" else "${favorites.itemsInTree(path).size} 个书签",
+                                text = if (added) tr("已添加") else tr("{0} 个书签", favorites.itemsInTree(path).size),
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
@@ -2433,7 +2435,7 @@ internal fun GroupPickerDialog(
             }
             Spacer(Modifier.height(14.dp))
             AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "取消", style = MiuixTheme.textStyles.button)
+                Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
             }
         }
     }
@@ -2451,7 +2453,7 @@ internal fun QuickMenuPickerDialog(
 ) {
     AppGlassDialog(
         show = show,
-        title = "添加快捷功能",
+        title = tr("添加快捷功能"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
         preBlurred = LocalWallpaperPreBlurred.current,
@@ -2490,7 +2492,7 @@ internal fun QuickMenuPickerDialog(
                         )
                         if (added) {
                             Text(
-                                text = "已添加",
+                                text = tr("已添加"),
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
@@ -2500,7 +2502,7 @@ internal fun QuickMenuPickerDialog(
             }
             Spacer(Modifier.height(14.dp))
             AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "取消", style = MiuixTheme.textStyles.button)
+                Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
             }
         }
     }
@@ -2548,7 +2550,7 @@ internal fun FavoriteEditor(
     var url by remember(initial) { mutableStateOf(initial?.url ?: "") }
     AppGlassDialog(
         show = show,
-        title = if (initial == null) "添加收藏" else "编辑收藏",
+        title = if (initial == null) tr("添加收藏") else tr("编辑收藏"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
         preBlurred = LocalWallpaperPreBlurred.current,
@@ -2558,7 +2560,7 @@ internal fun FavoriteEditor(
                 value = name,
                 onValueChange = { name = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "名称",
+                label = tr("名称"),
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
@@ -2567,7 +2569,7 @@ internal fun FavoriteEditor(
                 value = url,
                 onValueChange = { url = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = "网址",
+                label = tr("网址"),
                 useLabelAsPlaceholder = true,
                 singleLine = true,
             )
@@ -2577,14 +2579,14 @@ internal fun FavoriteEditor(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(text = "取消", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                 }
                 AppDialogButton(
                     onClick = { if (url.isNotBlank()) onConfirm(name, url) },
                     modifier = Modifier.weight(1f),
                     role = GlassDialogButtonRole.Primary,
                 ) {
-                    Text(text = "保存", style = MiuixTheme.textStyles.button)
+                    Text(text = tr("保存"), style = MiuixTheme.textStyles.button)
                 }
             }
         }

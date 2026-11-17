@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.data.BLUR_LIQUID
 import dev.dsh.miuixbrowser.data.BLUR_MIUIX
 import androidx.compose.animation.core.animateFloatAsState
@@ -513,7 +515,7 @@ object LiquidGlassMaterial : AppMaterial {
         ) {
             Icon(
                 imageVector = MiuixIcons.Glass.ChevronBackward,
-                contentDescription = "返回",
+                contentDescription = tr("返回"),
                 modifier = Modifier.size(24.dp),
                 tint = MiuixTheme.colorScheme.onSurface,
             )

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.cancelCompat
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.MenuAction
@@ -410,13 +412,13 @@ internal fun MenuGrid(
             if (editing) {
                 Box(modifier = Modifier.fillMaxWidth().height(dividerHeight)) {
                     Text(
-                        text = "隐藏的功能（拖到线下方隐藏）",
+                        text = tr("隐藏的功能（拖到线下方隐藏）"),
                         fontSize = 11.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 6.dp),
                     )
                     Text(
-                        text = "完成",
+                        text = tr("完成"),
                         fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.primary,
                         modifier = Modifier
@@ -446,7 +448,7 @@ internal fun MenuGrid(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "把不常用的功能拖到这里",
+                            text = tr("把不常用的功能拖到这里"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -610,8 +612,8 @@ internal fun TabCard(
             ) {
                 Text(
                     text = buildString {
-                        if (item.incognito) append("无痕 · ")
-                        append(item.title.ifBlank { "新标签页" })
+                        if (item.incognito) append(tr("无痕 · "))
+                        append(item.title.ifBlank { tr("新标签页") })
                     },
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurface,
@@ -628,7 +630,7 @@ internal fun TabCard(
                     text = when {
                         // 重启后恢复出来、还没加载的标签：显示它保存的页面，而不是「主页」
                         item.showsSavedPage -> hostOf(item.effectiveUrl)
-                        item.url.isBlank() -> "主页"
+                        item.url.isBlank() -> tr("主页")
                         else -> hostOf(item.url)
                     },
                     fontSize = 11.sp,
@@ -640,7 +642,7 @@ internal fun TabCard(
                 IconButton(onClick = onClose, minWidth = 28.dp, minHeight = 28.dp) {
                     Icon(
                         imageVector = MiuixIcons.Glass.Close,
-                        contentDescription = "关闭",
+                        contentDescription = tr("关闭"),
                         modifier = Modifier.size(14.dp),
                     )
                 }
@@ -665,7 +667,7 @@ internal fun TabAddButton(
     ) {
         Icon(
             imageVector = MiuixIcons.Glass.Add,
-            contentDescription = "新建标签页",
+            contentDescription = tr("新建标签页"),
             tint = MiuixTheme.colorScheme.primary,
             modifier = Modifier.size(22.dp),
         )

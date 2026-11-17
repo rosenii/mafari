@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.browser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.MainActivity
 import dev.dsh.miuixbrowser.WebAppActivity
 import dev.dsh.miuixbrowser.util.hostOf
@@ -112,7 +114,7 @@ object ShortcutHelper {
         val url = tab.url
         val scheme = runCatching { Uri.parse(url).scheme?.lowercase() }.getOrNull()
         if (url.isBlank() || (scheme != "http" && scheme != "https")) {
-            toast(context, "当前页面无法添加到桌面")
+            toast(context, tr("当前页面无法添加到桌面"))
             return
         }
 
@@ -123,16 +125,16 @@ object ShortcutHelper {
         if (isXiaomi() && (state == PermState.Denied || (firstTime && state != PermState.Granted))) {
             prefs.edit().putBoolean(KEY_ASKED, true).apply()
             if (openPermissionSettings(context)) {
-                toast(context, "请先开启「桌面快捷方式」权限，然后回来再点一次「添加到桌面」")
+                toast(context, tr("请先开启「桌面快捷方式」权限，然后回来再点一次「添加到桌面」"))
             } else {
-                toast(context, "请在系统设置里为 Mafari 开启「桌面快捷方式」权限后再试")
+                toast(context, tr("请在系统设置里为 Mafari 开启「桌面快捷方式」权限后再试"))
             }
             return
         }
         prefs.edit().putBoolean(KEY_ASKED, true).apply()
 
         if (!ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
-            toast(context, "当前桌面不支持添加快捷方式，可在系统设置开启 Mafari 的「桌面快捷方式」权限，或更换桌面")
+            toast(context, tr("当前桌面不支持添加快捷方式，可在系统设置开启 Mafari 的「桌面快捷方式」权限，或更换桌面"))
             return
         }
 
@@ -170,7 +172,7 @@ object ShortcutHelper {
                 .getOrDefault(false)
             toast(
                 context,
-                if (ok) "正在添加到桌面，若弹出确认框请选择「添加」" else "添加失败，请检查「桌面快捷方式」权限",
+                if (ok) tr("正在添加到桌面，若弹出确认框请选择「添加」") else tr("添加失败，请检查「桌面快捷方式」权限"),
             )
         }
     }

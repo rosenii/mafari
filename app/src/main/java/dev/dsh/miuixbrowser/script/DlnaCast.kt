@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.script
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import java.io.StringReader
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -189,7 +191,7 @@ class DlnaCast(
             val text = (if (code in 200..299) c.inputStream else c.errorStream)?.use { it.readBytes() }?.toString(Charsets.UTF_8) ?: ""
             if (code !in 200..299) {
                 val upnp = tag(text, "errorCode")
-                throw DlnaException("$action 失败：HTTP $code" + (if (upnp != null) "，UPnP 错误 $upnp" else ""), upnp?.toIntOrNull() ?: code)
+                throw DlnaException(tr("{0} 失败：HTTP {1}", action, code) + (if (upnp != null) tr("，UPnP 错误 {0}", upnp) else ""), upnp?.toIntOrNull() ?: code)
             }
             return text
         } finally {

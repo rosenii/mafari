@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.R
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.ContentValues
@@ -41,7 +43,7 @@ import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 捐赠入口的小字（设置页 / 关于页的入口行与弹窗共用） */
-const val DONATE_SUMMARY = "支持开发者，给牛马来杯核动力coffee ☕!"
+val DONATE_SUMMARY: String get() = tr("支持开发者，给牛马来杯核动力coffee ☕!")
 
 /** 捐赠弹窗：赞赏码 + 保存到相册（设置页与关于页共用）。 */
 @Composable
@@ -51,7 +53,7 @@ fun DonateSheet(show: Boolean, backdrop: Backdrop?, onDismiss: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     AppBottomSheet(
         show = show,
-        title = "捐赠",
+        title = tr("捐赠"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -68,7 +70,7 @@ fun DonateSheet(show: Boolean, backdrop: Backdrop?, onDismiss: () -> Unit) {
             Spacer(Modifier.height(16.dp))
             Image(
                 painter = painterResource(R.drawable.donate_qr),
-                contentDescription = "赞赏码",
+                contentDescription = tr("赞赏码"),
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .size(240.dp)
@@ -77,7 +79,7 @@ fun DonateSheet(show: Boolean, backdrop: Backdrop?, onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "保存后打开微信「扫一扫」，点右上角相册选择此图即可赞赏",
+                text = tr("保存后打开微信「扫一扫」，点右上角相册选择此图即可赞赏"),
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 textAlign = TextAlign.Center,
@@ -92,8 +94,8 @@ fun DonateSheet(show: Boolean, backdrop: Backdrop?, onDismiss: () -> Unit) {
                         saving = false
                         Toast.makeText(
                             context,
-                            if (ok) "已保存到相册（Pictures/Mafari）。打开微信「扫一扫」→ 相册，选择此图即可赞赏"
-                            else "保存失败，请截图保存",
+                            if (ok) tr("已保存到相册（Pictures/Mafari）。打开微信「扫一扫」→ 相册，选择此图即可赞赏")
+                            else tr("保存失败，请截图保存"),
                             Toast.LENGTH_LONG,
                         ).show()
                     }
@@ -101,7 +103,7 @@ fun DonateSheet(show: Boolean, backdrop: Backdrop?, onDismiss: () -> Unit) {
                 role = GlassDialogButtonRole.Primary,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(text = if (saving) "保存中…" else "保存到相册", style = MiuixTheme.textStyles.button)
+                Text(text = if (saving) tr("保存中…") else tr("保存到相册"), style = MiuixTheme.textStyles.button)
             }
         }
     }

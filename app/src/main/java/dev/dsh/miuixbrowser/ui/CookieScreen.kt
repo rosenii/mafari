@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.CookieControl
 import dev.dsh.miuixbrowser.data.AppSettings
 import android.widget.Toast
@@ -52,14 +54,14 @@ import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-internal val COOKIE_MODE_NAMES = listOf("允许全部", "拒绝跟踪者", "拒绝第三方", "拒绝全部")
+internal val COOKIE_MODE_NAMES = listOf(tr("允许全部"), tr("拒绝跟踪者"), tr("拒绝第三方"), tr("拒绝全部"))
 
 private enum class CookieClear(val title: String, val ask: String) {
-    SITE("清除当前网站 Cookie", "将清除当前网站的 Cookie，该站点需要重新登录"),
-    COOKIES("清除全部 Cookie", "将清除所有网站的 Cookie，所有登录状态会失效"),
-    SESSION("清除会话 Cookie", "将清除所有没有过期时间的 Cookie（关闭浏览器本该失效的那些）"),
-    STORAGE("清除网站存储", "将清除 localStorage / IndexedDB 等网站本地数据，不含 Cookie"),
-    EVERYTHING("清除 Cookie 与网站存储", "将清除所有网站的 Cookie 和本地数据，所有登录状态会失效"),
+    SITE(tr("清除当前网站 Cookie"), tr("将清除当前网站的 Cookie，该站点需要重新登录")),
+    COOKIES(tr("清除全部 Cookie"), tr("将清除所有网站的 Cookie，所有登录状态会失效")),
+    SESSION(tr("清除会话 Cookie"), tr("将清除所有没有过期时间的 Cookie（关闭浏览器本该失效的那些）")),
+    STORAGE(tr("清除网站存储"), tr("将清除 localStorage / IndexedDB 等网站本地数据，不含 Cookie")),
+    EVERYTHING(tr("清除 Cookie 与网站存储"), tr("将清除所有网站的 Cookie 和本地数据，所有登录状态会失效")),
 }
 
 /**
@@ -99,7 +101,7 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                 CookieClear.EVERYTHING -> CookieControl.clearEverything(context, gecko)
             }
             refresh++
-            Toast.makeText(context, if (ok) "已清除" else "没有可清除的内容或操作失败", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, if (ok) tr("已清除") else tr("没有可清除的内容或操作失败"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -109,7 +111,7 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 PageGlassTopBar(
-                    title = "Cookie 管理",
+                    title = tr("Cookie 管理"),
                     backdrop = backdrop,
                     glass = glass,
                     scrollBehavior = scrollBehavior,
@@ -133,15 +135,15 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                         .padding(top = innerPadding.calculateTopPadding())
                         .padding(bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
                 ) {
-                    SmallTitle(text = "接受策略")
+                    SmallTitle(text = tr("接受策略"))
                     CookieCard {
                         AppDropdownPreference(
                             backdrop = bd,
-                            title = "Cookie 接受策略",
+                            title = tr("Cookie 接受策略"),
                             summary = if (gecko) {
-                                "Gecko：官方 ContentBlocking API，普通与无痕窗口一致"
+                                tr("Gecko：官方 ContentBlocking API，普通与无痕窗口一致")
                             } else {
-                                "WebView：官方 CookieManager；无跟踪者名单，「拒绝跟踪者」按拒绝第三方处理"
+                                tr("WebView：官方 CookieManager；无跟踪者名单，「拒绝跟踪者」按拒绝第三方处理")
                             },
                             items = COOKIE_MODE_NAMES,
                             selectedIndex = settings.cookieMode,
@@ -150,9 +152,9 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                         CookieEngineRow(visible = gecko) {
                             AppDropdownPreference(
                                 backdrop = bd,
-                                title = "自动处理 Cookie 弹窗",
-                                summary = "自动点掉网站的 Cookie 同意横幅；个别网站可能无效",
-                                items = listOf("关闭", "自动拒绝", "优先拒绝，不行再接受"),
+                                title = tr("自动处理 Cookie 弹窗"),
+                                summary = tr("自动点掉网站的 Cookie 同意横幅；个别网站可能无效"),
+                                items = listOf(tr("关闭"), tr("自动拒绝"), tr("优先拒绝，不行再接受")),
                                 selectedIndex = CookieControl.banner,
                                 onSelectedIndexChange = { CookieControl.updateBanner(context, it) },
                             )
@@ -160,71 +162,71 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                         CookieEngineRow(visible = gecko) {
                             AppDropdownPreference(
                                 backdrop = bd,
-                                title = "Cookie 最长保留期",
-                                summary = "超过上限的 Cookie 会被截短；对新写入的 Cookie 生效",
-                                items = listOf("默认（400 天）", "30 天", "7 天", "1 天"),
+                                title = tr("Cookie 最长保留期"),
+                                summary = tr("超过上限的 Cookie 会被截短；对新写入的 Cookie 生效"),
+                                items = listOf(tr("默认（400 天）"), tr("30 天"), tr("7 天"), tr("1 天")),
                                 selectedIndex = CookieControl.maxAge,
                                 onSelectedIndexChange = { CookieControl.updateMaxAge(context, it) },
                             )
                         }
                         CookieEngineRow(visible = gecko) {
                             AppSwitchPreference(
-                                title = "SameSite 默认 Lax",
-                                summary = "未声明 SameSite 的 Cookie 不随跨站请求发送；部分跨站登录可能失效",
+                                title = tr("SameSite 默认 Lax"),
+                                summary = tr("未声明 SameSite 的 Cookie 不随跨站请求发送；部分跨站登录可能失效"),
                                 checked = CookieControl.sameSiteLax,
                                 onCheckedChange = { CookieControl.updateSameSiteLax(context, it) },
                             )
                         }
                     }
 
-                    SmallTitle(text = "自动清理")
+                    SmallTitle(text = tr("自动清理"))
                     CookieCard {
                         AppDropdownPreference(
                             backdrop = bd,
-                            title = "启动时清理",
-                            summary = "每次冷启动时清理当前内核的数据；无痕标签页本身不保存 Cookie",
-                            items = listOf("不清理", "清除 Cookie", "清除 Cookie 与网站存储"),
+                            title = tr("启动时清理"),
+                            summary = tr("每次冷启动时清理当前内核的数据；无痕标签页本身不保存 Cookie"),
+                            items = listOf(tr("不清理"), tr("清除 Cookie"), tr("清除 Cookie 与网站存储")),
                             selectedIndex = settings.cookieClearOnLaunch,
                             onSelectedIndexChange = { settings.updateCookieClearOnLaunch(it) },
                         )
                     }
 
-                    SmallTitle(text = "清除数据（" + (if (gecko) "Gecko" else "WebView") + "）")
+                    SmallTitle(text = tr("清除数据（{0}）", if (gecko) "Gecko" else "WebView"))
                     CookieCard {
                         if (site != null) {
                             ArrowPreference(
                                 title = CookieClear.SITE.title,
-                                summary = site + (siteCount?.let { " · 当前 $it 个 Cookie" } ?: ""),
+                                summary = site + (siteCount?.let { tr(" · 当前 {0} 个 Cookie", it) } ?: ""),
                                 onClick = { pending = CookieClear.SITE },
                             )
                         }
                         ArrowPreference(
                             title = CookieClear.COOKIES.title,
-                            summary = "所有网站，登录状态会失效",
+                            summary = tr("所有网站，登录状态会失效"),
                             onClick = { pending = CookieClear.COOKIES },
                         )
                         CookieEngineRow(visible = !gecko) {
                             ArrowPreference(
                                 title = CookieClear.SESSION.title,
-                                summary = "只清没有过期时间的 Cookie，保留「记住我」的登录",
+                                summary = tr("只清没有过期时间的 Cookie，保留「记住我」的登录"),
                                 onClick = { pending = CookieClear.SESSION },
                             )
                         }
                         ArrowPreference(
                             title = CookieClear.STORAGE.title,
-                            summary = "localStorage · IndexedDB 等，不含 Cookie",
+                            summary = tr("localStorage · IndexedDB 等，不含 Cookie"),
                             onClick = { pending = CookieClear.STORAGE },
                         )
                         ArrowPreference(
                             title = CookieClear.EVERYTHING.title,
-                            summary = "一次清掉上面两类数据",
+                            summary = tr("一次清掉上面两类数据"),
                             onClick = { pending = CookieClear.EVERYTHING },
                         )
                     }
 
                     Text(
-                        text = "两个内核的 Cookie 互相独立；这里的清除只作用于当前选择的内核。" +
-                            "切换内核后设置页会自动显示对应内核适用的项目。",
+                        text = tr("两个内核的 Cookie 互相独立；这里的清除只作用于当前选择的内核。") +
+                            tr("切换内核后设置页会自动显示对应内核适用的项目。"),
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
@@ -241,7 +243,7 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         AppDialogButton(onClick = { pending = null }, modifier = Modifier.weight(1f)) {
-                            Text(text = "取消", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
                         }
                         AppDialogButton(
                             onClick = {
@@ -251,7 +253,7 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                             modifier = Modifier.weight(1f),
                             role = GlassDialogButtonRole.Destructive,
                         ) {
-                            Text(text = "清除", style = MiuixTheme.textStyles.button)
+                            Text(text = tr("清除"), style = MiuixTheme.textStyles.button)
                         }
                     }
                 }

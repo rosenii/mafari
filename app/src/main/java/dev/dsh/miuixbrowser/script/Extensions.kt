@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.script
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AdParser
 import dev.dsh.miuixbrowser.adblock.LegacyAdSub
 import dev.dsh.miuixbrowser.data.AppDatabase
@@ -199,7 +201,7 @@ class ExtensionStore(context: Context) {
         val (parsedName, parsedMatch, parsedRunAt) = parseUserScript(code)
         items.add(
             UserScript(
-                name = name.ifBlank { parsedName.ifBlank { "未命名脚本" } },
+                name = name.ifBlank { parsedName.ifBlank { tr("未命名脚本") } },
                 code = code,
                 match = match.ifBlank { parsedMatch },
                 sourceUrl = sourceUrl,
@@ -245,12 +247,12 @@ class ExtensionStore(context: Context) {
     /** 重新下载某个脚本的来源地址。返回 true = 内容有变化并已更新，false = 已是最新。 */
     suspend fun refresh(id: String): Result<Boolean> {
         val script = items.firstOrNull { it.id == id }
-            ?: return Result.failure(IllegalStateException("脚本不存在"))
+            ?: return Result.failure(IllegalStateException(tr("脚本不存在")))
         if (script.sourceUrl.isBlank()) {
-            return Result.failure(IllegalStateException("本地脚本没有更新地址"))
+            return Result.failure(IllegalStateException(tr("本地脚本没有更新地址")))
         }
         val text = fetchUserScriptText(script.sourceUrl).getOrElse {
-            markError(id, it.message ?: "更新失败")
+            markError(id, it.message ?: tr("更新失败"))
             return Result.failure(it)
         }
         return Result.success(applyRemote(id, text))
@@ -437,10 +439,10 @@ suspend fun fetchUserScriptText(url: String, allowFilterList: Boolean = false): 
             HttpFetcher.Options(connectTimeoutMs = 10_000, readTimeoutMs = 20_000, maxBytes = 8 * 1024 * 1024, userAgent = "Mozilla/5.0 mafari"),
         )
     }.recoverCatching {
-        throw IllegalStateException(it.message?.takeIf { m -> m.startsWith("服务器返回") } ?: "下载失败，检查网络或链接")
+        throw IllegalStateException(it.message?.takeIf { m -> m.startsWith(tr("服务器返回")) } ?: tr("下载失败，检查网络或链接"))
     }.mapCatching { text ->
         // 只放行带 ==UserScript== 头的脚本；allowFilterList 时也放行去广告规则列表（由调用方转交去广告）
-        if (!text.contains("==UserScript==") && !(allowFilterList && AdParser.looksLikeFilterList(text))) error("不是有效的油猴脚本")
+        if (!text.contains("==UserScript==") && !(allowFilterList && AdParser.looksLikeFilterList(text))) error(tr("不是有效的油猴脚本"))
         text
     }
 }

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.sync.fxa.FxaSync
 import android.app.Activity
@@ -34,36 +36,36 @@ class SendTabActivity : Activity() {
         }
         FxaSync.init(this)
         dialog = AlertDialog.Builder(this)
-            .setTitle("发送到设备")
-            .setMessage("正在读取设备…")
+            .setTitle(tr("发送到设备"))
+            .setMessage(tr("正在读取设备…"))
             .setOnCancelListener { finish() }
             .show()
         scope.launch {
             val devices = FxaSync.loadDevices()
             dialog?.dismiss()
             if (devices == null) {
-                Toast.makeText(this@SendTabActivity, "请先在 Mafari 里登录 Firefox 帐户", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@SendTabActivity, tr("请先在 Mafari 里登录 Firefox 帐户"), Toast.LENGTH_LONG).show()
                 finish()
                 return@launch
             }
             if (devices.isEmpty()) {
-                Toast.makeText(this@SendTabActivity, "没有其他设备：请在其他设备上登录同一个 Firefox 帐户", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@SendTabActivity, tr("没有其他设备：请在其他设备上登录同一个 Firefox 帐户"), Toast.LENGTH_LONG).show()
                 finish()
                 return@launch
             }
             dialog = AlertDialog.Builder(this@SendTabActivity)
-                .setTitle("发送到设备")
+                .setTitle(tr("发送到设备"))
                 .setItems(devices.map { it.name }.toTypedArray()) { _, i ->
                     val d = devices[i]
                     val app = applicationContext
                     FxaSync.sendTab(d, title, url) { ok ->
                         Handler(Looper.getMainLooper()).post {
-                            Toast.makeText(app, if (ok) "已发送到 ${d.name}" else "发送失败", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(app, if (ok) tr("已发送到 {0}", d.name) else tr("发送失败"), Toast.LENGTH_SHORT).show()
                         }
                     }
                     finish()
                 }
-                .setNegativeButton("取消") { _, _ -> finish() }
+                .setNegativeButton(tr("取消")) { _, _ -> finish() }
                 .setOnCancelListener { finish() }
                 .show()
         }

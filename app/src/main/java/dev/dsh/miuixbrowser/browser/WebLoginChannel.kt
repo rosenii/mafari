@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.browser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.crypto.BiometricGate
 import dev.dsh.miuixbrowser.data.AppDatabase
 import dev.dsh.miuixbrowser.data.PasswordDb
@@ -127,7 +129,7 @@ internal class WebLoginChannel(private val host: Host) {
         }
         // 需要验证身份却没有可用界面：宁可不填
         val act = host.activity() ?: return
-        BiometricGate.authenticate(act, "验证身份", "验证后才会填入账号和密码") { ok ->
+        BiometricGate.authenticate(act, tr("验证身份"), tr("验证后才会填入账号和密码")) { ok ->
             if (ok) fill(origin, item)
         }
     }

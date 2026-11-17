@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import android.content.Context
 import android.os.SystemClock
 import android.widget.Toast
@@ -14,10 +16,10 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 
 /** 切到 Gecko 内核后，依赖 WebView 专有 API 的功能行 / 菜单项置灰，点击时给出的提示 */
-const val GECKO_UNSUPPORTED_TOAST = "该功能在 Gecko 下不支持或有替代方案"
+val GECKO_UNSUPPORTED_TOAST: String get() = tr("该功能在 Gecko 下不支持或有替代方案")
 
 /** 仅 Gecko 可用的功能（如拓展）在 WebView 下置灰，点击时给出的提示 */
-const val WEBVIEW_UNSUPPORTED_TOAST = "该功能在 WebView 下不可用"
+val WEBVIEW_UNSUPPORTED_TOAST: String get() = tr("该功能在 WebView 下不可用")
 
 /** 置灰时的不透明度 */
 const val GECKO_LOCKED_ALPHA = 0.38f

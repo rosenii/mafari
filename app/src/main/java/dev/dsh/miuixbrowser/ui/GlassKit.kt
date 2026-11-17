@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
@@ -58,7 +60,7 @@ fun GlassBackButton(onClick: () -> Unit) {
     ) {
         Icon(
             imageVector = MiuixIcons.Glass.ChevronBackward,
-            contentDescription = "返回",
+            contentDescription = tr("返回"),
             modifier = Modifier.size(24.dp),
             tint = MiuixTheme.colorScheme.onSurface,
         )

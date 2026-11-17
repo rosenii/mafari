@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.crypto
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.util.Diag
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -50,7 +52,7 @@ class EncryptionEngine(
         val prefix = Envelope.parsePrefix(envelope)
         val suite = CipherSuites.get(prefix.suiteId)
         val pub = keys.publicKey(suite)
-        if (!pub.keyId.contentEquals(prefix.keyId)) throw CryptoException("信封所用密钥与当前密钥不匹配")
+        if (!pub.keyId.contentEquals(prefix.keyId)) throw CryptoException(tr("信封所用密钥与当前密钥不匹配"))
         return suite.open(pub, keys.privateKey(suite), envelope, context)
     }
 
@@ -75,18 +77,18 @@ class EncryptionEngine(
         STRING_PREFIX + Base64.getEncoder().encodeToString(seal(text.toByteArray(Charsets.UTF_8), context))
 
     fun openString(stored: String, context: String): String {
-        if (!isEncryptedString(stored)) throw CryptoException("不是加密字符串")
+        if (!isEncryptedString(stored)) throw CryptoException(tr("不是加密字符串"))
         return String(open(decodeString(stored), context), Charsets.UTF_8)
     }
 
     /** 加密整个文件（例如 SQLite 数据库文件）；先写临时文件再改名，写到一半断电不会损坏旧文件。 */
     fun sealFile(src: File, dst: File, context: String) {
-        if (src.length() > MAX_FILE_BYTES) throw CryptoException("文件过大（上限 ${MAX_FILE_BYTES shr 20} MiB）")
+        if (src.length() > MAX_FILE_BYTES) throw CryptoException(tr("文件过大（上限 {0} MiB）", MAX_FILE_BYTES shr 20))
         writeAtomically(dst, seal(src.readBytes(), context))
     }
 
     fun openFile(src: File, dst: File, context: String) {
-        if (src.length() > MAX_FILE_BYTES + MAX_OVERHEAD) throw CryptoException("文件过大")
+        if (src.length() > MAX_FILE_BYTES + MAX_OVERHEAD) throw CryptoException(tr("文件过大"))
         writeAtomically(dst, open(src.readBytes(), context))
     }
 
@@ -138,7 +140,7 @@ class EncryptionEngine(
             val body = stored.substring(STRING_PREFIX_LEN)
             Base64.getDecoder().decode(if (prefixOnly) body.take(20) else body)
         } catch (e: IllegalArgumentException) {
-            throw CryptoException("Base64 无效", e)
+            throw CryptoException(tr("Base64 无效"), e)
         }
 
         @Volatile
@@ -170,7 +172,7 @@ class EncryptionEngine(
             tmp.writeBytes(data)
             if (!tmp.renameTo(dst)) {
                 dst.delete()
-                if (!tmp.renameTo(dst)) throw CryptoException("写入失败：${dst.name}")
+                if (!tmp.renameTo(dst)) throw CryptoException(tr("写入失败：{0}", dst.name))
             }
         }
     }
@@ -210,22 +212,22 @@ class AndroidKeyVault(context: Context) : KeyProvider {
         // 刚生成的密钥已经缓存在 privs 里
         privs[suite.id]?.let { return it }
         try {
-            val key = keystoreKey(create = false) ?: throw KeyUnavailableException("Keystore 里的包裹密钥已丢失")
+            val key = keystoreKey(create = false) ?: throw KeyUnavailableException(tr("Keystore 里的包裹密钥已丢失"))
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, record.iv))
             cipher.updateAAD(record.aad)
             val plain = cipher.doFinal(record.wrapped)
-            if (plain.size != suite.privateKeyLen) throw KeyUnavailableException("私钥长度异常")
+            if (plain.size != suite.privateKeyLen) throw KeyUnavailableException(tr("私钥长度异常"))
             pubs[suite.id] = SuitePublicKey(suite.id, record.pub)
             return SuitePrivateKey(suite.id, plain).also { privs[suite.id] = it }
         } catch (e: KeyUnavailableException) {
             throw e
         } catch (e: UnrecoverableKeyException) {
-            throw KeyUnavailableException("包裹密钥无法使用", e)
+            throw KeyUnavailableException(tr("包裹密钥无法使用"), e)
         } catch (e: KeyPermanentlyInvalidatedException) {
-            throw KeyUnavailableException("包裹密钥已失效", e)
+            throw KeyUnavailableException(tr("包裹密钥已失效"), e)
         } catch (e: GeneralSecurityException) {
-            throw KeyUnavailableException("私钥解包失败（密钥文件损坏或 Keystore 密钥已变）", e)
+            throw KeyUnavailableException(tr("私钥解包失败（密钥文件损坏或 Keystore 密钥已变）"), e)
         }
     }
 
@@ -253,12 +255,12 @@ class AndroidKeyVault(context: Context) : KeyProvider {
             b[3].toInt() != 2 ||
             (b[4].toInt() and 0xFF) != suite.id
         ) {
-            throw KeyUnavailableException("密钥文件损坏")
+            throw KeyUnavailableException(tr("密钥文件损坏"))
         }
         val pubLen = ((b[5].toInt() and 0xFF) shl 8) or (b[6].toInt() and 0xFF)
         val pubEnd = GENERIC_HEADER_LEN + pubLen
         if (pubLen != suite.publicKeyLen || b.size != pubEnd + IV_LEN + suite.privateKeyLen + TAG_LEN) {
-            throw KeyUnavailableException("密钥文件损坏")
+            throw KeyUnavailableException(tr("密钥文件损坏"))
         }
         return Record(
             pub = b.copyOfRange(GENERIC_HEADER_LEN, pubEnd),
@@ -274,7 +276,7 @@ class AndroidKeyVault(context: Context) : KeyProvider {
             !b.copyOfRange(0, 3).contentEquals(MAGIC) ||
             b[3].toInt() != 1
         ) {
-            throw KeyUnavailableException("密钥文件损坏")
+            throw KeyUnavailableException(tr("密钥文件损坏"))
         }
         return Record(
             pub = b.copyOfRange(4, pubEnd),
@@ -307,7 +309,7 @@ class AndroidKeyVault(context: Context) : KeyProvider {
         tmp.writeBytes(header + iv + wrapped)
         if (!tmp.renameTo(file)) {
             file.delete()
-            if (!tmp.renameTo(file)) throw CryptoException("无法写入密钥文件")
+            if (!tmp.renameTo(file)) throw CryptoException(tr("无法写入密钥文件"))
         }
         privs[suite.id] = pair.priv
         pubs[suite.id] = pair.pub

@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.browser
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdBlockBridge
 import dev.dsh.miuixbrowser.appContainer
@@ -122,7 +124,7 @@ class BrowserTab(
     /** 每个标签的唯一 id，Compose 用它做 key。 */
     val id: Int = nextId()
 
-    var title by mutableStateOf("新标签页")
+    var title by mutableStateOf(tr("新标签页"))
     var url by mutableStateOf("")
     var progress by mutableFloatStateOf(0f)
     var loading by mutableStateOf(false)
@@ -319,7 +321,7 @@ class BrowserTab(
 
     /** WebView 内核专用 API 的入口。Gecko 标签访问它会抛异常，界面层应改用 [contentView] 等与内核无关的成员 */
     val webView: WebView
-        get() = webViewOrNull ?: error("Gecko 标签没有 WebView，请使用与内核无关的接口")
+        get() = webViewOrNull ?: error(tr("Gecko 标签没有 WebView，请使用与内核无关的接口"))
 
     /** 当前存活的 Gecko 引擎：延迟创建，也会被 [discardEngine] 回收，所以可能为 null。读它不会触发创建，创建走 [ensureGecko] */
     private var geckoEngine: GeckoTabEngine? = null
@@ -346,7 +348,7 @@ class BrowserTab(
             .onFailure { Diag.log("gecko: lazy engine create failed: ${it.message}") }
             .getOrNull()
         if (g == null) {
-            errorText = "Gecko 内核启动失败"
+            errorText = tr("Gecko 内核启动失败")
             return null
         }
         geckoEngine = g
@@ -441,7 +443,7 @@ class BrowserTab(
             val session = blobSessions[token] ?: return false
             if (size > 0 && size > appContext.cacheDir.usableSpace - MIN_FREE_BYTES) {
                 discardBlobSession(token)
-                reportBlobError("存储空间不足，无法读取该文件")
+                reportBlobError(tr("存储空间不足，无法读取该文件"))
                 return false
             }
             if (mime.isNotBlank()) session.mime = mime
@@ -485,7 +487,7 @@ class BrowserTab(
             }
             if (!ok) {
                 runCatching { session.file.delete() }
-                reportBlobError("文件读取不完整或写入失败")
+                reportBlobError(tr("文件读取不完整或写入失败"))
                 return
             }
             val name = if (session.keepName) session.name else Downloader.withExtension(session.name, session.mime)
@@ -498,7 +500,7 @@ class BrowserTab(
         fun fail(token: String, msg: String) {
             if (!blobSessions.containsKey(token)) return
             discardBlobSession(token)
-            reportBlobError("无法读取 blob：$msg")
+            reportBlobError(tr("无法读取 blob：{0}", msg))
         }
     }
 
@@ -582,7 +584,7 @@ class BrowserTab(
         val token = java.util.UUID.randomUUID().toString()
         val file = java.io.File(appContext.cacheDir, "mafari_blob_${token}.part")
         val stream = runCatching { java.io.FileOutputStream(file) }.getOrElse {
-            reportBlobError("无法创建缓存文件")
+            reportBlobError(tr("无法创建缓存文件"))
             return
         }
         blobSessions[token] = BlobSession(file, stream, fileName, mime?.takeIf { it.isNotBlank() && it != "application/octet-stream" })
@@ -719,7 +721,7 @@ class BrowserTab(
         fp.loader = { target -> loadUrl(target) }
         fp.onUnprotectedBlocked = { target ->
             loading = false
-            errorText = "指纹保护：${runCatching { Uri.parse(target).host }.getOrNull().orEmpty()} 未能在加载前注册保护，已停止加载"
+            errorText = tr("指纹保护：{0} 未能在加载前注册保护，已停止加载", runCatching { Uri.parse(target).host }.getOrNull().orEmpty())
         }
         // 低频可信通道（豁免请求、统计上报）：来源由 WebView 校验，与指纹配置无关；不支持时静默跳过
         TrustedChannel.install(webView, object : TrustedChannel.Host {
@@ -1003,7 +1005,7 @@ class BrowserTab(
                 // 诊断：确认 WebView 是否真的把 showSaveFilePicker 交给了 onShowFileChooser（mode=3 为保存）
                 Diag.log("onShowFileChooser mode=${fileChooserParams.mode} hint=${fileChooserParams.filenameHint} accept=${fileChooserParams.acceptTypes?.joinToString()}")
                 if (fileChooserParams.mode == FileChooserParams.MODE_SAVE) {
-                    runCatching { android.widget.Toast.makeText(appContext, "收到保存请求: ${fileChooserParams.filenameHint}", android.widget.Toast.LENGTH_SHORT).show() }
+                    runCatching { android.widget.Toast.makeText(appContext, tr("收到保存请求: {0}", fileChooserParams.filenameHint), android.widget.Toast.LENGTH_SHORT).show() }
                 }
                 // WebView 可能在上一次未回调时再次请求，先取消上一次
                 cancelFileChooser()
@@ -1055,7 +1057,7 @@ class BrowserTab(
                         // 例外网站优先于全局设置
                         GeckoSitePerms.override(host, GeckoSitePerms.LOCATION) ?: locationMode,
                         host,
-                        "获取你的位置",
+                        tr("获取你的位置"),
                         arrayOf(
                             android.Manifest.permission.ACCESS_FINE_LOCATION,
                             android.Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -1659,7 +1661,7 @@ class BrowserTab(
         if (isGecko) {
             val port = readerPort
             if (port == null) {
-                android.widget.Toast.makeText(appContext, "阅读模式尚未就绪，请稍后再试", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(appContext, tr("阅读模式尚未就绪，请稍后再试"), android.widget.Toast.LENGTH_SHORT).show()
                 return
             }
             // 结果由内容脚本回报（geckoReaderState）：active=true 时图标才点亮；提取失败则 readerable 会被置回 false
@@ -1674,7 +1676,7 @@ class BrowserTab(
                 readerUrl = url
             } else {
                 readerable = false
-                android.widget.Toast.makeText(appContext, "无法提取这个页面的正文", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(appContext, tr("无法提取这个页面的正文"), android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1698,7 +1700,7 @@ class BrowserTab(
         if (readerEnterPending) {
             readerEnterPending = false
             if (!active) {
-                android.widget.Toast.makeText(appContext, "无法提取这个页面的正文", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(appContext, tr("无法提取这个页面的正文"), android.widget.Toast.LENGTH_SHORT).show()
             }
         }
         readerActive = active
@@ -1892,7 +1894,7 @@ class BrowserTab(
             }
         }
         if (redirectPromptPending) return true
-        askRedirect(from, "跳转到 ${targetHost.ifEmpty { target.take(60) }}") { allow ->
+        askRedirect(from, tr("跳转到 {0}", targetHost.ifEmpty { target.take(60) })) { allow ->
             if (allow) open?.invoke(target) else notifyRedirectBlocked(false, targetHost)
         }
         return true
@@ -1918,7 +1920,7 @@ class BrowserTab(
             return
         }
         if (redirectPromptPending) return
-        askRedirect(from, "打开其他应用") { allow ->
+        askRedirect(from, tr("打开其他应用")) { allow ->
             if (allow) launchExternalApp(uri) else notifyRedirectBlocked(true, "")
         }
     }
@@ -1960,7 +1962,7 @@ class BrowserTab(
         decide(
             GeckoSitePerms.override(origin, GeckoSitePerms.LOCATION) ?: locationMode,
             origin,
-            "获取你的位置",
+            tr("获取你的位置"),
             arrayOf(
                 android.Manifest.permission.ACCESS_FINE_LOCATION,
                 android.Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -1985,13 +1987,13 @@ class BrowserTab(
             if (camOk) add(android.Manifest.permission.CAMERA)
             if (micOk) add(android.Manifest.permission.RECORD_AUDIO)
         }.toTypedArray()
-        val what = listOfNotNull(if (camOk) "摄像头" else null, if (micOk) "麦克风" else null).joinToString("、")
+        val what = listOfNotNull(if (camOk) tr("摄像头") else null, if (micOk) tr("麦克风") else null).joinToString(tr("、"))
         val mustAsk = (camOk && camMode == 0) || (micOk && micModeEff == 0)
         val keys = listOfNotNull(
             if (camOk) GeckoSitePerms.CAMERA else null,
             if (micOk) GeckoSitePerms.MIC else null,
         ).joinToString(",")
-        decide(if (mustAsk) 0 else 1, origin, "使用$what", perms, permKey = keys, result = result)
+        decide(if (mustAsk) 0 else 1, origin, tr("使用{0}", what), perms, permKey = keys, result = result)
     }
 
     /**
@@ -2292,7 +2294,7 @@ class BrowserTab(
             onAllowed()
             return true
         }
-        val label = if (external) "打开其他应用" else "跳转到 ${targetHost.ifEmpty { request.url.toString().take(60) }}"
+        val label = if (external) tr("打开其他应用") else tr("跳转到 {0}", targetHost.ifEmpty { request.url.toString().take(60) })
         if (mode == 2) {
             notifyRedirectBlocked(external, targetHost)
             return true
@@ -2326,10 +2328,10 @@ class BrowserTab(
         if (fpExemptAsked.size > 64) fpExemptAsked.clear()
         record[0]++
         record[1] = now
-        askRedirect(origin.origin, "关闭对它的指纹保护") { allow ->
+        askRedirect(origin.origin, tr("关闭对它的指纹保护")) { allow ->
             if (allow && AdBlock.exemptFingerprintSite(origin.host)) {
                 android.widget.Toast.makeText(
-                    appContext, "已豁免 ${origin.host}，刷新后生效", android.widget.Toast.LENGTH_SHORT,
+                    appContext, tr("已豁免 {0}，刷新后生效", origin.host), android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         }
@@ -2396,7 +2398,7 @@ class BrowserTab(
             if (isIntentScheme) Intent.parseUri(raw, Intent.URI_INTENT_SCHEME) else Intent(Intent.ACTION_VIEW, uri)
         }.getOrNull()
         if (intent == null) {
-            android.widget.Toast.makeText(appContext, "无法打开该链接", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(appContext, tr("无法打开该链接"), android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         // 网页给出的 intent 不得指定组件 / selector，只允许按 BROWSABLE 解析，防止直指本应用或非导出组件
@@ -2410,7 +2412,7 @@ class BrowserTab(
         if (!fallback.isNullOrBlank() && (fallback.startsWith("http://") || fallback.startsWith("https://"))) {
             mainHandler.post { loadUrl(fallback) }
         } else {
-            android.widget.Toast.makeText(appContext, "未找到可打开的应用", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(appContext, tr("未找到可打开的应用"), android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2488,7 +2490,7 @@ class BrowserTab(
             return
         }
         if (redirectPromptPending) return
-        askRedirect(pageHost, "跳转到 ${targetHost.ifEmpty { target.take(60) }}", GeckoSitePerms.REDIRECT) { allow ->
+        askRedirect(pageHost, tr("跳转到 {0}", targetHost.ifEmpty { target.take(60) }), GeckoSitePerms.REDIRECT) { allow ->
             if (allow) open(target) else notifyRedirectBlocked(false, targetHost)
         }
     }
@@ -2497,7 +2499,7 @@ class BrowserTab(
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastRedirectToast < 2000) return
         lastRedirectToast = now
-        val msg = if (external) "已拦截网页打开其他应用" else "已拦截网页重定向" + if (host.isNotEmpty()) "：$host" else ""
+        val msg = if (external) tr("已拦截网页打开其他应用") else tr("已拦截网页重定向") + if (host.isNotEmpty()) tr("：{0}", host) else ""
         android.widget.Toast.makeText(appContext, msg, android.widget.Toast.LENGTH_SHORT).show()
     }
 
@@ -2592,13 +2594,13 @@ class BrowserTab(
             if (camOk) add(android.Manifest.permission.CAMERA)
             if (micOk) add(android.Manifest.permission.RECORD_AUDIO)
         }.toTypedArray()
-        val what = listOfNotNull(if (camOk) "摄像头" else null, if (micOk) "麦克风" else null).joinToString("、")
+        val what = listOfNotNull(if (camOk) tr("摄像头") else null, if (micOk) tr("麦克风") else null).joinToString(tr("、"))
         val mustAsk = (camOk && camMode == 0) || (micOk && micModeEff == 0)
         val keys = listOfNotNull(
             if (camOk) GeckoSitePerms.CAMERA else null,
             if (micOk) GeckoSitePerms.MIC else null,
         ).joinToString(",")
-        decide(if (mustAsk) 0 else 1, host, "使用$what", perms, permKey = keys) { ok ->
+        decide(if (mustAsk) 0 else 1, host, tr("使用{0}", what), perms, permKey = keys) { ok ->
             finish(
                 if (ok) buildList {
                     if (camOk) add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
@@ -3387,7 +3389,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
                 .onFailure {
                     Diag.log("gecko tab create failed, fallback to WebView: ${it.message}")
                     if (adoptedGeckoSession == null) {
-                        android.widget.Toast.makeText(context, "Gecko 内核启动失败，已改用 WebView", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, tr("Gecko 内核启动失败，已改用 WebView"), android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
                 .getOrNull()
@@ -3472,7 +3474,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         if (tabs.size >= MAX_TABS) {
             android.widget.Toast.makeText(
                 context,
-                "最多同时打开 $MAX_TABS 个标签页",
+                tr("最多同时打开 {0} 个标签页", MAX_TABS),
                 android.widget.Toast.LENGTH_SHORT,
             ).show()
             return null

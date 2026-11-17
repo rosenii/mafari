@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.download.Downloader
 import dev.dsh.miuixbrowser.download.ExternalDownloader
@@ -898,8 +900,8 @@ class AppSettings(context: Context) {
 data class SearchEngine(val name: String, val template: String, val iconUrl: String = "")
 
 val SEARCH_ENGINES = listOf(
-    SearchEngine("百度", "https://www.baidu.com/s?wd=%s", "https://www.baidu.com/favicon.ico"),
-    SearchEngine("必应", "https://www.bing.com/search?q=%s", "https://www.bing.com/favicon.ico"),
+    SearchEngine(tr("百度"), "https://www.baidu.com/s?wd=%s", "https://www.baidu.com/favicon.ico"),
+    SearchEngine(tr("必应"), "https://www.bing.com/search?q=%s", "https://www.bing.com/favicon.ico"),
     SearchEngine("Google", "https://www.google.com/search?q=%s", "https://www.google.com/favicon.ico"),
     SearchEngine("DuckDuckGo", "https://duckduckgo.com/?q=%s", "https://duckduckgo.com/favicon.ico"),
 )
@@ -908,7 +910,7 @@ data class UaPreset(val name: String, val value: String, val iconUrls: List<Stri
 
 /** 常用 UA 预设 */
 val UA_PRESETS = listOf(
-    UaPreset("跟随系统", ""),
+    UaPreset(tr("跟随系统"), ""),
     UaPreset(
         "Android Chrome",
         "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
@@ -919,7 +921,7 @@ val UA_PRESETS = listOf(
         ),
     ),
     UaPreset(
-        "桌面 Chrome",
+        tr("桌面 Chrome"),
         DESKTOP_UA,
         listOf(
             "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Google_Chrome_icon_%28February_2022%29.svg/128px-Google_Chrome_icon_%28February_2022%29.svg.png",

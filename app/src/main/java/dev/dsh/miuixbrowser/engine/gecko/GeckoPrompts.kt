@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.engine.gecko
 
+import dev.dsh.miuixbrowser.i18n.tr
+
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.LoginPrompt
 import dev.dsh.miuixbrowser.browser.PasswordCsv
@@ -50,7 +52,7 @@ class GeckoPromptHandler(
     private fun host(): String = runCatching { Uri.parse(tab.url).host }.getOrNull().orEmpty()
 
     private fun titleOf(raw: String?): String =
-        raw?.takeIf { it.isNotBlank() } ?: host().ifEmpty { "网页" }.let { "来自 $it 的消息" }
+        raw?.takeIf { it.isNotBlank() } ?: host().ifEmpty { tr("网页") }.let { tr("来自 {0} 的消息", it) }
 
     /** 弹出对话框；activity 不可用 / 已销毁时返回 false，调用方按取消收尾 */
     private fun show(build: (AlertDialog.Builder) -> Unit): Boolean {
@@ -107,12 +109,12 @@ class GeckoPromptHandler(
                     ui(LoginPrompt.Save(decision.entry.origin, decision.entry.username, update, doSave, doDismiss))
                     return@post
                 }
-                val who = decision.entry.username.ifEmpty { "（无用户名）" }
+                val who = decision.entry.username.ifEmpty { tr("（无用户名）") }
                 val shown = show { b ->
-                    b.setTitle(if (update) "更新密码？" else "保存密码？")
-                    b.setMessage(PasswordCsv.displayHost(decision.entry.origin) + "\n" + who + "\n\n密码会加密保存在本机")
-                    b.setPositiveButton(if (update) "更新" else "保存") { _, _ -> doSave() }
-                    b.setNegativeButton("不保存") { _, _ -> doDismiss() }
+                    b.setTitle(if (update) tr("更新密码？") else tr("保存密码？"))
+                    b.setMessage(PasswordCsv.displayHost(decision.entry.origin) + "\n" + who + tr("\n\n密码会加密保存在本机"))
+                    b.setPositiveButton(if (update) tr("更新") else tr("保存")) { _, _ -> doSave() }
+                    b.setNegativeButton(tr("不保存")) { _, _ -> doDismiss() }
                     b.setOnCancelListener { doDismiss() }
                 }
                 if (!shown) finish(prompt.dismiss())
@@ -138,7 +140,7 @@ class GeckoPromptHandler(
         }
         fun pick(option: Autocomplete.LoginSelectOption) {
             if (PasswordPrefs.verifyBeforeFill(appCtx)) {
-                BiometricGate.authenticate(act, "验证身份", "验证后才会填入账号和密码") { ok ->
+                BiometricGate.authenticate(act, tr("验证身份"), tr("验证后才会填入账号和密码")) { ok ->
                     finish(if (ok) prompt.confirm(option) else prompt.dismiss())
                 }
             } else {
@@ -159,12 +161,12 @@ class GeckoPromptHandler(
         }
         val labels = options.map { o ->
             val l = o.value
-            l.username.orEmpty().ifEmpty { "（无用户名）" } + "\n" + PasswordCsv.displayHost(l.origin.orEmpty())
+            l.username.orEmpty().ifEmpty { tr("（无用户名）") } + "\n" + PasswordCsv.displayHost(l.origin.orEmpty())
         }.toTypedArray<CharSequence>()
         val shown = show { b ->
-            b.setTitle("填充登录信息")
+            b.setTitle(tr("填充登录信息"))
             b.setItems(labels) { _, i -> pick(options[i]) }
-            b.setNegativeButton("取消") { _, _ -> finish(prompt.dismiss()) }
+            b.setNegativeButton(tr("取消")) { _, _ -> finish(prompt.dismiss()) }
             b.setOnCancelListener { finish(prompt.dismiss()) }
         }
         if (!shown) finish(prompt.dismiss())
@@ -178,7 +180,7 @@ class GeckoPromptHandler(
         val ok = show({ b ->
             b.setTitle(titleOf(prompt.title))
                 .setMessage(prompt.message)
-                .setPositiveButton("确定") { _, _ -> result.complete(prompt.dismiss()) }
+                .setPositiveButton(tr("确定")) { _, _ -> result.complete(prompt.dismiss()) }
                 .setOnCancelListener { result.complete(prompt.dismiss()) }
         })
         if (!ok) result.complete(prompt.dismiss())
@@ -190,8 +192,8 @@ class GeckoPromptHandler(
         val ok = show({ b ->
             b.setTitle(titleOf(prompt.title))
                 .setMessage(prompt.message)
-                .setPositiveButton("确定") { _, _ -> result.complete(prompt.confirm(PromptDelegate.ButtonPrompt.Type.POSITIVE)) }
-                .setNegativeButton("取消") { _, _ -> result.complete(prompt.confirm(PromptDelegate.ButtonPrompt.Type.NEGATIVE)) }
+                .setPositiveButton(tr("确定")) { _, _ -> result.complete(prompt.confirm(PromptDelegate.ButtonPrompt.Type.POSITIVE)) }
+                .setNegativeButton(tr("取消")) { _, _ -> result.complete(prompt.confirm(PromptDelegate.ButtonPrompt.Type.NEGATIVE)) }
                 .setOnCancelListener { result.complete(prompt.dismiss()) }
         })
         if (!ok) result.complete(prompt.dismiss())
@@ -219,8 +221,8 @@ class GeckoPromptHandler(
             b.setTitle(titleOf(prompt.title))
                 .setMessage(prompt.message)
                 .setView(box)
-                .setPositiveButton("确定") { _, _ -> result.complete(prompt.confirm(input.text.toString())) }
-                .setNegativeButton("取消") { _, _ -> result.complete(prompt.dismiss()) }
+                .setPositiveButton(tr("确定")) { _, _ -> result.complete(prompt.confirm(input.text.toString())) }
+                .setNegativeButton(tr("取消")) { _, _ -> result.complete(prompt.dismiss()) }
                 .setOnCancelListener { result.complete(prompt.dismiss()) }
         })
         if (!ok) result.complete(prompt.dismiss())
@@ -245,17 +247,17 @@ class GeckoPromptHandler(
             result.complete(prompt.dismiss())
             return result
         }
-        val labels = list.map { it.label.orEmpty().ifBlank { "（空）" } }.toTypedArray()
+        val labels = list.map { it.label.orEmpty().ifBlank { tr("（空）") } }.toTypedArray()
         val ok = if (prompt.type == PromptDelegate.ChoicePrompt.Type.MULTIPLE) {
             val checked = BooleanArray(list.size) { list[it].selected }
             show({ b ->
                 b.setTitle(prompt.title?.takeIf { it.isNotBlank() })
                     .setMultiChoiceItems(labels, checked) { _, which, isChecked -> checked[which] = isChecked }
-                    .setPositiveButton("确定") { _, _ ->
+                    .setPositiveButton(tr("确定")) { _, _ ->
                         val ids = list.filterIndexed { i, _ -> checked[i] }.map { it.id }.toTypedArray()
                         result.complete(prompt.confirm(ids))
                     }
-                    .setNegativeButton("取消") { _, _ -> result.complete(prompt.dismiss()) }
+                    .setNegativeButton(tr("取消")) { _, _ -> result.complete(prompt.dismiss()) }
                     .setOnCancelListener { result.complete(prompt.dismiss()) }
             })
         } else {
@@ -292,13 +294,13 @@ class GeckoPromptHandler(
         }
         val onlyPassword = flags and PromptDelegate.AuthPrompt.AuthOptions.Flags.ONLY_PASSWORD != 0
         val user = EditText(act).apply {
-            hint = "用户名"
+            hint = tr("用户名")
             setText(opts.username.orEmpty())
             inputType = InputType.TYPE_CLASS_TEXT
             setSingleLine(true)
         }
         val pass = EditText(act).apply {
-            hint = "密码"
+            hint = tr("密码")
             setText(opts.password.orEmpty())
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setSingleLine(true)
@@ -310,16 +312,16 @@ class GeckoPromptHandler(
             addView(pass)
         }
         val ok = show({ b ->
-            b.setTitle(if (isProxy) "代理需要登录" else "需要登录")
+            b.setTitle(if (isProxy) tr("代理需要登录") else tr("需要登录"))
                 .setMessage(prompt.message ?: opts.uri.orEmpty())
                 .setView(box)
-                .setPositiveButton("登录") { _, _ ->
+                .setPositiveButton(tr("登录")) { _, _ ->
                     result.complete(
                         if (onlyPassword) prompt.confirm(pass.text.toString())
                         else prompt.confirm(user.text.toString(), pass.text.toString()),
                     )
                 }
-                .setNegativeButton("取消") { _, _ -> result.complete(prompt.dismiss()) }
+                .setNegativeButton(tr("取消")) { _, _ -> result.complete(prompt.dismiss()) }
                 .setOnCancelListener { result.complete(prompt.dismiss()) }
         })
         if (!ok) result.complete(prompt.dismiss())
