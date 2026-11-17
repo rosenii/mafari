@@ -183,7 +183,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 
 - 触发：push `main` / `gecko` / `dual`、tag `v*`、手动。一次构建同时产出 `Mafari-<标签>-gecko.apk` 与 `Mafari-<标签>-lite-<arm64-v8a|armeabi-v7a|x86_64>.apk`（不含 Firefox 同步）与 `Mafari-<标签>-sync_lite-arm64.apk`（lite + 同步，仅 arm64）+ `SHA256SUMS.txt`。
 - `v*` tag → 正式 Release；`gecko` 分支 → `gecko-<构建号>` 预发布；`dual` 分支 → 以应用版本名直接发正式 Release（同版本名重复构建会覆盖安装包，要让用户收到更新请先提高 `versionName`）。
-- 签名来自环境变量 / Secrets（不配则出 debug 包）；Telegram 推送可选。Release 正文取自 `CHANGELOG.md` 对应版本小节。
+- 签名来自环境变量 / Secrets（不配则出 debug 包）；Telegram 推送可选（文案 = 更新日志 + 底部下载链接，安装包附在同一条消息里；超过 50MB 的包只给直链）。Release 正文取自 `CHANGELOG.md` 对应版本小节。
 
 ## 11. 约定与易踩的坑
 
@@ -215,7 +215,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | 备份格式 / 加密 | `Backup.kt`、`CipherSuite.kt`、`CryptoEngine.kt` |
 | 云同步 | `WebDav.kt`、`GitSync.kt`、`BackupAuto.kt` |
 | 下载 | `download/` 目录：`Downloader`、`ExternalDownloader`、`DownloadService`、`DownloadDb` |
-| 玻璃 / 液态玻璃材质 | `AppMaterial`、`GlassKit`、`LiquidGlass*`、`third_party/miuix/miuix-glass` |
+| 玻璃 / 磨砂 / 液态玻璃材质（四种「高级材质」：柔光玻璃 = miuix-glass + 折射，磨砂 = miuix-glass 无折射，由 `GlassLook` 切换；补丁 0008 提供弹窗 / 对话框 / 抽屉的全局开关 `GlassSurfaceShading`） | `AppMaterial`、`GlassKit`、`GlassLook`、`LiquidGlass*`、`third_party/miuix/miuix-glass` |
 | 发版 / 更新选包 | `release.yml`、`app/build.gradle.kts`、`AboutScreen.pickApkUrl`、`CHANGELOG.md` |
 
 ## 13. 文档地图

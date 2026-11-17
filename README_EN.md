@@ -90,7 +90,7 @@ Enhanced Tracking Protection (off / standard / strict), tracking-parameter remov
 ## Features in all three editions
 
 **Interface and browsing**
-- A single floating bottom bar with soft-glass and liquid-glass effects. It makes room as you scroll down and returns at the top; swipe it sideways to collapse it into a round search button. Bar position can be set to "Top / Bottom / Always minimized".
+- A single floating bottom bar with four selectable materials under "Advanced material": soft glass (refraction and edge highlights), frosted (no refraction, steadier and lighter), liquid glass, or solid color. It makes room as you scroll down and returns at the top; swipe it sideways to collapse it into a round search button. Bar position can be set to "Top / Bottom / Always minimized".
 - Multiple tabs, in either a text list or a card layout; the address bar can show the page title, the main domain, or the full domain.
 - Home page sections (favorites, bookmark groups, privacy report, recent visits, downloads) can be shown, hidden, and reordered by dragging. The start page can be the default home, a new tab, or a specific URL.
 - Tapping a bookmark group on the home page opens a small popup below its icon, so you can browse subgroups and bookmarks without leaving the page.
@@ -135,11 +135,14 @@ Questions or suggestions are welcome in the group, or open an Issue on GitHub.
 
 ## Build it yourself
 
-Requires JDK 17+ and the Android SDK. For lite:
+Requires JDK 17+, the Android SDK and git. miuix is not vendored: fetch the upstream and apply the local patches first, then build (lite as an example):
 
 ```bash
+bash tools/miuix-sync.sh   # clones miuix into third_party/miuix and applies tools/miuix-patches (version in miuix.ref)
 ./gradlew :app:assembleLiteArm64Debug
 ```
+
+It follows miuix `main` by default. To pin a version, set `commit=` in `miuix.ref` (or run `bash tools/miuix-sync.sh --pin` to write the current commit).
 
 For full build instructions, build variants, the release pipeline, and code structure, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in Chinese).
 

@@ -1,0 +1,5 @@
+# 补丁和脚本必须保持 LF：Windows 的 autocrlf 会把 CRLF 写进去，导致 git am / bash 失败
+*.sh    text eol=lf
+*.patch text eol=lf
+gradlew text eol=lf
+*.bat   text eol=crlf

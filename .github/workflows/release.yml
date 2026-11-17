@@ -309,25 +309,34 @@ jobs:
           # 超过 Bot API 上限的安装包不上传，只在 caption 里给下载链接
           apks = sorted(glob.glob("dist/*.apk"))
           sendable = [a for a in apks if os.path.getsize(a) <= LIMIT]
-          too_big = len(sendable) < len(apks)
           CAP = 1024
 
-          head_html = f"<b>{html.escape(title)}</b>"
+          # 同一条消息：更新日志在上，下载入口（发布页链接 + 超过上传上限的安装包逐个直链）放在文案最底部，
+          # 安装包作为文档附在同一条消息里（Telegram 会把文档放在 caption 上方显示，无法反过来）
+          from urllib.parse import quote
+          dl_base = f"https://github.com/{repo}/releases/download/{quote(tag)}"
+          too_big = [os.path.basename(a) for a in apks if a not in sendable]
           tail_html = f'\n\n<a href="{html.escape(url)}">下载 / Download</a>'
           tail_raw = f"\n\n下载 / Download: {url}"
+          for name in too_big:
+              link = f"{dl_base}/{quote(name)}"
+              tail_html += f'\n<a href="{html.escape(link)}">{html.escape(name)}</a>'
+              tail_raw += f"\n{name}: {link}"
           if too_big:
-              tail_html += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
-              tail_raw += "\n（部分安装包超过 Telegram 50MB 限制，请到上面的链接下载）"
+              note = "\n（以上安装包超过 Telegram 50MB 限制，请从链接下载）"
+              tail_html += note
+              tail_raw += note
 
           def build_caption(parse_html):
-              head, tail = (head_html, tail_html) if parse_html else (title, tail_raw)
+              tail = tail_html if parse_html else tail_raw
               body = notes
               while True:
                   text = to_html(body) if parse_html else body
-                  cap = head + (("\n\n" + text) if text else "") + tail
+                  head = text or (f"<b>{html.escape(title)}</b>" if parse_html else title)
+                  cap = head + tail
                   if len(cap) <= CAP or not body:
                       return cap
-                  # 逐步缩短概述直到放得下
+                  # 逐步缩短更新日志直到连同底部链接放得下
                   body = clip(body, max(0, int(len(body) * 0.8) - 1))
                   if len(body) < 20:
                       body = ""
