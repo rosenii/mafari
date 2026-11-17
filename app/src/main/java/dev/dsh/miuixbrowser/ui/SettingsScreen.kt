@@ -172,6 +172,7 @@ fun SettingsScreen(
     var showUa by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
+    var showGlassParams by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
     var showPermExceptions by remember { mutableStateOf(false) }
     var exceptionSite by remember { mutableStateOf<String?>(null) }
@@ -199,7 +200,7 @@ fun SettingsScreen(
     val backdrop = rememberLayerBackdrop()
     val liquidBackdrop = rememberKyantBackdrop()
     val glass = rememberGlassActive(blurEnabled)
-    val popupVisuals = GlassPopupDefaults.visuals()
+    val popupVisuals = appPopupVisuals()
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
 
@@ -293,6 +294,13 @@ fun SettingsScreen(
                         selectedIndex = blurModes.indexOf(settings.blurMode).coerceAtLeast(0),
                         onSelectedIndexChange = { settings.updateBlurMode(blurModes[it]) },
                     )
+                    if (settings.blurMode == BLUR_MIUIX) {
+                        SettingsRow(
+                            title = tr("自定义材质参数"),
+                            summary = glassParamsSummary(settings),
+                            onClick = { showGlassParams = true },
+                        )
+                    }
                 }
 
                 SmallTitle(text = tr("布局"))
@@ -822,6 +830,13 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            GlassParamsSheet(
+                show = showGlassParams && settings.blurMode == BLUR_MIUIX,
+                settings = settings,
+                backdrop = if (glass) backdrop else null,
+                onDismissRequest = { showGlassParams = false },
+            )
 
             AppBottomSheet(
                 show = showHomeSheet,

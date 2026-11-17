@@ -2232,6 +2232,13 @@ fun BrowserScreen(
 
 
             Sheet.Menu -> {
+                // 「更多」菜单最高占屏幕 44%，超出（如编辑排序时展开隐藏区）可滚动
+                val menuMaxH = (LocalConfiguration.current.screenHeightDp * 0.44f).dp
+                Box(
+                    modifier = Modifier
+                        .heightIn(max = menuMaxH)
+                        .verticalScroll(rememberScrollState()),
+                ) {
                 MenuGrid(
                     labelFor = { action ->
                         if (action == MenuAction.Desktop) {
@@ -2314,6 +2321,7 @@ fun BrowserScreen(
                     extensionsActive = settings.geckoMode &&
                         GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) },
                 )
+                }
             }
 
             Sheet.Link -> {

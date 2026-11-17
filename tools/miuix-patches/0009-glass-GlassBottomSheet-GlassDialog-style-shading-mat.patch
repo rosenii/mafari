@@ -1,0 +1,114 @@
+From c09cfa4b22a81fe4995fead95dbb9bf11a21c90f Mon Sep 17 00:00:00 2001
+From: mafari <mafari@local>
+Date: Wed, 18 Nov 2026 06:17:13 +0800
+Subject: [PATCH] =?UTF-8?q?glass:=20GlassBottomSheet/GlassDialog=20?=
+ =?UTF-8?q?=E6=94=AF=E6=8C=81=20style=20/=20shading=20=E5=8F=82=E6=95=B0?=
+ =?UTF-8?q?=EF=BC=8Cmaterial=20=E5=8F=AF=E4=B8=BA=20null?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt | 7 +++++--
+ .../top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt | 2 +-
+ .../kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt      | 7 +++++--
+ .../top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt      | 2 +-
+ 4 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
+index 9f7960a..b22f016 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
+@@ -13,6 +13,7 @@ import top.yukonga.miuix.kmp.layout.BottomSheetDefaults
+ import top.yukonga.miuix.kmp.layout.BottomSheetSurfaceScope
+ import top.yukonga.miuix.kmp.material.EdgeStroke
+ import top.yukonga.miuix.kmp.material.GlassMaterial
++import top.yukonga.miuix.kmp.material.GlassStyle
+ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+ 
+ /**
+@@ -67,9 +68,11 @@ fun GlassBottomSheet(
+     outsideMargin: DpSize = BottomSheetDefaults.outsideMargin,
+     insideMargin: DpSize = BottomSheetDefaults.insideMargin,
+     dragHandleColor: Color = BottomSheetDefaults.dragHandleColor(),
+-    material: GlassMaterial = GlassBottomSheetDefaults.material(),
++    material: GlassMaterial? = GlassBottomSheetDefaults.material(),
+     stroke: EdgeStroke? = GlassBottomSheetDefaults.stroke(),
+     containerColor: Color = GlassBottomSheetDefaults.containerColor(),
++    shading: Boolean = GlassSurfaceShading.enabled,
++    style: GlassStyle = GlassSurfaceShading.style(),
+     dimColor: Color = GlassBottomSheetDefaults.ScrimColor,
+     surface: (@Composable BottomSheetSurfaceScope.() -> Modifier)? = null,
+     onDismissFinished: (() -> Unit)? = null,
+@@ -95,7 +98,7 @@ fun GlassBottomSheet(
+         enableNestedScroll = enableNestedScroll,
+         renderInRootScaffold = renderInRootScaffold,
+         dimColor = dimColor,
+-        surface = surface ?: glassBottomSheetSurface(backdrop, material, stroke, containerColor),
++        surface = surface ?: glassBottomSheetSurface(backdrop, material, stroke, containerColor, shading, style),
+         content = content,
+     )
+ }
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
+index f4b4340..606f36b 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
+@@ -62,7 +62,7 @@ object GlassBottomSheetDefaults {
+ @Composable
+ fun glassBottomSheetSurface(
+     backdrop: Backdrop?,
+-    material: GlassMaterial = GlassBottomSheetDefaults.material(),
++    material: GlassMaterial? = GlassBottomSheetDefaults.material(),
+     stroke: EdgeStroke? = GlassBottomSheetDefaults.stroke(),
+     containerColor: Color = GlassBottomSheetDefaults.containerColor(),
+     shading: Boolean = GlassSurfaceShading.enabled,
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt
+index 3218e25..4861978 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt
+@@ -12,6 +12,7 @@ import top.yukonga.miuix.kmp.blur.Backdrop
+ import top.yukonga.miuix.kmp.layout.DialogDefaults
+ import top.yukonga.miuix.kmp.material.EdgeStroke
+ import top.yukonga.miuix.kmp.material.GlassMaterial
++import top.yukonga.miuix.kmp.material.GlassStyle
+ import top.yukonga.miuix.kmp.overlay.OverlayDialog
+ 
+ /**
+@@ -62,9 +63,11 @@ fun GlassDialog(
+     maxWidth: Dp = DialogDefaults.MaxWidth,
+     outsideMargin: DpSize = DialogDefaults.outsideMargin,
+     insideMargin: DpSize = DialogDefaults.insideMargin,
+-    material: GlassMaterial = GlassDialogDefaults.material(),
++    material: GlassMaterial? = GlassDialogDefaults.material(),
+     stroke: EdgeStroke? = GlassDialogDefaults.stroke(),
+     containerColor: Color = GlassDialogDefaults.containerColor(),
++    shading: Boolean = GlassSurfaceShading.enabled,
++    style: GlassStyle = GlassSurfaceShading.style(),
+     dimColor: Color = GlassDialogDefaults.ScrimColor,
+     onDismissFinished: (() -> Unit)? = null,
+     content: @Composable () -> Unit,
+@@ -88,7 +91,7 @@ fun GlassDialog(
+         largeScreen = largeScreen,
+         cornerRadius = cornerRadius,
+         dimColor = dimColor,
+-        surface = glassDialogSurface(backdrop, material, stroke, containerColor),
++        surface = glassDialogSurface(backdrop, material, stroke, containerColor, shading, style),
+         content = content,
+     )
+ }
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
+index 0ea8f40..b91b9f1 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
+@@ -62,7 +62,7 @@ object GlassDialogDefaults {
+ @Composable
+ fun glassDialogSurface(
+     backdrop: Backdrop?,
+-    material: GlassMaterial = GlassDialogDefaults.material(),
++    material: GlassMaterial? = GlassDialogDefaults.material(),
+     stroke: EdgeStroke? = GlassDialogDefaults.stroke(),
+     containerColor: Color = GlassDialogDefaults.containerColor(),
+     shading: Boolean = GlassSurfaceShading.enabled,
+-- 
+2.43.0
+

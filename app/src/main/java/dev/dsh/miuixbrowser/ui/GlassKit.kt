@@ -75,12 +75,15 @@ fun HapticGlassIconButton(
     content: @Composable () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
+    val dark = isAppDarkTheme()
     GlassIconButton(
         onClick = {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         },
         modifier = modifier,
+        style = GlassLook.barStyle(dark),
+        material = if (GlassLook.shading()) GlassLook.barMaterial(dark) else null,
         content = content,
     )
 }
@@ -106,34 +109,26 @@ fun PageGlassTopBar(
     backButton: (@Composable () -> Unit)? = null,
 ) {
     val blurActive = glass && isRuntimeShaderSupported()
-    val fadeDistancePx = with(LocalDensity.current) { 48.dp.toPx() }
-    Box {
-        // 渐进模糊带：真正对页面内容做自上而下的模糊，色彩取当前主题 surface，
-        // 随滚动淡入。顶栏在录制层之外，不会采样到自己。
-        if (blurActive) {
-            TopProgressiveBlurBand(
-                backdrop = backdrop,
-                alpha = { -scrollBehavior.state.contentOffset / fadeDistancePx },
-                modifier = Modifier.matchParentSize(),
-            )
-        }
-        GlassTopAppBar(
-            title = title,
-            backdrop = if (glass) backdrop else null,
-            scrollBehavior = scrollBehavior,
-            // 之前沿用默认 bandBrush：一条不透明的 surface 渐变，看起来就是"一直白色渐变"，
-            // 且根本没有模糊。模糊生效时让位给上面的渐进模糊带；
-            // 关闭模糊时才退回主题色渐变遮罩。
-            bandBrush = if (blurActive) {
-                SolidColor(Color.Transparent)
-            } else {
-                GlassTopAppBarDefaults.bandBrush(MiuixTheme.colorScheme.surface)
-            },
-            navigationIcon = backButton ?: { GlassBackButton(onClick = onBack) },
-            actions = actions,
-            bottomContent = bottomContent,
-        )
-    }
+    val dark = isAppDarkTheme()
+    // 渐进模糊交给上游 GlassTopAppBar 自带的实现（progressiveBlur = true）：
+    // - 模糊带高度含 bottomContent（分段 / 搜索栏等），不会再让底部内容露在模糊带之外；
+    // - 顶栏按钮采样「已渲染的渐进层」，与标题区观感一致；
+    // - 随弹性滚动（visualContentOffset）淡入，标题折叠 / 展开带 titleBlurRadius 过渡模糊；
+    // - 关闭模糊时自动退回主题色渐变遮罩（默认 bandBrush），不用再自己判断。
+    // backdrop 必须是「只录制页面内容」的层，顶栏在录制层之外（Scaffold topBar 槽天然满足）。
+    GlassTopAppBar(
+        title = title,
+        backdrop = if (glass) backdrop else null,
+        progressiveBlur = blurActive,
+        scrollBehavior = scrollBehavior,
+        // 柔光玻璃：按钮的样式 / 材质跟「自定义材质参数」走
+        style = GlassLook.barStyle(dark),
+        material = GlassLook.barMaterial(dark),
+        titleBlurRadius = GlassTopAppBarDefaults.TitleBlurRadius,
+        navigationIcon = backButton ?: { GlassBackButton(onClick = onBack) },
+        actions = actions,
+        bottomContent = bottomContent,
+    )
 }
 
 

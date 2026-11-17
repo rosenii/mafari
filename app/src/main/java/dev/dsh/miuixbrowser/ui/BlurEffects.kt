@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
+import top.yukonga.miuix.kmp.glass.GlassTopAppBarDefaults
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
@@ -52,7 +53,7 @@ fun TopProgressiveBlurBand(
     modifier: Modifier = Modifier,
     barHeight: Dp = TopAppBarDefaults.CollapsedHeight,
     tint: Color = MiuixTheme.colorScheme.surface.copy(alpha = 0.3f),
-    blurRadius: Float = 80f,
+    blurRadius: Float = GlassTopAppBarDefaults.ProgressiveBlurRadius.value,
 ) {
     val statusInsets = WindowInsets.statusBars
     val colors = BlurDefaults.blurColors(
@@ -75,7 +76,7 @@ fun TopProgressiveBlurBand(
             .progressiveTextureBlur(
                 backdrop = backdrop,
                 shape = RectangleShape,
-                gradient = ProgressiveBlur(90f, 0f, 1f, 0.5f),
+                gradient = ProgressiveBlur.Top.copy(curve = 0.5f),
                 blurRadius = blurRadius,
                 colors = colors,
             ),
