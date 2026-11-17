@@ -970,7 +970,9 @@ class BrowserTab(
                 // DNT / Sec-GPC：点击链接产生的主框架 GET 导航也带上请求头
                 if (dntEnabled && (scheme == "http" || scheme == "https") && request.isForMainFrame &&
                     request.method == "GET" && !request.isRedirect &&
-                    request.requestHeaders["DNT"] == null && target != lastDntUrl
+                    // requestHeaders 是平台类型，个别 WebView 版本 / 局域网地址（如路由器 192.168.x.x）的导航会返回 null，
+                    // 直接 ["DNT"] 会编译成对 null 调 Map.get() 而闪退，必须先判空
+                    request.requestHeaders?.get("DNT") == null && target != lastDntUrl
                 ) {
                     lastDntUrl = target
                     view.loadUrl(target, extraRequestHeaders())
