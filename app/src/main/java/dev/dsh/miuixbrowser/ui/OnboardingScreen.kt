@@ -8,6 +8,7 @@ import dev.dsh.miuixbrowser.browser.DefaultBrowser
 import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.browser.MenuOrderStore
 import dev.dsh.miuixbrowser.data.AppSettings
+import dev.dsh.miuixbrowser.data.BLUR_FROST
 import dev.dsh.miuixbrowser.data.BLUR_LIQUID
 import dev.dsh.miuixbrowser.data.BLUR_MIUIX
 import dev.dsh.miuixbrowser.data.BLUR_OFF
@@ -96,7 +97,6 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.material.GlassDefaults
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.material.GlassMaterials
 import top.yukonga.miuix.kmp.material.GlassShape
@@ -109,7 +109,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 视觉：整屏动态流动色彩背景（OnboardingBackground）+ 玻璃卡片（miuix-glass 采样背景）+ 大标题 + 胶囊主按钮，
  *       右上角永远有「跳过」。按钮 / 弹窗 / 下拉 / 开关全部走 AppMaterial 的 App* 门面，
- *       所以「高级材质」的三种（柔光玻璃 / 液态玻璃 / 纯色）在引导页里都生效。
+ *       所以「高级材质」的四种（柔光玻璃 / 磨砂 / 液态玻璃 / 纯色）在引导页里都生效。
  *
  * 步骤：欢迎 → 高级材质 → 壁纸 → 首页 → 菜单栏 → 备份与同步 → 口令 → 隐私保护 → 默认浏览器 → 隐私政策（须读到底才能完成）。
  * 「高级材质」选定后立即写入设置，之后所有步骤（卡片 / 按钮 / 下拉 / 弹窗）都按所选材质显示。
@@ -458,10 +458,10 @@ private fun GuideCard(
                     Modifier.glassPanel(
                         backdrop = backdrop,
                         shape = GlassShape(24.dp),
-                        style = GlassDefaults.style(dark),
+                        style = GlassLook.style(dark),
                         material = GlassMaterials.puredThinGlass(dark),
                         stroke = GlassEdgeStrokes.forTheme(dark),
-                        shading = false,
+                        shading = GlassLook.shading(),
                     )
                 } else {
                     Modifier.clip(RoundedCornerShape(24.dp)).background(MiuixTheme.colorScheme.surfaceContainer)
@@ -562,11 +562,12 @@ private fun CardButton(text: String, onClick: () -> Unit, primary: Boolean = tru
 @Composable
 private fun ColumnScope.WelcomeStep() {}
 
-/** 高级材质三选一：点选立即生效（写入 settings.blurMode），后面所有步骤都按它显示。 */
+/** 高级材质四选一：点选立即生效（写入 settings.blurMode），后面所有步骤都按它显示。 */
 @Composable
 private fun MaterialStep(settings: AppSettings, bd: Backdrop?) {
     val options = listOf(
-        Triple(BLUR_MIUIX, tr("柔光玻璃"), tr("半透明磨砂质感，柔和通透")),
+        Triple(BLUR_MIUIX, tr("柔光玻璃"), tr("带折射和边缘高光的通透玻璃，更像真玻璃")),
+        Triple(BLUR_FROST, tr("磨砂"), tr("半透明磨砂质感，柔和稳定，不做折射")),
         Triple(BLUR_LIQUID, tr("液态玻璃"), tr("带折射的液态质感，效果最华丽，更耗性能")),
         Triple(BLUR_OFF, tr("纯色"), tr("不做模糊与玻璃效果，最省电、最流畅")),
     )

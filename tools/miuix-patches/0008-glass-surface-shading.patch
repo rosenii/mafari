@@ -1,0 +1,156 @@
+From 605dd950d297447a975c5af3e034aab763ad792e Mon Sep 17 00:00:00 2001
+From: mafari <mafari@local>
+Date: Wed, 18 Nov 2026 04:32:22 +0800
+Subject: [PATCH] =?UTF-8?q?glass:=20=E5=BC=B9=E7=AA=97/=E5=AF=B9=E8=AF=9D?=
+ =?UTF-8?q?=E6=A1=86/=E5=BA=95=E9=83=A8=E6=8A=BD=E5=B1=89=E5=8F=AF?=
+ =?UTF-8?q?=E5=85=A8=E5=B1=80=E5=BC=80=E5=90=AF=E6=8A=98=E5=B0=84=E4=B8=8E?=
+ =?UTF-8?q?=E5=85=89=E5=BD=B1=EF=BC=88GlassSurfaceShading=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../kmp/glass/GlassBottomSheetSurface.kt      |  6 +++-
+ .../miuix/kmp/glass/GlassDialogSurface.kt     |  6 +++-
+ .../top/yukonga/miuix/kmp/glass/GlassPopup.kt |  2 +-
+ .../miuix/kmp/glass/GlassPopupSurface.kt      |  2 +-
+ .../miuix/kmp/glass/GlassSurfaceShading.kt    | 36 +++++++++++++++++++
+ 5 files changed, 48 insertions(+), 4 deletions(-)
+ create mode 100644 miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassSurfaceShading.kt
+
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
+index 16cc791..f4b4340 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
+@@ -19,6 +19,7 @@ import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
+ import top.yukonga.miuix.kmp.material.GlassMaterial
+ import top.yukonga.miuix.kmp.material.GlassMaterials
+ import top.yukonga.miuix.kmp.material.GlassShape
++import top.yukonga.miuix.kmp.material.GlassStyle
+ import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
+ 
+@@ -64,6 +65,8 @@ fun glassBottomSheetSurface(
+     material: GlassMaterial = GlassBottomSheetDefaults.material(),
+     stroke: EdgeStroke? = GlassBottomSheetDefaults.stroke(),
+     containerColor: Color = GlassBottomSheetDefaults.containerColor(),
++    shading: Boolean = GlassSurfaceShading.enabled,
++    style: GlassStyle = GlassSurfaceShading.style(),
+ ): @Composable BottomSheetSurfaceScope.() -> Modifier = {
+     val effectiveBackdrop = if (backdrop != null && isRuntimeShaderSupported()) {
+         remember(backdrop, scrimColor) { ScrimBackdrop(backdrop, scrimColor) }
+@@ -78,10 +81,11 @@ fun glassBottomSheetSurface(
+     (if (isOverscroll) Modifier else deform.layer).glassPanel(
+         backdrop = effectiveBackdrop,
+         shape = shape,
++        style = style,
+         material = material,
+         stroke = if (isOverscroll) null else stroke,
+         shadow = null,
+-        shading = false,
++        shading = shading,
+         fallback = Modifier.clip(shape).background(containerColor),
+     )
+ }
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
+index 6bd4b68..0ea8f40 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
+@@ -18,6 +18,7 @@ import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
+ import top.yukonga.miuix.kmp.material.GlassMaterial
+ import top.yukonga.miuix.kmp.material.GlassMaterials
+ import top.yukonga.miuix.kmp.material.GlassShape
++import top.yukonga.miuix.kmp.material.GlassStyle
+ import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
+ 
+@@ -64,6 +65,8 @@ fun glassDialogSurface(
+     material: GlassMaterial = GlassDialogDefaults.material(),
+     stroke: EdgeStroke? = GlassDialogDefaults.stroke(),
+     containerColor: Color = GlassDialogDefaults.containerColor(),
++    shading: Boolean = GlassSurfaceShading.enabled,
++    style: GlassStyle = GlassSurfaceShading.style(),
+ ): @Composable DialogSurfaceScope.() -> Modifier = {
+     val effectiveBackdrop = if (backdrop != null && isRuntimeShaderSupported()) {
+         remember(backdrop, scrimColor, scale) { ScrimBackdrop(backdrop, scrimColor, scale) }
+@@ -75,10 +78,11 @@ fun glassDialogSurface(
+     deform.layer.glassPanel(
+         backdrop = effectiveBackdrop,
+         shape = shape,
++        style = style,
+         material = material,
+         stroke = stroke,
+         shadow = null,
+-        shading = false,
++        shading = shading,
+         fallback = Modifier.clip(shape).background(containerColor),
+     )
+ }
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
+index 40b282e..391683e 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
+@@ -146,7 +146,7 @@ object GlassPopupDefaults {
+     /** Creates the popup surface appearance. */
+     @Composable
+     fun visuals(
+-        style: GlassStyle = GlassDefaults.Style,
++        style: GlassStyle = GlassSurfaceShading.style(),
+         alpha: Float = 1f,
+         stroke: EdgeStroke? = stroke(),
+         shadow: GlassShadow? = GlassShadows.Regular,
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
+index f5c1c4b..cafd74d 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
+@@ -414,7 +414,7 @@ internal fun BoxScope.GlassPopupBackground(
+                     alpha = visuals.alpha,
+                     material = visuals.material,
+                     stroke = visuals.stroke,
+-                    shading = false,
++                    shading = GlassSurfaceShading.enabled,
+                 )
+             },
+         ),
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassSurfaceShading.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassSurfaceShading.kt
+new file mode 100644
+index 0000000..4f3a9cd
+--- /dev/null
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassSurfaceShading.kt
+@@ -0,0 +1,36 @@
++// Copyright 2026, compose-miuix-ui contributors
++// SPDX-License-Identifier: Apache-2.0
++
++package top.yukonga.miuix.kmp.glass
++
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.graphics.luminance
++import top.yukonga.miuix.kmp.material.GlassDefaults
++import top.yukonga.miuix.kmp.material.GlassStyle
++import top.yukonga.miuix.kmp.theme.MiuixTheme
++
++/**
++ * Process-wide default for the refraction and rim lighting ("shading") of popup, dialog and
++ * bottom-sheet glass surfaces. Upstream keeps these surfaces flat; set [enabled] once at startup
++ * to opt in. Explicit parameters on the individual surfaces still win.
++ */
++object GlassSurfaceShading {
++    /** Whether popup, dialog and bottom-sheet surfaces refract and shade the backdrop. */
++    @JvmField
++    var enabled: Boolean = false
++
++    /** Style used for light themes by surfaces that do not receive one explicitly. */
++    @JvmField
++    var lightStyle: GlassStyle = GlassDefaults.Style
++
++    /** Style used for dark themes by surfaces that do not receive one explicitly. */
++    @JvmField
++    var darkStyle: GlassStyle = GlassDefaults.Style
++
++    /** Style for [isDark]. */
++    fun style(isDark: Boolean): GlassStyle = if (isDark) darkStyle else lightStyle
++
++    /** Style for the current Miuix theme. */
++    @Composable
++    fun style(): GlassStyle = style(MiuixTheme.colorScheme.background.luminance() < 0.5f)
++}

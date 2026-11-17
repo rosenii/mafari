@@ -65,6 +65,7 @@ class AutofillPickActivity : ComponentActivity() {
             }
             val themeController = remember(mode) { ThemeController(mode) }
             MiuixTheme(controller = themeController) {
+                dev.dsh.miuixbrowser.ui.GlassLook.update(settings.blurMode)
                 CompositionLocalProvider(LocalBlurMode provides settings.blurMode) {
                     val list = rows
                     if (list != null) {

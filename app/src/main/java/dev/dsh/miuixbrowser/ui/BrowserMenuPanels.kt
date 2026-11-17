@@ -213,7 +213,6 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import top.yukonga.miuix.kmp.glass.GlassBottomSheet
-import top.yukonga.miuix.kmp.material.GlassDefaults
 import top.yukonga.miuix.kmp.glass.GlassDialog
 import top.yukonga.miuix.kmp.glass.GlassDialogButton
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
@@ -598,10 +597,10 @@ internal fun TabCard(
                             Modifier.glassPanel(
                                 backdrop = blurBackdrop,
                                 shape = GlassShape(0.dp),
-                                style = GlassDefaults.style(isAppDarkTheme()),
+                                style = GlassLook.style(isAppDarkTheme()),
                                 material = GlassMaterials.puredThinGlass(isAppDarkTheme()),
                                 stroke = GlassEdgeStrokes.forTheme(isAppDarkTheme()),
-                                shading = false,
+                                shading = GlassLook.shading(),
                             )
                         } else {
                             Modifier.background(MiuixTheme.colorScheme.surface.copy(alpha = 0.55f))

@@ -202,7 +202,6 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import top.yukonga.miuix.kmp.glass.GlassBottomSheet
-import top.yukonga.miuix.kmp.material.GlassDefaults
 import top.yukonga.miuix.kmp.glass.GlassDialog
 import top.yukonga.miuix.kmp.glass.GlassDialogButton
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
@@ -257,10 +256,10 @@ internal fun Modifier.glassBar(
     return this.glassPanel(
         backdrop = if (canUseGlass) backdrop else null,
         shape = glassShape,
-        style = GlassDefaults.style(dark),
+        style = GlassLook.style(dark),
         material = if (canUseGlass) GlassMaterials.puredThinGlass(dark) else null,
         stroke = if (blurEnabled) GlassEdgeStrokes.forTheme(dark) else null,
-        shading = false,
+        shading = GlassLook.shading(),
         fallback = Modifier
             .clip(rounded)
             .background(tint, rounded)

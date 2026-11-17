@@ -39,6 +39,8 @@ const val ENGINE_GECKO = 1
 const val BLUR_MIUIX = 0
 const val BLUR_LIQUID = 1
 const val BLUR_OFF = 2
+/** 磨砂：miuix-glass 不开折射（上游默认质感）；BLUR_MIUIX（柔光玻璃）则开折射。数值 3 只是为了不动已存的 0/1/2。 */
+const val BLUR_FROST = 3
 
 /** 首页个人收藏可选行数上限 / 默认行数 */
 const val HOME_FAV_ROWS_MAX = 6
@@ -126,10 +128,10 @@ class AppSettings(context: Context) {
     var wallpaperVersion by mutableStateOf(0)
         private set
 
-    /** 模糊效果模式：0 = miuix-glass，1 = liquid glass（Kyant0/AndroidLiquidGlass），2 = 关闭模糊。旧版布尔开关会迁移过来。 */
+    /** 模糊效果模式：0 = 柔光玻璃（miuix-glass + 折射），3 = 磨砂（miuix-glass 无折射），1 = liquid glass（Kyant0/AndroidLiquidGlass），2 = 关闭模糊。旧版布尔开关会迁移过来。 */
     var blurMode by mutableStateOf(
         if (prefs.contains(KEY_BLUR_MODE)) {
-            prefs.getInt(KEY_BLUR_MODE, BLUR_MIUIX).coerceIn(BLUR_MIUIX, BLUR_OFF)
+            prefs.getInt(KEY_BLUR_MODE, BLUR_MIUIX).coerceIn(BLUR_MIUIX, BLUR_FROST)
         } else if (prefs.contains(KEY_BLUR)) {
             if (prefs.getBoolean(KEY_BLUR, true)) BLUR_MIUIX else BLUR_OFF // 旧版布尔开关迁移
         } else {
@@ -556,7 +558,7 @@ class AppSettings(context: Context) {
     }
 
     fun updateBlurMode(mode: Int) {
-        blurMode = mode.coerceIn(BLUR_MIUIX, BLUR_OFF)
+        blurMode = mode.coerceIn(BLUR_MIUIX, BLUR_FROST)
         prefs.edit().putInt(KEY_BLUR_MODE, blurMode).apply()
     }
 

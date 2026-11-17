@@ -39,7 +39,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /* ======================================================================
  * 材质抽象层
  *
- * 「高级材质」三选一（设置 → 外观 → 模糊效果）对应三份实现：
+ * 「高级材质」四选一（设置 → 外观 → 模糊效果）对应三份实现：
  *   - [MiuixGlassMaterial]   miuix-glass（BLUR_MIUIX）
  *   - [LiquidGlassMaterial]  Kyant 液态玻璃（BLUR_LIQUID，见 LiquidGlassComponents.kt）
  *   - [FlatMaterial]         关闭模糊（BLUR_OFF）：miuix 组件 + 不采样的实色回退底

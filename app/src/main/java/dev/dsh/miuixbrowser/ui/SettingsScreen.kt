@@ -4,6 +4,10 @@ import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.net.WebViewProxy
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_ROWS_MAX
+import dev.dsh.miuixbrowser.data.BLUR_FROST
+import dev.dsh.miuixbrowser.data.BLUR_LIQUID
+import dev.dsh.miuixbrowser.data.BLUR_MIUIX
+import dev.dsh.miuixbrowser.data.BLUR_OFF
 import dev.dsh.miuixbrowser.data.HOME_FAV_ROWS_MAX
 import dev.dsh.miuixbrowser.data.HOME_GROUP_ROWS_MAX
 import dev.dsh.miuixbrowser.data.HOME_PRIVACY
@@ -114,6 +118,9 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+/** 「高级材质」下拉的顺序（下标 ↔ blurMode）。 */
+private val blurModes = listOf(BLUR_MIUIX, BLUR_FROST, BLUR_LIQUID, BLUR_OFF)
 
 @Composable
 fun SettingsScreen(
@@ -281,10 +288,10 @@ fun SettingsScreen(
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
                         title = tr("高级材质"),
-                        summary = tr("柔光玻璃 / 液态玻璃 / 纯色"),
-                        items = listOf(tr("柔光玻璃"), tr("液态玻璃"), tr("纯色")),
-                        selectedIndex = settings.blurMode.coerceIn(0, 2),
-                        onSelectedIndexChange = { settings.updateBlurMode(it) },
+                        summary = tr("柔光玻璃 / 磨砂 / 液态玻璃 / 纯色"),
+                        items = listOf(tr("柔光玻璃"), tr("磨砂"), tr("液态玻璃"), tr("纯色")),
+                        selectedIndex = blurModes.indexOf(settings.blurMode).coerceAtLeast(0),
+                        onSelectedIndexChange = { settings.updateBlurMode(blurModes[it]) },
                     )
                 }
 
