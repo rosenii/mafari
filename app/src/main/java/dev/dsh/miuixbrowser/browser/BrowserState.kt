@@ -1780,6 +1780,7 @@ class BrowserTab(
         val pending = geckoNativeCertFor
         val target = failingUri?.takeIf { it.isNotBlank() && !ErrorPages.isProceedUrl(it) }
             ?: pending ?: url.takeIf { !ErrorPages.isProceedUrl(it) }.orEmpty()
+        dev.dsh.miuixbrowser.util.Diag.log("geckoLoadError: failing=$failingUri target=$target pending=$pending canProceed=${spec.canProceed} proceedTarget=$proceedTarget")
         // 用户已在自绘页点过「继续」：这一次让 Gecko 显示自带证书页（含「接受风险并继续」），由内核登记证书例外
         if (spec.canProceed && pending != null && (ErrorPages.sameUrl(pending, target) || ErrorPages.sameHost(pending, target))) {
             geckoNativeCertFor = null

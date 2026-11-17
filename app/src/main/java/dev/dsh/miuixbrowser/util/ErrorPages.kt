@@ -311,7 +311,7 @@ object ErrorPages {
     /** 错误页里「继续访问」链接的内部地址；不带任何参数，真正的目标由标签页记住的失败地址决定，页面无法伪造。 */
     const val PROCEED_URL = "mafari-error://proceed"
 
-    fun isProceedUrl(url: String?): Boolean = url != null && url.equals(PROCEED_URL, ignoreCase = true)
+    fun isProceedUrl(url: String?): Boolean = url != null && url.trim().trimEnd('/').equals(PROCEED_URL, ignoreCase = true)
 
     /** 去掉 canProceed（已经放行过一次仍失败，例如 HSTS 站点，不再重复给入口）。 */
     fun withoutProceed(spec: ErrorSpec): ErrorSpec = if (spec.canProceed) spec.copy(canProceed = false) else spec
