@@ -328,6 +328,41 @@ private val SheetBandBlurRadius = 20.dp
 private val SheetFadeTopLead = 16.dp
 private val SheetFadeTopTail = 4.dp
 
+/** 材质颜色层混合模式 → Compose BlendMode（PlusDarker 没有对等项，用 Multiply 近似）。 */
+private fun top.yukonga.miuix.kmp.material.GlassColorBlendMode.toComposeBlendMode(): BlendMode = when (this) {
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.SrcOver -> BlendMode.SrcOver
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.PlusDarker -> BlendMode.Multiply
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.PlusLighter -> BlendMode.Plus
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.SoftLight -> BlendMode.Softlight
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.HardLight -> BlendMode.Hardlight
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.Overlay -> BlendMode.Overlay
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.Luminosity -> BlendMode.Luminosity
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.ColorDodge -> BlendMode.ColorDodge
+    top.yukonga.miuix.kmp.material.GlassColorBlendMode.ColorBurn -> BlendMode.ColorBurn
+}
+
+/**
+ * 滚动偏移的外部同步入口：渐进模糊带原本只靠 NestedScroll 感知滚动，
+ * 程序化滚动（scrollToItem 等）不走 NestedScroll，内容已经滚到头部下面了带子却不出现。
+ * 内容里的 LazyList 调用 [SyncSheetBandScroll] 即可让带子跟着列表真实位置走。
+ */
+private val LocalSheetBandScroll = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.MutableFloatState?> { null }
+
+@Composable
+fun SyncSheetBandScroll(state: androidx.compose.foundation.lazy.LazyListState) {
+    val target = LocalSheetBandScroll.current ?: return
+    androidx.compose.runtime.LaunchedEffect(state, target) {
+        androidx.compose.runtime.snapshotFlow {
+            if (!state.canScrollBackward) {
+                0f
+            } else {
+                val first = state.layoutInfo.visibleItemsInfo.firstOrNull()
+                (state.firstVisibleItemScrollOffset + (first?.size ?: 0) * state.firstVisibleItemIndex).toFloat()
+            }
+        }.collect { target.floatValue = it }
+    }
+}
+
 /** 带子底色雾化，与上游 GlassTopAppBar 渐进模糊带一致（surface 30%）。 */
 private const val SheetBandTintAlpha = 0.3f
 
@@ -466,20 +501,41 @@ private fun SheetMiuixBandBody(inner: Modifier, headerTop: Dp, content: @Composa
     val pageBackdrop = base?.backdrop?.takeIf { top.yukonga.miuix.kmp.material.isRuntimeShaderSupported() }
     val scrim = base?.scrim ?: Color.Transparent
     var hostCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
-    // 取样层 = 玻璃面板同源的页面录制层（先画，按本组件坐标对齐）+ 压暗 + sheet 内容，与上游 GlassTopAppBar 的做法一致，
-    // 不再垫 surface 实色：带子的底色和面板的底色是同一份页面，模糊后自然衔接。
+    // 取样层 = 玻璃面板同源的页面录制层（先画，按本组件坐标对齐）+ 压暗 + sheet 内容，与上游 GlassTopAppBar 的做法一致。
+    // 页面层先按「sheet 玻璃面板自己的模糊半径」模糊再当取样底：带子底下的背景因此和面板一致（同一份页面、同一个半径），
+    // 衔接自然，也不会像直接采清晰页面那样透出 sheet 下层的文字；不用盖雾，避免和面板对不上。
     // 没有页面录制层（例如 Gecko 网页态无法采样）时才退回实色底。
+    val panelMaterial = if (GlassLook.custom()) GlassLook.largeMaterial(isAppDarkTheme()) else GlassBottomSheetDefaults.material()
+    val panelBlurPx = with(LocalDensity.current) { panelMaterial.blurRadius.toPx() }
+    val panelLayers = remember(panelMaterial) { listOfNotNull(panelMaterial.first, panelMaterial.second, panelMaterial.third) }
+    val pageLayer = rememberGraphicsLayer()
     val backdrop = rememberLayerBackdrop {
         if (pageBackdrop != null) {
             val coordinates = hostCoordinates?.takeIf { it.isAttached }
-            with(pageBackdrop) { drawBackdrop(this@rememberLayerBackdrop, coordinates) }
+            val layerSize = IntSize(size.width.roundToInt().coerceAtLeast(1), size.height.roundToInt().coerceAtLeast(1))
+            if (panelBlurPx > 0f) {
+                pageLayer.compositingStrategy = LayerCompositingStrategy.Offscreen
+                pageLayer.renderEffect = BlurEffect(panelBlurPx, panelBlurPx, TileMode.Clamp)
+            } else {
+                pageLayer.renderEffect = null
+            }
+            pageLayer.record(this, layoutDirection, layerSize) {
+                val layerScope = this
+                with(pageBackdrop) { drawBackdrop(layerScope, coordinates) }
+                // 面板材质的颜色层（磨砂白雾等）也叠进取样底，和面板同一套，带子与面板才没有色差
+                for (layer in panelLayers) {
+                    if (layer.color.alpha > 0f) drawRect(layer.color, size = size, blendMode = layer.mode.toComposeBlendMode())
+                }
+            }
+            drawLayer(pageLayer)
             if (scrim.alpha > 0f) drawRect(scrim, size = size, blendMode = BlendMode.SrcAtop)
         } else {
             drawRect(color = surface.copy(alpha = 1f), size = size)
         }
         drawContent()
     }
-    var scrolled by remember { mutableFloatStateOf(0f) }
+    val scrolledState = remember { mutableFloatStateOf(0f) }
+    var scrolled by scrolledState
     val connection = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
@@ -505,7 +561,9 @@ private fun SheetMiuixBandBody(inner: Modifier, headerTop: Dp, content: @Composa
                 .onGloballyPositioned { hostCoordinates = it }
                 .layerBackdrop(backdrop)
                 .then(inner),
-        ) { content() }
+        ) {
+            CompositionLocalProvider(LocalSheetBandScroll provides scrolledState) { content() }
+        }
         if (showBand) {
             Box(
                 modifier = Modifier
