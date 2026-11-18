@@ -1924,6 +1924,30 @@ class BrowserTab(
     var geckoFullscreen by mutableStateOf(false)
         private set
 
+    /** Gecko：页面声明的 Web App Manifest（PWA）。由 GeckoView 的 onWebAppManifest 回调写入 */
+    var pwaManifest: PwaManifest? = null
+        private set
+
+    internal fun geckoWebAppManifest(json: org.json.JSONObject) {
+        if (closed || destroyed) return
+        pwaManifest = PwaManifest.parse(json, url)
+    }
+
+    /** 只在 manifest 来自当前页面同一个 origin 时才返回（换站后旧 manifest 不再适用） */
+    fun pwaManifestForCurrentPage(): PwaManifest? {
+        val m = pwaManifest ?: return null
+        val a = runCatching { Uri.parse(m.sourceUrl) }.getOrNull() ?: return null
+        val b = runCatching { Uri.parse(url) }.getOrNull() ?: return null
+        val same = a.scheme.equals(b.scheme, true) && a.host.equals(b.host, true) && a.port == b.port
+        return if (same) m else null
+    }
+
+    /**
+     * Gecko 主框架导航闸门（独立应用窗口用）：参数 = 目标地址 / 是否有用户手势 / 是否重定向；
+     * 返回 true 表示已被接管（比如交给浏览器打开），引擎应拒绝本次导航。浏览器里的普通标签不设置它。
+     */
+    var geckoNavGate: ((target: String, hasGesture: Boolean, isRedirect: Boolean) -> Boolean)? = null
+
     /**
      * Gecko 版：页面无手势自动唤起其他应用（intent:// weixin:// 等），套用独立的「打开其他应用」权限，
      * 规则与 [interceptRedirect]（external = true）一致：空白页 / 首次加载上的唤起不算；总是允许 → 直接唤起；

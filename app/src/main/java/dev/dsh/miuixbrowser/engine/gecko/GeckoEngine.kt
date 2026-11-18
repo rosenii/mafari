@@ -675,6 +675,12 @@ class GeckoTabEngine(
                 }
                 val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
                 if (scheme == null || scheme in INTERNAL_SCHEMES) {
+                    // 独立应用窗口（PWA）的范围闸门：站外的主框架导航交给浏览器
+                    if ((scheme == "http" || scheme == "https") &&
+                        tab.geckoNavGate?.invoke(target, request.hasUserGesture, request.isRedirect) == true
+                    ) {
+                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                    }
                     // 网页重定向权限：页面自己发起（无手势、非地址栏、非服务器 3xx）的跨站跳转
                     val direct = request.isDirectNavigation || SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
                     if ((scheme == "http" || scheme == "https") &&
@@ -799,6 +805,11 @@ class GeckoTabEngine(
 
             override fun onCloseRequest(session: GeckoSession) {
                 tab.geckoCloseRequest()
+            }
+
+            /** 页面声明了 Web App Manifest（PWA）：记下来，「添加到桌面」时用它的名称 / 图标 / 范围 / 显示模式 */
+            override fun onWebAppManifest(session: GeckoSession, manifest: org.json.JSONObject) {
+                tab.geckoWebAppManifest(manifest)
             }
 
             override fun onCrash(session: GeckoSession) {

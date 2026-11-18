@@ -5,7 +5,11 @@ import dev.dsh.miuixbrowser.i18n.tr
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdBlockBridge
 import dev.dsh.miuixbrowser.download.Downloader
+import dev.dsh.miuixbrowser.browser.BrowserTab
+import dev.dsh.miuixbrowser.browser.EngineKind
 import dev.dsh.miuixbrowser.browser.ShortcutHelper
+import dev.dsh.miuixbrowser.engine.EngineSupport
+import dev.dsh.miuixbrowser.engine.gecko.GeckoRuntimeHolder
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.engine.gecko.GeckoSitePerms
 import dev.dsh.miuixbrowser.engine.webview.FingerprintInjector
@@ -63,6 +67,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebSettingsCompat
@@ -93,6 +98,15 @@ class WebAppActivity : ComponentActivity() {
     private var appTitle = ""
     private var dark = false
     private var defaultBg = Color.WHITE
+
+    // Gecko 内核（PWA）：intent 里 engine = gecko 且本包带了 GeckoView 时，用 BrowserTab 承载 GeckoView，
+    // 窗口 / 状态栏 / 返回键 / 最近任务等与 WebView 轻应用共用同一套；WebView 专属的那些（指纹、去广告桥、脚本桥）不走
+    private var geckoMode = false
+    private var geckoTab: BrowserTab? = null
+    private var scopeUrl = ""
+    private var displayMode = "standalone"
+    private var orientationHint = ""
+    private var imeAnimating = false
 
     // 沉浸浏览：顶部状态栏留白随滚动收起 / 回落（与浏览器主界面一致）
     private var topInset = 0
@@ -148,12 +162,16 @@ class WebAppActivity : ComponentActivity() {
         appTitle = intent.getStringExtra(ShortcutHelper.EXTRA_TITLE).orEmpty().ifBlank { startHost }
         updateTaskDescription(appTitle)
 
+        geckoMode = intent.getStringExtra(ShortcutHelper.EXTRA_ENGINE) == ShortcutHelper.ENGINE_GECKO &&
+            EngineSupport.GECKO_BUNDLED && GeckoRuntimeHolder.supported()
         settings = appContainer.settings
         GeckoSitePerms.load(this) // 例外网站（与浏览器共用）
         AdBlock.init(this)
-        WebViewDebug.load(this)
-        AdBlock.startCompile() // 独立 PWA 窗口没有主界面的启动阶段，直接编译
-        WebViewProxy.applyFrom(settings)
+        if (!geckoMode) {
+            WebViewDebug.load(this)
+            AdBlock.startCompile() // 独立 PWA 窗口没有主界面的启动阶段，直接编译
+            WebViewProxy.applyFrom(settings)
+        }
 
         val systemDark =
             (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -182,6 +200,12 @@ class WebAppActivity : ComponentActivity() {
         applySystemBarIcons(defaultBg)
 
         root = FrameLayout(this).apply { setBackgroundColor(defaultBg) }
+        if (geckoMode) {
+            setContentView(root)
+            installInsets()
+            startGecko()
+            return
+        }
         webView = WebView(this).apply { setBackgroundColor(defaultBg) }
         fpInjector = FingerprintInjector(webView)
         fpInjector.onUnprotectedBlocked = { target ->
@@ -213,18 +237,7 @@ class WebAppActivity : ComponentActivity() {
         )
         setContentView(root)
 
-        // 沉浸：网页一直铺到手势小白条下方（底部只在软键盘弹出时让出），顶部状态栏留白由滚动控制
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            topInset = bars.top
-            sideLeft = bars.left
-            sideRight = bars.right
-            imeBottom = ime.bottom
-            if (topAnimator?.isRunning != true) topPad = if (topCollapsed) 0 else topInset
-            applyRootPadding()
-            insets
-        }
+        installInsets()
 
         configureWebView()
         setupUserScripts()
@@ -258,6 +271,10 @@ class WebAppActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::webView.isInitialized) webView.onResume()
+        geckoTab?.let {
+            it.setEngineActive(true)
+            applyGeckoWindowMode() // 视频全屏退出时会把方向恢复成「不限制」，这里按 manifest 重新设置
+        }
     }
 
     override fun onPause() {
@@ -267,6 +284,8 @@ class WebAppActivity : ComponentActivity() {
 
     override fun onDestroy() {
         destroyed = true
+        geckoTab?.destroyNow()
+        geckoTab = null
         scriptHandlers.forEach { runCatching { it.remove() } }
         scriptHandlers.clear()
         if (::fpInjector.isInitialized) runCatching { fpInjector.clear() }
@@ -276,6 +295,202 @@ class WebAppActivity : ComponentActivity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    // ---------------------------------------------------------------- 窗口边距（两种内核共用）
+
+    /** 沉浸：网页一直铺到手势小白条下方（底部只在软键盘弹出时让出），顶部状态栏留白由滚动控制 */
+    private fun installInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            topInset = bars.top
+            sideLeft = bars.left
+            sideRight = bars.right
+            // Gecko：键盘动画期间不跟着每一帧改边距（GeckoView 每帧重排会让窗口抖），只在动画开始 / 结束时各定一次
+            if (!(geckoMode && imeAnimating)) imeBottom = ime.bottom
+            if (topAnimator?.isRunning != true) topPad = if (topCollapsed) 0 else topInset
+            applyRootPadding()
+            insets
+        }
+        if (!geckoMode) return
+        fun imeEnd(): Int =
+            ViewCompat.getRootWindowInsets(root)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        ViewCompat.setWindowInsetsAnimationCallback(
+            root,
+            object : WindowInsetsAnimationCompat.Callback(WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_STOP) {
+                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                    if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) imeAnimating = true
+                }
+
+                override fun onStart(
+                    animation: WindowInsetsAnimationCompat,
+                    bounds: WindowInsetsAnimationCompat.BoundsCompat,
+                ): WindowInsetsAnimationCompat.BoundsCompat {
+                    if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) {
+                        imeBottom = imeEnd()
+                        applyRootPadding()
+                    }
+                    return bounds
+                }
+
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: List<WindowInsetsAnimationCompat>,
+                ): WindowInsetsCompat = insets
+
+                override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                    if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) {
+                        imeAnimating = false
+                        imeBottom = imeEnd()
+                        applyRootPadding()
+                    }
+                }
+            },
+        )
+    }
+
+    // ---------------------------------------------------------------- Gecko（PWA）
+
+    /**
+     * Gecko 内核的轻应用：BrowserTab 承载 GeckoView（文件选择 / 权限 / 全屏 / 重定向规则等沿用浏览器里的同一套），
+     * 这里只补独立窗口需要的：站外链接交给浏览器、manifest 的主题色 / 方向 / 显示模式、返回键。
+     */
+    private fun startGecko() {
+        scopeUrl = intent.getStringExtra(ShortcutHelper.EXTRA_SCOPE).orEmpty()
+        displayMode = intent.getStringExtra(ShortcutHelper.EXTRA_DISPLAY) ?: "standalone"
+        orientationHint = intent.getStringExtra(ShortcutHelper.EXTRA_ORIENT).orEmpty()
+        val theme = if (intent.hasExtra(ShortcutHelper.EXTRA_THEME)) intent.getIntExtra(ShortcutHelper.EXTRA_THEME, 0) else null
+        val bg = if (intent.hasExtra(ShortcutHelper.EXTRA_BG)) intent.getIntExtra(ShortcutHelper.EXTRA_BG, 0) else null
+        // 状态栏 / 手势条区域与网页加载前的底色：manifest 的 theme_color，其次 background_color
+        val chrome = (theme ?: bg ?: defaultBg) or 0xFF000000.toInt()
+        root.setBackgroundColor(chrome)
+        applySystemBarIcons(chrome)
+
+        extensions = appContainer.extensions
+        val tab = BrowserTab(this, EngineKind.GECKO) // 传 Activity：弹窗 / 权限 / 全屏都要靠它找到窗口
+        geckoTab = tab
+        // 这些要在引擎创建（读 contentView）之前设好：GeckoView 创建时就会取用
+        tab.pageEnhancements = settings.pageEnhancements
+        tab.scriptsEnabled = settings.scriptsEnabled
+        tab.userScripts = activeScripts()
+        tab.customUserAgent = settings.userAgent
+        tab.searchTemplate = settings.searchTemplate
+        val view = tab.contentView
+        tab.applyUserAgent()
+        tab.applyPrivacy(
+            cookieMode = settings.cookieMode,
+            sendDnt = settings.sendDnt,
+            webrtcDisabled = settings.webrtcDisabled,
+            clipboardMode = settings.clipboardPermission,
+            mediaMode = settings.mediaAutoplay,
+            cameraMode = settings.cameraPermission,
+            micMode = settings.micPermission,
+            locationMode = settings.locationPermission,
+            notificationMode = settings.notificationPermission,
+            redirectMode = settings.redirectPermission,
+            externalAppMode = settings.externalAppPermission,
+            blockTrackers = settings.blockTrackingScripts,
+            fingerprintProtect = AdBlock.fpCanvas || AdBlock.fpWebgl || AdBlock.fpAudio || AdBlock.fpFonts,
+        )
+        tab.applyDisplayTheme(dark)
+
+        // 站外的主框架导航：只有用户亲手点的才弹到浏览器（登录 / 支付回调等自动跳转原地放行，与 WebView 轻应用一致）；
+        // manifest 声明了 scope 时，同站但在 scope 之外的链接也算站外
+        tab.geckoNavGate = { target, gesture, redirect ->
+            val uri = Uri.parse(target)
+            val host = uri.host.orEmpty()
+            val crossSite = host.isNotEmpty() && !isSameSite(host, startHost)
+            val outOfScope = !crossSite && scopeUrl.isNotEmpty() && sameOrigin(target, scopeUrl) && !target.startsWith(scopeUrl)
+            if ((crossSite || outOfScope) && gesture && !redirect) {
+                openInBrowser(uri)
+                true
+            } else {
+                false
+            }
+        }
+        // window.open / target=_blank：同站在本窗口打开，跨站交给浏览器
+        tab.onOpenInNewTab = { u ->
+            val uri = Uri.parse(u)
+            val host = uri.host.orEmpty()
+            if (host.isNotEmpty() && !isSameSite(host, startHost)) openInBrowser(uri) else tab.loadUrl(u)
+        }
+        tab.onRequestClose = { finish() }
+        // 下载：轻应用没有下载管理，http(s) 交给浏览器处理（带登录态的文件、blob 暂不支持）
+        tab.onDownload = { url, _, _, _ ->
+            if (url.startsWith("http://", true) || url.startsWith("https://", true)) {
+                openInBrowser(Uri.parse(url))
+            } else {
+                Toast.makeText(this, tr("请在浏览器中下载"), Toast.LENGTH_SHORT).show()
+            }
+        }
+        tab.onShowFileChooser = { params, callback ->
+            if (params.mode == 3) {
+                callback.onReceiveValue(null) // 「另存为」类请求不接，避免页面一直等待
+            } else {
+                fileCallback?.onReceiveValue(null)
+                fileCallback = callback
+                runCatching { startActivityForResult(params.createIntent(), REQ_FILE) }.onFailure {
+                    fileCallback = null
+                    callback.onReceiveValue(null)
+                }
+            }
+        }
+        tab.onPermissionPrompt = { origin, what, _, decide ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) {
+                    decide(false)
+                } else {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle(origin)
+                        .setMessage(what)
+                        .setCancelable(false)
+                        .setPositiveButton(tr("允许")) { _, _ -> decide(true) }
+                        .setNegativeButton(tr("拒绝")) { _, _ -> decide(false) }
+                        .show()
+                }
+            }
+        }
+        tab.requestAndroidPermissions = { perms, done ->
+            ensurePermissions(perms.toList(), anyOk = false) { done() }
+        }
+
+        root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        applyGeckoWindowMode()
+        tab.setEngineActive(true)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val t = geckoTab
+                if (t == null) {
+                    finish()
+                } else if (t.geckoFullscreen || t.canGoBack) {
+                    t.goBack() // 全屏中先退全屏；其余按页面历史后退
+                } else {
+                    finish()
+                }
+            }
+        })
+        tab.loadUrl(startUrl)
+    }
+
+    /** manifest 的方向 / 显示模式：portrait* / landscape* 跟随系统自动旋转开关；fullscreen 隐藏系统栏 */
+    private fun applyGeckoWindowMode() {
+        if (geckoTab?.geckoFullscreen == true) return // 视频全屏自己管方向和系统栏
+        requestedOrientation = when {
+            orientationHint.startsWith("portrait") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+            orientationHint.startsWith("landscape") -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+            else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        if (displayMode == "fullscreen") {
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun sameOrigin(a: String, b: String): Boolean {
+        val x = Uri.parse(a)
+        val y = Uri.parse(b)
+        return x.scheme.equals(y.scheme, true) && x.host.equals(y.host, true) && x.port == y.port
     }
 
     // ---------------------------------------------------------------- WebView

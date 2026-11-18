@@ -85,6 +85,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -1366,7 +1369,9 @@ BrowserChunk {
                         // 键盘会直接盖住屏幕底部的网页输入框。这里让网页区域避开键盘：
                         // 区域变矮后页面会把获得焦点的输入框滚到可见处。
                         // 地址栏输入时不收缩，避免每次唤起键盘都让网页整体重排。
-                        .then(if (editing) Modifier else Modifier.imePadding())
+                        // 注意：不能用 imePadding()——它每帧跟着键盘动画变化，Gecko 的 Surface 会在
+                        // 动画期间被连续重排（窗口抖动）。这里用动画「目标」高度，只在动画开始时变一次。
+                        .then(if (editing) Modifier else Modifier.windowInsetsPadding(rememberImeTargetInsets()))
                         .topInsetPx { if (nativeInset) 0 else contentTopPx() },
                 ) {
                     key(tab.id) {
@@ -3555,6 +3560,11 @@ internal fun fetchRemoteScript(url: String): String? = runCatching {
 private fun BrowserChunk(content: @Composable () -> Unit) {
     content()
 }
+
+/** 键盘动画的目标 insets：动画一开始就是最终高度，用于让网页区域只重排一次 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun rememberImeTargetInsets(): WindowInsets = WindowInsets.imeAnimationTarget
 
 @Composable
 private fun BoxScope.PullSpinnerHost(tab: BrowserTab) {

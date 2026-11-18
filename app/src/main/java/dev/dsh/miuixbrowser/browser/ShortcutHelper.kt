@@ -33,9 +33,9 @@ import kotlin.coroutines.resume
 
 /**
  * 「添加到桌面」：把当前网页做成桌面图标（固定快捷方式，ShortcutManager.requestPinShortcut）。
- * - Gecko 标签：快捷方式直接指向浏览器自己（MainActivity，ACTION_VIEW + [EXTRA_FROM_SHORTCUT]），
- *   点开在 Gecko 内核里打开网址，不再走 WebView 的轻应用。
- * - WebView 标签：保持原样，进入无底栏的轻应用 [WebAppActivity]。
+ * - 两种内核共用同一个轻应用 [WebAppActivity]（无底栏的独立窗口），intent 里的 [EXTRA_ENGINE] 决定它用 WebView 还是 GeckoView。
+ * - Gecko 标签：页面带 Web App Manifest（PWA）时，名称 / 图标 / 起始页 / 范围 / 显示模式 / 主题色都取自 manifest；
+ *   manifest 声明 display = browser 的站点仍只是打开浏览器本体（MainActivity，ACTION_VIEW + [EXTRA_FROM_SHORTCUT]）。
  *
  * 流程：
  * 1. 小米 / 红米 / POCO 上有单独的「桌面快捷方式」权限（AppOps 10017），首次点击先引导到权限页开启，
@@ -52,6 +52,17 @@ object ShortcutHelper {
 
     /** Gecko 快捷方式的 ACTION_VIEW 带上它：MainActivity 无视「链接打开方式」（自定义标签页 / 交给其他浏览器），直接在应用内打开 */
     const val EXTRA_FROM_SHORTCUT = "from_shortcut"
+
+    /** 轻应用用哪个内核：缺省 / 其它值 = 系统 WebView，[ENGINE_GECKO] = GeckoView（Gecko 版才有） */
+    const val EXTRA_ENGINE = "webapp_engine"
+    const val ENGINE_GECKO = "gecko"
+
+    /** 来自 Web App Manifest 的信息（只有 Gecko 轻应用会带）：显示模式 / 方向 / 范围 / 主题色 / 背景色（ARGB Int） */
+    const val EXTRA_DISPLAY = "webapp_display"
+    const val EXTRA_ORIENT = "webapp_orient"
+    const val EXTRA_SCOPE = "webapp_scope"
+    const val EXTRA_THEME = "webapp_theme"
+    const val EXTRA_BG = "webapp_bg"
 
     private const val PREFS = "mafari_shortcut"
     private const val KEY_ASKED = "perm_asked"
@@ -138,28 +149,43 @@ object ShortcutHelper {
             return
         }
 
-        val title = tab.title.ifBlank { hostOf(url) }
-        // Gecko 标签没有 WebView：取不到页面图标，退回按域名抓取
+        // Gecko 标签：页面声明了 Web App Manifest（PWA）就按它的名称 / 图标 / 起始页 / 显示模式来做
         val gecko = tab.isGecko
+        val pwa = if (gecko) tab.pwaManifestForCurrentPage() else null
+        // 站点自己要求留在浏览器里（display = browser）：快捷方式直接打开浏览器本体，不做独立窗口
+        val browserShortcut = pwa != null && !pwa.wantsStandalone
+        val launchUrl = pwa?.startUrl ?: url
+        val title = pwa?.label?.takeIf { it.isNotBlank() } ?: tab.title.ifBlank { hostOf(url) }
+        // Gecko 标签没有 WebView：取不到页面图标，优先用 manifest 声明的，否则退回按域名抓取
         val webView = if (gecko) null else runCatching { tab.webView }.getOrNull()
         scope.launch {
-            val iconHref = queryPageIcon(webView)
-            val raw = loadIcon(url, iconHref)
-            val id = (if (gecko) "gecko_" else "webapp_") + Integer.toHexString(url.hashCode())
-            val bitmap = withContext(Dispatchers.Default) { composeIcon(raw, hostOf(url)) }
-            val launch = if (gecko) {
+            val iconHref = pwa?.bestIcon()?.src ?: queryPageIcon(webView)
+            val raw = loadIcon(launchUrl, iconHref)
+            val id = (if (gecko) "gecko_" else "webapp_") + Integer.toHexString(launchUrl.hashCode())
+            val bitmap = withContext(Dispatchers.Default) { composeIcon(raw, hostOf(launchUrl)) }
+            val launch = if (browserShortcut) {
                 Intent(context, MainActivity::class.java).apply {
                     action = Intent.ACTION_VIEW
-                    data = Uri.parse(url)
+                    data = Uri.parse(launchUrl)
                     putExtra(EXTRA_FROM_SHORTCUT, true)
                 }
             } else {
                 withContext(Dispatchers.IO) { saveIcon(context, id, bitmap) }
                 Intent(context, WebAppActivity::class.java).apply {
                     action = ACTION_OPEN_WEBAPP
-                    data = Uri.parse(url)
+                    data = Uri.parse(launchUrl)
                     putExtra(EXTRA_TITLE, title)
                     putExtra(EXTRA_ICON, id)
+                    if (gecko) {
+                        putExtra(EXTRA_ENGINE, ENGINE_GECKO)
+                        if (pwa != null) {
+                            putExtra(EXTRA_DISPLAY, pwa.display)
+                            putExtra(EXTRA_ORIENT, pwa.orientation)
+                            putExtra(EXTRA_SCOPE, pwa.scope)
+                            pwa.themeColor?.let { putExtra(EXTRA_THEME, it) }
+                            pwa.backgroundColor?.let { putExtra(EXTRA_BG, it) }
+                        }
+                    }
                 }
             }
             val info = ShortcutInfoCompat.Builder(context, id)
