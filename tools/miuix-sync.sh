@@ -35,6 +35,13 @@ if [ ${#PS[@]} -gt 0 ]; then
     exit 2
   fi
   echo "已应用 ${#PS[@]} 个本地补丁"
+  # 兜底：immersive 补丁用到 WindowInsets.navigationBars，上游若未导入则补上（幂等）
+  F="miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt"
+  if [ -f "$F" ] && grep -q 'WindowInsets.navigationBars' "$F" && ! grep -q '^import androidx.compose.foundation.layout.navigationBars$' "$F"; then
+    sed -i '0,/^import androidx.compose.foundation.layout.WindowInsets$/s//import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.navigationBars/' "$F"
+    grep -q '^import androidx.compose.foundation.layout.navigationBars$' "$F" || sed -i '0,/^import androidx.compose/s//import androidx.compose.foundation.layout.navigationBars\nimport androidx.compose/' "$F"
+    git -c user.name=mafari -c user.email=mafari@local commit -qam "fix: import navigationBars" || true
+  fi
 fi
 if [ "${1:-}" = "--pin" ]; then
   H="$(git rev-parse mafari-base)"

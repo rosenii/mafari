@@ -242,7 +242,10 @@ object LiquidGlassMaterial : AppMaterial {
             onDismissRequest = onDismissRequest,
             onDismissFinished = onDismissFinished,
             outsideMargin = BottomSheetDefaults.outsideMargin,
-            insideMargin = BottomSheetDefaults.insideMargin,
+            // 取消 sheet 内边距：左右留白由 AppBottomSheet 加在内容上
+            insideMargin = DpSize.Zero,
+            // 沉浸：内容铺满整个 sheet，拖动条 / 标题浮在上面（见上游补丁 0010）
+            immersive = true,
             dragHandleColor = BottomSheetDefaults.dragHandleColor(),
             dimColor = GlassBottomSheetDefaults.ScrimColor,
             surface = {

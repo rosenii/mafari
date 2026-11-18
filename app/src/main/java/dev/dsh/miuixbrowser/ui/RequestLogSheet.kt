@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.adblock.AdBlock
@@ -69,13 +70,14 @@ fun RequestLogSheet(
         title = tr("网络请求"),
         backdrop = backdrop,
         onDismissRequest = onDismiss,
+        scrollContent = true,
     ) {
+        val insets = LocalBottomSheetInsets.current
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 520.dp)
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(bottom = 16.dp),
+                .heightIn(max = 520.dp + insets.top + insets.bottom),
+            contentPadding = PaddingValues(top = insets.top, bottom = insets.bottom + 16.dp),
         ) {
             item {
                 AppSwitchPreference(

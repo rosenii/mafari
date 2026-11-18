@@ -83,7 +83,7 @@ fun HapticGlassIconButton(
         },
         modifier = modifier,
         style = GlassLook.barStyle(dark),
-        material = if (GlassLook.shading()) GlassLook.barMaterial(dark) else null,
+        material = if (GlassLook.custom()) GlassLook.barMaterial(dark) else null,
         content = content,
     )
 }

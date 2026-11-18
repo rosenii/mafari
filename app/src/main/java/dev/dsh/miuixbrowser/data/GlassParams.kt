@@ -32,10 +32,13 @@ data class GlassParams(
     val colorPow: Float,       // 最终 gamma，>1 变暗，<1 提亮
     // 材质
     val frostMaterial: Boolean, // 是否叠加磨砂同款的白色材质（会让玻璃更雾）
+    // 默认值
+    val upstreamDefaults: Boolean = false, // true = 菜单 / 弹窗 / 底栏 / 按钮等全部用 miuix 上游各自的默认样式和材质，上面的数值不生效
 ) {
     fun encode(): String = buildString {
         FIELDS.forEachIndexed { i, f -> if (i > 0) append(','); append(f.get(this@GlassParams)) }
         append(',').append(if (frostMaterial) 1 else 0)
+        append(',').append(if (upstreamDefaults) 1 else 0)
     }
 
     companion object {
@@ -64,13 +67,17 @@ data class GlassParams(
         /** 解析 [encode] 的结果；个数不对 / 有非数字返回 null，每项都夹回合法范围。 */
         fun decode(s: String?): GlassParams? {
             val parts = s?.split(',') ?: return null
-            if (parts.size != FIELDS.size + 1) return null
+            // 旧版少最后一项 upstreamDefaults（按 false 处理）
+            if (parts.size != FIELDS.size + 1 && parts.size != FIELDS.size + 2) return null
             var p = Default
             FIELDS.forEachIndexed { i, f ->
                 val v = parts[i].toFloatOrNull()?.takeIf { it.isFinite() } ?: return null
                 p = f.set(p, v.coerceIn(f.min, f.max))
             }
-            return p.copy(frostMaterial = parts.last().trim() == "1")
+            return p.copy(
+                frostMaterial = parts[FIELDS.size].trim() == "1",
+                upstreamDefaults = parts.getOrNull(FIELDS.size + 1)?.trim() == "1",
+            )
         }
 
         val Default: GlassParams get() = GlassPresets.ALL[0].params
@@ -145,6 +152,10 @@ object GlassPresets {
                 saturation = 1.4f, brightness = 0f, tintStrength = 0.1f, colorWhite = 0.05f, colorMix = 0.1f,
                 frostMaterial = true,
             ),
+        ),
+        GlassPreset(
+            "miuix 默认", "菜单、弹窗、底栏、按钮等全部使用 miuix 项目各自的默认样式和材质，下面的自定义参数不生效",
+            clear.copy(upstreamDefaults = true),
         ),
     )
 }

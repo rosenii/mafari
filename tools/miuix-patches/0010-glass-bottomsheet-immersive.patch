@@ -1,0 +1,303 @@
+From 9f5835142c6f4a59e9a93824e64365bb3f3e0faf Mon Sep 17 00:00:00 2001
+From: mafari <mafari@local>
+Date: Wed, 18 Nov 2026 01:42:27 +0000
+Subject: [PATCH] =?UTF-8?q?ui/glass:=20=E5=BA=95=E9=83=A8=E6=8A=BD?=
+ =?UTF-8?q?=E5=B1=89=E6=B2=89=E6=B5=B8=E5=B8=83=E5=B1=80=EF=BC=88immersive?=
+ =?UTF-8?q?=EF=BC=89=EF=BC=9A=E6=8B=96=E5=8A=A8=E6=9D=A1=E5=92=8C=E6=A0=87?=
+ =?UTF-8?q?=E9=A2=98=E6=B5=AE=E5=9C=A8=E5=86=85=E5=AE=B9=E4=B8=8A=EF=BC=8C?=
+ =?UTF-8?q?=E5=86=85=E5=AE=B9=E9=93=BA=E6=BB=A1=E6=95=B4=E4=B8=AA=E6=8A=BD?=
+ =?UTF-8?q?=E5=B1=89=EF=BC=8CLocalBottomSheetInsets=20=E4=B8=8A=E6=8A=A5?=
+ =?UTF-8?q?=E5=A4=B4=E9=83=A8=E4=B8=8E=E5=AF=BC=E8=88=AA=E6=A0=8F=E9=AB=98?=
+ =?UTF-8?q?=E5=BA=A6?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../miuix/kmp/glass/GlassBottomSheet.kt       |   4 +
+ .../kmp/layout/BottomSheetContentLayout.kt    | 107 +++++++++++++++---
+ .../miuix/kmp/layout/BottomSheetInsets.kt     |  31 +++++
+ .../miuix/kmp/overlay/OverlayBottomSheet.kt   |   5 +
+ 4 files changed, 132 insertions(+), 15 deletions(-)
+ create mode 100644 miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
+
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
+index b22f016..ea4819c 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
+@@ -33,6 +33,8 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+  * @param allowDismiss Whether outside taps, drags and back gestures may dismiss the sheet.
+  * @param enableNestedScroll Whether child scrolling can transfer motion to the sheet.
+  * @param renderInRootScaffold Whether the outermost Scaffold hosts the sheet.
++ * @param immersive Whether the content fills the whole sheet with the drag handle and title floating
++ *   above it (read the space to keep clear from [top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets]).
+  * @param title Optional title above the body.
+  * @param startAction Optional leading header action.
+  * @param endAction Optional trailing header action.
+@@ -60,6 +62,7 @@ fun GlassBottomSheet(
+     allowDismiss: Boolean = true,
+     enableNestedScroll: Boolean = true,
+     renderInRootScaffold: Boolean = true,
++    immersive: Boolean = false,
+     title: String? = null,
+     startAction: @Composable (() -> Unit)? = null,
+     endAction: @Composable (() -> Unit)? = null,
+@@ -97,6 +100,7 @@ fun GlassBottomSheet(
+         allowDismiss = allowDismiss,
+         enableNestedScroll = enableNestedScroll,
+         renderInRootScaffold = renderInRootScaffold,
++        immersive = immersive,
+         dimColor = dimColor,
+         surface = surface ?: glassBottomSheetSurface(backdrop, material, stroke, containerColor, shading, style),
+         content = content,
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
+index 56c687a..6fe30ac 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
+@@ -58,6 +58,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
++import androidx.compose.foundation.layout.navigationBars
+ import androidx.compose.ui.input.pointer.PointerIcon
+ import androidx.compose.ui.input.pointer.pointerHoverIcon
+ import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.layout.SubcomposeLayout
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.platform.LocalWindowInfo
+@@ -65,6 +67,7 @@ import androidx.compose.ui.semantics.onClick
+ import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.Constraints
+ import androidx.compose.ui.unit.Dp
+ import androidx.compose.ui.unit.DpSize
+ import androidx.compose.ui.unit.Velocity
+@@ -119,6 +122,9 @@ internal val LocalBottomSheetNestedScrollConnection = staticCompositionLocalOf<B
+  * @param allowDismiss Whether to allow dismissing the sheet via drag or back gesture.
+  * @param enableNestedScroll Whether to enable nested scrolling for the content.
+  * @param topInset Optional top inset override. If null, calculated from window insets.
++ * @param immersive When true the drag handle and title row float above the content instead of
++ *   stacking over it; the content fills the whole sheet and reads the space to keep clear via
++ *   [LocalBottomSheetInsets].
+  * @param dimColor The unanimated dimming color.
+  * @param surface Optional replacement for the default surface, including the overscroll fill.
+  * @param content The content of the bottom sheet.
+@@ -145,6 +151,7 @@ internal fun BottomSheetContentLayout(
+     allowDismiss: Boolean = true,
+     enableNestedScroll: Boolean = true,
+     topInset: Dp? = null,
++    immersive: Boolean = false,
+     dimColor: Color = MiuixTheme.colorScheme.windowDimming,
+     surface: (@Composable BottomSheetSurfaceScope.() -> Modifier)? = null,
+     content: @Composable () -> Unit,
+@@ -325,6 +332,7 @@ internal fun BottomSheetContentLayout(
+                 },
+                 modifier = sheetModifier,
+                 topInset = topInset,
++                immersive = immersive,
+                 enableNestedScroll = enableNestedScroll,
+                 surface = surface?.let { sheetSurface -> { sheetSurface(surfaceScope) } },
+                 overscrollSurface = surface?.let { sheetSurface ->
+@@ -368,6 +376,7 @@ internal fun BottomSheetContent(
+     onDismissRequest: (() -> Unit)?,
+     modifier: Modifier = Modifier,
+     topInset: Dp? = null,
++    immersive: Boolean = false,
+     enableNestedScroll: Boolean = true,
+     startAction: @Composable (() -> Unit)? = null,
+     endAction: @Composable (() -> Unit)? = null,
+@@ -587,6 +596,7 @@ internal fun BottomSheetContent(
+         allowDismiss = allowDismiss,
+         windowHeight = windowHeight,
+         topInset = calculatedTopInset,
++        immersive = immersive,
+         enableNestedScroll = enableNestedScroll,
+         sheetHeightPx = sheetHeightPx,
+         dragOffsetY = dragOffsetY,
+@@ -622,6 +632,7 @@ private fun BottomSheetColumn(
+     allowDismiss: Boolean,
+     windowHeight: Dp,
+     topInset: Dp,
++    immersive: Boolean,
+     enableNestedScroll: Boolean,
+     sheetHeightPx: MutableIntState,
+     dragOffsetY: Animatable<Float, *>,
+@@ -680,27 +691,94 @@ private fun BottomSheetColumn(
+                 .padding(horizontal = insideMargin.width)
+                 .padding(bottom = insideMargin.height),
+         ) {
+-            DragHandleArea(
+-                dragHandleColor = dragHandleColor,
+-                allowDismiss = allowDismiss,
+-                dragOffsetY = dragOffsetY,
+-                coroutineScope = coroutineScope,
+-                dragSnapChannel = dragSnapChannel,
+-                onSettle = onSettle,
+-                onUpdateAlpha = onUpdateAlpha,
+-            )
++            if (immersive) {
++                ImmersiveSheetBody(
++                    header = {
++                        DragHandleArea(
++                            dragHandleColor = dragHandleColor,
++                            allowDismiss = allowDismiss,
++                            dragOffsetY = dragOffsetY,
++                            coroutineScope = coroutineScope,
++                            dragSnapChannel = dragSnapChannel,
++                            onSettle = onSettle,
++                            onUpdateAlpha = onUpdateAlpha,
++                        )
++                        TitleAndActionsRow(
++                            title = title,
++                            startAction = startAction,
++                            endAction = endAction,
++                        )
++                    },
++                    content = content,
++                )
++            } else {
++                DragHandleArea(
++                    dragHandleColor = dragHandleColor,
++                    allowDismiss = allowDismiss,
++                    dragOffsetY = dragOffsetY,
++                    coroutineScope = coroutineScope,
++                    dragSnapChannel = dragSnapChannel,
++                    onSettle = onSettle,
++                    onUpdateAlpha = onUpdateAlpha,
++                )
+ 
+-            TitleAndActionsRow(
+-                title = title,
+-                startAction = startAction,
+-                endAction = endAction,
+-            )
++                TitleAndActionsRow(
++                    title = title,
++                    startAction = startAction,
++                    endAction = endAction,
++                )
++
++                content()
++            }
++        }
++    }
++}
+ 
+-            content()
++/**
++ * Immersive sheet body: the content fills the whole sheet and the header (drag handle, title and
++ * actions) is laid over its top edge instead of above it.
++ *
++ * The header is measured first so its height can be handed to the content through
++ * [LocalBottomSheetInsets] in the same frame (no one-frame jump); the content is expected to keep
++ * `top` clear at rest and may scroll underneath it. The bottom inset is the navigation bar height,
++ * reported the same way. The header swallows taps so a hidden item under it cannot be clicked.
++ */
++@Composable
++private fun ImmersiveSheetBody(
++    header: @Composable () -> Unit,
++    content: @Composable () -> Unit,
++) {
++    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
++    SubcomposeLayout(modifier = Modifier.fillMaxWidth()) { constraints ->
++        val width = constraints.maxWidth
++        val childConstraints = Constraints(
++            minWidth = width,
++            maxWidth = width,
++            minHeight = 0,
++            maxHeight = constraints.maxHeight,
++        )
++        val headerPlaceables = subcompose(ImmersiveSlot.Header) {
++            Column(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .pointerInput(Unit) { detectTapGestures { /* Swallow taps */ } },
++            ) { header() }
++        }.map { it.measure(childConstraints) }
++        val headerHeight = headerPlaceables.maxOfOrNull { it.height } ?: 0
++        val insets = BottomSheetInsets(top = headerHeight.toDp(), bottom = navBottom)
++        val contentPlaceables = subcompose(ImmersiveSlot.Content) {
++            CompositionLocalProvider(LocalBottomSheetInsets provides insets) { content() }
++        }.map { it.measure(childConstraints) }
++        val height = maxOf(headerHeight, contentPlaceables.maxOfOrNull { it.height } ?: 0)
++        layout(width, height) {
++            contentPlaceables.forEach { it.place(0, 0) }
++            headerPlaceables.forEach { it.place(0, 0) }
+         }
+     }
+ }
+ 
++private enum class ImmersiveSlot { Header, Content }
++
+ /**
+  * Renders the elastic background fill that follows the sheet upward when the user
+  * drags past the top of its contents (negative `dragOffsetY`). Lives in its own
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
+new file mode 100644
+index 0000000..d744eda
+--- /dev/null
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
+@@ -0,0 +1,31 @@
++// Copyright 2025, compose-miuix-ui contributors
++// SPDX-License-Identifier: Apache-2.0
++
++package top.yukonga.miuix.kmp.layout
++
++import androidx.compose.runtime.Immutable
++import androidx.compose.runtime.staticCompositionLocalOf
++import androidx.compose.ui.unit.Dp
++import androidx.compose.ui.unit.dp
++
++/**
++ * Space an immersive bottom sheet's content has to keep clear.
++ *
++ * @param top Height of the floating header (drag handle plus title row).
++ * @param bottom Height of the navigation bar the content extends under.
++ */
++@Immutable
++class BottomSheetInsets(
++    val top: Dp = 0.dp,
++    val bottom: Dp = 0.dp,
++) {
++    override fun equals(other: Any?): Boolean = other is BottomSheetInsets && other.top == top && other.bottom == bottom
++
++    override fun hashCode(): Int = 31 * top.hashCode() + bottom.hashCode()
++}
++
++/**
++ * Provided to the content of a bottom sheet shown with `immersive = true`. Outside an immersive
++ * sheet it stays at zero.
++ */
++val LocalBottomSheetInsets = staticCompositionLocalOf { BottomSheetInsets() }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
+index fdbb63b..ce5338c 100644
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
+@@ -42,6 +42,9 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
+  * @param renderInRootScaffold Whether to render the bottom sheet in the root (outermost) Scaffold.
+  *   When true (default), the bottom sheet covers the full screen. When false, it renders within the
+  *   current Scaffold's bounds.
++ * @param immersive Whether the content fills the whole sheet with the drag handle and title floating
++ *   above it. The content reads the space to keep clear from
++ *   [top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets].
+  * @param dimColor The unanimated dimming color.
+  * @param surface Optional replacement for the default background and clipping. Also used for
+  *   the exposed bottom edge during upward overscroll, with [BottomSheetSurfaceScope.isOverscroll].
+@@ -68,6 +71,7 @@ fun OverlayBottomSheet(
+     allowDismiss: Boolean = true,
+     enableNestedScroll: Boolean = true,
+     renderInRootScaffold: Boolean = true,
++    immersive: Boolean = false,
+     dimColor: Color = MiuixTheme.colorScheme.windowDimming,
+     surface: (@Composable BottomSheetSurfaceScope.() -> Modifier)? = null,
+     content: @Composable () -> Unit,
+@@ -104,6 +108,7 @@ fun OverlayBottomSheet(
+         defaultWindowInsetsPadding = defaultWindowInsetsPadding,
+         allowDismiss = allowDismiss,
+         enableNestedScroll = enableNestedScroll,
++        immersive = immersive,
+         dimColor = dimColor,
+         surface = surface,
+         content = content,
+-- 
+2.43.0
+

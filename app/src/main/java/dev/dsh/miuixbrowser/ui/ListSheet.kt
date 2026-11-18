@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import dev.dsh.miuixbrowser.i18n.tr
 
 import androidx.compose.foundation.clickable
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -120,11 +122,14 @@ fun <T> SearchableListSheet(
         title = title,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
+        scrollContent = true,
     ) {
         val p = page
         val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
+        val insets = LocalBottomSheetInsets.current
 
-        Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+        // 搜索框固定在头部下方；列表自己的底部内边距包含导航栏高度，滚动内容铺到导航栏下面再渐隐
+        Column(modifier = Modifier.fillMaxWidth().padding(top = insets.top)) {
             TextField(
                 value = state.query,
                 onValueChange = {
@@ -145,10 +150,15 @@ fun <T> SearchableListSheet(
                     },
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 16.dp)
+                        .padding(bottom = insets.bottom),
                 )
             } else {
-                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight + insets.bottom),
+                    contentPadding = PaddingValues(bottom = insets.bottom + 12.dp),
+                ) {
                     items(p.items, key = key) { row(it) }
                     if (p.total > p.items.size) {
                         item {

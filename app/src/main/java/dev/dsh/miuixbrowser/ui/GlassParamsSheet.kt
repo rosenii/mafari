@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -63,16 +64,19 @@ fun GlassParamsSheet(
         title = tr("自定义材质参数"),
         backdrop = backdrop,
         onDismissRequest = onDismissRequest,
+        scrollContent = true,
     ) {
+        val insets = LocalBottomSheetInsets.current
         val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
         // 选中「自定义」（或本来就是自定义参数）时展开参数；选模板时保持用户上次的展开状态
         var customExpanded by remember { mutableStateOf(settings.glassPreset == -1) }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = maxHeight)
+                .heightIn(max = maxHeight + insets.top + insets.bottom)
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = 28.dp),
+                // 先滚动后加内边距：参数列表能滚到标题和导航栏下面再渐隐
+                .padding(top = insets.top, bottom = insets.bottom + 28.dp),
         ) {
             GroupTitle(tr("模板"))
             GlassPresets.ALL.forEachIndexed { index, preset ->

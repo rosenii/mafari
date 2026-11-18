@@ -62,10 +62,21 @@ object GlassLook {
     @Composable
     fun shading(): Boolean = LocalBlurMode.current == BLUR_MIUIX
 
+    /** 柔光玻璃且选了「miuix 默认」模板：各组件用上游自己的默认样式 / 材质。 */
+    @Composable
+    fun upstream(): Boolean = shading() && LocalGlassParams.current.upstreamDefaults
+
+    /**
+     * 柔光玻璃且使用自定义参数（不含「miuix 默认」）。弹窗 / 对话框 / sheet 据此决定是否换成自己的材质、折射和样式；
+     * false 时它们保持上游默认（平面、各自的默认材质）。
+     */
+    @Composable
+    fun custom(): Boolean = shading() && !LocalGlassParams.current.upstreamDefaults
+
     /** 当前模式的样式。 */
     @Composable
     fun style(isDark: Boolean): GlassStyle {
-        if (!shading()) return GlassDefaults.style(isDark)
+        if (!custom()) return GlassDefaults.style(isDark)
         val p = LocalGlassParams.current
         return remember(p, isDark) { styleOf(p, isDark) }
     }
@@ -73,7 +84,7 @@ object GlassLook {
     /** 底栏 / 面板的材质：柔光默认不叠白雾（null = 用轻模糊的背景当主体），磨砂沿用 puredThinGlass。 */
     @Composable
     fun material(isDark: Boolean): GlassMaterial? {
-        if (!shading()) return GlassMaterials.puredThinGlass(isDark)
+        if (!custom()) return GlassMaterials.puredThinGlass(isDark)
         val p = LocalGlassParams.current
         if (!p.frostMaterial) return null
         // 材质自带的模糊半径会覆盖样式的，这里让它跟「背景模糊」滑条走
@@ -81,9 +92,9 @@ object GlassLook {
     }
 
     /** 大块弹窗（sheet / 对话框 / 弹出菜单）的基础模糊（dp）。上游 dialogGlass 是 60dp，这里取约一半，再叠加「背景模糊」滑条。 */
-    const val LARGE_BLUR_BASE_DP = 24f
+    const val LARGE_BLUR_BASE_DP = 18f
 
-    /** 大块弹窗的实际模糊半径 = 基础模糊 + 背景模糊滑条（÷3 = dp），所以最低也是 [LARGE_BLUR_BASE_DP]。 */
+    /** 大块弹窗的实际模糊半径 = 基础模糊 + 背景模糊滑条（÷3 = dp），所以最低也是 [LARGE_BLUR_BASE_DP]（18dp）。 */
     fun largeBlurDp(p: GlassParams): Float = LARGE_BLUR_BASE_DP + p.blurSmall / GlassDefaults.SourceDensity
 
     /**
@@ -110,7 +121,7 @@ object GlassLook {
      */
     @Composable
     fun barMaterial(isDark: Boolean): GlassMaterial {
-        if (!shading()) return GlassTopAppBarDefaults.buttonMaterial()
+        if (!custom()) return GlassTopAppBarDefaults.buttonMaterial()
         material(isDark)?.let { return it }
         val p = LocalGlassParams.current
         return remember(p) {
@@ -123,11 +134,12 @@ object GlassLook {
 
     /** 顶栏按钮的样式：柔光走自定义参数，其余保持上游默认。 */
     @Composable
-    fun barStyle(isDark: Boolean): GlassStyle = if (shading()) style(isDark) else GlassDefaults.Style
+    fun barStyle(isDark: Boolean): GlassStyle = if (custom()) style(isDark) else GlassDefaults.Style
 
     /** 模式 / 参数变化时同步给 miuix 的弹窗 / 对话框 / 抽屉（普通字段赋值，幂等，可在组合中调用）。 */
     fun update(blurMode: Int, params: GlassParams) {
-        val on = blurMode == BLUR_MIUIX
+        // 「miuix 默认」模板与非柔光模式一样：保持上游的平面弹窗 / 对话框 / 抽屉
+        val on = blurMode == BLUR_MIUIX && !params.upstreamDefaults
         GlassSurfaceShading.enabled = on
         GlassSurfaceShading.lightStyle = if (on) styleOf(params, false) else GlassDefaults.style(false)
         GlassSurfaceShading.darkStyle = if (on) styleOf(params, true) else GlassDefaults.style(true)

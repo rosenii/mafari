@@ -2027,3 +2027,5 @@ CSV 导入 · 加密存储 · 自动填充	CSV import · Encrypted storage · Au
 遮盖度	Opacity
 伽马	Gamma
 手动调整模糊、折射、光影、色彩等全部参数	Manually tune blur, refraction, lighting, color and every other parameter
+miuix 默认	miuix default
+菜单、弹窗、底栏、按钮等全部使用 miuix 项目各自的默认样式和材质，下面的自定义参数不生效	Menus, dialogs, bars and buttons all use miuix's own defaults; the custom parameters below have no effect

@@ -577,9 +577,9 @@ class AppSettings(context: Context) {
         saveGlass()
     }
 
-    /** 拖滑条时实时改参数（只改内存，松手再 [commitGlassParams] 落盘），模板标记变为「自定义」。 */
+    /** 拖滑条时实时改参数（只改内存，松手再 [commitGlassParams] 落盘），模板标记变为「自定义」；手动改参数即退出「miuix 默认」。 */
     fun updateGlassParams(params: GlassParams) {
-        glassParams = params
+        glassParams = params.copy(upstreamDefaults = false)
         glassPreset = -1
     }
 

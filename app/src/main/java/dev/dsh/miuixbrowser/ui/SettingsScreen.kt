@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.net.WebViewProxy
@@ -981,12 +982,14 @@ fun SettingsScreen(
                 title = tr("网站权限管理"),
                 backdrop = if (glass) backdrop else null,
                 onDismissRequest = { showPermSheet = false },
+                scrollContent = true,
             ) {
+                val sheetInsets = LocalBottomSheetInsets.current
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(bottom = 28.dp),
+                        .padding(top = sheetInsets.top, bottom = sheetInsets.bottom + 28.dp),
                 ) {
                     val permOptions = listOf(tr("每次使用时询问"), tr("总是允许"), tr("总是拒绝"))
                     val permBackdrop = if (glass) backdrop else null
@@ -1052,12 +1055,14 @@ fun SettingsScreen(
                 onDismissRequest = {
                     if (exceptionSite != null) exceptionSite = null else showPermExceptions = false
                 },
+                scrollContent = true,
             ) {
+                val sheetInsets = LocalBottomSheetInsets.current
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(bottom = 28.dp),
+                        .padding(top = sheetInsets.top, bottom = sheetInsets.bottom + 28.dp),
                 ) {
                     val site = exceptionSite
                     val permBackdrop = if (glass) backdrop else null

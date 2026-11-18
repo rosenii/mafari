@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.browser.ScriptMenuCommand
@@ -89,12 +90,14 @@ fun ScriptMenuSheet(
         title = null,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
+        scrollContent = true,
     ) {
+        val insets = LocalBottomSheetInsets.current
+        // 头部（拖动条）下方留白；列表自己的底部内边距包含导航栏高度，滚动内容铺到导航栏下面再渐隐
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
+                .padding(top = insets.top),
         ) {
             // ---- 头部：标题 + 副标题 | 一键启停 ----
             Row(
@@ -142,14 +145,15 @@ fun ScriptMenuSheet(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 24.dp),
+                        .padding(horizontal = 24.dp, vertical = 24.dp)
+                        .padding(bottom = insets.bottom),
                 )
             } else {
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .heightIn(max = 380.dp),
+                        .heightIn(max = 380.dp + insets.bottom),
                 ) {
                     // 标题区宽度：整行减去 外边距 / 图标 / 箭头，保证 marquee 有确定宽度
                     val nameWidth = (maxWidth - 24.dp - 30.dp - 8.dp - 44.dp).coerceAtLeast(80.dp)
@@ -157,7 +161,8 @@ fun ScriptMenuSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .alpha(if (scriptsEnabled) 1f else 0.4f)
-                            .verticalScroll(rememberScrollState()),
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = insets.bottom + 16.dp),
                     ) {
                         scripts.forEach { script ->
                             val own = commands.filter { it.id.startsWith(script.id + ":") }

@@ -7,17 +7,32 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.geometry.Size
+import top.yukonga.miuix.kmp.layout.BottomSheetDefaults
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import dev.dsh.miuixbrowser.data.BLUR_MIUIX
+import top.yukonga.miuix.kmp.blur.BlendColorEntry
+import top.yukonga.miuix.kmp.blur.BlurDefaults
 import top.yukonga.miuix.kmp.blur.ProgressiveBlur
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
@@ -28,6 +43,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -246,66 +262,148 @@ interface AppMaterial {
  * 在调用处读出当前值，再在内容里重新提供一遍。
  */
 @Composable
-private fun rememberOverlayContent(content: @Composable () -> Unit, sheetTopBlur: Boolean = false): @Composable () -> Unit {
+private fun rememberOverlayContent(
+    content: @Composable () -> Unit,
+    immersive: Boolean = false,
+    sheetContentPadding: Dp = 0.dp,
+    padInsets: Boolean = true,
+): @Composable () -> Unit {
     val liquidBackdrop = LocalLiquidBackdrop.current
     val mode = LocalBlurMode.current
     val glassParams = LocalGlassParams.current
     val latest by rememberUpdatedState(content)
-    return remember(liquidBackdrop, mode, glassParams, sheetTopBlur) {
+    return remember(liquidBackdrop, mode, glassParams, immersive, sheetContentPadding, padInsets) {
         val wrapped: @Composable () -> Unit = {
             CompositionLocalProvider(LocalLiquidBackdrop provides liquidBackdrop, LocalBlurMode provides mode, LocalGlassParams provides glassParams) {
-                if (sheetTopBlur) SheetTopBlur { latest() } else latest()
+                if (immersive) SheetImmersiveBody(sheetContentPadding, padInsets) { latest() } else latest()
             }
         }
         wrapped
     }
 }
 
+/** 渐进模糊带比头部多出的高度（头部下沿以下）。 */
+private val SheetBandExtra = 40.dp
+
+/** 纯色材质（无模糊）：头部下沿以上多少 dp 开始渐隐 / 以下多少 dp 完全不透明。 */
+private val SheetFadeTopLead = 16.dp
+private val SheetFadeTopTail = 4.dp
+
+/** 带子底色雾化，与上游 GlassTopAppBar 渐进模糊带一致（surface 30%）。 */
+private const val SheetBandTintAlpha = 0.3f
+
+private fun sheetSmootherstep(t: Float): Float = t * t * t * (t * (t * 6f - 15f) + 10f)
+
+private val SheetFadeStops = List(17) { it / 16f }
+
+/** quintic 渐变蒙版（与上游 TopAppBarBandBrush 同一条曲线）：[fadeIn] = true 为 0→1，否则 1→0；[peak] 为不透明端的 alpha。 */
+private fun sheetFadeBrush(startY: Float, endY: Float, fadeIn: Boolean, peak: Float = 1f): Brush =
+    Brush.verticalGradient(
+        *SheetFadeStops.map { t ->
+            val a = sheetSmootherstep(t)
+            t to Color.Black.copy(alpha = peak * (if (fadeIn) a else 1f - a))
+        }.toTypedArray(),
+        startY = startY,
+        endY = endY,
+    )
+
 /**
- * 所有 sheet（[AppBottomSheet] 统一入口）内容滚动到头部时的顶部渐进效果，所有材质都生效：
- * - 柔光 / 磨砂 / 液态玻璃（设备支持 RuntimeShader）：渐进模糊（自上而下由强到弱，参数同 GlassTopAppBar 的渐进模糊带），
- *   内容录制成一层 backdrop，在内容区顶部盖一条渐进模糊带；
- * - 纯色（关闭模糊）或不支持 RuntimeShader：主题 surface 色 → 透明的渐变，与子页面顶栏的 fallback 渐变一致。
- * 滚动量由嵌套滚动累计，带子随滚动淡入（未滚动时完全透明，不改变静止外观），不拦截触摸。
+ * 沉浸 sheet 的内容层（[AppBottomSheet] 统一入口）。
+ *
+ * 上游 `immersive` 布局下内容铺满整个 sheet，拖动条 / 标题浮在内容上面，头部高度和导航栏高度通过
+ * [LocalBottomSheetInsets] 给到内容。导航栏（小白条）直接浮在内容上，底部不做任何渐隐；
+ * 只有顶部在内容滚到头部下面时处理：
+ * - 柔光 / 磨砂 / 液态玻璃（支持 RuntimeShader）：从 sheet 最顶端（y = 0，覆盖拖动条和标题）开始的渐进模糊带，
+ *   随滚动淡入，静止时不出现，按 sheet 顶部圆角裁剪；
+ * - 纯色（关闭模糊）或不支持 RuntimeShader：内容在头部下沿做 alpha 渐隐。
+ *
+ * @param padInsets true：内容整体按头部 / 导航栏高度加上下内边距（不滚动的内容用）；
+ *   false：内容自己读 [LocalBottomSheetInsets] 并把内边距交给滚动容器，让滚动内容铺到头部和导航栏下面。
  */
 @Composable
-private fun SheetTopBlur(content: @Composable () -> Unit) {
+private fun SheetImmersiveBody(contentPadding: Dp, padInsets: Boolean, content: @Composable () -> Unit) {
+    val insets = LocalBottomSheetInsets.current
     val blur = LocalBlurMode.current != BLUR_OFF && top.yukonga.miuix.kmp.material.isRuntimeShaderSupported()
-    val backdrop = rememberLayerBackdrop()
+    val inner = Modifier
+        .padding(horizontal = contentPadding)
+        .then(if (padInsets) Modifier.padding(top = insets.top, bottom = insets.bottom) else Modifier)
+    if (!blur) {
+        Box(
+            modifier = Modifier
+                // 离屏合成：下面的蒙版用 DstIn，只作用于内容层自己，不能影响 sheet 的玻璃面板
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    val topStart = (insets.top - SheetFadeTopLead).toPx().coerceAtLeast(0f)
+                    val topEnd = (insets.top + SheetFadeTopTail).toPx()
+                    if (topEnd > topStart && size.width > 0f) {
+                        drawRect(
+                            brush = sheetFadeBrush(topStart, topEnd, fadeIn = true),
+                            size = Size(size.width, topEnd.coerceAtMost(size.height)),
+                            blendMode = BlendMode.DstIn,
+                        )
+                    }
+                }
+                .then(inner),
+        ) { content() }
+        return
+    }
+
+    val surface = MiuixTheme.colorScheme.surface
+    // 录制层先垫不透明底色再画内容：模糊着色器要求被采样的层不透明，否则半透明像素会被拉成不透明黑块
+    val backdrop = rememberLayerBackdrop {
+        drawRect(color = surface.copy(alpha = 1f), size = size)
+        drawContent()
+    }
     var scrolled by remember { mutableFloatStateOf(0f) }
     val connection = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // 子项向上滚（内容上移）时 consumed.y < 0
-                scrolled = (scrolled - consumed.y).coerceAtLeast(0f)
+                scrolled = if (consumed.y == 0f && available.y > 0f) {
+                    0f // 向下拉但子项已无法消费：子项在顶部，修正累计漂移
+                } else {
+                    (scrolled - consumed.y).coerceAtLeast(0f)
+                }
                 return Offset.Zero
             }
         }
     }
+    val showBand by remember { derivedStateOf { scrolled > 0f } }
     val rampPx = with(LocalDensity.current) { GlassTopAppBarDefaults.ProgressiveBlurRampDistance.toPx() }
-    val surface = MiuixTheme.colorScheme.surface
-    val fadeBrush = remember(surface) { GlassTopAppBarDefaults.bandBrush(surface) }
+    val bandShape = remember {
+        RoundedCornerShape(topStart = BottomSheetDefaults.cornerRadius, topEnd = BottomSheetDefaults.cornerRadius)
+    }
+    val maskBrush = remember { sheetFadeBrush(0f, Float.POSITIVE_INFINITY, fadeIn = false, peak = 0.94f) }
+    val blendColors = remember(surface) { listOf(BlendColorEntry(surface.copy(alpha = SheetBandTintAlpha))) }
+    val blurColors = BlurDefaults.blurColors(blendColors = blendColors)
     Box(modifier = Modifier.nestedScroll(connection)) {
-        Box(modifier = if (blur) Modifier.layerBackdrop(backdrop) else Modifier) { content() }
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(48.dp)
-                .graphicsLayer { alpha = (scrolled / rampPx).coerceIn(0f, 1f) }
-                .then(
-                    if (blur) {
-                        Modifier.progressiveTextureBlur(
-                            backdrop = backdrop,
-                            shape = RectangleShape,
-                            gradient = ProgressiveBlur.Top.copy(curve = 0.5f),
-                            blurRadius = GlassTopAppBarDefaults.ProgressiveBlurRadius.value,
-                        )
-                    } else {
-                        Modifier.background(fadeBrush)
+        Box(modifier = Modifier.layerBackdrop(backdrop).then(inner)) { content() }
+        if (showBand) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    // 从 y = 0 开始，盖住拖动条和标题；不拦截触摸
+                    .height(insets.top + SheetBandExtra)
+                    .graphicsLayer {
+                        alpha = (scrolled / rampPx).coerceIn(0f, 1f)
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
+                    .clip(bandShape)
+                    .progressiveTextureBlur(
+                        backdrop = backdrop,
+                        shape = RectangleShape,
+                        gradient = ProgressiveBlur.Top.copy(curve = 0.5f),
+                        blurRadius = 48f,
+                        colors = blurColors,
+                    )
+                    // drawBackdrop 先画模糊层再 drawContent()：在它之后叠蒙版，淡出带子下沿
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(brush = maskBrush, blendMode = BlendMode.DstIn)
                     },
-                ),
-        )
+            )
+        }
     }
 }
 
@@ -316,7 +414,7 @@ private fun SheetTopBlur(content: @Composable () -> Unit) {
 @Composable
 fun appPopupVisuals(sampling: Boolean = true): GlassPopupVisuals {
     val dark = isAppDarkTheme()
-    val shading = sampling && GlassLook.shading()
+    val shading = sampling && GlassLook.custom()
     return GlassPopupDefaults.visuals(
         style = GlassLook.style(dark),
         material = if (shading) GlassLook.largeMaterial(dark) else GlassPopupDefaults.material(),
@@ -346,7 +444,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
         preBlurred: Boolean,
     ) {
         // 柔光玻璃：材质 / 样式 / 折射跟「自定义材质参数」走（上游默认的 dialogGlass 是 60dp 大模糊 + 三层白雾，会把样式盖住）
-        val shading = sampling && GlassLook.shading()
+        val shading = sampling && GlassLook.custom()
         val dark = isAppDarkTheme()
         // 取样源已是预模糊壁纸：对话框材质默认 20dp 的实时模糊是在糊上加糊，半径清零即整段跳过模糊 pass
         val dialogMaterial: GlassMaterial? = if (shading) {
@@ -377,7 +475,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
         enableWindowDim: Boolean, title: String?, startAction: @Composable (() -> Unit)?,
         endAction: @Composable (() -> Unit)?, onDismissFinished: (() -> Unit)?, content: @Composable () -> Unit,
     ) {
-        val shading = sampling && GlassLook.shading()
+        val shading = sampling && GlassLook.custom()
         val dark = isAppDarkTheme()
         GlassBottomSheet(
             onDismissRequest = onDismissRequest,
@@ -391,6 +489,10 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
             title = title,
             startAction = startAction,
             endAction = endAction,
+            // 取消 sheet 内边距：内容层与背景面板才能铺满整个宽度（左右留白由 AppBottomSheet 加在内容上）
+            insideMargin = DpSize.Zero,
+            // 沉浸：内容铺满整个 sheet，拖动条 / 标题浮在上面（见上游补丁 0010）
+            immersive = true,
             onDismissFinished = onDismissFinished,
             content = content,
         )
@@ -404,7 +506,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
     ) {
         // 同 DialogHost：预模糊取样源上不再叠加 20dp 实时模糊
         val base = appPopupVisuals(sampling)
-        val visuals = if (sampling && preBlurred && backdrop != null && !(sampling && GlassLook.shading())) {
+        val visuals = if (sampling && preBlurred && backdrop != null && !(sampling && GlassLook.custom())) {
             base.copy(material = base.material?.copy(blurRadius = 0.dp))
         } else base
         GlassPopup(
@@ -528,7 +630,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
         val dark = isAppDarkTheme()
         top.yukonga.miuix.kmp.glass.GlassIconButton(
             style = GlassLook.barStyle(dark),
-            material = if (GlassLook.shading()) GlassLook.barMaterial(dark) else null,
+            material = if (GlassLook.custom()) GlassLook.barMaterial(dark) else null,
             onClick = {
                 if (enabled) {
                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
@@ -623,13 +725,36 @@ fun AppBottomSheet(
     startAction: @Composable (() -> Unit)? = null,
     endAction: @Composable (() -> Unit)? = null,
     onDismissFinished: (() -> Unit)? = null,
+    /**
+     * 内容与标题栏按钮的左右留白。sheet 本身已取消内边距（insideMargin = 0），
+     * 留白改由这里加在内容上；传 0.dp 可让内容（如列表分割线）通栏铺满。
+     */
+    contentHorizontalPadding: Dp = BottomSheetDefaults.insideMargin.width,
+    /**
+     * 内容自带滚动容器时传 true：sheet 不再给内容加上下内边距，内容自己读 [LocalBottomSheetInsets]
+     * （头部高度 / 导航栏高度）并交给滚动容器做 contentPadding，列表才能铺到头部和导航栏下面再渐隐。
+     * 默认 false：不滚动的内容整体被推到头部下方、导航栏上方，不用自己处理导航栏留白。
+     */
+    scrollContent: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val material = currentMaterial()
+    // 标题栏两侧按钮原先靠 sheet 内边距离开屏幕边缘，现在自己补上
+    val start: (@Composable () -> Unit)? = startAction?.let { a ->
+        { Box(Modifier.padding(start = contentHorizontalPadding)) { a() } }
+    }
+    val end: (@Composable () -> Unit)? = endAction?.let { a ->
+        { Box(Modifier.padding(end = contentHorizontalPadding)) { a() } }
+    }
     material.SheetHost(
-        onDismissRequest, show, backdrop, modifier, enableWindowDim, title, startAction, endAction, onDismissFinished,
-        // 所有 sheet 统一走这里：内容滚到头部时的顶部渐进模糊（纯色材质为 surface→透明渐变）
-        content = rememberOverlayContent(content, sheetTopBlur = true),
+        onDismissRequest, show, backdrop, modifier, enableWindowDim, title, start, end, onDismissFinished,
+        // 所有 sheet 统一走这里：沉浸内容层（上下边缘渐隐、头部 / 导航栏留白）
+        content = rememberOverlayContent(
+            content,
+            immersive = true,
+            sheetContentPadding = contentHorizontalPadding,
+            padInsets = !scrollContent,
+        ),
     )
 }
 

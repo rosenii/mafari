@@ -1,5 +1,5 @@
 # miuix 上游来源（由 tools/miuix-sync.sh 读取）
-# 已验证可用的上游提交：6d2554a850b8960e2616c968263ff64beb5ffb03（7 个补丁全部干净应用）
+# 已验证可用的上游提交：6d2554a850b8960e2616c968263ff64beb5ffb03（10 个补丁全部干净应用）
 repo=https://github.com/compose-miuix-ui/miuix.git
 # 分支或 tag；跟随主线就写 main
 ref=main

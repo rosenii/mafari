@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.engine.gecko.GeckoExtensionStore
@@ -114,7 +115,9 @@ fun GeckoExtMenuSheet(
             if (store.popup.value != null) store.closePopup()
             onDismiss()
         },
+        scrollContent = true,
     ) {
+        val insets = LocalBottomSheetInsets.current
         if (popup != null) {
             AndroidView(
                 factory = { ctx ->
@@ -125,16 +128,16 @@ fun GeckoExtMenuSheet(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(top = insets.top)
                     .height(460.dp)
-                    .navigationBarsPadding(),
+                    .padding(bottom = insets.bottom),
             )
             return@AppBottomSheet
         }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(bottom = 16.dp),
+                .padding(top = insets.top),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
@@ -190,15 +193,19 @@ fun GeckoExtMenuSheet(
                     text = if (store.loading.value) tr("正在读取…") else tr("还没有安装拓展。长按菜单里的「拓展」图标可进入拓展页安装。"),
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 24.dp)
+                        .padding(bottom = insets.bottom),
                 )
             } else {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .heightIn(max = 380.dp)
-                        .verticalScroll(rememberScrollState()),
+                        .heightIn(max = 380.dp + insets.bottom)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = insets.bottom + 16.dp),
                 ) {
                     all.forEach { item ->
                         val action = store.actions[item.id]
