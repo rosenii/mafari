@@ -659,7 +659,7 @@ internal fun shouldShowAddressScripts(
  * - [running]：有任务正在下载 → 主题色进度环（总大小未知时为旋转的不定进度弧）
  * - [paused]：没有进行中的任务，但有暂停的任务 → 灰色进度环；暂停满 3 分钟仍未继续则自动隐藏
  * - [unseenFailed]：有任务失败 → 图标右上角红点；1 分钟内没点击则自动隐藏
- * - [unseenDone]：有任务下载完成 → 图标右上角绿点；红点优先于绿点
+ * - [unseenDone]：有任务下载完成 → 图标右上角绿点；1 分钟内没点击则自动隐藏；红点优先于绿点
  * 点击图标（打开下载页）后调用 [acknowledge]：已完成 / 失败的小圆点消失。
  */
 @Stable
@@ -683,6 +683,7 @@ internal class AddressDownloadState {
     private var acked = emptySet<Long>()
     private val pausedSince = HashMap<Long, Long>()
     private val failedSince = HashMap<Long, Long>()
+    private val doneSince = HashMap<Long, Long>()
     private var last: Snapshot? = null
 
     fun acknowledge() {
@@ -715,7 +716,7 @@ internal class AddressDownloadState {
         paused = pausedSince.any { now - it.value < PAUSED_HIDE_MS }
         progressPct = if (running) s.runPct else s.pausedPct
         unseenFailed = failedSince.any { it.key !in acked && now - it.value < FAILED_HIDE_MS }
-        unseenDone = s.doneIds.any { fresh(it) && it !in acked }
+        unseenDone = doneSince.any { it.key !in acked && now - it.value < DONE_HIDE_MS }
     }
 
     /** 在 LaunchedEffect 里调用。进度按 1% 量化，避免每个数据块都触发重组。 */
@@ -724,7 +725,7 @@ internal class AddressDownloadState {
         launch {
             while (true) {
                 kotlinx.coroutines.delay(1000)
-                if (pausedSince.isNotEmpty() || failedSince.isNotEmpty()) recompute(System.currentTimeMillis())
+                if (pausedSince.isNotEmpty() || failedSince.isNotEmpty() || doneSince.isNotEmpty()) recompute(System.currentTimeMillis())
             }
         }
         snapshotFlow {
@@ -751,6 +752,8 @@ internal class AddressDownloadState {
             s.pausedIds.forEach { id -> if (fresh(id) && id !in pausedSince) pausedSince[id] = now }
             failedSince.keys.retainAll(s.failedIds)
             s.failedIds.forEach { id -> if (fresh(id) && id !in failedSince) failedSince[id] = now }
+            doneSince.keys.retainAll(s.doneIds)
+            s.doneIds.forEach { id -> if (fresh(id) && id !in doneSince) doneSince[id] = now }
             last = s
             recompute(now)
         }
@@ -759,6 +762,7 @@ internal class AddressDownloadState {
     private companion object {
         const val PAUSED_HIDE_MS = 3 * 60 * 1000L
         const val FAILED_HIDE_MS = 60 * 1000L
+        const val DONE_HIDE_MS = 60 * 1000L
     }
 }
 

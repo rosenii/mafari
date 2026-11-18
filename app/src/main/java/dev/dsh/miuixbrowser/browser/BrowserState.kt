@@ -1868,8 +1868,12 @@ class BrowserTab(
     /** window.open / target=_blank：沿用 WebView 版的新窗口规则（同站 / 点击 / 重定向权限） */
     internal fun geckoNewWindow(target: String, linkClick: Boolean) {
         val uri = Uri.parse(target)
-        val scheme = uri.scheme
-        if (scheme != "http" && scheme != "https") return
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") {
+            // window.open("weixin://…") / <a target=_blank href="alipays://…">：交给「打开其他应用」处理，不能直接丢掉
+            if (isExternalAppScheme(scheme)) openExternalFromWindow(uri, linkClick)
+            return
+        }
         handlePopupTarget(target, uri.host.orEmpty(), linkClick)
     }
 
@@ -1913,7 +1917,7 @@ class BrowserTab(
                 return true
             }
         }
-        if (redirectPromptPending) return true
+        if (promptBusy()) return true
         askRedirect(from, tr("跳转到 {0}", targetHost.ifEmpty { target.take(60) })) { allow ->
             if (allow) open?.invoke(target) else notifyRedirectBlocked(false, targetHost)
         }
@@ -1955,16 +1959,18 @@ class BrowserTab(
      */
     internal fun geckoExternalRequest(uri: Uri) {
         val from = pageHost
-        if (from.isEmpty() || externalAppMode == 1) {
+        // 例外网站优先（与 WebView 一致）；带 permKey 才能在弹窗里「记住此网站的选择」
+        val mode = effExternalAppMode()
+        if (from.isEmpty() || mode == 1) {
             launchExternalApp(uri)
             return
         }
-        if (externalAppMode == 2) {
+        if (mode == 2) {
             notifyRedirectBlocked(true, "")
             return
         }
-        if (redirectPromptPending) return
-        askRedirect(from, tr("打开其他应用")) { allow ->
+        if (promptBusy()) return
+        askRedirect(from, tr("打开其他应用"), GeckoSitePerms.EXTERNAL_APP) { allow ->
             if (allow) launchExternalApp(uri) else notifyRedirectBlocked(true, "")
         }
     }
@@ -2303,6 +2309,14 @@ class BrowserTab(
 
     /** 正在等待用户决定的重定向，避免脚本循环跳转时连续弹窗 */
     private var redirectPromptPending = false
+    private var redirectPromptAt = 0L
+
+    /**
+     * 是否有权限弹窗正在等用户决定。超过 30 秒还没结果的视为过期（弹窗被切走标签 / 异常关闭而没回调时，
+     * 否则 [redirectPromptPending] 会一直为 true，之后所有「打开其他应用 / 重定向」都被静默吞掉）。
+     */
+    private fun promptBusy(): Boolean =
+        redirectPromptPending && android.os.SystemClock.elapsedRealtime() - redirectPromptAt < 30_000L
     private var lastRedirectToast = 0L
 
     /**
@@ -2343,7 +2357,7 @@ class BrowserTab(
             notifyRedirectBlocked(external, targetHost)
             return true
         }
-        if (redirectPromptPending) return true
+        if (promptBusy()) return true
         // 拒绝只是不执行这次跳转 / 唤起：这次导航在 shouldOverrideUrlLoading 里就已被截下，
         // 当前页面一直没有离开，所以这里什么都不用回退 —— 停留在网页，不能再 goBack 把页面「关掉」
         askRedirect(from, label, if (external) GeckoSitePerms.EXTERNAL_APP else GeckoSitePerms.REDIRECT) { allow ->
@@ -2365,7 +2379,7 @@ class BrowserTab(
         // 只接受「当前正在显示的页面」发来的请求
         val current = WebOrigin.parse(webView.url) ?: return
         if (current != origin) return
-        if (redirectPromptPending) return
+        if (promptBusy()) return
         val now = android.os.SystemClock.elapsedRealtime()
         val record = fpExemptAsked.getOrPut(origin.origin) { longArrayOf(0L, 0L) }
         if (record[0] >= 3 || (record[0] > 0 && now - record[1] < 30_000L)) return
@@ -2411,6 +2425,7 @@ class BrowserTab(
 
     private fun askRedirect(origin: String, what: String, permKey: String? = null, onResult: (Boolean) -> Unit) {
         redirectPromptPending = true
+        redirectPromptAt = android.os.SystemClock.elapsedRealtime()
         val decide = { allow: Boolean ->
             redirectPromptPending = false
             onResult(allow)
@@ -2486,7 +2501,12 @@ class BrowserTab(
             temp.post {
                 runCatching { temp.stopLoading(); temp.destroy() }
             }
-            if (uri.scheme != "http" && uri.scheme != "https") return
+            val scheme = uri.scheme?.lowercase()
+            if (scheme != "http" && scheme != "https") {
+                // window.open("weixin://dl/business/?t=…") 这类唤起微信小程序 / 支付宝的写法，不能直接丢掉
+                if (isExternalAppScheme(scheme)) mainHandler.post { openExternalFromWindow(uri, isUserGesture) }
+                return
+            }
             handlePopupTarget(target, uri.host.orEmpty(), linkClick)
         }
         temp.webViewClient = object : WebViewClient() {
@@ -2533,9 +2553,36 @@ class BrowserTab(
             notifyRedirectBlocked(false, targetHost)
             return
         }
-        if (redirectPromptPending) return
+        if (promptBusy()) return
         askRedirect(pageHost, tr("跳转到 {0}", targetHost.ifEmpty { target.take(60) }), GeckoSitePerms.REDIRECT) { allow ->
             if (allow) open(target) else notifyRedirectBlocked(false, targetHost)
+        }
+    }
+
+    /** 需要交给系统处理的应用协议（weixin / alipays / intent / mailto / tel …）；about / javascript / data / blob / file 不算 */
+    internal fun isExternalAppScheme(scheme: String?): Boolean =
+        !scheme.isNullOrEmpty() && scheme !in setOf(
+            "http", "https", "about", "javascript", "data", "blob", "file", "view-source", "resource", "moz-extension",
+        )
+
+    /**
+     * 新窗口（window.open / target=_blank）或 Gecko 子框架里要唤起其他应用：
+     * 有用户手势 / 总是允许 / 空白页 → 直接唤起；总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起。
+     */
+    internal fun openExternalFromWindow(uri: Uri, userGesture: Boolean) {
+        val from = pageHost
+        val mode = effExternalAppMode()
+        if (userGesture || from.isEmpty() || mode == 1) {
+            launchExternalApp(uri)
+            return
+        }
+        if (mode == 2) {
+            notifyRedirectBlocked(true, "")
+            return
+        }
+        if (promptBusy()) return
+        askRedirect(from, tr("打开其他应用"), GeckoSitePerms.EXTERNAL_APP) { allow ->
+            if (allow) launchExternalApp(uri) else notifyRedirectBlocked(true, "")
         }
     }
 

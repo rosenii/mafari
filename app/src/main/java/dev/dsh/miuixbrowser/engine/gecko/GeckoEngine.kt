@@ -701,6 +701,24 @@ class GeckoTabEngine(
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
+            // 子框架（隐藏 iframe）里的应用协议：很多 H5 页面用 iframe.src = "weixin://dl/business/?t=…" 唤起微信小程序，
+            // 不处理的话 Gecko 会直接丢弃，表现为「点了没反应」。规则与顶层导航一致；其余子框架请求照常加载。
+            override fun onSubframeLoadRequest(
+                session: GeckoSession,
+                request: GeckoSession.NavigationDelegate.LoadRequest,
+            ): GeckoResult<AllowOrDeny>? {
+                val target = request.uri
+                val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
+                if (scheme == null || scheme in INTERNAL_SCHEMES) return null
+                val direct = request.isDirectNavigation || SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
+                if (request.hasUserGesture || direct) {
+                    tab.geckoLaunchExternal(Uri.parse(target))
+                } else {
+                    tab.geckoExternalRequest(Uri.parse(target))
+                }
+                return GeckoResult.fromValue(AllowOrDeny.DENY)
+            }
+
             // window.open / target=_blank：不真正创建新会话，只截获地址，由标签页逻辑开新标签
             override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
                 val linkClick = SystemClock.uptimeMillis() - lastTouchAt < 2_000
