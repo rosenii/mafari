@@ -743,289 +743,307 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
             }
 
             // ———— WebDAV：已连接服务器 + 添加新配置 ————
-            CategoryDialog(
-                show = showCategoryDialog,
-                backdrop = sheetBackdrop,
-                selected = selectedCategories,
-                onToggle = { cat, on ->
-                    val next = if (on) selectedCategories + cat else selectedCategories - cat
-                    selectedCategories = next
-                    BackupAuto.setCategories(context, next)
-                },
-                onDismiss = { showCategoryDialog = false },
-            )
+            BackupChunk {
+                CategoryDialog(
+                    show = showCategoryDialog,
+                    backdrop = sheetBackdrop,
+                    selected = selectedCategories,
+                    onToggle = { cat, on ->
+                        val next = if (on) selectedCategories + cat else selectedCategories - cat
+                        selectedCategories = next
+                        BackupAuto.setCategories(context, next)
+                    },
+                    onDismiss = { showCategoryDialog = false },
+                )
 
-            ServerSheet(
-                show = showWebDavSheet,
-                title = tr("WebDAV 服务器"),
-                addTitle = tr("添加新配置"),
-                addSummary = tr("连接另一台 WebDAV 服务器"),
-                rows = webdavProfiles.map {
-                    ProfileRow(
-                        it.id,
-                        WebDavNames.hostLabel(it.config.url),
-                        it.config.username.ifEmpty { tr("匿名") },
-                        it.syncAlso,
-                    )
-                },
-                activeId = webdavActiveId,
-                backdrop = sheetBackdrop,
-                onDismiss = { showWebDavSheet = false },
-                onEdit = { id ->
-                    showWebDavSheet = false
-                    webdavEditId = id
-                    webdavDialogInitial = webdavProfiles.firstOrNull { it.id == id }?.config
-                    webdavFromSheet = true
-                    webdavConfigError = null
-                    showWebDavConfig = true
-                },
-                onUse = { id ->
-                    WebDavStore.select(context, id)
-                    reloadWebDav()
-                },
-                onToggleSync = { id, on ->
-                    WebDavStore.setSyncAlso(context, id, on)
-                    reloadWebDav()
-                },
-                onAdd = {
-                    showWebDavSheet = false
-                    webdavEditId = null
-                    webdavDialogInitial = null
-                    webdavFromSheet = true
-                    webdavConfigError = null
-                    showWebDavConfig = true
-                },
-            )
+                ServerSheet(
+                    show = showWebDavSheet,
+                    title = tr("WebDAV 服务器"),
+                    addTitle = tr("添加新配置"),
+                    addSummary = tr("连接另一台 WebDAV 服务器"),
+                    rows = webdavProfiles.map {
+                        ProfileRow(
+                            it.id,
+                            WebDavNames.hostLabel(it.config.url),
+                            it.config.username.ifEmpty { tr("匿名") },
+                            it.syncAlso,
+                        )
+                    },
+                    activeId = webdavActiveId,
+                    backdrop = sheetBackdrop,
+                    onDismiss = { showWebDavSheet = false },
+                    onEdit = { id ->
+                        showWebDavSheet = false
+                        webdavEditId = id
+                        webdavDialogInitial = webdavProfiles.firstOrNull { it.id == id }?.config
+                        webdavFromSheet = true
+                        webdavConfigError = null
+                        showWebDavConfig = true
+                    },
+                    onUse = { id ->
+                        WebDavStore.select(context, id)
+                        reloadWebDav()
+                    },
+                    onToggleSync = { id, on ->
+                        WebDavStore.setSyncAlso(context, id, on)
+                        reloadWebDav()
+                    },
+                    onAdd = {
+                        showWebDavSheet = false
+                        webdavEditId = null
+                        webdavDialogInitial = null
+                        webdavFromSheet = true
+                        webdavConfigError = null
+                        showWebDavConfig = true
+                    },
+                )
 
-            ServerSheet(
-                show = showGitSheet,
-                title = tr("Git 仓库"),
-                addTitle = tr("添加新配置"),
-                addSummary = tr("连接另一个 Git 仓库"),
-                rows = gitProfiles.map {
-                    ProfileRow(
-                        it.id,
-                        GitNames.repoLabel(it.config.url),
-                        (if (it.config.useSsh) "Deploy key" else tr("令牌")) +
-                            " · " + it.config.branch.ifEmpty { tr("默认分支") },
-                        it.syncAlso,
-                    )
-                },
-                activeId = gitActiveId,
-                backdrop = sheetBackdrop,
-                onDismiss = { showGitSheet = false },
-                onEdit = { id ->
-                    showGitSheet = false
-                    gitEditId = id
-                    gitDialogInitial = gitProfiles.firstOrNull { it.id == id }?.config
-                    gitFromSheet = true
-                    gitConfigError = null
-                    showGitConfig = true
-                },
-                onUse = { id ->
-                    GitStore.select(context, id)
-                    reloadGit()
-                },
-                onToggleSync = { id, on ->
-                    GitStore.setSyncAlso(context, id, on)
-                    reloadGit()
-                },
-                onAdd = {
-                    showGitSheet = false
-                    gitEditId = null
-                    gitDialogInitial = null
-                    gitFromSheet = true
-                    gitConfigError = null
-                    showGitConfig = true
-                },
-            )
+                ServerSheet(
+                    show = showGitSheet,
+                    title = tr("Git 仓库"),
+                    addTitle = tr("添加新配置"),
+                    addSummary = tr("连接另一个 Git 仓库"),
+                    rows = gitProfiles.map {
+                        ProfileRow(
+                            it.id,
+                            GitNames.repoLabel(it.config.url),
+                            (if (it.config.useSsh) "Deploy key" else tr("令牌")) +
+                                " · " + it.config.branch.ifEmpty { tr("默认分支") },
+                            it.syncAlso,
+                        )
+                    },
+                    activeId = gitActiveId,
+                    backdrop = sheetBackdrop,
+                    onDismiss = { showGitSheet = false },
+                    onEdit = { id ->
+                        showGitSheet = false
+                        gitEditId = id
+                        gitDialogInitial = gitProfiles.firstOrNull { it.id == id }?.config
+                        gitFromSheet = true
+                        gitConfigError = null
+                        showGitConfig = true
+                    },
+                    onUse = { id ->
+                        GitStore.select(context, id)
+                        reloadGit()
+                    },
+                    onToggleSync = { id, on ->
+                        GitStore.setSyncAlso(context, id, on)
+                        reloadGit()
+                    },
+                    onAdd = {
+                        showGitSheet = false
+                        gitEditId = null
+                        gitDialogInitial = null
+                        gitFromSheet = true
+                        gitConfigError = null
+                        showGitConfig = true
+                    },
+                )
+            }
 
-            DefaultPasswordDialog(
-                show = showDefaultPw,
-                isSet = defaultPwSet,
-                initial = defaultPwInitial,
-                backdrop = sheetBackdrop,
-                onDismiss = {
-                    showDefaultPw = false
-                    defaultPwInitial = ""
-                },
-                onSave = { pw ->
-                    val r = runCatching { BackupAuto.setPassword(context, pw) }
-                    if (r.isSuccess) {
-                        defaultPwSet = true
+            BackupChunk {
+                DefaultPasswordDialog(
+                    show = showDefaultPw,
+                    isSet = defaultPwSet,
+                    initial = defaultPwInitial,
+                    backdrop = sheetBackdrop,
+                    onDismiss = {
                         showDefaultPw = false
                         defaultPwInitial = ""
-                        Toast.makeText(context, tr("默认口令已保存"), Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, failText(tr("保存失败"), r.exceptionOrNull()), Toast.LENGTH_LONG).show()
-                    }
-                },
-                onClear = {
-                    BackupAuto.clearPassword(context)
-                    defaultPwSet = false
-                    autoMode = 0
-                    showDefaultPw = false
-                    defaultPwInitial = ""
-                },
-            )
+                    },
+                    onSave = { pw ->
+                        val r = runCatching { BackupAuto.setPassword(context, pw) }
+                        if (r.isSuccess) {
+                            defaultPwSet = true
+                            showDefaultPw = false
+                            defaultPwInitial = ""
+                            Toast.makeText(context, tr("默认口令已保存"), Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, failText(tr("保存失败"), r.exceptionOrNull()), Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    onClear = {
+                        BackupAuto.clearPassword(context)
+                        defaultPwSet = false
+                        autoMode = 0
+                        showDefaultPw = false
+                        defaultPwInitial = ""
+                    },
+                )
 
-            PasswordDialog(
-                show = showPasswordDialog,
-                backdrop = sheetBackdrop,
-                onDismiss = { showPasswordDialog = false },
-                confirmText = when (exportTarget) {
-                    ExportTarget.FILE -> tr("导出")
-                    ExportTarget.WEBDAV -> tr("上传")
-                    ExportTarget.GIT -> tr("推送")
-                },
-                onConfirm = { password ->
-                    showPasswordDialog = false
-                    performExport(password)
-                },
-            )
+                PasswordDialog(
+                    show = showPasswordDialog,
+                    backdrop = sheetBackdrop,
+                    onDismiss = { showPasswordDialog = false },
+                    confirmText = when (exportTarget) {
+                        ExportTarget.FILE -> tr("导出")
+                        ExportTarget.WEBDAV -> tr("上传")
+                        ExportTarget.GIT -> tr("推送")
+                    },
+                    onConfirm = { password ->
+                        showPasswordDialog = false
+                        performExport(password)
+                    },
+                )
+            }
 
-            GitConfigDialog(
-                show = showGitConfig,
-                initial = gitDialogInitial,
-                testing = gitTesting,
-                error = gitConfigError,
-                backdrop = sheetBackdrop,
-                importedKey = gitImportedKey,
-                onImportedKeyConsumed = { gitImportedKey = null },
-                onPickKey = { keyPicker.launch(arrayOf("*/*")) },
-                onDismiss = {
-                    if (!gitTesting) {
+            BackupChunk {
+                GitConfigDialog(
+                    show = showGitConfig,
+                    initial = gitDialogInitial,
+                    testing = gitTesting,
+                    error = gitConfigError,
+                    backdrop = sheetBackdrop,
+                    importedKey = gitImportedKey,
+                    onImportedKeyConsumed = { gitImportedKey = null },
+                    onPickKey = { keyPicker.launch(arrayOf("*/*")) },
+                    onDismiss = {
+                        if (!gitTesting) {
+                            showGitConfig = false
+                            if (gitFromSheet && gitProfiles.isNotEmpty()) showGitSheet = true
+                        }
+                    },
+                    onSave = { cfg ->
+                        gitTesting = true
+                        gitConfigError = null
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    GitSyncClient(context, cfg).test()
+                                    GitStore.save(context, cfg, gitEditId)
+                                }
+                            }
+                            gitTesting = false
+                            if (result.isSuccess) {
+                                reloadGit()
+                                showGitConfig = false
+                                Toast.makeText(context, tr("仓库已连接并保存"), Toast.LENGTH_SHORT).show()
+                            } else {
+                                gitConfigError = result.exceptionOrNull()?.message ?: tr("未知错误")
+                            }
+                        }
+                    },
+                    onDelete = {
+                        gitEditId?.let { GitStore.remove(context, it) }
+                        reloadGit()
                         showGitConfig = false
                         if (gitFromSheet && gitProfiles.isNotEmpty()) showGitSheet = true
-                    }
-                },
-                onSave = { cfg ->
-                    gitTesting = true
-                    gitConfigError = null
-                    scope.launch {
-                        val result = withContext(Dispatchers.IO) {
-                            runCatching {
-                                GitSyncClient(context, cfg).test()
-                                GitStore.save(context, cfg, gitEditId)
+                    },
+                )
+
+                WebDavConfigDialog(
+                    show = showWebDavConfig,
+                    initial = webdavDialogInitial,
+                    testing = webdavTesting,
+                    error = webdavConfigError,
+                    backdrop = sheetBackdrop,
+                    onDismiss = {
+                        if (!webdavTesting) {
+                            showWebDavConfig = false
+                            if (webdavFromSheet && webdavProfiles.isNotEmpty()) showWebDavSheet = true
+                        }
+                    },
+                    onSave = { cfg ->
+                        webdavTesting = true
+                        webdavConfigError = null
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    WebDavClient(cfg).test()
+                                    WebDavStore.save(context, cfg, webdavEditId)
+                                }
+                            }
+                            webdavTesting = false
+                            if (result.isSuccess) {
+                                reloadWebDav()
+                                showWebDavConfig = false
+                                Toast.makeText(context, tr("服务器已连接并保存"), Toast.LENGTH_SHORT).show()
+                            } else {
+                                webdavConfigError = result.exceptionOrNull()?.message ?: tr("未知错误")
                             }
                         }
-                        gitTesting = false
-                        if (result.isSuccess) {
-                            reloadGit()
-                            showGitConfig = false
-                            Toast.makeText(context, tr("仓库已连接并保存"), Toast.LENGTH_SHORT).show()
-                        } else {
-                            gitConfigError = result.exceptionOrNull()?.message ?: tr("未知错误")
-                        }
-                    }
-                },
-                onDelete = {
-                    gitEditId?.let { GitStore.remove(context, it) }
-                    reloadGit()
-                    showGitConfig = false
-                    if (gitFromSheet && gitProfiles.isNotEmpty()) showGitSheet = true
-                },
-            )
-
-            WebDavConfigDialog(
-                show = showWebDavConfig,
-                initial = webdavDialogInitial,
-                testing = webdavTesting,
-                error = webdavConfigError,
-                backdrop = sheetBackdrop,
-                onDismiss = {
-                    if (!webdavTesting) {
+                    },
+                    onDelete = {
+                        webdavEditId?.let { WebDavStore.remove(context, it) }
+                        reloadWebDav()
                         showWebDavConfig = false
                         if (webdavFromSheet && webdavProfiles.isNotEmpty()) showWebDavSheet = true
-                    }
-                },
-                onSave = { cfg ->
-                    webdavTesting = true
-                    webdavConfigError = null
-                    scope.launch {
-                        val result = withContext(Dispatchers.IO) {
-                            runCatching {
-                                WebDavClient(cfg).test()
-                                WebDavStore.save(context, cfg, webdavEditId)
+                    },
+                )
+            }
+
+            BackupChunk {
+                HistoryPickerDialog(
+                    show = showHistory,
+                    summary = if (historySource == ExportTarget.GIT) tr("仓库里的历史提交") else tr("服务器上的历史备份"),
+                    items = historyItems.map { historyLabel(it, it === historyItems.firstOrNull()) },
+                    selectedIndex = historyIndex,
+                    onSelect = { historyIndex = it },
+                    backdrop = sheetBackdrop,
+                    onDismiss = { showHistory = false },
+                    onConfirm = { restoreSelectedHistory() },
+                )
+
+                RestorePasswordDialog(
+                    show = showRestorePassword,
+                    backdrop = sheetBackdrop,
+                    onDismiss = {
+                        showRestorePassword = false
+                        restoreUri = null
+                        restoreBytes = null
+                    },
+                    onConfirm = { password ->
+                        showRestorePassword = false
+                        runRestore(password, fromDefault = false)
+                    },
+                )
+
+                val plan = restorePlan
+                RestoreConfirmDialog(
+                    show = plan != null,
+                    plan = plan,
+                    selected = restoreSelected,
+                    onToggle = { cat, on -> restoreSelected = if (on) restoreSelected + cat else restoreSelected - cat },
+                    backdrop = sheetBackdrop,
+                    onDismiss = { if (!restoring) restorePlan = null },
+                    onConfirm = {
+                        val p = restorePlan ?: return@RestoreConfirmDialog
+                        restoring = true
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) { runCatching { BackupManager.applyRestore(context, p, restoreSelected) } }
+                            if (result.isSuccess) {
+                                Toast.makeText(context, tr("恢复完成，正在重启…"), Toast.LENGTH_SHORT).show()
+                                delay(600)
+                                BackupManager.restartApp(context)
+                            } else {
+                                restoring = false
+                                restorePlan = null
+                                Toast.makeText(
+                                    context,
+                                    failText(tr("恢复失败"), result.exceptionOrNull()) + tr("，建议重启后检查数据"),
+                                    Toast.LENGTH_LONG,
+                                ).show()
                             }
                         }
-                        webdavTesting = false
-                        if (result.isSuccess) {
-                            reloadWebDav()
-                            showWebDavConfig = false
-                            Toast.makeText(context, tr("服务器已连接并保存"), Toast.LENGTH_SHORT).show()
-                        } else {
-                            webdavConfigError = result.exceptionOrNull()?.message ?: tr("未知错误")
-                        }
-                    }
-                },
-                onDelete = {
-                    webdavEditId?.let { WebDavStore.remove(context, it) }
-                    reloadWebDav()
-                    showWebDavConfig = false
-                    if (webdavFromSheet && webdavProfiles.isNotEmpty()) showWebDavSheet = true
-                },
-            )
-
-            HistoryPickerDialog(
-                show = showHistory,
-                summary = if (historySource == ExportTarget.GIT) tr("仓库里的历史提交") else tr("服务器上的历史备份"),
-                items = historyItems.map { historyLabel(it, it === historyItems.firstOrNull()) },
-                selectedIndex = historyIndex,
-                onSelect = { historyIndex = it },
-                backdrop = sheetBackdrop,
-                onDismiss = { showHistory = false },
-                onConfirm = { restoreSelectedHistory() },
-            )
-
-            RestorePasswordDialog(
-                show = showRestorePassword,
-                backdrop = sheetBackdrop,
-                onDismiss = {
-                    showRestorePassword = false
-                    restoreUri = null
-                    restoreBytes = null
-                },
-                onConfirm = { password ->
-                    showRestorePassword = false
-                    runRestore(password, fromDefault = false)
-                },
-            )
-
-            val plan = restorePlan
-            RestoreConfirmDialog(
-                show = plan != null,
-                plan = plan,
-                selected = restoreSelected,
-                onToggle = { cat, on -> restoreSelected = if (on) restoreSelected + cat else restoreSelected - cat },
-                backdrop = sheetBackdrop,
-                onDismiss = { if (!restoring) restorePlan = null },
-                onConfirm = {
-                    val p = restorePlan ?: return@RestoreConfirmDialog
-                    restoring = true
-                    scope.launch {
-                        val result = withContext(Dispatchers.IO) { runCatching { BackupManager.applyRestore(context, p, restoreSelected) } }
-                        if (result.isSuccess) {
-                            Toast.makeText(context, tr("恢复完成，正在重启…"), Toast.LENGTH_SHORT).show()
-                            delay(600)
-                            BackupManager.restartApp(context)
-                        } else {
-                            restoring = false
-                            restorePlan = null
-                            Toast.makeText(
-                                context,
-                                failText(tr("恢复失败"), result.exceptionOrNull()) + tr("，建议重启后检查数据"),
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
     }
 }
 
 /* ------------------------------ 通用小部件 ------------------------------ */
+
+/**
+ * 把一段 composable 内容放进独立的 lambda 方法里（不产生任何布局节点）。
+ * 用来拆分 BackupScreen 里过大的 Scaffold 内容 lambda，避免 Kotlin 编译器生成超大方法而 OOM。
+ */
+@Composable
+private fun BackupChunk(content: @Composable () -> Unit) {
+    content()
+}
+
 
 /** 卡片下方的灰色说明。 */
 @Composable
