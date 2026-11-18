@@ -8,10 +8,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.dsh.miuixbrowser.engine.gecko.GeckoTranslate
+import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.i18n.tr
 import dev.dsh.miuixbrowser.translate.TranslateConfig
 import dev.dsh.miuixbrowser.translate.TranslateException
 import dev.dsh.miuixbrowser.translate.TranslateManager
+import dev.dsh.miuixbrowser.translate.TranslateSourceId
 import org.json.JSONArray
 import org.json.JSONObject
 import org.mozilla.geckoview.WebExtension
@@ -48,6 +50,37 @@ class TabTranslate(private val tab: BrowserTab) {
 
     /** 页面上是否有译文可以切换（已开始过翻译，且没被还原） */
     val active: Boolean get() = phase != Phase.IDLE
+
+    /** 地址栏翻译图标是否显示：翻译进行中 / 已完成 / 正显示原文（出错时不显示，错误信息在翻译面板里） */
+    val iconVisible: Boolean get() = phase == Phase.TRANSLATING || phase == Phase.DONE || phase == Phase.ORIGINAL
+
+    /** 正在显示原文（图标变灰）；否则是译文（图标主题色） */
+    val showingOriginal: Boolean get() = phase == Phase.ORIGINAL
+
+    /** 地址栏图标点击：原文 ↔ 译文 */
+    fun toggleOriginal() {
+        if (phase == Phase.ORIGINAL) showTranslation() else showOriginal()
+    }
+
+    /** 「始终翻译此页面」：Gecko 内容脚本还没连上时先记着，握手后再开始 */
+    private var autoPending = false
+
+    /**
+     * 页面加载完成时调用：当前页在「始终翻译」名单里、且还没开始翻译，就按当前设置自动翻译。
+     * 换页 / 重新加载后文档里的译文已经没了，所以每次加载完成都会重新判断。
+     */
+    fun autoStartIfNeeded() {
+        if (tab.closed || phase != Phase.IDLE) return
+        val settings = tab.appContext.appContainer.settings
+        if (!settings.isAlwaysTranslate(tab.url)) return
+        if (settings.translateSource == TranslateSourceId.CUSTOM && settings.translateCustomUrl.isBlank()) return
+        if (tab.isGecko && port == null) {
+            autoPending = true
+            return
+        }
+        autoPending = false
+        start(settings.translateConfig())
+    }
 
     /** 页面脚本最近一次登记的 Gecko 端口 */
     @Volatile private var port: WebExtension.Port? = null
@@ -107,6 +140,7 @@ class TabTranslate(private val tab: BrowserTab) {
     /** 新文档开始加载：页面上的译文和脚本状态都随旧文档消失 */
     fun onNavigation() {
         generation++
+        autoPending = false
         reset()
     }
 
@@ -135,6 +169,7 @@ class TabTranslate(private val tab: BrowserTab) {
         // 端口由握手消息登记；之后只受理当前端口的消息，旧页面迟到的消息不能影响新页面
         if (msg.optString("t") == "hello") {
             port = p
+            if (autoPending) autoStartIfNeeded()
             return
         }
         if (p !== port) return

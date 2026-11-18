@@ -2050,6 +2050,7 @@ API Key（可选）	API key (optional)
 翻译时，页面上的文字会发送到所选翻译源。	When translating, the text on the page is sent to the selected translation source.
 重新翻译	Translate again
 翻译本页	Translate this page
+始终翻译此页面	Always translate this page
 显示译文	Show translation
 显示原文	Show original
 还原网页	Restore page

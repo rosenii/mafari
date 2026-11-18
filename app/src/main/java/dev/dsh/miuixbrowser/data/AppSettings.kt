@@ -745,6 +745,37 @@ class AppSettings(context: Context) {
             .apply()
     }
 
+    /** 「始终翻译此页面」：勾选过的页面键（见 [translatePageKey]），在这些页面加载完成后自动翻译 */
+    var alwaysTranslatePages by mutableStateOf(prefs.getStringSet(KEY_TR_ALWAYS, null)?.toSet().orEmpty())
+        private set
+
+    /**
+     * 「始终翻译此页面」的页面键：http(s) 地址去掉 #片段 和 ?查询，主机名小写，末尾斜杠忽略。
+     * 想改成按整个网站（主机名）生效，只需把这里改成返回 host。
+     */
+    fun translatePageKey(url: String): String? {
+        val u = runCatching { android.net.Uri.parse(url.trim()) }.getOrNull() ?: return null
+        val scheme = u.scheme?.lowercase() ?: return null
+        if (scheme != "http" && scheme != "https") return null
+        val host = u.host?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+        val port = if (u.port > 0) ":${u.port}" else ""
+        val path = (u.encodedPath ?: "").trimEnd('/')
+        return "$scheme://$host$port$path"
+    }
+
+    fun isAlwaysTranslate(url: String): Boolean {
+        val key = translatePageKey(url) ?: return false
+        return key in alwaysTranslatePages
+    }
+
+    fun setAlwaysTranslate(url: String, on: Boolean) {
+        val key = translatePageKey(url) ?: return
+        val next = if (on) alwaysTranslatePages + key else alwaysTranslatePages - key
+        if (next == alwaysTranslatePages) return
+        alwaysTranslatePages = next
+        prefs.edit().putStringSet(KEY_TR_ALWAYS, next).apply()
+    }
+
     /** 当前设置的快照：一次翻译进行中改设置不影响它 */
     fun translateConfig() = TranslateConfig(translateSource, translateTarget, translateCustomUrl, translateCustomKey)
 
@@ -1015,6 +1046,7 @@ class AppSettings(context: Context) {
         const val KEY_TR_TARGET = "translate_target"
         const val KEY_TR_URL = "translate_custom_url"
         const val KEY_TR_KEY = "translate_custom_key"
+        const val KEY_TR_ALWAYS = "translate_always_pages"
     }
 }
 

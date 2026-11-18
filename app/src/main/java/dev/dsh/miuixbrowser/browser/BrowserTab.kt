@@ -869,6 +869,8 @@ class BrowserTab(
                 installElementInspector(view)
                 // 阅读模式：页面加载完后检测能否进入
                 if (!parked) onWebPageSettled(pageUrl ?: url, 400L)
+                // 「始终翻译此页面」
+                if (!parked) translate.autoStartIfNeeded()
             }
 
             override fun doUpdateVisitedHistory(view: WebView, pageUrl: String?, isReload: Boolean) {
@@ -1769,6 +1771,8 @@ class BrowserTab(
         if (success && !geckoShowingError && !parked && visited.isNotEmpty() && !visited.startsWith("about:")) {
             onVisited?.invoke(visited, title)
         }
+        // 「始终翻译此页面」：内容脚本没连上时由握手补上
+        if (success && !geckoShowingError && !parked) translate.autoStartIfNeeded()
     }
 
     internal fun geckoNavChanged() {

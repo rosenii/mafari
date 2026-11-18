@@ -72,6 +72,11 @@ fun GlassBackButton(onClick: () -> Unit) {
 fun HapticGlassIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * 玻璃采样源。在顶栏（GlassTopAppBar）里不用传——按钮继承顶栏的；
+     * 放在顶栏之外（如 sheet 头部）必须传，否则 miuix 的 GlassIconButton 退回平的底色，没有玻璃质感。
+     */
+    backdrop: Backdrop? = null,
     content: @Composable () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -82,6 +87,7 @@ fun HapticGlassIconButton(
             onClick()
         },
         modifier = modifier,
+        backdrop = backdrop,
         style = GlassLook.barStyle(dark),
         material = if (GlassLook.custom()) GlassLook.barMaterial(dark) else null,
         content = content,

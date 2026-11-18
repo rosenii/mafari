@@ -97,9 +97,12 @@ internal fun TabsSheetHeader(
     tabsPage: Int,
     onTabsPageChange: (Int) -> Unit,
     liquid: LiquidBackdrop?,
+    /** 柔光玻璃的采样源（页面内容层）；非空且当前是柔光玻璃时，两个圆形按钮用柔光玻璃材质，否则沿用 [liquid] 的材质 */
+    softBackdrop: LayerBackdrop? = null,
     onClose: () -> Unit,
     onClearAll: () -> Unit,
 ) {
+    val soft = if (GlassLook.shading()) softBackdrop else null
     val pageCount = state.tabs.count { it.incognito == (tabsPage == 1) }
     // Row 而不是叠放的 Box：中间的分段切换占两侧按钮之外的剩余宽度（最宽 236dp 并居中），
     // 窄屏上只会收缩，不会再和两侧按钮重叠
@@ -111,6 +114,7 @@ internal fun TabsSheetHeader(
         TabAddButton(
             canAdd = state.tabs.size < 99,
             backdrop = liquid,
+            softBackdrop = soft,
             onClick = {
                 state.newTab(incognito = tabsPage == 1)
                 onClose()
@@ -123,9 +127,10 @@ internal fun TabsSheetHeader(
                 onSelect = onTabsPageChange,
             )
         }
-        LiquidGlassButton(
+        TabsHeaderButton(
             onClick = onClearAll,
-            backdrop = liquid,
+            liquid = liquid,
+            softBackdrop = soft,
             enabled = pageCount > 0,
         ) {
             Icon(

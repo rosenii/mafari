@@ -84,6 +84,7 @@ BrowserChunk {
                             tabsPage = tabsPage,
                             onTabsPageChange = { tabsPage = it },
                             liquid = if (glassAvailable && settings.blurEnabled) liquidBackdrop else null,
+                            softBackdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
                             onClose = { sheet = Sheet.None },
                             onClearAll = { showClearTabsConfirm = true },
                         )
@@ -239,7 +240,7 @@ BrowserChunk {
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(linkUrl))) }
                     }
                     // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
-                    if (settings.pageEnhancements && !tab.isGecko) {
+                    if (settings.pageEnhancements && settings.adMarkLongPress && !tab.isGecko) {
                         SheetRow(
                             title = tr("标记为广告"),
                             subtitle = tr("选中这个广告位，可记住规则下次自动隐藏"),
@@ -301,7 +302,7 @@ BrowserChunk {
                         }
                     }
                     // 标记广告依赖 WebView 的页面内 JS 取元素：Gecko 下不提供
-                    if (settings.pageEnhancements && !tab.isGecko) {
+                    if (settings.pageEnhancements && settings.adMarkLongPress && !tab.isGecko) {
                         SheetRow(
                             title = tr("标记为广告"),
                             subtitle = tr("选中这个广告位，可记住规则下次自动隐藏"),

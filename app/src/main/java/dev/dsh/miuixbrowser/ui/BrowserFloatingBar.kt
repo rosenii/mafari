@@ -164,9 +164,12 @@ internal fun BoxScope.BrowserFloatingBar(
         val readerDark = (0.299f * readerSurface.red + 0.587f * readerSurface.green + 0.114f * readerSurface.blue) < 0.5f
         // 脚本图标与阅读图标共用这一个位置（宽度相同）：阅读优先，没有阅读图标时才可能显示脚本图标
         // 优先级：下载 > 阅读 > 脚本，三者共用同一个位置（宽度相同）
-        val downloadShown = shouldShowAddressDownload(addressDownload.visible, editing)
-        val scriptsShown = shouldShowAddressScripts(readerShown, addressScriptCount > 0, editing, addressDownload.visible)
-        val readerWidth = if (downloadShown || shouldShowAddressReader(readerShown, editing, addressDownload.visible) || scriptsShown) AddressReaderWidth else 0.dp
+        // 优先级：翻译 > 下载 > 阅读 > 脚本
+        val translateVisible = tab.translate.iconVisible
+        val translateShown = shouldShowAddressTranslate(translateVisible, editing)
+        val downloadShown = shouldShowAddressDownload(addressDownload.visible, editing, translateVisible)
+        val scriptsShown = shouldShowAddressScripts(readerShown, addressScriptCount > 0, editing, addressDownload.visible, translateVisible)
+        val readerWidth = if (translateShown || downloadShown || shouldShowAddressReader(readerShown, editing, addressDownload.visible, translateVisible) || scriptsShown) AddressReaderWidth else 0.dp
         val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth + readerWidth
         // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
         val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
@@ -369,6 +372,9 @@ internal fun BoxScope.BrowserFloatingBar(
                 addressDownload.acknowledge()
                 pushPage(AppRoute.Downloads)
             },
+            translateVisible = tab.translate.iconVisible,
+            translateOriginal = tab.translate.showingOriginal,
+            onTranslateToggle = { tab.translate.toggleOriginal() },
             onShare = {
                 if (tab.url.isNotBlank()) {
                     runCatching {

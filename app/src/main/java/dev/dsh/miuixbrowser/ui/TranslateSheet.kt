@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -15,7 +18,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,6 +33,7 @@ import dev.dsh.miuixbrowser.translate.TranslateLangs
 import dev.dsh.miuixbrowser.translate.TranslateManager
 import dev.dsh.miuixbrowser.translate.TranslateSourceId
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.blur.Backdrop
@@ -151,6 +158,34 @@ fun TranslateSheet(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
             )
+
+            // ---- 始终翻译此页面（仅 http / https 页面可勾选；勾选后这个页面每次加载完成都自动翻译）----
+            val pageKey = settings.translatePageKey(tab.url)
+            if (pageKey != null) {
+                val always = settings.isAlwaysTranslate(tab.url)
+                val toggle = { settings.setAlwaysTranslate(tab.url, !always) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(onClick = toggle)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        state = if (always) ToggleableState.On else ToggleableState.Off,
+                        onClick = toggle,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = tr("始终翻译此页面"),
+                        fontSize = 15.sp,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                }
+                Spacer(Modifier.size(4.dp))
+            }
 
             // ---- 操作 ----
             Column(

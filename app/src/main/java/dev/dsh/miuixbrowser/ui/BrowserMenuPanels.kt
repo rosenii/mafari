@@ -701,6 +701,32 @@ internal fun TabCard(
     }
 }
 
+/**
+ * 标签页 sheet 头部的圆形按钮。柔光玻璃（[softBackdrop] 非空）：用柔光玻璃材质并以页面内容层为采样源，
+ * 与底栏 / 顶栏按钮一致；miuix 的玻璃按钮在顶栏之外不传采样源会退回平底色，所以必须显式传。
+ * 其它模式沿用 [LiquidGlassButton]（液态玻璃 / 磨砂 / 关闭模糊各自的材质）。
+ */
+@Composable
+internal fun TabsHeaderButton(
+    onClick: () -> Unit,
+    liquid: com.kyant.backdrop.Backdrop?,
+    softBackdrop: LayerBackdrop?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    if (softBackdrop != null) {
+        HapticGlassIconButton(
+            onClick = { if (enabled) onClick() },
+            modifier = modifier.alpha(if (enabled) 1f else 0.4f),
+            backdrop = softBackdrop,
+            content = content,
+        )
+    } else {
+        LiquidGlassButton(onClick = onClick, backdrop = liquid, modifier = modifier, enabled = enabled, content = content)
+    }
+}
+
 /** 标签页 sheet 左上角圆形新建按钮：在当前栏（标签页 / 无痕浏览页）新建，无长按操作。 */
 @Composable
 internal fun TabAddButton(
@@ -708,10 +734,12 @@ internal fun TabAddButton(
     onClick: () -> Unit,
     backdrop: com.kyant.backdrop.Backdrop?,
     modifier: Modifier = Modifier,
+    softBackdrop: LayerBackdrop? = null,
 ) {
-    LiquidGlassButton(
+    TabsHeaderButton(
         onClick = onClick,
-        backdrop = backdrop,
+        liquid = backdrop,
+        softBackdrop = softBackdrop,
         modifier = modifier,
         enabled = canAdd,
     ) {

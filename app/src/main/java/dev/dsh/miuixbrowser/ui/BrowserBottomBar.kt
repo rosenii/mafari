@@ -187,6 +187,7 @@ import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.basic.Check
 import dev.dsh.miuixbrowser.ui.icons.Settings
 import top.yukonga.miuix.kmp.icon.glass.Search
+import top.yukonga.miuix.kmp.icon.glass.Translate
 import top.yukonga.miuix.kmp.icon.glass.Phone
 import top.yukonga.miuix.kmp.icon.glass.More
 import top.yukonga.miuix.kmp.icon.glass.Info
@@ -312,18 +313,30 @@ internal fun BottomBar(
     /** 下载图标状态：有下载在进行 / 有已完成未查看的下载时非 null；优先级 下载 > 阅读 > 脚本 */
     download: AddressDownloadState? = null,
     onDownload: () -> Unit = {},
+    /** 当前页正在 / 已经翻译：地址栏最左侧显示翻译图标（优先级最高） */
+    translateVisible: Boolean = false,
+    /** 正显示原文：图标变灰；译文时是主题色 */
+    translateOriginal: Boolean = false,
+    onTranslateToggle: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(29.dp)
     val showRefresh = shouldShowAddressRefresh(address = address, loading = loading, editing = editing)
     val downloadVisible = download?.visible == true
-    val showDownload = shouldShowAddressDownload(downloadVisible = downloadVisible, editing = editing)
-    val showReader = shouldShowAddressReader(readerVisible = readerVisible, editing = editing, downloadVisible = downloadVisible)
+    val showTranslate = shouldShowAddressTranslate(translateVisible = translateVisible, editing = editing)
+    val showDownload = shouldShowAddressDownload(downloadVisible = downloadVisible, editing = editing, translateVisible = translateVisible)
+    val showReader = shouldShowAddressReader(
+        readerVisible = readerVisible,
+        editing = editing,
+        downloadVisible = downloadVisible,
+        translateVisible = translateVisible,
+    )
     val showScripts = shouldShowAddressScripts(
         readerVisible = readerVisible,
         scriptsRunning = scriptsRunning,
         editing = editing,
         downloadVisible = downloadVisible,
+        translateVisible = translateVisible,
     )
     Box(
         modifier = Modifier
@@ -393,8 +406,12 @@ internal fun BottomBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // 阅读模式图标：地址栏最左侧（比加载小圆点还靠左）
-                if (showDownload && download != null) {
-                    // 下载图标优先级最高：与阅读 / 脚本图标同一位置、同一尺寸
+                if (showTranslate) {
+                    // 翻译图标优先级最高（翻译 > 下载 > 阅读 > 脚本）：与它们同一位置、同一尺寸
+                    AddressTranslateButton(original = translateOriginal, onClick = onTranslateToggle)
+                    Spacer(Modifier.width(6.dp))
+                } else if (showDownload && download != null) {
+                    // 下载图标优先于阅读 / 脚本图标：与它们同一位置、同一尺寸
                     AddressDownloadButton(state = download, onClick = onDownload)
                     Spacer(Modifier.width(6.dp))
                 } else if (showReader) {
@@ -633,12 +650,20 @@ internal fun shouldShowAddressRefresh(address: String, loading: Boolean, editing
 internal val AddressRefreshWidth = 26.dp
 
 /** 阅读图标显示条件：页面可进入 / 正处于阅读模式，且不在输入状态（输入时让位给文字编辑）。 */
-internal fun shouldShowAddressReader(readerVisible: Boolean, editing: Boolean, downloadVisible: Boolean = false): Boolean =
-    readerVisible && !editing && !downloadVisible
+internal fun shouldShowAddressReader(
+    readerVisible: Boolean,
+    editing: Boolean,
+    downloadVisible: Boolean = false,
+    translateVisible: Boolean = false,
+): Boolean = readerVisible && !editing && !downloadVisible && !translateVisible
 
 /** 下载图标显示条件：有下载在进行 / 有已完成未查看的下载，且不在输入状态。优先级最高（下载 > 阅读 > 脚本）。 */
-internal fun shouldShowAddressDownload(downloadVisible: Boolean, editing: Boolean): Boolean =
-    downloadVisible && !editing
+internal fun shouldShowAddressDownload(downloadVisible: Boolean, editing: Boolean, translateVisible: Boolean = false): Boolean =
+    downloadVisible && !editing && !translateVisible
+
+/** 翻译图标显示条件：当前页正在 / 已经翻译，且不在输入状态。优先级最高（翻译 > 下载 > 阅读 > 脚本），与它们共用同一个位置。 */
+internal fun shouldShowAddressTranslate(translateVisible: Boolean, editing: Boolean): Boolean =
+    translateVisible && !editing
 
 /** 地址栏内阅读图标占用的宽度（按钮 24dp + 右侧间距 2dp），用于底栏宽度计算。 */
 internal val AddressReaderWidth = 26.dp
@@ -652,7 +677,8 @@ internal fun shouldShowAddressScripts(
     scriptsRunning: Boolean,
     editing: Boolean,
     downloadVisible: Boolean = false,
-): Boolean = scriptsRunning && !readerVisible && !downloadVisible && !editing
+    translateVisible: Boolean = false,
+): Boolean = scriptsRunning && !readerVisible && !downloadVisible && !translateVisible && !editing
 
 /**
  * 进程级单例：Activity 重建（旋转 / 切换主题）后界面拿到的仍是同一份状态，
@@ -926,6 +952,38 @@ internal fun AddressScriptButton(onClick: () -> Unit) {
             tint = MiuixTheme.colorScheme.primary,
             // 视觉上略微下移（只移图标，点击区域不变）
             modifier = Modifier.offset(y = 1.dp).size(iconSize),
+        )
+    }
+}
+
+/**
+ * 地址栏最左侧的翻译按钮：位置和大小与 [AddressReaderButton] / [AddressScriptButton] 一致。
+ * 译文显示中是主题色，切到原文时变灰色；点击在原文与译文之间切换。
+ */
+@Composable
+internal fun AddressTranslateButton(original: Boolean, onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    val tint = if (original) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.primary
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        val iconSize = with(LocalDensity.current) { 15.sp.toDp() }
+        Icon(
+            imageVector = MiuixIcons.Glass.Translate,
+            contentDescription = if (original) tr("显示译文") else tr("显示原文"),
+            tint = tint,
+            modifier = Modifier.size(iconSize),
         )
     }
 }
