@@ -411,10 +411,11 @@ object Downloader {
             while (attempt < MAX_ATTEMPTS) {
                 try {
                     downloadOnce(id)
-                    val finished = tasks.firstOrNull { it.id == id }
                     updateAndPersist(id) { it.copy(state = DownloadState.DONE, error = null) }
+                    // 完成后再取任务：此时 uri / mime 已确定，通知点击直接用它打开文件
+                    val finished = tasks.firstOrNull { it.id == id }
                     settle(id, true)
-                    DownloadService.instance?.finish(finished?.name ?: tr("文件"))
+                    DownloadService.instance?.finish(finished?.name ?: tr("文件"), finished?.uri, finished?.mime)
                     toast(app, tr("下载完成：{0}", finished?.name ?: tr("文件")))
                     return@launch
                 } catch (e: CancellationException) {

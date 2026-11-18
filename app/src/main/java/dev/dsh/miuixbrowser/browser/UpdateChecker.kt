@@ -168,7 +168,7 @@ object UpdateDownload {
         phase = UpdatePhase.IDLE
     }
 
-    /** 唤起系统安装器；没有「安装未知应用」授权时先跳到该授权页 */
+    /** 直接唤起系统默认安装器打开安装包；安装来源授权由系统安装器自己处理 */
     fun install(context: Context) {
         val uri = apkUri
         val readable = uri != null && runCatching { context.contentResolver.openInputStream(uri)?.close() }.isSuccess
@@ -180,16 +180,8 @@ object UpdateDownload {
             phase = UpdatePhase.IDLE
             return
         }
-        if (!context.packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(context, tr("请先允许 Mafari 安装应用，返回后再点「安装」"), Toast.LENGTH_LONG).show()
-            runCatching {
-                context.startActivity(
-                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
-            return
-        }
+        // 直接把安装包交给系统安装器：未授权「安装未知应用」时，系统安装器会自己弹出授权提示，
+        // 不需要先跳到本应用的授权设置页
         val ok = runCatching {
             context.startActivity(
                 Intent(Intent.ACTION_VIEW)

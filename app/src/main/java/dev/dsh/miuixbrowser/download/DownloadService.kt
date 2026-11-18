@@ -8,6 +8,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
@@ -72,15 +73,26 @@ class DownloadService : Service() {
         manager.createNotificationChannel(resultChannel)
     }
 
-    /** 下载完成 / 失败的独立通知：不带进度条、不常驻、不申请实时更新，点击进入下载页 */
-    private fun buildResult(title: String, text: String, success: Boolean): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra(MainActivity.EXTRA_OPEN_DOWNLOADS, true)
+    /**
+     * 下载完成 / 失败的独立通知：不带进度条、不常驻、不申请实时更新。
+     * 成功且有文件地址：点击直接用系统（默认应用 / 选择器）打开该文件；否则（失败等）进入下载页。
+     */
+    private fun buildResult(title: String, text: String, success: Boolean, fileUri: Uri? = null, mime: String? = null): Notification {
+        val intent = if (success && fileUri != null) {
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(fileUri, mime?.takeIf { it.isNotBlank() } ?: "*/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        } else {
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(MainActivity.EXTRA_OPEN_DOWNLOADS, true)
+            }
         }
+        // 每条结果通知用各自的 requestCode，多个下载完成的通知各开各的文件，不会互相覆盖
         val pending = android.app.PendingIntent.getActivity(
             this,
-            0,
+            if (success && fileUri != null) nextResultId() else 0,
             intent,
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
         )
@@ -99,10 +111,10 @@ class DownloadService : Service() {
     }
 
     /** 先发独立的结果通知，再把进度通知（前台通知）移除，避免同一个通知被原地改写而不提醒 */
-    private fun postResult(title: String, text: String, success: Boolean) {
+    private fun postResult(title: String, text: String, success: Boolean, fileUri: Uri? = null, mime: String? = null) {
         runCatching {
             getSystemService(NotificationManager::class.java)
-                .notify(nextResultId(), buildResult(title, text, success))
+                .notify(nextResultId(), buildResult(title, text, success, fileUri, mime))
         }
         runCatching {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -313,8 +325,8 @@ class DownloadService : Service() {
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    fun finish(text: String) {
-        postResult(tr("下载完成"), text, success = true)
+    fun finish(text: String, fileUri: Uri? = null, mime: String? = null) {
+        postResult(tr("下载完成"), text, success = true, fileUri = fileUri, mime = mime)
     }
 
     fun fail(text: String) {
