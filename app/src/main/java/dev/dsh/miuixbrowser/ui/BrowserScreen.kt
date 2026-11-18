@@ -543,6 +543,9 @@ fun BrowserScreen(
     // 菜单「同步」进行中：图标变主题色、文字变「同步中」，防止重复点击
     // 地址栏左侧脚本图标：当前标签页面运行的脚本数（加载完成后查询，见下方 LaunchedEffect）
     var addressScriptCount by remember { mutableIntStateOf(0) }
+    // 地址栏左侧下载图标：进行中显示进度环，完成后右上角绿点（点开下载页后清除）
+    val addressDownload = remember { AddressDownloadState() }
+    LaunchedEffect(addressDownload) { addressDownload.track() }
     var pendingDownload by remember { mutableStateOf<DownloadRequest?>(null) }
     var showFind by remember { mutableStateOf(false) }
     var editingFavIndex by remember { mutableStateOf(-1) }
@@ -1640,8 +1643,10 @@ BrowserChunk {
             val readerSurface = MiuixTheme.colorScheme.surface
             val readerDark = (0.299f * readerSurface.red + 0.587f * readerSurface.green + 0.114f * readerSurface.blue) < 0.5f
             // 脚本图标与阅读图标共用这一个位置（宽度相同）：阅读优先，没有阅读图标时才可能显示脚本图标
-            val scriptsShown = shouldShowAddressScripts(readerShown, addressScriptCount > 0, editing)
-            val readerWidth = if (shouldShowAddressReader(readerShown, editing) || scriptsShown) AddressReaderWidth else 0.dp
+            // 优先级：下载 > 阅读 > 脚本，三者共用同一个位置（宽度相同）
+            val downloadShown = shouldShowAddressDownload(addressDownload.visible, editing)
+            val scriptsShown = shouldShowAddressScripts(readerShown, addressScriptCount > 0, editing, addressDownload.visible)
+            val readerWidth = if (downloadShown || shouldShowAddressReader(readerShown, editing, addressDownload.visible) || scriptsShown) AddressReaderWidth else 0.dp
             val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth + readerWidth
             // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
             val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
@@ -1838,6 +1843,11 @@ BrowserChunk {
                 onReader = { tab.toggleReader(readerDark) },
                 scriptsRunning = addressScriptCount > 0,
                 onScripts = { quickRunner.run(MenuAction.ScriptMenu) },
+                download = addressDownload,
+                onDownload = {
+                    addressDownload.acknowledge()
+                    pushPage(AppRoute.Downloads)
+                },
                 onShare = {
                     if (tab.url.isNotBlank()) {
                         runCatching {
