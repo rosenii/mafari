@@ -544,7 +544,7 @@ fun BrowserScreen(
     // 地址栏左侧脚本图标：当前标签页面运行的脚本数（加载完成后查询，见下方 LaunchedEffect）
     var addressScriptCount by remember { mutableIntStateOf(0) }
     // 地址栏左侧下载图标：进行中显示进度环，完成后右上角绿点（点开下载页后清除）
-    val addressDownload = remember { AddressDownloadState() }
+    val addressDownload = SharedAddressDownloadState
     LaunchedEffect(addressDownload) { addressDownload.track() }
     var pendingDownload by remember { mutableStateOf<DownloadRequest?>(null) }
     var showFind by remember { mutableStateOf(false) }
@@ -1120,6 +1120,11 @@ fun BrowserScreen(
     // 之前页面滑动收起底栏后的 barHidden 会一直残留，导致主页上唤不出底栏
     LaunchedEffect(tab.id, tab.url.isEmpty()) {
         if (tab.url.isEmpty()) barHidden = false
+    }
+    // 兜底：主页上 barHidden 任何时候变成 true（比如在底栏上向下拖）都立刻复位。
+    // 主页没有滚动手势能把底栏唤回来，收起后底栏会从组合树里移除，再也点不到、拖不到。
+    LaunchedEffect(barHidden, tab.url.isEmpty(), tab.geckoFullscreen) {
+        if (barHidden && tab.url.isEmpty() && !tab.geckoFullscreen) barHidden = false
     }
 
     // 切到「固定」立即把已收起的底栏显示出来（视频全屏除外）
@@ -1752,7 +1757,8 @@ BrowserChunk {
                                         // 统一成「朝屏幕边缘为正」，靠上时方向取反
                                         dragDistance += dragAmount.y * barEdgeSign
                                         // 提高竖向隐藏阈值，降低误触
-                                        if (dragDistance > 56f && !barHidden) {
+                                        // 主页不允许收起底栏：收起后没有任何手势能唤回
+                                        if (dragDistance > 56f && !barHidden && tab.url.isNotEmpty()) {
                                             barHidden = true
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             change.consume()

@@ -403,7 +403,17 @@ object Downloader {
         }
     }
 
+    /**
+     * 本次进程里真正启动 / 继续过的任务 id。地址栏下载图标据此判断「刚完成 / 刚失败」：
+     * 冷启动从数据库恢复出来的旧记录不在其中，不会再冒出完成 / 失败的小圆点。
+     */
+    val sessionIds: MutableSet<Long> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** 本次进程里任务完成 / 失败的时刻（毫秒）。小圆点的「1 分钟内显示」从这个时刻算起，而不是从界面看到它的时刻算起 */
+    val finishedAt = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+
     private fun launch(id: Long) {
+        sessionIds.add(id)
         jobs.remove(id)?.cancelCompat()
         jobs[id] = scope.launch {
             var attempt = 0
@@ -411,6 +421,7 @@ object Downloader {
             while (attempt < MAX_ATTEMPTS) {
                 try {
                     downloadOnce(id)
+                    finishedAt[id] = System.currentTimeMillis()
                     updateAndPersist(id) { it.copy(state = DownloadState.DONE, error = null) }
                     // 完成后再取任务：此时 uri / mime 已确定，通知点击直接用它打开文件
                     val finished = tasks.firstOrNull { it.id == id }
@@ -446,6 +457,7 @@ object Downloader {
     }
 
     private fun failTask(id: Long, message: String) {
+        finishedAt[id] = System.currentTimeMillis()
         updateAndPersist(id) { it.copy(state = DownloadState.FAILED, error = message) }
         settle(id, false, message)
         DownloadService.instance?.fail(tr("下载失败：{0}", message))

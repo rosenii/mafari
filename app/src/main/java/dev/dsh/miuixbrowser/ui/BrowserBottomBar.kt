@@ -655,6 +655,12 @@ internal fun shouldShowAddressScripts(
 ): Boolean = scriptsRunning && !readerVisible && !downloadVisible && !editing
 
 /**
+ * 进程级单例：Activity 重建（旋转 / 切换主题）后界面拿到的仍是同一份状态，
+ * 「已点击查看」和各任务的完成时刻都不会丢，已隐藏的小圆点不会重新冒出来。
+ */
+internal val SharedAddressDownloadState = AddressDownloadState()
+
+/**
  * 地址栏下载图标的状态（只统计本次运行期间产生 / 变化的任务，冷启动时库里的旧记录不触发）：
  * - [running]：有任务正在下载 → 主题色进度环（总大小未知时为旋转的不定进度弧）
  * - [paused]：没有进行中的任务，但有暂停的任务 → 灰色进度环；暂停满 3 分钟仍未继续则自动隐藏
@@ -678,7 +684,6 @@ internal class AddressDownloadState {
 
     val visible: Boolean get() = running || paused || unseenDone || unseenFailed
 
-    private var initialIds: Set<Long>? = null
     private var watched = emptySet<Long>()
     private var acked = emptySet<Long>()
     private val pausedSince = HashMap<Long, Long>()
@@ -708,7 +713,9 @@ internal class AddressDownloadState {
         return ((bytes.toDouble() / total) * 100).toInt().coerceIn(0, 100)
     }
 
-    private fun fresh(id: Long) = id in watched || (initialIds?.contains(id) == false)
+    // 只认本次进程里真正启动 / 继续过的任务；冷启动从数据库恢复的旧任务（已完成 / 失败 / 暂停）一律不算，
+    // 避免每次打开应用都再次显示完成圆点。数据库加载是异步的，不能靠「第一次快照里有没有」来区分。
+    private fun fresh(id: Long) = id in watched || id in Downloader.sessionIds
 
     private fun recompute(now: Long) {
         val s = last ?: return
@@ -742,18 +749,15 @@ internal class AddressDownloadState {
             )
         }.collect { s ->
             val now = System.currentTimeMillis()
-            if (initialIds == null) {
-                initialIds = s.runningIds + s.pausedIds + s.failedIds + s.doneIds
-            }
             watched = watched + s.runningIds
             // 重新开始下载的任务：之前的「已查看」作废，再失败 / 完成时重新提示
             acked = acked - s.runningIds
             pausedSince.keys.retainAll(s.pausedIds)
             s.pausedIds.forEach { id -> if (fresh(id) && id !in pausedSince) pausedSince[id] = now }
             failedSince.keys.retainAll(s.failedIds)
-            s.failedIds.forEach { id -> if (fresh(id) && id !in failedSince) failedSince[id] = now }
+            s.failedIds.forEach { id -> if (fresh(id) && id !in failedSince) failedSince[id] = Downloader.finishedAt[id] ?: now }
             doneSince.keys.retainAll(s.doneIds)
-            s.doneIds.forEach { id -> if (fresh(id) && id !in doneSince) doneSince[id] = now }
+            s.doneIds.forEach { id -> if (fresh(id) && id !in doneSince) doneSince[id] = Downloader.finishedAt[id] ?: now }
             last = s
             recompute(now)
         }
