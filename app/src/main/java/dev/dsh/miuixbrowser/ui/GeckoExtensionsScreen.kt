@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.data.rememberSearchIcon
@@ -280,7 +281,7 @@ fun GeckoExtensionsScreen(onBack: () -> Unit, onOpenUrl: (String) -> Unit = {}, 
                         .fillMaxSize()
                         .layerBackdrop(backdrop)
                         .kyantLayerBackdrop(liquidBackdrop)
-                        .edgeHaptic()
+                        .scrollEndHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                         .background(MiuixTheme.colorScheme.surface),
                 ) {

@@ -1991,17 +1991,17 @@ CSV 导入 · 加密存储 · 自动填充	CSV import · Encrypted storage · Au
 材质	Material
 叠加磨砂白色材质	Add frosted white layer
 开启后玻璃更雾、更不透，背景模糊跟「背景模糊」滑条走	Makes the glass hazier and less transparent; blur follows the "Background blur" slider
-恢复默认（清透）	Reset to default (Clear)
 清透	Clear
 水晶	Crystal
 晶边	Bold edge
-雾玻璃	Misty glass
-折射磨砂	Refractive frost
-轻模糊，背景清楚，带折射和边缘光（默认）	Light blur, clear background, with refraction and rim light (default)
-几乎不模糊，折射最强，最像真玻璃；浅色图标压在深色内容上要留意可读性	Almost no blur and the strongest refraction, the most glass-like; check icon legibility over busy content
+雾霭	Haze
+白亮	Bright
+模糊低，背景清楚，玻璃感强，折射和边缘光明显	Low blur, clear background, strong glass feel with visible refraction and rim light
+模糊最低，玻璃感最强，最像真玻璃；浅色图标压在深色内容上要留意可读性	Lowest blur and the strongest glass feel, the most glass-like; check icon legibility over busy content
+模糊和玻璃感都适中，偏白偏灰，文字可读性好	Moderate blur and glass feel, whitish-gray; good text legibility
+模糊高，磨砂白材质加提亮泛白，整体明亮，边缘玻璃感依然明显	High blur with a frosted white layer, brightened and whitened; bright overall with a still-prominent glass edge
+恢复默认（miuix 默认）	Reset to default (miuix default)
 中心通透，边缘折射和高光很重，轮廓分明	Clear center with heavy edge refraction and highlights, well-defined outline
-模糊更大、更偏白，仍有折射，文字可读性最好	More blur and whiter, still refractive; best text legibility
-叠加磨砂同款白色材质，再加折射和边缘光（接近磨砂但有玻璃边）	Frosted white layer plus refraction and rim light (close to frosted, with a glass edge)
 模糊	Blur
 折射	Refraction
 光影	Lighting

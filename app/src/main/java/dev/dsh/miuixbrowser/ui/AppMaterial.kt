@@ -373,7 +373,6 @@ private fun SheetImmersiveBody(contentPadding: Dp, padInsets: Boolean, content: 
     val bandShape = remember {
         RoundedCornerShape(topStart = BottomSheetDefaults.cornerRadius, topEnd = BottomSheetDefaults.cornerRadius)
     }
-    val maskBrush = remember { sheetFadeBrush(0f, Float.POSITIVE_INFINITY, fadeIn = false, peak = 0.94f) }
     val blendColors = remember(surface) { listOf(BlendColorEntry(surface.copy(alpha = SheetBandTintAlpha))) }
     val blurColors = BlurDefaults.blurColors(blendColors = blendColors)
     Box(modifier = Modifier.nestedScroll(connection)) {
@@ -394,14 +393,11 @@ private fun SheetImmersiveBody(contentPadding: Dp, padInsets: Boolean, content: 
                         backdrop = backdrop,
                         shape = RectangleShape,
                         gradient = ProgressiveBlur.Top.copy(curve = 0.5f),
-                        blurRadius = 48f,
+                        // 与页面顶栏同参数（上游 GlassTopAppBar）：半径 80dp、不再额外叠蒙版，
+                        // 强度由 ProgressiveBlur.Top 渐变自上而下衰减
+                        blurRadius = GlassTopAppBarDefaults.ProgressiveBlurRadius.value,
                         colors = blurColors,
-                    )
-                    // drawBackdrop 先画模糊层再 drawContent()：在它之后叠蒙版，淡出带子下沿
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(brush = maskBrush, blendMode = BlendMode.DstIn)
-                    },
+                    ),
             )
         }
     }

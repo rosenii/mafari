@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.browser.rememberFavicon
@@ -924,7 +925,7 @@ private fun BookmarksPage(
         modifier = Modifier
             .weight(1f)
             .fillMaxWidth()
-            .edgeHaptic()
+            .scrollEndHaptic()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp),
     ) {
@@ -1459,7 +1460,7 @@ private fun HistoryPage(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .edgeHaptic()
+                .scrollEndHaptic()
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentAlignment = Alignment.Center,
         ) {
@@ -1498,7 +1499,7 @@ private fun HistoryPage(
         modifier = Modifier
             .weight(1f)
             .fillMaxWidth()
-            .edgeHaptic()
+            .scrollEndHaptic()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         contentPadding = PaddingValues(top = 0.dp, bottom = 96.dp),
     ) {

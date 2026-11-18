@@ -140,7 +140,7 @@ fun GlassParamsSheet(
 
                     Spacer(Modifier.height(8.dp))
                     TextButton(
-                        text = tr("恢复默认（清透）"),
+                        text = tr("恢复默认（miuix 默认）"),
                         onClick = { settings.applyGlassPreset(0) },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = ContentInset),
                     )

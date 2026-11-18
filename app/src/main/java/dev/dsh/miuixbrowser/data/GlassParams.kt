@@ -107,9 +107,16 @@ class GlassField(
 
 class GlassPreset(val name: String, val desc: String, val params: GlassParams)
 
-/** 柔光玻璃模板。第 0 个是默认。 */
+/**
+ * 柔光玻璃模板。第 0 个是默认（miuix 默认 = 全部用上游自己的样式和材质，数值不生效）。
+ * 下标会写进偏好，改顺序 / 增删要在 AppSettings.glassPresetMigrated 里加迁移。
+ *
+ * 模糊度（背景模糊）：水晶 < 清透 < 雾霭 < 白亮；
+ * 玻璃感（折射 + 边缘光）：水晶 > 清透 > 白亮 > 雾霭，晶边是中心通透、边缘特别重的另一条路线。
+ */
 object GlassPresets {
-    private val clear = GlassParams(
+    /** 公共底子：轻模糊 + 折射 + 边缘光（晶边直接在它上面改，数值保持原样）。 */
+    private val base = GlassParams(
         blurSmall = 24f, blurBig = 120f,
         edgeWidth = 70f, edgeThickness = 110f, ior = 3.5f,
         lightIntensity = 2.6f, lightOpposite = 1.2f, reflectStrength = 0.8f, reflectLighten = 1.0f,
@@ -119,43 +126,66 @@ object GlassPresets {
         frostMaterial = false,
     )
 
+    /** 清透：模糊低，背景清楚，玻璃感强（折射、边缘光都明显）。 */
+    private val clear = base.copy(
+        blurSmall = 21f, blurBig = 110f,
+        edgeWidth = 72f, edgeThickness = 125f, ior = 3.9f,
+        lightIntensity = 2.9f, lightOpposite = 1.4f, reflectStrength = 0.9f, reflectLighten = 1.1f,
+        saturation = 1.6f, brightness = 0.05f,
+        tintStrength = 0.1f, colorWhite = 0.08f, colorMix = 0.12f,
+    )
+
+    /** 水晶：模糊最低，玻璃感最强，最像真玻璃。 */
+    private val crystal = base.copy(
+        blurSmall = 9f, blurBig = 90f,
+        edgeWidth = 92f, edgeThickness = 150f, ior = 4.8f,
+        lightIntensity = 3.2f, lightOpposite = 1.8f, reflectStrength = 1.1f, reflectLighten = 1.3f,
+        saturation = 1.8f, brightness = 0.04f,
+        tintStrength = 0.05f, colorWhite = 0.05f, colorMix = 0.08f,
+    )
+
+    /** 晶边：中心通透，边缘折射和高光很重（保持原样）。 */
+    private val crystalEdge = base.copy(
+        blurSmall = 18f, edgeWidth = 40f, edgeThickness = 170f, ior = 5.0f,
+        lightIntensity = 3.4f, lightOpposite = 2.0f, reflectStrength = 1.1f, reflectLighten = 1.4f,
+        colorMix = 0.12f,
+    )
+
+    /** 雾霭：模糊中等，玻璃感中等，偏白偏灰，文字可读性好。 */
+    private val haze = base.copy(
+        blurSmall = 42f, blurBig = 180f,
+        edgeWidth = 65f, edgeThickness = 95f, ior = 3.0f,
+        lightIntensity = 2.2f, lightOpposite = 1.0f, reflectStrength = 0.65f, reflectLighten = 0.8f,
+        saturation = 1.3f, brightness = 0.07f, bgSaturation = 1.1f, bgBrightness = 0.02f,
+        tintStrength = 0.16f, colorWhite = 0.14f, colorMix = 0.24f, colorPow = 0.98f,
+    )
+
+    /** 白亮：模糊高，叠磨砂白材质并提亮泛白，边缘玻璃效果依然明显。 */
+    private val brightWhite = base.copy(
+        blurSmall = 72f, blurBig = 220f,
+        edgeWidth = 72f, edgeThickness = 125f, ior = 3.8f,
+        lightIntensity = 3.0f, lightOpposite = 1.6f, reflectStrength = 1.0f, reflectLighten = 1.5f,
+        saturation = 1.2f, brightness = 0.14f, bgSaturation = 1.1f, bgBrightness = 0.04f,
+        tintStrength = 0.28f, colorWhite = 0.35f, colorMix = 0.4f, colorPow = 0.88f,
+        frostMaterial = true,
+    )
+
+    const val INDEX_UPSTREAM = 0
+    const val INDEX_CLEAR = 1
+    const val INDEX_CRYSTAL = 2
+    const val INDEX_CRYSTAL_EDGE = 3
+    const val INDEX_HAZE = 4
+    const val INDEX_BRIGHT = 5
+
     val ALL: List<GlassPreset> = listOf(
-        GlassPreset("清透", "轻模糊，背景清楚，带折射和边缘光（默认）", clear),
-        GlassPreset(
-            "水晶", "几乎不模糊，折射最强，最像真玻璃；浅色图标压在深色内容上要留意可读性",
-            clear.copy(
-                blurSmall = 12f, edgeWidth = 90f, edgeThickness = 140f, ior = 4.5f,
-                lightIntensity = 3.0f, lightOpposite = 1.6f, reflectStrength = 1.0f, reflectLighten = 1.2f,
-                saturation = 1.8f, brightness = 0.04f, tintStrength = 0.06f, colorWhite = 0.06f, colorMix = 0.1f,
-            ),
-        ),
-        GlassPreset(
-            "晶边", "中心通透，边缘折射和高光很重，轮廓分明",
-            clear.copy(
-                blurSmall = 18f, edgeWidth = 40f, edgeThickness = 170f, ior = 5.0f,
-                lightIntensity = 3.4f, lightOpposite = 2.0f, reflectStrength = 1.1f, reflectLighten = 1.4f,
-                colorMix = 0.12f,
-            ),
-        ),
-        GlassPreset(
-            "雾玻璃", "模糊更大、更偏白，仍有折射，文字可读性最好",
-            clear.copy(
-                blurSmall = 60f, blurBig = 200f, edgeWidth = 60f, edgeThickness = 90f, ior = 3.0f,
-                lightIntensity = 2.2f, lightOpposite = 1.0f, saturation = 1.4f, brightness = 0.08f,
-                tintStrength = 0.2f, colorWhite = 0.2f, colorMix = 0.3f,
-            ),
-        ),
-        GlassPreset(
-            "折射磨砂", "叠加磨砂同款白色材质，再加折射和边缘光（接近磨砂但有玻璃边）",
-            clear.copy(
-                blurSmall = 60f, edgeWidth = 70f, edgeThickness = 100f, ior = 3.2f,
-                saturation = 1.4f, brightness = 0f, tintStrength = 0.1f, colorWhite = 0.05f, colorMix = 0.1f,
-                frostMaterial = true,
-            ),
-        ),
         GlassPreset(
             "miuix 默认", "菜单、弹窗、底栏、按钮等全部使用 miuix 项目各自的默认样式和材质，下面的自定义参数不生效",
-            clear.copy(upstreamDefaults = true),
+            base.copy(upstreamDefaults = true),
         ),
+        GlassPreset("清透", "模糊低，背景清楚，玻璃感强，折射和边缘光明显", clear),
+        GlassPreset("水晶", "模糊最低，玻璃感最强，最像真玻璃；浅色图标压在深色内容上要留意可读性", crystal),
+        GlassPreset("晶边", "中心通透，边缘折射和高光很重，轮廓分明", crystalEdge),
+        GlassPreset("雾霭", "模糊和玻璃感都适中，偏白偏灰，文字可读性好", haze),
+        GlassPreset("白亮", "模糊高，磨砂白材质加提亮泛白，整体明亮，边缘玻璃感依然明显", brightWhite),
     )
 }

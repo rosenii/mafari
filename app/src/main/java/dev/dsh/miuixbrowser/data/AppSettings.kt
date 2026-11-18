@@ -140,6 +140,41 @@ class AppSettings(context: Context) {
     )
         private set
 
+    /**
+     * 模板下标迁移（版本号存在 glass_preset_ver）。现行顺序：0 miuix 默认、1 清透、2 水晶、3 晶边、4 雾霭、5 白亮。
+     * - v1（无版本号）旧顺序：0 清透 1 水晶 2 晶边 3 雾玻璃 4 折射磨砂 5 miuix 默认 → 依次对应 雾玻璃=雾霭、折射磨砂=白亮；
+     * - v2（中间版本）：0 miuix 默认 1 雾霭 2 晶边 3 白亮。
+     * 套用过模板的把参数一并换成现行模板的数值，避免名字和数值对不上；手动自定义（-1）原样保留。
+     */
+    @Suppress("unused")
+    private val glassPresetMigrated: Unit = run {
+        val ver = prefs.getInt(KEY_GLASS_PRESET_VER, 1)
+        if (!prefs.contains(KEY_GLASS_PARAMS) || ver >= 3) return@run
+        val old = prefs.getInt(KEY_GLASS_PRESET, -1)
+        val mapped = if (ver == 1) {
+            when (old) {
+                0 -> GlassPresets.INDEX_CLEAR
+                1 -> GlassPresets.INDEX_CRYSTAL
+                2 -> GlassPresets.INDEX_CRYSTAL_EDGE
+                3 -> GlassPresets.INDEX_HAZE
+                4 -> GlassPresets.INDEX_BRIGHT
+                5 -> GlassPresets.INDEX_UPSTREAM
+                else -> -1
+            }
+        } else {
+            when (old) {
+                0 -> GlassPresets.INDEX_UPSTREAM
+                1 -> GlassPresets.INDEX_HAZE
+                2 -> GlassPresets.INDEX_CRYSTAL_EDGE
+                3 -> GlassPresets.INDEX_BRIGHT
+                else -> -1
+            }
+        }
+        val e = prefs.edit().putInt(KEY_GLASS_PRESET_VER, 3).putInt(KEY_GLASS_PRESET, mapped)
+        GlassPresets.ALL.getOrNull(mapped)?.let { e.putString(KEY_GLASS_PARAMS, it.params.encode()) }
+        e.apply()
+    }
+
     /** 柔光玻璃的自定义材质参数（设置 →「高级材质」→「自定义材质参数」）。 */
     var glassParams by mutableStateOf(
         GlassParams.decode(prefs.getString(KEY_GLASS_PARAMS, null)) ?: GlassPresets.ALL[0].params,
@@ -868,6 +903,7 @@ class AppSettings(context: Context) {
         const val KEY_BLUR_MODE = "blur_mode"
         const val KEY_GLASS_PARAMS = "glass_params"
         const val KEY_GLASS_PRESET = "glass_preset"
+        const val KEY_GLASS_PRESET_VER = "glass_preset_ver"
         const val KEY_HOME_FAV = "home_show_favorites"
         const val KEY_HOME_FAV_ROWS = "home_fav_rows"
         const val KEY_HOME_LOGO = "home_show_logo"

@@ -94,7 +94,7 @@ import dev.dsh.miuixbrowser.ui.AppDialogButton
 import dev.dsh.miuixbrowser.ui.AppDropdownPreference
 import dev.dsh.miuixbrowser.ui.AppGlassDialog
 import dev.dsh.miuixbrowser.ui.AppSwitchPreference
-import dev.dsh.miuixbrowser.ui.edgeHaptic
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.ui.LiquidGlassBackButton
 import dev.dsh.miuixbrowser.ui.LocalLiquidBackdrop
 import dev.dsh.miuixbrowser.ui.PageGlassTopBar
@@ -253,7 +253,7 @@ fun DownloadsScreen(
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
-                    .edgeHaptic()
+                    .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .background(MiuixTheme.colorScheme.surface),
             ) {

@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.browser.CookieControl
@@ -128,7 +129,7 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                         .fillMaxSize()
                         .layerBackdrop(backdrop)
                         .kyantLayerBackdrop(liquidBackdrop)
-                        .edgeHaptic()
+                        .scrollEndHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                         .background(MiuixTheme.colorScheme.surface)
                         .verticalScroll(rememberScrollState())

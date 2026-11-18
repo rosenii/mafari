@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
 import androidx.compose.foundation.background
@@ -163,7 +164,7 @@ fun PrivacyPolicyScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .edgeHaptic()
+                    .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .verticalScroll(rememberScrollState())
                     .padding(top = innerPadding.calculateTopPadding())
