@@ -183,7 +183,7 @@ internal fun BrowserUiState.ScriptStateEffects(
             // 之后保持 5 秒一次，菜单关闭或页面重新加载时本协程被取消。
             var gap = 500L
             while (true) {
-                refreshScriptSheet()
+                refreshScriptSheet(state)
                 kotlinx.coroutines.delay(gap)
                 gap = when {
                     gap < 1500L -> 1500L

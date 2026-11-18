@@ -670,6 +670,7 @@ fun BrowserScreen(
         pushPage = ::pushPage,
         openInBrowser = ::openInBrowser,
         launchers = launchers,
+        box = this@Box,
     )
     }
     // 引导进行中进入二级页面（备份 / Firefox 同步）：浏览主页被推到下面，转场里不能露出首页，用纯色盖住

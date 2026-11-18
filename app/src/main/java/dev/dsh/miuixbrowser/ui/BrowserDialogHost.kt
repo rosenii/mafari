@@ -47,6 +47,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.foundation.layout.BoxScope
 import dev.dsh.miuixbrowser.data.FavoritesStore
 import dev.dsh.miuixbrowser.script.ExtensionStore
 
@@ -68,6 +69,8 @@ internal fun BrowserUiState.BrowserDialogHost(
     pushPage: (AppRoute) -> Unit,
     openInBrowser: (String) -> Unit,
     launchers: BrowserLaunchers,
+    /** LoginPromptDialog / GroupBookmarkPopup 是 BoxScope 扩展，要用调用处那个全屏 Box 的作用域 */
+    box: BoxScope,
 ) {
 BrowserChunk {
             AppGlassDialog(
@@ -436,11 +439,13 @@ BrowserChunk {
                 backdrop = if (glassAvailable) glassBackdrop else null,
             )
 
-            LoginPromptDialog(
-                prompt = loginPrompt,
-                backdrop = if (glassAvailable) glassBackdrop else null,
-                onClear = { loginPrompt = null },
-            )
+            with(box) {
+                LoginPromptDialog(
+                    prompt = loginPrompt,
+                    backdrop = if (glassAvailable) glassBackdrop else null,
+                    onClear = { loginPrompt = null },
+                )
+            }
 }
 
         val scriptImportUrl = pendingScript
@@ -576,21 +581,23 @@ BrowserChunk {
                 },
             )
 
-            GroupBookmarkPopup(
-                show = showGroupPopup,
-                rootPath = groupPopupPath,
-                anchorBounds = groupPopupAnchor,
-                favorites = favorites,
-                // 排列方式存在加密库里：切换后立即落盘，重启后保持
-                gridMode = favorites.groupPopupGrid,
-                onGridModeChange = { favorites.updateGroupPopupGrid(it) },
-                backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
-                onDismiss = { showGroupPopup = false },
-                onOpenUrl = { url ->
-                    showGroupPopup = false
-                    state.openOrReuse(url, tab.incognito, fromStartPage = true)
-                },
-            )
+            with(box) {
+                GroupBookmarkPopup(
+                    show = showGroupPopup,
+                    rootPath = groupPopupPath,
+                    anchorBounds = groupPopupAnchor,
+                    favorites = favorites,
+                    // 排列方式存在加密库里：切换后立即落盘，重启后保持
+                    gridMode = favorites.groupPopupGrid,
+                    onGridModeChange = { favorites.updateGroupPopupGrid(it) },
+                    backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
+                    onDismiss = { showGroupPopup = false },
+                    onOpenUrl = { url ->
+                        showGroupPopup = false
+                        state.openOrReuse(url, tab.incognito, fromStartPage = true)
+                    },
+                )
+            }
 
             run {
                 val cap = settings.homeQuickRows.coerceAtLeast(1) * HOME_QUICK_COLS
