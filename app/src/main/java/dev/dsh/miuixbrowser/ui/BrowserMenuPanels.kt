@@ -163,6 +163,11 @@ import androidx.compose.ui.layout.positionInWindow
 import kotlinx.coroutines.CoroutineStart
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
+import kotlin.math.abs
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.animation.core.animate
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.graphics.nativeCanvas
@@ -553,8 +558,55 @@ internal fun TabCard(
     }
     val cardColor = if (item.incognito) Color(0xFF3D2B4F) else MiuixTheme.colorScheme.surfaceContainerHigh
     val highlightColor = MiuixTheme.colorScheme.primary
+
+    // ---- 左右滑动清除：带阻尼（橡皮筋）跟手，越过阈值时振动一次，松手越过阈值则清除并再振动 ----
+    val haptic = LocalHapticFeedback.current
+    val onCloseNow by rememberUpdatedState(onClose)
+    // 以 item.id 为 key：卡片被清除后列表重排，复用到的卡片不会带着上一张的位移
+    var rawDrag by remember(item.id) { mutableFloatStateOf(0f) }
+    var shown by remember(item.id) { mutableFloatStateOf(0f) }
+    var cardWidth by remember { mutableIntStateOf(0) }
+    var passedThreshold by remember(item.id) { mutableStateOf(false) }
+    var dismissing by remember(item.id) { mutableStateOf(false) }
+    val dragState = rememberDraggableState { delta ->
+        if (dismissing) return@rememberDraggableState
+        val w = cardWidth.toFloat()
+        rawDrag += delta
+        shown = SwipeDismiss.damped(rawDrag, w)
+        val pass = SwipeDismiss.passed(shown, w)
+        if (pass != passedThreshold) {
+            passedThreshold = pass
+            // 越过阈值（会清除）与退回阈值内（取消清除）都给一次轻振动，让用户知道松手会发生什么
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
+
     Box(
         modifier = modifier
+            .onSizeChanged { cardWidth = it.width }
+            .graphicsLayer {
+                translationX = shown
+                alpha = SwipeDismiss.alpha(shown, cardWidth.toFloat())
+            }
+            .draggable(
+                state = dragState,
+                orientation = Orientation.Horizontal,
+                enabled = !dismissing,
+                onDragStopped = { velocity ->
+                    val w = cardWidth.toFloat()
+                    if (SwipeDismiss.shouldDismiss(shown, velocity, w)) {
+                        dismissing = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val dir = if (shown >= 0f) 1f else -1f
+                        animate(shown, dir * w * 1.15f, animationSpec = tween(180)) { v, _ -> shown = v }
+                        onCloseNow()
+                    } else {
+                        passedThreshold = false
+                        rawDrag = 0f
+                        animate(shown, 0f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f)) { v, _ -> shown = v }
+                    }
+                },
+            )
             .height(160.dp)
             .then(
                 if (highlight) {
