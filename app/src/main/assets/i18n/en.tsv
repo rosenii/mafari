@@ -1530,7 +1530,7 @@ Mafari 是一款本地优先的浏览器。应用不要求注册账号，不包�
 你访问的网站：网页内容、搜索关键词由你访问的网站或所选搜索引擎处理，适用其各自的隐私政策。默认搜索引擎为百度，可在设置中更换。	Websites you visit: page content and search keywords are handled by the websites you visit or the search engine you choose, under their own privacy policies. The default search engine is Baidu and can be changed in Settings.
 检查与下载更新：在你主动检查更新（或开启自动检查）时，应用会访问 GitHub 获取版本信息；下载安装包时可能经由 GitHub 加速镜像（如 ghfast.top、gh-proxy.com 等），这些镜像可看到你的 IP 地址与下载地址。	Update checks and downloads: when you check for updates (or turn on automatic checks), the app contacts GitHub for version information; downloading the installer may go through GitHub acceleration mirrors (such as ghfast.top and gh-proxy.com), which can see your IP address and the download address.
 站点图标：创建桌面快捷方式等场景可能向 Google 图标服务（google.com/s2/favicons）请求，会发送目标网站的域名。	Site icons: scenarios such as creating home-screen shortcuts may request Google's icon service (google.com/s2/favicons), which sends the target site's domain.
-网页翻译：使用翻译功能时，当前页面地址会发送给 Google 翻译（translate.google.com）。	Page translation: when you use translation, the current page address is sent to Google Translate (translate.google.com).
+网页翻译：使用翻译功能时，页面上的文字会发送到你在翻译面板中选择的翻译源（Google 翻译、微软翻译，或你自行填写的 LibreTranslate 兼容服务），适用该服务各自的隐私政策。	Page translation: when you use translation, the text on the page is sent to the translation source you picked in the translation panel (Google Translate, Microsoft Translator, or a LibreTranslate-compatible service you configured), subject to that service's own privacy policy.
 扩展与脚本：在扩展商店搜索或安装扩展时会访问 addons.mozilla.org；用户脚本的安装、更新及其依赖按脚本自身声明的地址（如 Greasy Fork）访问。	Extensions and scripts: searching or installing extensions in the store contacts addons.mozilla.org; installing and updating userscripts and their dependencies access the addresses the scripts declare (such as Greasy Fork).
 备份与同步：只有当你自行配置 WebDAV 或 Git 同步后，备份才会上传到你指定的服务器。备份文件在设备上先加密，开发者无法读取其内容。	Backup & sync: backups are uploaded to the server you specify only after you configure WebDAV or Git sync yourself. Backup files are encrypted on the device first, so the developer can't read their contents.
 权限说明	Permissions
@@ -2029,3 +2029,31 @@ CSV 导入 · 加密存储 · 自动填充	CSV import · Encrypted storage · Au
 手动调整模糊、折射、光影、色彩等全部参数	Manually tune blur, refraction, lighting, color and every other parameter
 miuix 默认	miuix default
 菜单、弹窗、底栏、按钮等全部使用 miuix 项目各自的默认样式和材质，下面的自定义参数不生效	Menus, dialogs, bars and buttons all use miuix's own defaults; the custom parameters below have no effect
+翻译尚未就绪，请稍后再试	Translation is not ready yet, please try again shortly
+无法连接翻译服务，请检查网络或换一个翻译源	Can't reach the translation service. Check your network or try another source
+翻译服务返回错误	The translation service returned an error
+翻译服务拒绝了请求，请检查 Key 或稍后再试	The translation service rejected the request. Check the key or try again later
+翻译源配置不完整，请先填写服务地址	The translation source isn't fully configured. Enter the service address first
+翻译服务返回了无法识别的内容	The translation service returned an unrecognized response
+翻译失败	Translation failed
+Google 翻译	Google Translate
+微软翻译（Bing）	Microsoft Translator (Bing)
+自定义（LibreTranslate）	Custom (LibreTranslate)
+免 Key；需要能访问 Google 的网络	No key needed; requires a network that can reach Google
+免 Key；国内通常可直连	No key needed; usually reachable directly in mainland China
+填写你自己的 LibreTranslate 兼容服务	Use your own LibreTranslate-compatible service
+网页翻译	Page translation
+翻译源	Translation source
+翻译为	Translate to
+服务地址（例如 https://libretranslate.example.com）	Service address (e.g. https://libretranslate.example.com)
+API Key（可选）	API key (optional)
+翻译时，页面上的文字会发送到所选翻译源。	When translating, the text on the page is sent to the selected translation source.
+重新翻译	Translate again
+翻译本页	Translate this page
+显示译文	Show translation
+显示原文	Show original
+还原网页	Restore page
+当前页面未翻译	This page is not translated
+翻译中 {0}/{1}	Translating {0}/{1}
+已翻译 · {0}	Translated · {0}
+正在显示原文	Showing original

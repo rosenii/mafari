@@ -66,12 +66,8 @@ internal fun BrowserUiState.performMenuAction(
         MenuAction.Incognito -> state.toggleIncognito()
         MenuAction.Desktop -> tab.toggleDesktopMode(!tab.desktopMode)
         MenuAction.Find -> showFind = true
-        MenuAction.Translate -> if (tab.url.isNotBlank()) {
-            state.newTab(
-                "https://translate.google.com/translate?sl=auto&tl=zh-CN&u=" +
-                    java.net.URLEncoder.encode(tab.url, "UTF-8"),
-            )
-        }
+        // 页内翻译：弹出翻译面板（选翻译源 / 目标语言，开始 / 还原 / 切换原文）
+        MenuAction.Translate -> if (tab.url.isNotBlank()) translateSheetShow = true
         MenuAction.Favorite -> if (tab.url.isNotBlank()) {
             val favName = tab.title.ifBlank { hostOf(tab.url) }
             val msg = if (favorites.exists(favName, tab.url)) {

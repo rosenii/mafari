@@ -34,7 +34,7 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 隐私政策的最后更新日期；政策内容变化时同步修改。 */
-private const val POLICY_UPDATED = "2026-11-13"
+private const val POLICY_UPDATED = "2026-11-19"
 private const val ISSUES_URL = "https://github.com/rosenii/mafari/issues"
 
 private data class PolicySection(val title: String, val paragraphs: List<String>)
@@ -63,7 +63,7 @@ private val POLICY_SECTIONS = listOf(
             tr("你访问的网站：网页内容、搜索关键词由你访问的网站或所选搜索引擎处理，适用其各自的隐私政策。默认搜索引擎为百度，可在设置中更换。"),
             tr("检查与下载更新：在你主动检查更新（或开启自动检查）时，应用会访问 GitHub 获取版本信息；下载安装包时可能经由 GitHub 加速镜像（如 ghfast.top、gh-proxy.com 等），这些镜像可看到你的 IP 地址与下载地址。"),
             tr("站点图标：创建桌面快捷方式等场景可能向 Google 图标服务（google.com/s2/favicons）请求，会发送目标网站的域名。"),
-            tr("网页翻译：使用翻译功能时，当前页面地址会发送给 Google 翻译（translate.google.com）。"),
+            tr("网页翻译：使用翻译功能时，页面上的文字会发送到你在翻译面板中选择的翻译源（Google 翻译、微软翻译，或你自行填写的 LibreTranslate 兼容服务），适用该服务各自的隐私政策。"),
             tr("扩展与脚本：在扩展商店搜索或安装扩展时会访问 addons.mozilla.org；用户脚本的安装、更新及其依赖按脚本自身声明的地址（如 Greasy Fork）访问。"),
             tr("备份与同步：只有当你自行配置 WebDAV 或 Git 同步后，备份才会上传到你指定的服务器。备份文件在设备上先加密，开发者无法读取其内容。"),
         ),

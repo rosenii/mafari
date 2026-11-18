@@ -46,6 +46,7 @@ internal class BrowserUiState {
     var bookmarkPrefillUrl by mutableStateOf("")
     var pendingScript by mutableStateOf<String?>(null)
     var scriptSheetShow by mutableStateOf(false)
+    var translateSheetShow by mutableStateOf(false)
     var geckoExtSheetShow by mutableStateOf(false)
     var requestSheetShow by mutableStateOf(false)
     var scriptMenuItems by mutableStateOf<List<ScriptMenuCommand>>(emptyList())

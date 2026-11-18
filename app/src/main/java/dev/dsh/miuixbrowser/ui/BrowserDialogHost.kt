@@ -345,6 +345,14 @@ BrowserChunk {
                 )
             }
 
+            TranslateSheet(
+                show = translateSheetShow,
+                backdrop = if (glassAvailable) glassBackdrop else null,
+                tab = state.activeTab,
+                settings = settings,
+                onDismiss = { translateSheetShow = false },
+            )
+
             ScriptMenuSheet(
                 show = scriptSheetShow,
                 backdrop = if (glassAvailable) glassBackdrop else null,

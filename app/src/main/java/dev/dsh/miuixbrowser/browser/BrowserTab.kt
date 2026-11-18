@@ -103,6 +103,9 @@ class BrowserTab(
     /** 每个标签的唯一 id，Compose 用它做 key。 */
     val id: Int = nextId()
 
+    /** 页内翻译（状态 + 与页面脚本 / 翻译服务的衔接），见 [TabTranslate] */
+    val translate = TabTranslate(this)
+
     var title by mutableStateOf(tr("新标签页"))
     var url by mutableStateOf("")
     var progress by mutableFloatStateOf(0f)
@@ -695,6 +698,8 @@ class BrowserTab(
         webView.setOnScrollChangeListener { _, _, _, _, _ -> scrollSignal.trySend(Unit) }
         runCatching { webView.addJavascriptInterface(AdBlockBridge { !incognito || adblockInIncognito }, "MafariAdblock") }
         runCatching { webView.addJavascriptInterface(blobBridge, "MafariBlob") }
+        // 页内翻译：页面脚本经它把待译文本交给原生（只在翻译进行中受理）
+        runCatching { webView.addJavascriptInterface(translate.webBridge(), "MafariTr") }
         // 仅降级路径：WebView 不支持 DOCUMENT_START_SCRIPT 时才安装无参的指纹桥；主路径不向页面暴露任何指纹接口
         val fp = fpInjector ?: return
         if (!fp.docStartSupported) {
@@ -822,6 +827,7 @@ class BrowserTab(
                 if (!parked) pageUrl?.let { url = it }
                 pageHost = runCatching { Uri.parse(pageUrl).host }.getOrNull().orEmpty()
                 resetReaderState()
+        translate.onNavigation()
                 applyMediaGesture()
                 loading = true
                 errorText = null
@@ -1728,6 +1734,7 @@ class BrowserTab(
         if (!parked && url.isNotEmpty() && !(isBlankPage(u) && !isBlankPage(url))) url = u
         pageHost = runCatching { Uri.parse(u).host }.getOrNull().orEmpty()
         resetReaderState()
+        translate.onNavigation()
         loading = true
         errorText = null
         gmResetPage()

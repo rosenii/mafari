@@ -11,6 +11,9 @@ import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.browser.parseQuickMenu
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.net.WebViewProxy
+import dev.dsh.miuixbrowser.translate.TranslateConfig
+import dev.dsh.miuixbrowser.translate.TranslateLangs
+import dev.dsh.miuixbrowser.translate.TranslateSourceId
 import dev.dsh.miuixbrowser.ui.UpdateChannel
 import dev.dsh.miuixbrowser.ui.WallpaperBlurCache
 import android.content.Context
@@ -703,6 +706,48 @@ class AppSettings(context: Context) {
     var scriptsEnabled by mutableStateOf(prefs.getBoolean(KEY_SCRIPTS, true))
         private set
 
+    // ---- 页内翻译 ----
+
+    /** 翻译源（[TranslateSourceId]）；不认识的值按默认源处理 */
+    var translateSource by mutableStateOf(
+        prefs.getString(KEY_TR_SOURCE, null)?.takeIf { it in TranslateSourceId.ALL } ?: TranslateSourceId.DEFAULT,
+    )
+        private set
+
+    /** 目标语言；第一次使用时按系统语言挑 */
+    var translateTarget by mutableStateOf(
+        prefs.getString(KEY_TR_TARGET, null)?.let { TranslateLangs.normalize(it) }
+            ?: java.util.Locale.getDefault().let { TranslateLangs.fromLocale(it.language, it.country) },
+    )
+        private set
+
+    /** 自定义翻译源（LibreTranslate 兼容）的服务地址 / Key */
+    var translateCustomUrl by mutableStateOf(prefs.getString(KEY_TR_URL, "").orEmpty())
+        private set
+    var translateCustomKey by mutableStateOf(prefs.getString(KEY_TR_KEY, "").orEmpty())
+        private set
+
+    fun updateTranslate(
+        source: String = translateSource,
+        target: String = translateTarget,
+        customUrl: String = translateCustomUrl,
+        customKey: String = translateCustomKey,
+    ) {
+        translateSource = source.takeIf { it in TranslateSourceId.ALL } ?: TranslateSourceId.DEFAULT
+        translateTarget = TranslateLangs.normalize(target)
+        translateCustomUrl = customUrl.trim()
+        translateCustomKey = customKey.trim()
+        prefs.edit()
+            .putString(KEY_TR_SOURCE, translateSource)
+            .putString(KEY_TR_TARGET, translateTarget)
+            .putString(KEY_TR_URL, translateCustomUrl)
+            .putString(KEY_TR_KEY, translateCustomKey)
+            .apply()
+    }
+
+    /** 当前设置的快照：一次翻译进行中改设置不影响它 */
+    fun translateConfig() = TranslateConfig(translateSource, translateTarget, translateCustomUrl, translateCustomKey)
+
     fun updateScriptsEnabled(enabled: Boolean) {
         scriptsEnabled = enabled
         prefs.edit().putBoolean(KEY_SCRIPTS, enabled).apply()
@@ -966,6 +1011,10 @@ class AppSettings(context: Context) {
         const val KEY_PROXY_AUTH = "proxy_auth"
         const val KEY_PROXY_USER = "proxy_user"
         const val KEY_PROXY_PASS = "proxy_pass"
+        const val KEY_TR_SOURCE = "translate_source"
+        const val KEY_TR_TARGET = "translate_target"
+        const val KEY_TR_URL = "translate_custom_url"
+        const val KEY_TR_KEY = "translate_custom_key"
     }
 }
 

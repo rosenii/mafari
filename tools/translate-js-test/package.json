@@ -1,0 +1,6 @@
+{
+  "name": "translate-js-test",
+  "private": true,
+  "description": "mafari_translate.js 的 jsdom 测试：npm i && node test_translate.js ../../app/src/main/assets/mafari_translate.js",
+  "devDependencies": { "jsdom": "^24.0.0" }
+}
