@@ -47,6 +47,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.mozilla.geckoview.GeckoView
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val RunningGreen = Color(0xFF34C759)
@@ -212,7 +213,7 @@ fun GeckoExtMenuSheet(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
+                                .squircleClip(14.dp)
                                 .alpha(if (item.enabled) 1f else 0.45f)
                                 .clickable(enabled = item.enabled) {
                                     if (store.clickAction(item.id)) {
@@ -226,14 +227,13 @@ fun GeckoExtMenuSheet(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             val bmp = store.icons[item.id]
-                            val shape = RoundedCornerShape(8.dp)
                             if (bmp != null) {
-                                Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(30.dp).clip(shape))
+                                Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(30.dp).squircleClip(8.dp))
                             } else {
                                 Box(
                                     modifier = Modifier
                                         .size(30.dp)
-                                        .clip(shape)
+                                        .squircleClip(8.dp)
                                         .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)),
                                 )
                             }

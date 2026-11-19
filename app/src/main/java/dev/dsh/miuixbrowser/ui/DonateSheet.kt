@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 捐赠入口的小字（设置页 / 关于页的入口行与弹窗共用） */
@@ -74,7 +75,7 @@ fun DonateSheet(show: Boolean, backdrop: Backdrop?, onDismiss: () -> Unit) {
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .size(240.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .squircleClip(16.dp)
                     .background(Color.White),
             )
             Spacer(Modifier.height(14.dp))

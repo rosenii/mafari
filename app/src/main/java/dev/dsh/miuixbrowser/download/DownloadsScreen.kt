@@ -85,6 +85,7 @@ import top.yukonga.miuix.kmp.icon.glass.Refresh
 import top.yukonga.miuix.kmp.icon.glass.Play
 import top.yukonga.miuix.kmp.icon.glass.Pause
 import top.yukonga.miuix.kmp.icon.glass.Close
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
@@ -176,7 +177,7 @@ private fun FilePreview(task: DownloadTask) {
     Box(
         modifier = Modifier
             .size(44.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .background(kind.accent.copy(alpha = 0.14f)),
         contentAlignment = Alignment.Center,
     ) {
@@ -335,7 +336,7 @@ fun DownloadsScreen(
                                     fontSize = 14.sp,
                                     color = Color(0xFFE53935),
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .squircleClip(8.dp)
                                         .clickable {
                                             deleteLocal = false
                                             showClearAll = true
@@ -552,7 +553,7 @@ private fun DeleteLocalFileRow(checked: Boolean, onToggle: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(onClick = onToggle)
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

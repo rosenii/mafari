@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.squircle.squircleBackground
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
@@ -1102,7 +1104,7 @@ private fun BookmarkFolderRow(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .squircleClip(10.dp)
                     .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1222,7 +1224,7 @@ private fun BookmarkRow(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(10.dp))
+                    .squircleClip(10.dp)
                     .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1289,7 +1291,7 @@ private fun BookmarkRow(
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.primary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .squircleClip(8.dp)
                     .clickable { onEdit(fav) }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             )
@@ -1335,7 +1337,7 @@ private fun BookmarkGroupHeader(
                     .zIndex(1f)
                     .graphicsLayer { translationY = dragOffsetY() }
                     .shadow(8.dp, RoundedCornerShape(16.dp))
-                    .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    .squircleBackground(MiuixTheme.colorScheme.surface, 16.dp)
                 else Modifier,
             )
             .onGloballyPositioned { rowCoords = it }
@@ -1758,7 +1760,7 @@ private fun GroupSelectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(onClick = onClick)
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1938,7 +1940,7 @@ internal fun FavoriteEditorDialog(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .squircleClip(10.dp)
                     .clickable {
                         chipHaptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         pinned = !pinned

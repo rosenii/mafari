@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -260,7 +261,7 @@ private fun AccountCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .squircleClip(16.dp)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -293,7 +294,7 @@ internal fun SiteAvatar(origin: String, size: Dp) {
     Box(
         modifier = Modifier
             .size(size)
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
         contentAlignment = Alignment.Center,
     ) {

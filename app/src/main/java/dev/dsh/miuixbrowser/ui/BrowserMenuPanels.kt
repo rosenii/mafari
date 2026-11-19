@@ -228,6 +228,8 @@ import top.yukonga.miuix.kmp.glass.GlassPopupItem
 import top.yukonga.miuix.kmp.material.GlassShape
 import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
 import top.yukonga.miuix.kmp.glass.glassPanel
+import top.yukonga.miuix.kmp.squircle.squircleBorder
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -626,11 +628,11 @@ internal fun TabCard(
                     Modifier
                 },
             )
-            .clip(RoundedCornerShape(16.dp))
+            .squircleClip(16.dp)
             .background(cardColor)
             .then(
                 if (highlight) {
-                    Modifier.border(2.dp, highlightColor, RoundedCornerShape(16.dp))
+                    Modifier.squircleBorder(2.dp, highlightColor, 16.dp)
                 } else {
                     Modifier
                 },

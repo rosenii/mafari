@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
@@ -1070,7 +1071,7 @@ private fun SheetRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 12.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1183,7 +1184,7 @@ private fun ServerSheet(
                                         maxLines = 1,
                                         softWrap = false,
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .squircleClip(8.dp)
                                             .clickable { onUse(row.id) }
                                             .padding(horizontal = 12.dp, vertical = 8.dp),
                                     )
@@ -1459,7 +1460,7 @@ internal fun DefaultPasswordDialog(
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        .squircleClip(8.dp)
                         .clickable { visible = !visible }
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                 )

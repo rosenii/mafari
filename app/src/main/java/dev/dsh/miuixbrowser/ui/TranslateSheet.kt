@@ -37,6 +37,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 翻译源在界面上的名称（id 见 [TranslateSourceId]，顺序与 [TranslateSourceId.ALL] 一致） */
@@ -168,7 +169,7 @@ fun TranslateSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .squircleClip(12.dp)
                         .clickable(onClick = toggle)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,

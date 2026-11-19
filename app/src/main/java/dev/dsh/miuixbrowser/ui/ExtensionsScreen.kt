@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
@@ -685,7 +686,7 @@ private fun BuiltinScriptCard(script: BuiltinScript, installing: Boolean, onAdd:
             Box(
                 modifier = Modifier
                     .size(30.dp)
-                    .clip(RoundedCornerShape(9.dp))
+                    .squircleClip(9.dp)
                     .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -729,7 +730,7 @@ private fun ScriptIcon(url: String, baseUrl: String, fallbackHost: String) {
     Box(
         modifier = Modifier
             .size(30.dp)
-            .clip(RoundedCornerShape(9.dp))
+            .squircleClip(9.dp)
             .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
         contentAlignment = Alignment.Center,
     ) {

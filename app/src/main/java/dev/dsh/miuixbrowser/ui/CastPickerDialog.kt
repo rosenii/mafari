@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import dev.dsh.miuixbrowser.script.CastPickerUi
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.Backdrop
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -149,7 +150,7 @@ private fun CastRow(text: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -170,7 +171,7 @@ private fun CastRow(text: String, onClick: () -> Unit) {
 private fun CastTile(icon: ImageVector, title: String, hint: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
+            .squircleClip(20.dp)
             .background(MiuixTheme.colorScheme.surfaceContainerHigh)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 16.dp),

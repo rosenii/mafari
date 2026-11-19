@@ -54,6 +54,7 @@ import top.yukonga.miuix.kmp.glass.GlassBottomSheet
 import top.yukonga.miuix.kmp.glass.GlassDropdownPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.glass.File
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 当前页面正在运行的一个脚本（id 与脚本注册的菜单命令 id 前缀对应） */
@@ -243,7 +244,7 @@ private fun ScriptSheetIcon(url: String, baseUrl: String, fallbackHost: String) 
     Box(
         modifier = Modifier
             .size(30.dp)
-            .clip(RoundedCornerShape(9.dp))
+            .squircleClip(9.dp)
             .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
         contentAlignment = Alignment.Center,
     ) {

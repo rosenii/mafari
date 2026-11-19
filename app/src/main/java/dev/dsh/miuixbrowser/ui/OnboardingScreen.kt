@@ -102,6 +102,7 @@ import top.yukonga.miuix.kmp.material.GlassMaterials
 import top.yukonga.miuix.kmp.material.GlassShape
 import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
 import top.yukonga.miuix.kmp.glass.glassPanel
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /*
@@ -464,7 +465,7 @@ private fun GuideCard(
                         shading = GlassLook.shading(),
                     )
                 } else {
-                    Modifier.clip(RoundedCornerShape(24.dp)).background(MiuixTheme.colorScheme.surfaceContainer)
+                    Modifier.squircleClip(24.dp).background(MiuixTheme.colorScheme.surfaceContainer)
                 },
             ),
         content = content,
@@ -627,7 +628,7 @@ private fun ColumnScope.WallpaperStep(settings: AppSettings, bd: Backdrop?) {
             .align(Alignment.CenterHorizontally)
             .height(300.dp)
             .aspectRatio(9f / 16f)
-            .clip(RoundedCornerShape(30.dp))
+            .squircleClip(30.dp)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
         contentAlignment = Alignment.Center,
     ) {

@@ -242,6 +242,8 @@ import top.yukonga.miuix.kmp.glass.GlassPopupItem
 import top.yukonga.miuix.kmp.material.GlassShape
 import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
 import top.yukonga.miuix.kmp.glass.glassPanel
+import top.yukonga.miuix.kmp.squircle.squircleBorder
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /* ------------------------------ 主页 ------------------------------ */
@@ -791,11 +793,11 @@ internal fun FavoritesBlock(
                         modifier = Modifier
                             .weight(1f)
                             .height(cellHeight)
-                            .clip(RoundedCornerShape(16.dp))
-                            .border(
+                            .squircleClip(16.dp)
+                            .squircleBorder(
                                 width = 1.dp,
                                 color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.15f),
-                                shape = RoundedCornerShape(16.dp),
+                                cornerRadius = 16.dp,
                             )
                             .clickable(onClick = onAdd),
                         contentAlignment = Alignment.Center,
@@ -2237,7 +2239,7 @@ private fun GroupPopupGridCell(title: String, onClick: () -> Unit, icon: @Compos
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

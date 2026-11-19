@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -38,7 +39,7 @@ fun StartupSkeleton(modifier: Modifier = Modifier) {
             // 搜索栏占位
             Box(
                 Modifier.fillMaxWidth().height(48.dp)
-                    .clip(RoundedCornerShape(24.dp)).background(block),
+                    .squircleClip(24.dp).background(block),
             )
             Spacer(Modifier.height(36.dp))
             // 收藏网格占位：4 列 × 3 行
@@ -47,7 +48,7 @@ fun StartupSkeleton(modifier: Modifier = Modifier) {
                     repeat(4) {
                         Box(
                             Modifier.weight(1f).aspectRatio(1f)
-                                .clip(RoundedCornerShape(16.dp)).background(block),
+                                .squircleClip(16.dp).background(block),
                         )
                     }
                 }
@@ -59,7 +60,7 @@ fun StartupSkeleton(modifier: Modifier = Modifier) {
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .fillMaxWidth().height(58.dp)
-                .clip(RoundedCornerShape(29.dp)).background(block),
+                .squircleClip(29.dp).background(block),
         )
     }
 }

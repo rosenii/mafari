@@ -1,5 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.squircle.squircleBorder
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import dev.dsh.miuixbrowser.i18n.tr
@@ -1128,7 +1130,7 @@ private fun WallpaperDialogRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1174,7 +1176,7 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
+                        .squircleClip(14.dp)
                         .clickable { onSelect(index) }
                         .padding(vertical = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1184,13 +1186,13 @@ private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
                             .fillMaxWidth(0.88f)
                             .widthIn(max = 52.dp)
                             .aspectRatio(1f)
-                            .border(
+                            .squircleBorder(
                                 width = if (active) 2.dp else 0.dp,
                                 color = if (active) MiuixTheme.colorScheme.primary else Color.Transparent,
-                                shape = RoundedCornerShape(15.dp),
+                                cornerRadius = 15.dp,
                             )
                             .padding(2.5.dp)
-                            .clip(RoundedCornerShape(12.dp)),
+                            .squircleClip(12.dp),
                     ) {
                         Image(
                             painter = painterResource(option.preview),

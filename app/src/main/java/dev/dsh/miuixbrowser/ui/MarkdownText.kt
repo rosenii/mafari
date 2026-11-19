@@ -29,6 +29,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 一个 Markdown 块（只支持更新日志里会用到的子集） */
@@ -294,7 +295,7 @@ fun MarkdownText(
                 is MdBlock.Code -> Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(colors.surfaceContainerHigh, RoundedCornerShape(8.dp))
+                        .squircleBackground(colors.surfaceContainerHigh, 8.dp)
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                 ) {
                     Text(

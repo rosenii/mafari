@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
@@ -694,7 +695,7 @@ private fun InstalledCard(
                 modifier = Modifier
                     .padding(start = 4.dp)
                     .size(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .squircleClip(20.dp)
                     .onGloballyPositioned { moreBounds = it.boundsInRoot() }
                     .clickable { onMore(moreBounds) },
                 contentAlignment = Alignment.Center,
@@ -714,14 +715,13 @@ private fun InstalledCard(
 @Composable
 private fun AddonIcon(url: String, bitmapKey: String?) {
     val bmp = if (bitmapKey != null) GeckoExtensionStore.icons[bitmapKey] else rememberSearchIcon(url)
-    val shape = RoundedCornerShape(10.dp)
     if (bmp != null) {
-        Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(40.dp).clip(shape))
+        Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(40.dp).squircleClip(10.dp))
     } else {
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .clip(shape)
+                .squircleClip(10.dp)
                 .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)),
         )
     }
@@ -844,7 +844,7 @@ private fun SettingsRow(title: String, summary: String, enabled: Boolean = true,
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = 12.dp, horizontal = 4.dp),
     ) {

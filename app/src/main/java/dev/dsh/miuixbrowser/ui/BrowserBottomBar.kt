@@ -218,6 +218,8 @@ import top.yukonga.miuix.kmp.glass.GlassPopupItem
 import top.yukonga.miuix.kmp.material.GlassShape
 import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
 import top.yukonga.miuix.kmp.glass.glassPanel
+import top.yukonga.miuix.kmp.squircle.squircleBorder
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** MIUIX Glass 底板：主页用 glassPanel 真玻璃；无采样/关模糊时回退到渐变底板。 */
@@ -384,7 +386,7 @@ internal fun BottomBar(
                 modifier = Modifier
                     .weight(1f)
                     .height(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .squircleClip(20.dp)
                     .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f))
                     // 编辑中不挂点击 / 长按复制：长按要留给输入框（放大镜、选词、拖动光标），而不是复制网址
                     .then(
@@ -520,7 +522,7 @@ internal fun CountBadge(count: Int, modifier: Modifier = Modifier) {
         modifier = modifier
             .height(15.dp)
             .widthIn(min = 15.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .squircleClip(8.dp)
             .background(MiuixTheme.colorScheme.primary)
             .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center,
@@ -1200,10 +1202,10 @@ internal fun SheetRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .squircleClip(16.dp)
             .then(
                 if (highlight) {
-                    Modifier.border(2.dp, MiuixTheme.colorScheme.primary, RoundedCornerShape(16.dp))
+                    Modifier.squircleBorder(2.dp, MiuixTheme.colorScheme.primary, 16.dp)
                 } else {
                     Modifier
                 },

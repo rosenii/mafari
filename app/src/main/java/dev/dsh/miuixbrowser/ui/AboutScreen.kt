@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
@@ -127,7 +128,6 @@ fun AboutScreen(
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
     val dark = isAppDarkTheme()
     val surface = MiuixTheme.colorScheme.surface
-    val iconShape = RoundedCornerShape(26.dp)
     var pendingUpdate by remember { mutableStateOf<AppRelease?>(null) }
     // 弹窗收起动画期间 pendingUpdate 已是 null，内容用上一次的版本撑住；下载完成时也据此把弹窗重新弹出
     var lastPendingUpdate by remember { mutableStateOf<AppRelease?>(null) }
@@ -206,7 +206,7 @@ fun AboutScreen(
                                         shading = true,
                                     )
                                 } else {
-                                    Modifier.background(MiuixTheme.colorScheme.surfaceContainerHigh, iconShape)
+                                    Modifier.squircleBackground(MiuixTheme.colorScheme.surfaceContainerHigh, 26.dp)
                                 },
                             ),
                         contentAlignment = Alignment.Center,

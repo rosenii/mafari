@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 选择页里的一行。[appLabel] 非空 = 这条是该 App 自己保存的（origin 是 androidapp://），头像用 App 名首字、副标题显示 App 名。 */
@@ -87,7 +88,7 @@ private fun PickAccountRow(row: PickRow, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .squircleClip(16.dp)
             .background(base.copy(alpha = if (pressed) 0.12f else 0.06f))
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -98,7 +99,7 @@ private fun PickAccountRow(row: PickRow, onClick: () -> Unit) {
         } else {
             // App 自己的账号：没有网站图标可取（也不该拿包名去取 favicon），用 App 名首字
             Box(
-                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(base.copy(alpha = 0.08f)),
+                modifier = Modifier.size(40.dp).squircleClip(12.dp).background(base.copy(alpha = 0.08f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(

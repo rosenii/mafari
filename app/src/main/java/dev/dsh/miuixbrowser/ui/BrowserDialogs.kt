@@ -39,6 +39,7 @@ import top.yukonga.miuix.kmp.icon.basic.Check
 import top.yukonga.miuix.kmp.icon.glass.HorizontalSplit
 import top.yukonga.miuix.kmp.icon.glass.Info
 import top.yukonga.miuix.kmp.icon.glass.Phone
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /* 浏览器页内弹窗（从 BrowserScreen 拆出）：UA 选择、页内查找 */
@@ -72,7 +73,7 @@ internal fun UaDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .squircleClip(12.dp)
                         .clickable { onConfirm(preset.value) }
                         .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,

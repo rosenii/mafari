@@ -40,6 +40,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.blur.Backdrop
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -165,7 +166,7 @@ fun <T> SearchableListSheet(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .squircleClip(12.dp)
                                     .clickable { state.limit += ListSheetState.PAGE }
                                     .padding(vertical = 14.dp),
                                 contentAlignment = Alignment.Center,
@@ -191,7 +192,7 @@ fun ListSheetRow(title: String, summary: String? = null, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .squircleClip(12.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

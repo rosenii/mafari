@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
@@ -537,7 +538,7 @@ private fun originTitle(context: Context, origin: String): String =
 @Composable
 private fun DetailTextAction(text: String, onClick: () -> Unit) {
     Box(
-        modifier = Modifier.height(40.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp),
+        modifier = Modifier.height(40.dp).squircleClip(12.dp).clickable(onClick = onClick).padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text = text, fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
