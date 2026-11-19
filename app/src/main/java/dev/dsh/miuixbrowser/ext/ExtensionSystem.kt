@@ -97,6 +97,7 @@ class ExtensionSystem(
         NotificationsApi(context.applicationContext, pages).register(router)
         BookmarksApi(context.applicationContext, pages).register(router)
         DownloadsApi(context.applicationContext, pages).register(router)
+        CookiesApi().register(router)
         pages.backgroundListener = lifecycle
         sinks.add(tabHost)
         sinks.add(pages)

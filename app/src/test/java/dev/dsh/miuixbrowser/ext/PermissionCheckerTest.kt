@@ -127,6 +127,16 @@ class PermissionCheckerTest {
         assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "downloads.search", page()))
     }
 
+    @Test fun cookiesApiRequiresPermissionAndMatchingHostAccess() {
+        val manifest = """{"manifest_version":3,"name":"Cookies","version":"1","permissions":["cookies"],"host_permissions":["https://granted.com/*"],"content_scripts":[{"matches":["https://a.com/*"],"js":["c.js"]}]}"""
+        val granted = TestExt.make(File(tmp.root, "cookies-granted"), manifest = manifest, granted = setOf("cookies"))
+        assertNull(codeOf(granted, "cookies.get", page()))
+        assertNull(codeOf(granted, "cookies.set", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "cookies.get", cs("https://a.com")))
+        val missing = TestExt.make(File(tmp.root, "cookies-missing"), manifest = manifest, granted = emptySet())
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "cookies.get", page()))
+    }
+
     @Test fun originsAreDistinctAndHostSafe() {
         val a = ExtensionOrigins.originFor("a@x.org")
         val b = ExtensionOrigins.originFor("{uuid}")

@@ -857,6 +857,37 @@ test('downloads: methods forward to native and creation/erasure events are deliv
   assert.deepStrictEqual(Array.from(env.sandbox.downloadEvents), ['c:3', 'e:3']);
 });
 
+test('cookies: namespace is extension-page-only and requires the manifest permission', () => {
+  const manifest = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['cookies'] };
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest }), entry(['window.has = typeof browser.cookies;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined');
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1' } }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.cookies, undefined);
+  const page = makeEnv();
+  page.run(assemble(cfg({ page: true, manifest }), '[]'));
+  for (const method of ['get', 'set', 'remove']) {
+    assert.strictEqual(typeof page.sandbox.browser.cookies[method], 'function', method);
+    assert.strictEqual(typeof page.sandbox.chrome.cookies[method], 'function', 'chrome.' + method);
+  }
+  assert.strictEqual(page.sandbox.browser.cookies.getAll, undefined);
+});
+
+test('cookies: get/set/remove forward details to native', () => {
+  const manifest = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['cookies'] };
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest }), entry([
+    "browser.cookies.get({ url: 'https://example.com/', name: 'sid' });",
+    "browser.cookies.set({ url: 'https://example.com/', name: 'sid', value: 'abc', secure: true });",
+    "browser.cookies.remove({ url: 'https://example.com/', name: 'sid', path: '/' });",
+    "chrome.cookies.get({ url: 'https://example.com/', name: 'sid' }, function () {});"
+  ])));
+  const calls = env.posted.filter((x) => x.api && x.api.indexOf('cookies.') === 0);
+  assert.deepStrictEqual(calls.map((x) => x.api), ['cookies.get', 'cookies.set', 'cookies.remove', 'cookies.get']);
+  assert.strictEqual(calls[1].args[0].value, 'abc');
+});
+
 test('action and browserAction expose compatible setters through shared API shape', () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: [] } }), entry([

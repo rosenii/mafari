@@ -25,7 +25,7 @@ object ApiSupport {
         "webNavigation" to SupportLevel.PARTIAL, // 主框架 before/commit/complete/error 与 SPA 近似事件；无子框架 / documentId，DOMContentLoaded 受限
         "webRequest" to SupportLevel.PARTIAL, // onBeforeRequest 观察事件；blocking 与 response 生命周期暂不支持
         "webRequestBlocking" to SupportLevel.NONE, // WebView 后台页异步模型不能安全实现同步阻断
-        "cookies" to SupportLevel.PLANNED,
+        "cookies" to SupportLevel.PARTIAL, // URL-scoped get/set/remove；WebView 无全局枚举、元数据读取和 Cookie 变更事件
         "clipboardWrite" to SupportLevel.PARTIAL, // Mafari clipboard.readText/writeText；仅拓展页面，受 Android 系统前后台剪贴板限制
         "clipboardRead" to SupportLevel.PARTIAL,
     )

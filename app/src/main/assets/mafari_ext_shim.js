@@ -567,6 +567,16 @@ function (CFG, ENTRIES) {
     };
   }
 
+  // Cookies: WebView only exposes URL-scoped CookieManager operations; no global enumeration or change events.
+  var cookies = null;
+  if (CFG.page && declares('cookies')) {
+    cookies = {
+      get: promised(function (details) { return rpc('cookies.get', [details || {}]); }),
+      set: promised(function (details) { return rpc('cookies.set', [details || {}]); }),
+      remove: promised(function (details) { return rpc('cookies.remove', [details || {}]); })
+    };
+  }
+
   // Mafari clipboard bridge: deliberately extension-page-only; native permission checks remain authoritative.
   var clipboard = null;
   if (CFG.page && (declares('clipboardRead') || declares('clipboardWrite'))) {
@@ -578,6 +588,7 @@ function (CFG, ENTRIES) {
   var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext, permissions: permissions };
   if (bookmarks) browser.bookmarks = bookmarks;
   if (downloads) browser.downloads = downloads;
+  if (cookies) browser.cookies = cookies;
   if (clipboard) browser.clipboard = clipboard;
   if (notifications) browser.notifications = notifications;
   if (alarms) browser.alarms = alarms;
@@ -603,6 +614,7 @@ function (CFG, ENTRIES) {
   };
   if (bookmarks) chrome.bookmarks = cbObj(bookmarks);
   if (downloads) chrome.downloads = cbObj(downloads);
+  if (cookies) chrome.cookies = cbObj(cookies);
   if (clipboard) chrome.clipboard = cbObj(clipboard);
   if (notifications) chrome.notifications = cbObj(notifications);
   if (alarms) chrome.alarms = cbObj(alarms);

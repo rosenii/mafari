@@ -4,9 +4,12 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
+import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -146,6 +149,20 @@ class ExtensionPageHost(
                     return true
                 }
 
+                override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                    log("ext $id ${pageKind.name.lowercase()} load error ${error.errorCode} ${error.description}: ${request.url}")
+                }
+
+                override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                    log("ext $id ${pageKind.name.lowercase()} http ${errorResponse.statusCode}: ${request.url}")
+                }
+
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    log("ext $id ${pageKind.name.lowercase()} render process gone (crashed=${detail.didCrash()})")
+                    destroyNow(page)
+                    return true
+                }
+
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (url != null && url.startsWith("$origin/")) {
                         page.finished = true
@@ -176,7 +193,33 @@ class ExtensionPageHost(
         }
         pages[page.contextId] = page
         pagesSnapshot.add(page)
-        webView.loadUrl(ExtensionOrigins.urlFor(id, path))
+        val url = ExtensionOrigins.urlFor(id, path)
+        if (pageKind == PageKind.BACKGROUND) {
+            webView.loadUrl(url)
+        } else {
+            // popup / options 是给人看的：必须等 WebView 挂上窗口再开始加载。
+            // 还没挂窗口就加载，页面起步时视口是 0×0 且不可见，requestAnimationFrame 不会触发；
+            // 而拓展（如 uBO）的 popup 要等若干帧之后才把 body 的 loading（opacity:0）去掉，结果就是一块空白。
+            val start = Runnable {
+                if (pages[page.contextId] !== page) return@Runnable
+                webView.onResume()
+                webView.resumeTimers()
+                log("ext $id ${pageKind.name.lowercase()} load $url")
+                webView.loadUrl(url)
+            }
+            if (webView.isAttachedToWindow) {
+                start.run()
+            } else {
+                webView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) {
+                        v.removeOnAttachStateChangeListener(this)
+                        start.run()
+                    }
+
+                    override fun onViewDetachedFromWindow(v: View) {}
+                })
+            }
+        }
         return page
     }
 

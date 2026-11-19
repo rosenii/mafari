@@ -47,7 +47,7 @@
 | `commands` | NONE | 未发现快捷键注册/触发 API | P2 |
 | `contentScripts` | MANIFEST | 静态 `content_scripts` 可由注入器处理；动态 API `register/unregister/update/getRegisteredContentScripts` 在 shim 有入口，但原生 router 没有 handler | P1 |
 | `contextualIdentities` | NONE | 无容器身份 API；Android 标签隐私模式不等同 Firefox Containers | P4 |
-| `cookies` | NONE | 无 Cookie 查询、修改和变更事件 API | P1 |
+| `cookies` | PARTIAL | URL 范围 get/set/remove；需要 cookies + 对应 host permission；WebView 不提供全局枚举和变更事件，get 只能返回 name/value 等可确认字段 | P1 |
 | `declarativeNetRequest` | NONE | 无 DNR 规则集/动态规则/会话规则执行引擎 | P1 |
 | `devtools` | NONE | 无扩展 DevTools 页面及面板宿主 | P4 |
 | `dns` | NONE | 无扩展 DNS resolve API | P2 |
@@ -294,3 +294,13 @@
 - `ApiSupport.downloads` 标记 PARTIAL；新增 shim 权限隔离、方法 RPC、事件分发和原生注册 wiring 测试。
 
 验证：`node tools/ext-shim-test/run.js` 57 项通过；`node tools/webext-test/run.js` 2 项通过。Android Kotlin 编译尝试失败于 Gradle Wrapper 下载阶段：环境无法解析 `services.gradle.org`（UnknownHostException），所以本轮 Kotlin 编译、Android 单元测试和真机下载流程均未验证。
+
+
+## 20. 2026-11-20 WebView Cookies API 增量（本轮）
+
+- 新增 `browser.cookies` / `chrome.cookies` 的 `get(details)`、`set(details)`、`remove(details)`，仅扩展自己的 background / popup / options 页面可用；需声明 `cookies` 并获得目标 URL 对应的 host permission。content script 不开放。
+- 实现基于 Android WebView `CookieManager`：get 仅能按 URL 读取浏览器返回的 Cookie 请求头；set 使用 `setCookie` 并 flush；remove 通过同 URL / domain / path 写入过期 Cookie。
+- `get()` 不伪造 WebView 未公开的 path、secure、httpOnly、sameSite、expiry 等属性；只返回可确认的 name/value/storeId。set 成功时返回本次传入的属性。
+- 不支持 `getAll`、`getAllCookieStores`、`getPartitionKey`、`onChanged`，也无法列举所有站点 Cookie；remove 需要调用方提供正确的 URL、domain、path，不能保证清除同名的其他路径 Cookie。标记 PARTIAL。
+
+验证：新增 shim namespace / RPC 测试；Android Kotlin 编译及真机 Cookie 行为仍需构建环境验证。

@@ -79,3 +79,16 @@ browser.notifications.onClosed.addListener((id, byUser) => console.log('closed',
 仅拓展自己的页面可调用，需在 manifest 的 `permissions` 中声明 `downloads`。目前支持：`browser.downloads.download({ url, filename? })`、`search(query?)`、`pause(id)`、`resume(id)`、`cancel(id)`、`erase(query?)`，以及 `onCreated` / `onErased` 事件。下载任务复用 Mafari 内置下载器及其加密数据库记录；下载文件仍由 Mafari 保存到默认下载目录。
 
 限制：目前只接受 HTTP/HTTPS URL；`filename` 只允许文件名，不接受子目录；`download()` 暂不支持 headers、POST body、saveAs、conflictAction 等选项；搜索仅支持 url、filename、id、state、mimeType 和 limit 的基础过滤；尚未实现 `onChanged`、`onDeterminingFilename`、`open`、`show`、`removeFile`、文件图标等 API。`cancel(id)` 会取消任务并移除任务记录（未完成的临时数据会清理），同时触发 `onErased`；`erase()` 按查询条件批量移除任务记录，也不会删除已完成的下载文件。
+
+
+## Cookies
+
+`browser.cookies` / `chrome.cookies` 目前仅支持 `get(details)`、`set(details)`、`remove(details)`。需要在 manifest 声明 `cookies`，并获得目标 URL 对应的 `host_permissions`；仅扩展 background / popup / options 页面可调用。
+
+```json
+{ "manifest_version": 3, "permissions": ["cookies"], "host_permissions": ["https://example.com/*"] }
+```
+
+`get` 需要 `{ url, name }`；`set` 支持 `url`、`name`、`value`、`domain`、`path`、`secure`、`httpOnly`、`sameSite`、`expirationDate`；`remove` 需要 `url`、`name`，可选 `domain`、`path`。`get` 只能返回 WebView CookieManager 可确认的 name/value/storeId，不会伪造 Cookie 属性。
+
+限制：Android WebView 没有公开的全局 Cookie 枚举接口，因此不支持 `getAll` / `getAllCookieStores`；也没有 Cookie 变更监听 API，因此不支持 `onChanged`。删除 Cookie 需要匹配正确的 URL、domain 和 path；WebView 不提供枚举同名 Cookie 的路径信息。此 API 为 PARTIAL。
