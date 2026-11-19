@@ -26,6 +26,7 @@ import dev.dsh.miuixbrowser.script.ScriptResources
 import dev.dsh.miuixbrowser.script.UserScript
 import dev.dsh.miuixbrowser.script.UserscriptEngine
 import dev.dsh.miuixbrowser.sync.fxa.FxaSync
+import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.util.Diag
 import dev.dsh.miuixbrowser.util.ErrorPages
 import dev.dsh.miuixbrowser.util.ErrorSpec
@@ -180,6 +181,7 @@ class BrowserTab(
         if (incognito == value) return
         incognito = value
         syncUserScripts()
+        applyWebExtensions() // 无痕标签不装拓展；切回普通时补装
         // Cookie 开关是进程级的，不能在这里改；改为在该标签成为当前标签时由 applyPrivacy 设置
     }
 
@@ -474,9 +476,32 @@ class BrowserTab(
     /** 去广告元素隐藏脚本是否已作为 document-start 脚本装上（没装上时由页面加载回调兜底注入） */
     internal var adblockDocStart = false
 
+    /** WebView 拓展在本标签上的装配结果（content script 注入 + 消息桥）；拓展集合变化 / 切无痕 / 销毁时先撤销再重装 */
+    private var extInstallation: dev.dsh.miuixbrowser.ext.WebViewExtensionHost.Installation? = null
+
     init {
         // 引擎初始化放在这里（而不是各自的构造处），保证上面所有属性初始化完毕
-        if (webViewOrNull != null) setupWebView()
+        if (webViewOrNull != null) {
+            setupWebView()
+            applyWebExtensions() // 必须在首次加载网页之前
+        }
+    }
+
+    /**
+     * 把已启用的 WebView 拓展装到本标签（主线程，仅 WebView 内核）。会先撤销上一次的装配，所以可以反复调用；
+     * 无痕标签不装拓展。对已加载的页面不生效，下一次导航起生效（addWebMessageListener / document-start 脚本的语义）。
+     */
+    fun applyWebExtensions() {
+        val wv = webViewOrNull ?: return
+        runCatching {
+            extInstallation?.close()
+            extInstallation = null
+            if (incognito || destroyed) return
+            val system = appContext.appContainer.webExtensions
+            val exts = system.webViewExtensions()
+            if (exts.isEmpty()) return
+            extInstallation = system.tabHost.install(wv, exts, system.shim(), id)
+        }.onFailure { Diag.log("web extensions: apply failed ${it.message}") }
     }
 
     data class ElementHit(val tag: String, val imageUrl: String, val selector: String)
@@ -1476,6 +1501,8 @@ class BrowserTab(
         runCatching { exitCustomView() }
         runCatching { blob.discardAll() }
         runCatching { fpInjector?.clear() }
+        runCatching { extInstallation?.close() }
+        extInstallation = null
         if (isGecko) {
             // 引擎从没建过（延迟创建的后台标签）就没有东西要销毁
             geckoEngine?.let { g ->

@@ -6,7 +6,7 @@ package dev.dsh.miuixbrowser.ext
  */
 object ApiSupport {
     private val webView: Map<String, SupportLevel> = mapOf(
-        "storage" to SupportLevel.PLANNED,
+        "storage" to SupportLevel.FULL,
         "tabs" to SupportLevel.PLANNED,
         "activeTab" to SupportLevel.PLANNED,
         "scripting" to SupportLevel.PLANNED,
@@ -14,7 +14,7 @@ object ApiSupport {
         "menus" to SupportLevel.PLANNED,
         "alarms" to SupportLevel.PLANNED,
         "declarativeNetRequest" to SupportLevel.PLANNED,
-        "unlimitedStorage" to SupportLevel.PLANNED,
+        "unlimitedStorage" to SupportLevel.FULL,
         "notifications" to SupportLevel.PLANNED,
         "webNavigation" to SupportLevel.PLANNED,
         "cookies" to SupportLevel.PLANNED,

@@ -2060,3 +2060,24 @@ API Key（可选）	API key (optional)
 翻译中 {0}/{1}	Translating {0}/{1}
 已翻译 · {0}	Translated · {0}
 正在显示原文	Showing original
+支持 .zip / .crx / .xpi 直链，或本地拓展包文件	Supports direct .zip / .crx / .xpi links, or a local extension package
+还没有安装拓展。点右上角「更多」→「导入拓展」，从链接或本地 .zip / .crx / .xpi 文件安装。	No extensions installed yet. Tap "More" at the top right → "Import extension" to install from a link or a local .zip / .crx / .xpi file.
+拓展由 WebView 内核运行（实验性）：目前支持 content script、后台页以及 storage / runtime API，tabs、scripting 等尚未实现；改动对下一次页面加载生效。APP 已原生支持油猴脚本，请勿再安装油猴类拓展	Extensions run on the WebView engine (experimental): content scripts, background pages and the storage / runtime APIs are supported; tabs, scripting etc. are not implemented yet. Changes take effect on the next page load. The app natively supports userscripts, so please don't install userscript-manager extensions
+此拓展不能在 WebView 内核上运行	This extension can't run on the WebView engine
+添加 {0}？	Add {0}?
+更新 {0}？	Update {0}?
+兼容性提示：	Compatibility notes:
+无法弹出安装确认框	Can't show the install confirmation
+本地导入的拓展无法在线更新，请重新导入新版本	Locally imported extensions can't be updated online; import the new version again
+不受限制地保存数据	Store unlimited data
+读取标签页的网址和标题	Read the URL and title of tabs
+设置定时任务	Schedule tasks
+读取和修改 Cookie	Read and modify cookies
+读取页面导航记录	Read page navigation history
+拦截或修改网络请求	Block or modify network requests
+部分支持	Partially supported
+尚未实现	Not implemented yet
+后台 service worker：用隐藏页面模拟，不会休眠	Background service worker: emulated with a hidden page, never sleeps
+兼容性	Compatibility
+管理 WebView 拓展（实验性）	Manage WebView extensions (experimental)
+长按进入「拓展」管理页；Gecko 下单击是拓展快捷菜单，WebView 下单击同样进入管理页	Long-press opens the "Extensions" management page; on Gecko a tap opens the extension quick menu, on WebView a tap opens the page too

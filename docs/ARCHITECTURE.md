@@ -157,6 +157,11 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 
 - 拼装：`UserscriptEngine`（解析元数据 + `buildSource`，含 `@require/@resource` 走 `ScriptResources` 缓存）；脚本存储 `ExtensionStore`；`BuiltinScripts` 首启自动装一次推荐脚本。
 - Gecko 拓展：`GeckoExtensions`（`GeckoExtensionStore`：AMO 搜索 / 安装 / 更新 / 权限确认、`GeckoExtTabHost` 回调给 `BrowserState` 实现 `tabs.*`）、`GeckoExtensionsScreen`、`GeckoExtMenuSheet`。
+- WebView 拓展（实验性）：`ext/` 下的自研 WebExtension 运行时，由 `AppContainer.webExtensions`（`ExtensionSystem`）持有。
+  标签接入：`BrowserTab.applyWebExtensions()`（WebView 标签构造时、切无痕时、拓展集合变化时调用；无痕标签不装）→ `WebViewExtensionHost.install` 装 content script 与消息桥；
+  后台页：`StartupCoordinator.onContentShown` 延迟调 `pages.startAllBackgrounds()`（隐藏 WebView）。
+  管理页：`ExtensionsManagerScreen` 两个内核共用，只依赖 `ExtManagerBackend`（`GeckoExtBackend` → GeckoView；`WebViewExtBackend` → `ExtensionSystem`），路由 `AppRoute.GeckoExtensions` / `WebViewExtensions`。
+  自测拓展：`tools/webext-test/hello-ext.zip`（`node tools/webext-test/run.js` 用真实 shim 做冒烟）。尚未实现：拓展 popup / 设置页的界面承载、tabs / scripting 等 API、商店。
 - Floccus 书签：`FloccusPatcher` 安装前给 xpi 打补丁（注入 `mafari-bookmarks-shim.js`）→ 垫片经 `runtime.sendMessage('gm@mafari.dev')` 交给内置拓展 → `sendNativeMessage('mafariBookmarks')` → `BookmarksBridge` 读写 `BookmarkDb`。**内置拓展 id `gm@mafari.dev` 与 manifest 版本号牵一发动全身，改动 background/relay 时同步升版本。**
 - 安全模型、已知限制、真机验证清单见 `GECKO_GM.md`；测试见 `tools/gm-ext-test`。
 

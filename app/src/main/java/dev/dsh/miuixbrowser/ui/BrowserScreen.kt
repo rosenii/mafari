@@ -700,6 +700,7 @@ fun BrowserScreen(
     entry<AppRoute.WebViewDebugPage> { nav.SubPage(AppRoute.WebViewDebugPage) }
     entry<AppRoute.GeckoDebugPage> { nav.SubPage(AppRoute.GeckoDebugPage) }
     entry<AppRoute.GeckoExtensions> { nav.SubPage(AppRoute.GeckoExtensions) }
+    entry<AppRoute.WebViewExtensions> { nav.SubPage(AppRoute.WebViewExtensions) }
     entry<AppRoute.Library> { route -> nav.SubPage(route) }
     }
     // 用户引导：盖在最上层。进入二级页面（备份 / Firefox 同步）时只是「不摆放」（visible = false），并不撤出组合：

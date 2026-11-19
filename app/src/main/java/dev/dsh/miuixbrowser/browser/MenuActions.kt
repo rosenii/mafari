@@ -93,7 +93,7 @@ class MenuOrderStore(context: Context) {
         val saved = read(KEY).filter { it !in hidden }.distinct()
         // 从未自定义过：用默认排序（收藏 / 历史 / 桌面版 / 设置 … 按面板里的位置）
         order.addAll(if (prefs.contains(KEY)) saved else DEFAULT_ORDER.filter { it !in hidden })
-        // 新增的项补到末尾；「拓展」默认排在「脚本」后面（WebView 下同样显示，只是置灰，见 BrowserScreen 的 lockedFor）
+        // 新增的项补到末尾；「拓展」默认排在「脚本」后面（两种内核都有，WebView 为自研运行时）
         MenuAction.entries.forEach {
             if (it != MenuAction.GeckoExtensions && it != MenuAction.Account && it !in order && it !in hidden) order.add(it)
         }
@@ -110,11 +110,6 @@ class MenuOrderStore(context: Context) {
         } else {
             order.remove(MenuAction.Account)
             hidden.remove(MenuAction.Account)
-        }
-        // 无内核版没有拓展功能：菜单里不出现「拓展」（含旧备份 / 偏好里残留的）
-        if (!EngineSupport.GECKO_BUNDLED) {
-            order.remove(MenuAction.GeckoExtensions)
-            hidden.remove(MenuAction.GeckoExtensions)
         }
     }
 
@@ -162,8 +157,7 @@ private val QUICK_MENU_NEEDS_PAGE = setOf(
 /** 快捷菜单里可以添加的功能（与底部「更多」菜单同一套，去掉依赖网页的和本安装包没有的） */
 fun quickMenuCandidates(): List<MenuAction> = MenuAction.entries.filter {
     it !in QUICK_MENU_NEEDS_PAGE &&
-        (it != MenuAction.Account || EngineSupport.SYNC_BUNDLED) &&
-        (it != MenuAction.GeckoExtensions || EngineSupport.GECKO_BUNDLED)
+        (it != MenuAction.Account || EngineSupport.SYNC_BUNDLED)
 }
 
 /** 快捷菜单的默认内容（一行 6 个） */

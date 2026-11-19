@@ -791,7 +791,7 @@ private fun longPressSummary(action: MenuAction): String = when (action) {
     MenuAction.ScriptMenu -> tr("长按进入「脚本管理」，单击是当前页面的脚本菜单")
     MenuAction.Favorite -> tr("长按进入「书签」库，单击是收藏当前页面")
     MenuAction.Bookmarks -> tr("长按弹出「新建书签」，自动填入当前页的标题和网址；单击是打开书签")
-    MenuAction.GeckoExtensions -> tr("长按进入「拓展」管理页，单击是拓展快捷菜单")
+    MenuAction.GeckoExtensions -> tr("长按进入「拓展」管理页；Gecko 下单击是拓展快捷菜单，WebView 下单击同样进入管理页")
     else -> ""
 }
 
@@ -812,7 +812,6 @@ private fun MenuStep(settings: AppSettings, menuOrder: MenuOrderStore, bd: Backd
                 onLongPressAction = { action ->
                     Toast.makeText(context, longPressSummary(action), Toast.LENGTH_LONG).show()
                 },
-                lockedFor = { it == MenuAction.GeckoExtensions && !settings.geckoMode },
             )
         }
     }
@@ -820,7 +819,7 @@ private fun MenuStep(settings: AppSettings, menuOrder: MenuOrderStore, bd: Backd
 
     SectionLabel(tr("长按还能做什么"))
     GuideCard(bd) {
-        val items = MENU_LONG_PRESS.filter { it != MenuAction.GeckoExtensions || EngineSupport.GECKO_BUNDLED }
+        val items = MENU_LONG_PRESS.toList()
         items.forEachIndexed { index, action ->
             if (index > 0) RowDivider()
             InfoRow(title = action.label, summary = longPressSummary(action), icon = action.icon)

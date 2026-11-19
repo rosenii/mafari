@@ -9,6 +9,8 @@ import dev.dsh.miuixbrowser.data.AppSettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import dev.dsh.miuixbrowser.appContainer
 
 import dev.dsh.miuixbrowser.ui.icons.Settings
 import dev.dsh.miuixbrowser.download.DownloadsScreen
@@ -43,7 +45,8 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
                 onApplyUserAgent = { state.applyUserAgent(it) },
                 onOpenDownloads = { pushPage(AppRoute.Downloads) },
                 onOpenScripts = { pushPage(AppRoute.Extensions) },
-                onOpenGeckoExtensions = { pushPage(AppRoute.GeckoExtensions) },
+                // 「拓展」页：按默认内核进对应的管理页（两个内核共用同一套界面）
+                onOpenExtensions = { pushPage(if (settings.geckoMode) AppRoute.GeckoExtensions else AppRoute.WebViewExtensions) },
                 onOpenGeckoProtection = { pushPage(AppRoute.GeckoProtectionPage) },
                 onOpenGeckoDebug = { pushPage(AppRoute.GeckoDebugPage) },
                 onOpenWebViewDebug = { pushPage(AppRoute.WebViewDebugPage) },
@@ -169,6 +172,16 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
                     popToBrowser()
                     state.newTab(target = url, incognito = false)
                 },
+                blurEnabled = settings.blurEnabled,
+            )
+        }
+        AppRoute.WebViewExtensions -> {
+            val system = LocalContext.current.appContainer.webExtensions
+            WebViewExtensionsScreen(
+                system = system,
+                onBack = { popPage() },
+                // 拓展集合变了：已打开的 WebView 标签重新装配 content script（对下一次页面加载生效）
+                onChanged = { state.tabs.forEach { it.applyWebExtensions() } },
                 blurEnabled = settings.blurEnabled,
             )
         }

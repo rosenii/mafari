@@ -15,7 +15,7 @@ import dev.dsh.miuixbrowser.browser.MenuOrderStore
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.Favorite
 import dev.dsh.miuixbrowser.engine.gecko.GeckoExtensionStore
-import dev.dsh.miuixbrowser.engine.gecko.showWebViewUnsupportedToast
+import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.util.hostOf
 import android.content.Intent
 import android.net.Uri
@@ -160,17 +160,17 @@ BrowserChunk {
                                     GeckoExtensionStore.items.count {
                                         it.enabled && (!tab.incognito || it.allowedInPrivate)
                                     }
+                                } else if (tab.incognito) {
+                                    0 // 无痕标签不装 WebView 拓展
                                 } else {
-                                    0
+                                    webViewEnabledExtCount(context.appContainer.webExtensions)
                                 }
                                 else -> 0
                             }
                         },
-                        // 置灰：仅 Gecko 专属功能在 WebView 下不可用（脚本在两种内核下都可用）
+                        // 置灰：依赖 WebView 专有 API 的功能在 Gecko 下不可用（拓展、脚本在两种内核下都可用）
                         lockedFor = { action ->
                             when (action) {
-                                // 拓展只在 Gecko 内核可用：WebView 下置灰，点击提示不可用
-                                MenuAction.GeckoExtensions -> !settings.geckoMode
                                 // 去广告依赖 WebView 的请求拦截：Gecko 标签下置灰
                                 MenuAction.AdBlock -> tab.isGecko
                                 else -> false
@@ -203,13 +203,10 @@ BrowserChunk {
                                     bookmarkPrefillUrl = tab.url
                                     showBookmarkCreate = true
                                 }
-                                MenuAction.GeckoExtensions ->
-                                    if (!settings.geckoMode) {
-                                        showWebViewUnsupportedToast(context)
-                                    } else {
-                                        sheet = Sheet.None
-                                        pushPage(AppRoute.GeckoExtensions)
-                                    }
+                                MenuAction.GeckoExtensions -> {
+                                    sheet = Sheet.None
+                                    pushPage(if (settings.geckoMode) AppRoute.GeckoExtensions else AppRoute.WebViewExtensions)
+                                }
                                 else -> Unit
                             }
                         },
@@ -220,8 +217,11 @@ BrowserChunk {
                         // 译文显示中（翻译进行中 / 已完成）为主题色；切到原文时不高亮
                         translateActive = tab.translate.iconVisible && !tab.translate.showingOriginal,
                         scriptsActive = settings.scriptsEnabled,
-                        extensionsActive = settings.geckoMode &&
-                            GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) },
+                        extensionsActive = if (settings.geckoMode) {
+                            GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) }
+                        } else {
+                            !tab.incognito && webViewEnabledExtCount(context.appContainer.webExtensions) > 0
+                        },
                     )
                     }
                 }

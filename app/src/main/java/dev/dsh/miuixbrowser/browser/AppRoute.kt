@@ -22,6 +22,9 @@ sealed interface AppRoute : NavKey {
     /** Gecko 专属「拓展」页（WebExtension：商店搜索 / 导入 / 管理） */
     data object GeckoExtensions : AppRoute
 
+    /** WebView 内核的「拓展」页（自研 WebExtension 运行时：导入 / 启停 / 卸载，与 [GeckoExtensions] 共用同一个管理页） */
+    data object WebViewExtensions : AppRoute
+
     /** Gecko 高级保护：ETP / 指纹 / 安全 DNS 等 */
     data object GeckoProtectionPage : AppRoute
 

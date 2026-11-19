@@ -95,8 +95,8 @@ internal fun BrowserUiState.performMenuAction(
         MenuAction.Home -> state.goHome(tab)
         MenuAction.Downloads -> pushPage(AppRoute.Downloads)
         MenuAction.Scan -> launchers.launchScan()
-        // 单击：拓展快捷菜单；长按（见 onLongPressAction）：进入拓展页
-        MenuAction.GeckoExtensions -> geckoExtSheetShow = true
+        // Gecko：单击是拓展快捷菜单（工具栏按钮 / 弹出页）；WebView 还没有快捷菜单，单击直接进拓展页。长按（见 onLongPressAction）：进入拓展页
+        MenuAction.GeckoExtensions -> if (tab.isGecko) geckoExtSheetShow = true else pushPage(AppRoute.WebViewExtensions)
         MenuAction.ScriptMenu -> {
             scriptSheetShow = true
             refreshScriptSheet(state)

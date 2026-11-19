@@ -4,8 +4,11 @@ import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.FavoritesStore
 import dev.dsh.miuixbrowser.data.HistoryStore
 import dev.dsh.miuixbrowser.script.ExtensionStore
+import dev.dsh.miuixbrowser.ext.ExtensionSystem
+import dev.dsh.miuixbrowser.util.Diag
 import android.app.Application
 import android.content.Context
+import java.io.File
 
 /**
  * 进程内唯一的一组共享对象，由 [MafariApp] 持有。
@@ -24,6 +27,15 @@ class AppContainer(app: Application) {
     val favorites: FavoritesStore by lazy { FavoritesStore(appContext) }
     val history: HistoryStore by lazy { HistoryStore(appContext) }
     val extensions: ExtensionStore by lazy { ExtensionStore(appContext) }
+
+    /**
+     * WebView 内核的 WebExtension 运行时（拓展仓库 / 安装器 / 后台页 / 标签页注入）。
+     * 与上面的 [extensions]（油猴脚本）互不相干；Gecko 内核的拓展由 GeckoView 自己管理，不走这里。
+     * 懒创建：构造只建对象，不读盘；仓库在第一次 list() 时才读状态文件。
+     */
+    val webExtensions: ExtensionSystem by lazy {
+        ExtensionSystem(appContext, File(appContext.filesDir, "webext")) { Diag.log(it) }
+    }
 }
 
 /** 取进程级容器。任何 Context（Activity / Service / Application）都可以调用。 */

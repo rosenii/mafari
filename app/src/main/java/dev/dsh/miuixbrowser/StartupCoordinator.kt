@@ -41,6 +41,9 @@ internal object StartupCoordinator {
     /** 首帧之后等这么久再编译去广告规则（约 0.5 秒的后台编译），让界面先出来。 */
     private const val ADBLOCK_COMPILE_DELAY_MS = 500L
 
+    /** WebView 拓展的后台页是隐藏 WebView，创建有开销：首帧之后再起，别和首屏抢主线程。 */
+    private const val EXT_BACKGROUND_DELAY_MS = 1_500L
+
     /** 下载列表（读库 + 清理已完成任务的临时目录）不是首屏必需：首帧之后再恢复。 */
     private const val DOWNLOADS_INIT_DELAY_MS = 300L
 
@@ -96,6 +99,13 @@ internal object StartupCoordinator {
         // 去广告规则：界面出来后再编译（init 只读设置，不编译），不和冷启动抢 CPU
         activity.window.decorView.post {
             Handler(Looper.getMainLooper()).postDelayed({ AdBlock.startCompile() }, ADBLOCK_COMPILE_DELAY_MS)
+        }
+        // WebView 拓展的后台页：没有已启用的拓展就什么都不建；幂等（Activity 重建时已在运行的会跳过）
+        activity.window.decorView.post {
+            Handler(Looper.getMainLooper()).postDelayed({
+                runCatching { app.appContainer.webExtensions.pages.startAllBackgrounds() }
+                    .onFailure { Diag.log("web extensions: start backgrounds failed ${it.message}") }
+            }, EXT_BACKGROUND_DELAY_MS)
         }
         if (!EngineSupport.SYNC_BUNDLED) return
         activity.window.decorView.post {

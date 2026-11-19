@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Mafari Hello（测试拓展）",
+  "version": "1.0.0",
+  "description": "最小的 WebView 拓展自测包：在网页底部显示一条横幅，验证 content script 注入、storage 读写、后台页消息。",
+  "permissions": ["storage"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

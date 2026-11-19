@@ -133,7 +133,7 @@ fun SettingsScreen(
     onApplyUserAgent: (String) -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenScripts: () -> Unit,
-    onOpenGeckoExtensions: () -> Unit = {},
+    onOpenExtensions: () -> Unit = {},
     onOpenGeckoProtection: () -> Unit = {},
     onOpenGeckoDebug: () -> Unit = {},
     onOpenWebViewDebug: () -> Unit = {},
@@ -508,14 +508,12 @@ fun SettingsScreen(
                             },
                         )
                     }
-                    // 按内核显示：拓展属于 Gecko；网页增强 / 去广告依赖 WebView 专有 API；脚本管理两种内核通用
-                    EngineRow(visible = settings.geckoMode) {
-                        SettingsRow(
-                            title = tr("拓展"),
-                            summary = tr("管理 Firefox 扩展"),
-                            onClick = onOpenGeckoExtensions,
-                        )
-                    }
+                    // 拓展两种内核都有入口（Gecko：Firefox 扩展；WebView：自研运行时，实验性）；网页增强 / 去广告依赖 WebView 专有 API；脚本管理两种内核通用
+                    SettingsRow(
+                        title = tr("拓展"),
+                        summary = if (settings.geckoMode) tr("管理 Firefox 扩展") else tr("管理 WebView 拓展（实验性）"),
+                        onClick = onOpenExtensions,
+                    )
                     // 网页增强是 WebView 的总开关（脚本 + 去广告）；Gecko 下脚本只受脚本菜单里的开关控制
                     EngineRow(visible = !settings.geckoMode) {
                         AppSwitchPreference(

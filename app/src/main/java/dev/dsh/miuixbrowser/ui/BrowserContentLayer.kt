@@ -7,7 +7,6 @@ import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.Favorite
-import dev.dsh.miuixbrowser.engine.gecko.showWebViewUnsupportedToast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
@@ -214,14 +213,7 @@ internal fun BrowserUiState.BrowserContentLayer(
                     quickActions = settings.homeQuickItems,
                     quickRows = settings.homeQuickRows,
                     quickEditing = quickEditing,
-                    onQuickAction = { action ->
-                        // 拓展只在 Gecko 内核可用：WebView 下只提示
-                        if (action == MenuAction.GeckoExtensions && !settings.geckoMode) {
-                            showWebViewUnsupportedToast(context)
-                        } else {
-                            quickRunner.run(action)
-                        }
-                    },
+                    onQuickAction = { action -> quickRunner.run(action) },
                     onQuickToggleEdit = { quickEditing = !quickEditing },
                     // 回调里的下标是可见部分的位置，与完整列表的前缀一致
                     onQuickRemove = { pos ->
