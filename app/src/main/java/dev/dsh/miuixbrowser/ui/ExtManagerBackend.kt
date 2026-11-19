@@ -24,7 +24,16 @@ class ExtEntry(
     val homepage: String = "",
     /** 兼容性提示（WebView 适配器：尚未实现的 API 等），显示在「详细信息」里 */
     val notes: List<String> = emptyList(),
+    /** 拓展声明了功能菜单（action.default_popup），可以从管理页直接打开 */
+    val hasPopup: Boolean = false,
+    /** 拓展有自己的设置页（options_page / options_ui），可以从管理页直接打开 */
+    val hasOptionsPage: Boolean = false,
 )
+
+/** 请求在管理页里用底部 Sheet 打开某个拓展自己的页面（目前只有 WebView 内核支持） */
+class ExtPageRequest(val extId: String, val name: String, val kind: Kind) {
+    enum class Kind { POPUP, OPTIONS }
+}
 
 /**
  * 拓展管理页（[ExtensionsManagerScreen]）面对的后端：Gecko 走 GeckoView 的 WebExtensionController，

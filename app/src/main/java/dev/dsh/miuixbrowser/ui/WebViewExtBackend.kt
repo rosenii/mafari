@@ -19,6 +19,8 @@ import dev.dsh.miuixbrowser.ext.PackageUnpacker
 import dev.dsh.miuixbrowser.ext.PreparedPackage
 import dev.dsh.miuixbrowser.ext.SupportLevel
 import dev.dsh.miuixbrowser.i18n.tr
+import dev.dsh.miuixbrowser.engine.gecko.AmoAddon
+import dev.dsh.miuixbrowser.net.AmoClient
 import dev.dsh.miuixbrowser.net.HttpFetcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -39,7 +41,7 @@ internal fun webViewEnabledExtCount(system: ExtensionSystem): Int =
  * - 启停 / 卸载：交给 [ExtensionSystem.onInstalled] / [ExtensionSystem.onDisabled] / [ExtensionSystem.onUninstalled]；
  * - 任何改动后调 [onChanged]，让已打开的标签重新装配 content script（对下一次页面加载生效）。
  *
- * 快捷菜单 popup 由 WebViewExtMenuSheet 直接承载；商店搜索与隐私浏览（无痕标签一律不装拓展）暂未支持。
+ * 快捷菜单 popup 由 WebViewExtMenuSheet 直接承载；商店搜索走 [AmoClient]；隐私浏览（无痕标签一律不装拓展）暂未支持。
  */
 class WebViewExtBackend(
     private val system: ExtensionSystem,
@@ -55,14 +57,14 @@ class WebViewExtBackend(
     override val loading: Boolean get() = loadingState.value
     override fun icon(id: String): ImageBitmap? = icons[id]
 
-    override val supportsStore = false
+    override val supportsStore = true
     override val supportsAutoUpdate = false
     override val supportsPrivate = false
 
     override val importSummary: String
-        get() = tr("支持 .zip / .crx / .xpi 直链，或本地拓展包文件")
+        get() = tr("支持拓展商店页面链接、.zip / .crx / .xpi 直链，或本地拓展包文件")
     override val emptyHint: String
-        get() = tr("还没有安装拓展。点右上角「更多」→「导入拓展」，从链接或本地 .zip / .crx / .xpi 文件安装。")
+        get() = tr("还没有安装拓展。点右上角搜索，从 Firefox 拓展商店添加，或在「更多」里导入链接 / 本地 .zip / .crx / .xpi 文件。")
     override val footerHint: String
         get() = tr("拓展由 WebView 内核运行（实验性）：目前支持 content script、后台页以及 storage / runtime API，tabs、scripting 等尚未实现；改动对下一次页面加载生效。APP 已原生支持油猴脚本，请勿再安装油猴类拓展")
 
@@ -97,12 +99,20 @@ class WebViewExtBackend(
             version = s.version,
             description = s.description,
             enabled = e.enabled,
-            // Options 页面暂时没有独立管理入口；快捷菜单 popup 由 WebViewExtMenuSheet 承载。
+            // 设置页 / 功能菜单由管理页里的 WebViewExtPageSheet 承载（需要拓展 bridge，不能当普通网页在标签里开）
             optionsUrl = null,
             permissions = describePermissions(e),
             notes = compatNotes(e),
+            hasPopup = !system.actionApi.state(e).popup.isNullOrBlank(),
+            hasOptionsPage = !s.optionsPage.isNullOrBlank(),
         )
     }
+
+    // ------------------------------------------------------------------ 商店（Firefox 拓展商店，与 Gecko 内核同一来源）
+
+    override suspend fun searchStore(query: String): Result<List<AmoAddon>> = AmoClient.search(query)
+
+    override suspend fun resolveStorePage(url: String): Result<AmoAddon?> = AmoClient.resolvePage(url)
 
     // ------------------------------------------------------------------ 安装
 

@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -107,7 +108,15 @@ fun WebViewExtensionsScreen(
 ) {
     val currentOnChanged by rememberUpdatedState(onChanged)
     val backend = remember(system) { WebViewExtBackend(system) { currentOnChanged() } }
-    ExtensionsManagerScreen(backend = backend, onBack = onBack, blurEnabled = blurEnabled)
+    ExtensionsManagerScreen(
+        backend = backend,
+        onBack = onBack,
+        blurEnabled = blurEnabled,
+        // 功能菜单 / 设置页需要拓展 bridge，用 Sheet 承载拓展自己的页面
+        pageSheet = { request, backdrop, onDismiss ->
+            WebViewExtPageSheet(system = system, request = request, backdrop = backdrop, onDismiss = onDismiss)
+        },
+    )
 }
 
 /**
@@ -125,6 +134,8 @@ fun ExtensionsManagerScreen(
     onBack: () -> Unit,
     onOpenUrl: (String) -> Unit = {},
     blurEnabled: Boolean = true,
+    /** 承载拓展自己的页面（功能菜单 / 设置页）的 Sheet；null = 当前内核不支持，相关入口不显示 */
+    pageSheet: (@Composable (ExtPageRequest?, top.yukonga.miuix.kmp.blur.Backdrop?, () -> Unit) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -151,10 +162,21 @@ fun ExtensionsManagerScreen(
     var busyIds by remember { mutableStateOf(setOf<String>()) }
     var menuItem by remember { mutableStateOf<ExtEntry?>(null) }
     var menuAnchor by remember { mutableStateOf(Rect.Zero) }
+    var pageRequest by remember { mutableStateOf<ExtPageRequest?>(null) }
     val detail = detailId?.let { id -> backend.items.firstOrNull { it.id == id } }
     val focus = remember { FocusRequester() }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+
+    /** 先收起当前的设置 sheet / 菜单，再开拓展页 sheet（两层 sheet 同时切换时后一层可能被宿主吞掉） */
+    fun openExtPage(item: ExtEntry, kind: ExtPageRequest.Kind) {
+        detailId = null
+        menuItem = null
+        scope.launch {
+            delay(250)
+            pageRequest = ExtPageRequest(item.id, item.name, kind)
+        }
+    }
 
     // 安装确认框要 Activity；页面存在期间登记，离开时撤销
     DisposableEffect(Unit) {
@@ -420,10 +442,17 @@ fun ExtensionsManagerScreen(
                         busyIds = busyIds - d.id
                     }
                 },
+                pageSupported = pageSheet != null,
+                onOpenPopup = { detail?.let { openExtPage(it, ExtPageRequest.Kind.POPUP) } },
                 onOptions = {
-                    val url = detail?.optionsUrl
-                    detailId = null
-                    if (url != null) onOpenUrl(url)
+                    val d = detail
+                    val url = d?.optionsUrl
+                    if (d != null && url == null && d.hasOptionsPage && pageSheet != null) {
+                        openExtPage(d, ExtPageRequest.Kind.OPTIONS)
+                    } else {
+                        detailId = null
+                        if (url != null) onOpenUrl(url)
+                    }
                 },
                 onCheckUpdate = {
                     val d = detail ?: return@ExtSettingsSheet
@@ -437,6 +466,8 @@ fun ExtensionsManagerScreen(
                 },
                 onUninstall = { uninstalling = detail },
             )
+
+            pageSheet?.invoke(pageRequest, if (glass) backdrop else null) { pageRequest = null }
 
             AppGlassDialog(
                 show = uninstalling != null,
@@ -535,6 +566,14 @@ fun ExtensionsManagerScreen(
                 anchorBounds = Rect(menuAnchor.left, menuAnchor.bottom, menuAnchor.right, menuAnchor.bottom),
                 backdrop = if (glass) backdrop else null,
             ) {
+                val menuTarget = menuItem
+                if (pageSheet != null && menuTarget != null && menuTarget.hasPopup && menuTarget.enabled) {
+                    GlassPopupItem(
+                        text = tr("功能菜单"),
+                        onClick = { openExtPage(menuTarget, ExtPageRequest.Kind.POPUP) },
+                        icon = AppIcons.Puzzle,
+                    )
+                }
                 GlassPopupItem(
                     text = tr("拓展设置"),
                     onClick = {
@@ -780,6 +819,8 @@ private fun ExtSettingsSheet(
     onDismiss: () -> Unit,
     onToggle: (Boolean) -> Unit,
     onTogglePrivate: (Boolean) -> Unit,
+    pageSupported: Boolean,
+    onOpenPopup: () -> Unit,
     onOptions: () -> Unit,
     onCheckUpdate: () -> Unit,
     onUninstall: () -> Unit,
@@ -812,7 +853,10 @@ private fun ExtSettingsSheet(
                             onChange = onTogglePrivate,
                         )
                     }
-                    if (shown.optionsUrl != null) {
+                    if (pageSupported && shown.hasPopup) {
+                        SettingsRow(title = tr("功能菜单"), summary = tr("打开拓展的快捷菜单"), enabled = shown.enabled, onClick = onOpenPopup)
+                    }
+                    if (shown.optionsUrl != null || (pageSupported && shown.hasOptionsPage)) {
                         SettingsRow(title = tr("设置"), summary = tr("打开拓展自带的设置页"), enabled = shown.enabled, onClick = onOptions)
                     }
                     SettingsRow(title = tr("详细信息"), summary = tr("版本、作者、简介")) { page = 1 }

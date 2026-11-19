@@ -2,6 +2,16 @@
 
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
+## [2.1.62-canary]
+**webview 拓展API适配情况**：
+- 已实现：runtime	PARTIAL	消息与 Port 已实现；Port 可向同一拓展多个已就绪页面上下文 fan-out；跨扩展与外部连接能力缺失
+- 已实现：storage	PARTIAL	local/session CRUD 与事件已实现；sync 是独立本地持久化，不是真正跨设备同步
+- 已实现：alarms	PARTIAL（本轮不修改）	有 create/get/getAll/clear/clearAll；进程被杀期间不能准点执行，启动后补发
+- 已实现：permissions	PARTIAL	getAll/contains/request/remove、用户确认、持久化与权限事件已实现；复杂 host pattern 子集边界仍有限
+- 已实现：tabs	PARTIAL	query/create/update/remove/reload/history/sendMessage/move/duplicate 与 onMoved 已实现；单窗口、主框架限制及截图等能力缺失
+- 已实现：scripting	PARTIAL	executeScript/insertCSS/removeCSS 与动态注册系列已实现；无真正 isolated world，frameId 仅支持 0
+- 已实现：i18n	FULL（需边界测试）	已有本地化消息表和 manifest 本地化
+- 部分实现：其余 Firefox API	NONE 或 MANIFEST	尚未接入原生 API handler / 浏览器宿主
 ## [2.1.61-canary]
 - 新增：底栏「更多」菜单中的「拓展」单击后，WebView 与 Gecko 一样打开拓展快捷菜单；长按仍进入 WebView 拓展管理页。
 - 新增：快捷菜单展示当前 WebView 可运行的已安装拓展、图标、启用状态与 popup 可用状态，并提供单项 / 全部启停。
