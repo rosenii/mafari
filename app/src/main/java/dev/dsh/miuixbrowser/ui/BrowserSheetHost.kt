@@ -217,6 +217,8 @@ BrowserChunk {
                         requestsActive = AdBlock.requestLogEnabled,
                         adBlockActive = AdBlock.enabled && !tab.isGecko,
                         syncActive = MenuSyncState.syncing,
+                        // 译文显示中（翻译进行中 / 已完成）为主题色；切到原文时不高亮
+                        translateActive = tab.translate.iconVisible && !tab.translate.showingOriginal,
                         scriptsActive = settings.scriptsEnabled,
                         extensionsActive = settings.geckoMode &&
                             GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) },

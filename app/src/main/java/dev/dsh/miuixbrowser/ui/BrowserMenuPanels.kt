@@ -237,6 +237,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /** 更多菜单里长按进入管理页（脚本 / 收藏 / 拓展）所需的按住时长，含系统长按判定时间 */
 internal const val MENU_LONG_PRESS_MS = 650L
 
+/** 「无痕浏览」开启时的高亮色（更多菜单与首页快捷菜单共用） */
+internal val MenuIncognitoPurple = Color(0xFF9C27B0)
+
 @Composable
 internal fun MenuGrid(
     labelFor: (MenuAction) -> String,
@@ -257,6 +260,8 @@ internal fun MenuGrid(
     adBlockActive: Boolean = false,
     /** 正在同步：「同步」图标和文字变主题色 */
     syncActive: Boolean = false,
+    /** 当前页正显示译文：「翻译」图标和文字变主题色 */
+    translateActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
     lockedFor: (MenuAction) -> Boolean = { false },
 ) {
@@ -266,7 +271,7 @@ internal fun MenuGrid(
     val cellHeight = 88.dp
     val dividerHeight = 30.dp
     val columns = 4
-    val purple = Color(0xFF9C27B0)
+    val purple = MenuIncognitoPurple
     val amber = Color(0xFFFFB300)
     val lightBlue = Color(0xFF5AC8FA)
     val teal = Color(0xFF1DB9A5)
@@ -335,6 +340,7 @@ internal fun MenuGrid(
                                 action == MenuAction.GeckoExtensions && extensionsActive -> teal
                                 action == MenuAction.AdBlock && adBlockActive -> Color(0xFFE53935)
                                 action == MenuAction.Sync && syncActive -> MiuixTheme.colorScheme.primary
+                                action == MenuAction.Translate && translateActive -> MiuixTheme.colorScheme.primary
                                 else -> MiuixTheme.colorScheme.onSurface
                             },
                             dragged = dragAction == action,

@@ -425,6 +425,8 @@ internal fun StartPage(
     onAdd: () -> Unit,
     /** 当前标签是 Gecko 内核：隐私报告改为显示 Gecko 高级保护清单 */
     geckoMode: Boolean = false,
+    /** 当前标签是无痕标签：快捷菜单里的「无痕浏览」高亮 */
+    incognito: Boolean = false,
     /** 首页顶部的 LOGO 标识 */
     showLogo: Boolean = true,
     /** 底部导航栏被设为靠上：首页内容顶部让出栏的位置，底部不再留栏的空间 */
@@ -613,6 +615,7 @@ internal fun StartPage(
                                 onAdd = onAdd,
                             )
                             HOME_QUICK -> QuickMenuBlock(
+                                incognito = incognito,
                                 modifier = itemMod,
                                 headerModifier = handle,
                                 actions = quickActions,
@@ -1813,6 +1816,7 @@ private val QUICK_LABEL_BLOCK = 16.dp
  */
 @Composable
 internal fun QuickMenuBlock(
+    incognito: Boolean = false,
     modifier: Modifier,
     headerModifier: Modifier,
     actions: List<MenuAction>,
@@ -1907,6 +1911,7 @@ internal fun QuickMenuBlock(
                         action = action,
                         hasWallpaper = hasWallpaper,
                         editing = editing,
+                        incognito = incognito,
                         modifier = mod,
                         onRemove = { onRemove(index) },
                     )
@@ -1923,12 +1928,14 @@ private fun QuickMenuTile(
     action: MenuAction,
     hasWallpaper: Boolean,
     editing: Boolean,
+    incognito: Boolean = false,
     modifier: Modifier = Modifier,
     onRemove: () -> Unit,
 ) {
     // 状态型功能：去广告开着 → 红；同步进行中 → 主题色 + 「同步中」（与更多菜单一致）
     val syncing = action == MenuAction.Sync && dev.dsh.miuixbrowser.browser.MenuSyncState.syncing
     val tint = when {
+        action == MenuAction.Incognito && incognito -> MenuIncognitoPurple
         action == MenuAction.AdBlock && dev.dsh.miuixbrowser.adblock.AdBlock.enabled -> Color(0xFFE53935)
         syncing -> MiuixTheme.colorScheme.primary
         else -> MiuixTheme.colorScheme.onSurface

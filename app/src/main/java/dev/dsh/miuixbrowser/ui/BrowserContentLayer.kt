@@ -155,6 +155,7 @@ internal fun BrowserUiState.BrowserContentLayer(
                     onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
                     showPrivacy = settings.homeShowPrivacy,
                     geckoMode = tab.isGecko,
+                    incognito = tab.incognito,
                     showRecent = settings.homeShowRecent && !tab.incognito,
                     showDownloads = settings.homeShowDownloads,
                     liquidBackdrop = if (settings.liquidGlass && wallpaperBitmap != null) wallpaperLiquidBackdrop else null,
