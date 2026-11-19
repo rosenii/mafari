@@ -7,9 +7,9 @@ import kotlin.math.abs
 /**
  * `tabs.*` 的处理器，建在 [TabBridge] 之上。
  *
- * 已实现：query / get / getCurrent / create / update / remove / reload / goBack / goForward / sendMessage（仅主框架），
- * 以及 onCreated / onUpdated / onRemoved / onActivated 事件。
- * 未实现：move / duplicate / group / captureVisibleTab 等，调用会回 UNSUPPORTED。
+ * 已实现：query / get / getCurrent / create / update / duplicate / move / remove / reload / goBack / goForward / sendMessage（仅主框架），
+ * 以及 onCreated / onUpdated / onMoved / onRemoved / onActivated 事件。
+ * 仍不支持：多窗口、captureVisibleTab、group、zoom、完整 frame 路由等宿主能力。
  *
  * 安全约束：
  * - 只有拓展自己的页面能调（[PermissionChecker] 已限制 content script），所以不存在「网页借拓展读别的标签」；
@@ -107,6 +107,21 @@ class TabsApi(
             val tab = bridge().update(id, TabUpdateOptions(url, active)) ?: throw noTab(id)
             toJson(ctx.ext, tab, activeGranted(ctx.ext, tab))
         }
+        router.register("tabs.duplicate") { ctx, a ->
+            val id = toInt(a.argOrNull(0), "tabId")
+            val tab = bridge().duplicate(id) ?: throw noTab(id)
+            toJson(ctx.ext, tab, activeGranted(ctx.ext, tab))
+        }
+        router.register("tabs.move") { ctx, a ->
+            val ids = when (val raw = a.argOrNull(0)) {
+                is JSONArray -> (0 until raw.length()).map { toInt(raw.opt(it), "tabIds") }
+                else -> listOf(toInt(raw, "tabIds"))
+            }
+            val props = a.argOrNull(1) as? JSONObject ?: throw ApiException(ErrorCodes.BAD_REQUEST, "move 需要 moveProperties")
+            checkWindow(props.intOrNull("windowId"))
+            val index = props.intOrNull("index") ?: throw ApiException(ErrorCodes.BAD_REQUEST, "move 缺少 index")
+            JSONArray().apply { bridge().move(ids, index).forEach { put(toJson(ctx.ext, it, activeGranted(ctx.ext, it))) } }
+        }
         router.register("tabs.remove") { _, a ->
             val ids = when (val v = a.argOrNull(0)) {
                 is JSONArray -> (0 until v.length()).map { toInt(v.opt(it), "tabIds") }
@@ -159,6 +174,11 @@ class TabsApi(
         // 变化的全是看不到的字段：这个拓展不该收到事件（连「有变化」本身都不泄露）
         if (info.length() == 0) null
         else JSONObject().put("tabId", tab.id).put("changeInfo", info).put("tab", toJson(ext, tab, activeGranted(ext, tab)))
+    }
+
+    override fun onMoved(tabId: Int, fromIndex: Int, toIndex: Int) = fanOut("tabs.onMoved") { _ ->
+        JSONObject().put("tabId", tabId).put("moveInfo", JSONObject()
+            .put("windowId", TabBridge.WINDOW_ID).put("fromIndex", fromIndex).put("toIndex", toIndex))
     }
 
     override fun onRemoved(tabId: Int) = fanOut("tabs.onRemoved") { _ ->

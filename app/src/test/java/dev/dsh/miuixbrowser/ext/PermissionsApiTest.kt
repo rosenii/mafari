@@ -18,8 +18,9 @@ class PermissionsApiTest {
             granted = setOf("storage", "tabs"),
             grantedHosts = listOf("https://granted.com/*")
         )
+        val repo = FakeRepo().apply { put(ext) }
         val router = ApiRouter()
-        PermissionsApi().register(router)
+        PermissionsApi(repo, EventSink { _, _, _ -> }) { _, _, _ -> true }.register(router)
         val sender = Sender(SenderKind.EXTENSION_PAGE, ExtensionOrigins.originFor(ext.spec.id), true)
         val getAll = router.find("permissions.getAll")!!
             .handle(CallContext(ext, sender, "permissions.getAll"), org.json.JSONArray())
@@ -38,4 +39,48 @@ class PermissionsApiTest {
             org.json.JSONArray().put(JSONObject("""{"permissions":["alarms"]}"""))
         ))
     }
+    @Test fun requestAndRemoveOptionalPermissionsPersistAndEmitEvents() = runBlocking {
+        val manifest = """{"manifest_version":3,"name":"Demo","version":"1","permissions":["storage"],
+            "optional_permissions":["alarms"],"optional_host_permissions":["https://optional.example/*"]}"""
+        val ext = TestExt.make(tmp.newFolder("optional"), manifest = manifest, granted = setOf("storage"), grantedHosts = emptyList())
+        val repo = FakeRepo().apply { put(ext) }
+        val emitted = mutableListOf<Pair<String, JSONObject>>()
+        val events = EventSink { _, name, payload -> emitted += name to JSONObject(payload.toString()) }
+        val router = ApiRouter()
+        PermissionsApi(repo, events) { _, _, _ -> true }.register(router)
+        val sender = Sender(SenderKind.EXTENSION_PAGE, ExtensionOrigins.originFor(ext.spec.id), true)
+        val request = router.find("permissions.request")!!
+        assertEquals(true, request.handle(CallContext(ext, sender, "permissions.request"), org.json.JSONArray().put(
+            JSONObject("""{"permissions":["alarms"],"origins":["https://optional.example/*"]}""")
+        )))
+        val granted = repo.get(ext.spec.id)!!
+        assertTrue("alarms" in PermissionChecker.effectivePermissions(granted))
+        assertEquals(1, granted.grantedHostPermissions.size)
+        assertEquals("permissions.onAdded", emitted.single().first)
+
+        val remove = router.find("permissions.remove")!!
+        assertEquals(true, remove.handle(CallContext(granted, sender, "permissions.remove"), org.json.JSONArray().put(
+            JSONObject("""{"permissions":["alarms"],"origins":["https://optional.example/*"]}""")
+        )))
+        val after = repo.get(ext.spec.id)!!
+        assertFalse("alarms" in PermissionChecker.effectivePermissions(after))
+        assertTrue(after.grantedHostPermissions.isEmpty())
+        assertEquals("permissions.onRemoved", emitted.last().first)
+    }
+
+    @Test fun requestCannotEscalateUndeclaredPermissions() = runBlocking {
+        val ext = TestExt.make(tmp.newFolder("required"))
+        val repo = FakeRepo().apply { put(ext) }
+        val router = ApiRouter()
+        PermissionsApi(repo, EventSink { _, _, _ -> }) { _, _, _ -> true }.register(router)
+        val sender = Sender(SenderKind.EXTENSION_PAGE, ExtensionOrigins.originFor(ext.spec.id), true)
+        val err = try {
+            router.find("permissions.request")!!.handle(CallContext(ext, sender, "permissions.request"), org.json.JSONArray().put(
+                JSONObject("""{"permissions":["cookies"]}""")
+            ))
+            null
+        } catch (e: ApiException) { e.code }
+        assertEquals(ErrorCodes.DENIED_PERMISSION, err)
+    }
+
 }

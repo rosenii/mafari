@@ -53,4 +53,12 @@ class MatchPatternTest {
         assertEquals(setOf("http://a.com", "https://a.com"), p("*://a.com/*").toOriginRules())
         assertTrue(p("file:///*").toOriginRules().isEmpty())
     }
+    @Test fun coversRequestedPatternsConservatively() {
+        assertTrue(p("<all_urls>").covers(p("https://example.com/*")))
+        assertTrue(p("https://*.example.com/*").covers(p("https://a.example.com/*")))
+        assertTrue(p("https://example.com/*").covers(p("https://example.com/path/*")))
+        assertFalse(p("https://example.com/path/*").covers(p("https://example.com/*")))
+        assertFalse(p("https://example.com/*").covers(p("http://example.com/*")))
+    }
+
 }

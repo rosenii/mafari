@@ -18,6 +18,7 @@ class TabChangeTrackerTest {
             )
             log += "updated:${tab.id}:" + parts.joinToString(",")
         }
+        override fun onMoved(tabId: Int, fromIndex: Int, toIndex: Int) { log += "moved:$tabId:$fromIndex->$toIndex" }
         override fun onRemoved(tabId: Int) { log += "removed:$tabId" }
         override fun onActivated(tabId: Int, previousTabId: Int?) { log += "activated:$tabId<-$previousTabId" }
     })
@@ -65,10 +66,10 @@ class TabChangeTrackerTest {
         assertTrue("cleared icon cannot be expressed, so no event", drain().isEmpty())
     }
 
-    @Test fun reorderAndNoChangeAreSilent() {
+    @Test fun reorderEmitsMovedEventsButNoUpdatedEvents() {
         tracker.update(listOf(tab(1, active = true, index = 0), tab(2, index = 1)))
         tracker.update(listOf(tab(2, index = 0), tab(1, active = true, index = 1)))
-        assertTrue(drain().isEmpty())
+        assertEquals(listOf("moved:2:1->0", "moved:1:0->1"), drain())
     }
 
     @Test fun activationReportsPreviousTab() {

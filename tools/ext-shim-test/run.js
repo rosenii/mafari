@@ -241,6 +241,19 @@ test('tabs.sendMessage forwards tabId, message and options to the native router'
   assert.strictEqual(await p, 'pong');
 });
 
+test('tabs duplicate and move forward to native handlers', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true }), entry([
+    'window.dup = browser.tabs.duplicate(4); window.mov = browser.tabs.move([4,5], {index:0});'
+  ])));
+  const calls = env.posted.filter(x => x.api !== 'runtime.hello');
+  assert.deepStrictEqual(calls.map(x => x.api), ['tabs.duplicate', 'tabs.move']);
+  assert.deepStrictEqual(calls[1].args, [[4,5], { index: 0 }]);
+  env.native({ id: calls[0].id, ok: true, result: { id: 8 } });
+  env.native({ id: calls[1].id, ok: true, result: [{ id: 4 }, { id: 5 }] });
+  await Promise.all([env.sandbox.dup, env.sandbox.mov]);
+});
+
 test('content-script mode handshakes only when installed for a browser tab', () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: false, tabId: 42 }), '[]'));
@@ -328,6 +341,46 @@ test('permissions API exposes promise and chrome callback query methods', async 
   await tick();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.all)), { permissions: ['storage'], origins: [] });
   assert.strictEqual(env.sandbox.hasStorage, true);
+});
+
+test('webNavigation API is exposed only when declared and forwards frame queries', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['webNavigation'] } }), entry([''])));
+  assert.strictEqual(typeof env.sandbox.browser.webNavigation.getFrame, 'function');
+  const p = env.sandbox.browser.webNavigation.getFrame({ tabId: 7, frameId: 0 });
+  const call = env.posted.find(x => x.api === 'webNavigation.getFrame');
+  assert.deepStrictEqual(call.args, [{ tabId: 7, frameId: 0 }]);
+  env.native({ id: call.id, ok: true, result: { tabId: 7, frameId: 0 } });
+  assert.deepStrictEqual(await p, { tabId: 7, frameId: 0 });
+});
+
+test('webNavigation events dispatch details to listeners', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['webNavigation'] } }), entry([
+    'window.nav = []; browser.webNavigation.onCommitted.addListener(function (d) { window.nav.push(d.tabId + ":" + d.frameId + ":" + d.url); });'
+  ])));
+  env.native({ event: 'webNavigation.onCommitted', payload: { tabId: 9, frameId: 0, url: 'https://example.com/', timeStamp: 1 } });
+  assert.deepStrictEqual(Array.from(env.sandbox.nav), ['9:0:https://example.com/']);
+});
+
+test('permissions request/remove and lifecycle events are exposed', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true }), entry([
+    'window.added = null; window.removed = null;' +
+    'browser.permissions.onAdded.addListener(function (p) { window.added = p; });' +
+    'browser.permissions.onRemoved.addListener(function (p) { window.removed = p; });' +
+    'window.req = browser.permissions.request({permissions:["alarms"], origins:["https://x.test/*"]});' +
+    'window.rem = browser.permissions.remove({permissions:["alarms"]});'
+  ])));
+  const calls = env.posted.filter(x => x.api !== 'runtime.hello');
+  assert.deepStrictEqual(calls.map(x => x.api), ['permissions.request', 'permissions.remove']);
+  env.native({ id: calls[0].id, ok: true, result: true });
+  env.native({ id: calls[1].id, ok: true, result: true });
+  env.native({ event: 'permissions.onAdded', payload: { permissions: ['alarms'], origins: [] } });
+  env.native({ event: 'permissions.onRemoved', payload: { permissions: ['alarms'], origins: [] } });
+  await Promise.all([env.sandbox.req, env.sandbox.rem]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.added)), { permissions: ['alarms'], origins: [] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.removed)), { permissions: ['alarms'], origins: [] });
 });
 
 test('runtime.connect returns a Port, queues early messages, and receives remote messages/disconnect', async () => {

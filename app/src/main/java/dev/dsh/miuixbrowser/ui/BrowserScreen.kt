@@ -1,5 +1,11 @@
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.ext.ExtensionPermissionPrompt
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import android.app.AlertDialog
 import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.browser.AppRoute
 import dev.dsh.miuixbrowser.browser.BrowserState
@@ -104,11 +110,32 @@ fun BrowserScreen(
     }
     // WebView 拓展的 tabs / scripting 要操作真实标签：界面建好后把标签桥接接到拓展系统上，界面销毁时摘掉。
     // 摘桥接时按身份比对：界面重建时旧界面晚到的 onDispose 不会把新界面刚接上的桥接摘掉
-    DisposableEffect(state) {
+    DisposableEffect(state, context) {
         val bridge = BrowserStateTabBridge(state)
         val extSystem = context.appContainer.webExtensions
         extSystem.attachTabs(bridge)
+        val permissionPrompt = ExtensionPermissionPrompt { ext, permissions, origins ->
+            withContext(Dispatchers.Main.immediate) {
+                suspendCancellableCoroutine { continuation ->
+                    val details = buildList {
+                        permissions.sorted().forEach { add("• $it") }
+                        origins.map { it.raw }.sorted().forEach { add("• $it") }
+                    }.joinToString("\n")
+                    val dialog = AlertDialog.Builder(context)
+                        .setTitle("请求拓展权限")
+                        .setMessage("${ext.spec.name} 请求以下可选权限：\n\n$details\n\n仅在你确认后才会授予。")
+                        .setNegativeButton("拒绝") { _, _ -> if (continuation.isActive) continuation.resume(false) }
+                        .setPositiveButton("允许") { _, _ -> if (continuation.isActive) continuation.resume(true) }
+                        .create()
+                    dialog.setOnCancelListener { if (continuation.isActive) continuation.resume(false) }
+                    continuation.invokeOnCancellation { dialog.dismiss() }
+                    dialog.show()
+                }
+            }
+        }
+        extSystem.permissionPrompt = permissionPrompt
         onDispose {
+            if (extSystem.permissionPrompt === permissionPrompt) extSystem.permissionPrompt = null
             extSystem.detachTabs(bridge)
             bridge.close()
         }

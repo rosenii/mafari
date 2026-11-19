@@ -64,7 +64,8 @@ class RuntimeApi(
             if (target != null && target != ctx.ext.spec.id) {
                 throw ApiException(ErrorCodes.UNSUPPORTED, "不支持连接其它拓展")
             }
-            val info = (if (target != null) a.argOrNull(1) else a.argOrNull(0)) as? JSONObject
+            // shim 固定传 [targetExtensionId|null, connectInfo]；无目标时仍保留 null 占位。
+            val info = a.argOrNull(1) as? JSONObject ?: a.argOrNull(0) as? JSONObject
             val name = info?.optString("name").orEmpty().take(256)
             messenger.connect(ctx, name)
         }

@@ -234,6 +234,18 @@ class TabsApiTest {
         assertEquals(0, bridge.listenerCount())
     }
 
+    @Test fun duplicateCopiesCurrentUrlAndMoveChangesOrder() {
+        install(setOf("tabs"))
+        val duplicated = call("tabs.duplicate", tabA).result() as JSONObject
+        assertEquals("https://granted.com/a", duplicated.getString("url"))
+        assertEquals(tabA, duplicated.getInt("openerTabId"))
+        val moved = call("tabs.move", tabC, JSONObject().put("index", 0)).result() as JSONArray
+        assertEquals(1, moved.length())
+        assertEquals(tabC, moved.getJSONObject(0).getInt("id"))
+        assertEquals(tabC, runBlocking { bridge.list().first().id })
+        assertFalse(sink.named("tabs.onMoved").isEmpty())
+    }
+
     // ───── 事件 ─────
 
     @Test fun eventsAreStrippedPerPermission() {

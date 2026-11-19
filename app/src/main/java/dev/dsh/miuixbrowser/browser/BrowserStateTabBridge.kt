@@ -49,6 +49,7 @@ class BrowserStateTabBridge(private val state: BrowserState) : TabBridge {
     private val forwarder = object : TabEventListener {
         override fun onCreated(tab: TabInfo) = listeners.forEach { it.onCreated(tab) }
         override fun onUpdated(tab: TabInfo, change: TabChange) = listeners.forEach { it.onUpdated(tab, change) }
+        override fun onMoved(tabId: Int, fromIndex: Int, toIndex: Int) = listeners.forEach { it.onMoved(tabId, fromIndex, toIndex) }
         override fun onRemoved(tabId: Int) = listeners.forEach { it.onRemoved(tabId) }
         override fun onActivated(tabId: Int, previousTabId: Int?) = listeners.forEach { it.onActivated(tabId, previousTabId) }
     }
@@ -125,6 +126,26 @@ class BrowserStateTabBridge(private val state: BrowserState) : TabBridge {
             if (i >= 0) state.select(i)
         }
         infoOf(tabId)
+    }
+
+    override suspend fun move(tabIds: List<Int>, index: Int): List<TabInfo> = onMain {
+        if (tabIds.isEmpty()) return@onMain emptyList()
+        val selected = tabIds.distinct().map { id -> find(id) ?: throw ApiException(ErrorCodes.BAD_REQUEST, "No tab with id: $id") }
+        val active = state.tabs.getOrNull(state.activeIndex)
+        val moving = selected.sortedBy { state.tabs.indexOf(it) }
+        moving.forEach { state.tabs.remove(it) }
+        val target = if (index < 0) state.tabs.size else index.coerceAtMost(state.tabs.size)
+        state.tabs.addAll(target, moving)
+        active?.let { state.activeIndex = state.tabs.indexOf(it).coerceAtLeast(0) }
+        moving.mapNotNull { infoOf(it.id) }
+    }
+
+    override suspend fun duplicate(tabId: Int): TabInfo? = onMain {
+        val source = find(tabId) ?: return@onMain null
+        if (!state.newTabUsesWebView()) throw ApiException(ErrorCodes.UNSUPPORTED, "当前默认内核不是 WebView，拓展无法复制标签页")
+        if (state.tabs.size >= BrowserState.MAX_TABS) throw ApiException(ErrorCodes.QUOTA, "标签页数量已达上限")
+        val duplicate = state.openTabForExtension(source.url, true, source) ?: throw ApiException(ErrorCodes.QUOTA, "标签页数量已达上限")
+        infoOf(duplicate.id)
     }
 
     override suspend fun remove(tabIds: List<Int>): List<Int> = onMain {

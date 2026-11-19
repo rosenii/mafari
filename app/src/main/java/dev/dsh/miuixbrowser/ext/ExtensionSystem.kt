@@ -53,12 +53,16 @@ class ExtensionSystem(
      * 标签的网址不能推到网页里去。浏览器界面建好后调用 [attachTabs] 接上真实的标签桥接（BrowserScreen 里接），之前调用回 UNSUPPORTED。
      */
     private val tabs = TabsApi(pages, { webViewExtensions() }, broker, activeTab)
+    private val webNavigation = WebNavigationApi(pages, { webViewExtensions() }) { tabs.bridgeOrNull() }
 
     /** scripting.*：与 tabs 共用同一个标签桥接（[TabsApi.bridgeOrNull]），attach 之前同样回 UNSUPPORTED */
     private val scripting = ScriptingApi(
         { tabs.bridgeOrNull() }, dynamicScripts, { id -> tabHost.refreshDynamicScripts(id) }, activeTab = activeTab,
     )
-    private val permissions = PermissionsApi()
+    @Volatile var permissionPrompt: ExtensionPermissionPrompt? = null
+    private val permissions = PermissionsApi(repo, sinks) { ext, api, origins ->
+        permissionPrompt?.confirm(ext, api, origins) ?: false
+    }
 
     /**
      * 后台页启动流程与闹钟共用一个单线程 Executor：就绪 / 消失 / 唤醒按顺序处理，文件读写与事件投递都不占主线程。
@@ -77,6 +81,7 @@ class ExtensionSystem(
         storage.register(router)
         alarms.register(router)
         tabs.register(router)
+        webNavigation.register(router)
         scripting.register(router)
         permissions.register(router)
         pages.backgroundListener = lifecycle
@@ -107,6 +112,13 @@ class ExtensionSystem(
         }
         tabs.detach(bridge)
     }
+
+    /** WebViewClient 主框架导航回调；调用方不得传递网页脚本自报的 URL。 */
+    fun onWebNavigationBefore(tabId: Int, url: String) = webNavigation.beforeNavigate(tabId, url)
+    fun onWebNavigationCommitted(tabId: Int, url: String) = webNavigation.committed(tabId, url)
+    fun onWebNavigationCompleted(tabId: Int, url: String) = webNavigation.completed(tabId, url)
+    fun onWebNavigationHistoryState(tabId: Int, url: String) = webNavigation.historyStateUpdated(tabId, url)
+    fun onWebNavigationFragment(tabId: Int, url: String) = webNavigation.referenceFragmentUpdated(tabId, url)
 
     /**
      * 用户在快捷菜单里点了某个拓展：对当前前台标签的当前 origin 授予 activeTab。

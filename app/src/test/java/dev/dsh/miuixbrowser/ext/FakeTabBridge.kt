@@ -96,6 +96,21 @@ class FakeTabBridge(private val maxTabs: Int = 100) : TabBridge {
         return snapshot(e)
     }
 
+    override suspend fun move(tabIds: List<Int>, index: Int): List<TabInfo> {
+        val moving = tabIds.distinct().map { find(it) ?: throw ApiException(ErrorCodes.BAD_REQUEST, "No tab with id: $it") }
+            .sortedBy { entries.indexOf(it) }
+        val from = moving.map { entries.indexOf(it) }
+        moving.forEach { entries.remove(it) }
+        val target = if (index < 0) entries.size else index.coerceAtMost(entries.size)
+        entries.addAll(target, moving)
+        moving.forEachIndexed { i, entry ->
+            val old = from[i]
+            val now = entries.indexOf(entry)
+            if (old != now) listeners.forEach { it.onMoved(entry.id, old, now) }
+        }
+        return moving.map(::snapshot)
+    }
+
     override suspend fun update(tabId: Int, options: TabUpdateOptions): TabInfo? {
         val e = find(tabId) ?: return null
         options.url?.let { u ->

@@ -38,6 +38,16 @@ interface TabBridge {
     /** 更新标签（改地址 / 切到前台）。标签不存在返回 null；成功返回更新后的快照（导航才刚开始，url 可能还是旧的） */
     suspend fun update(tabId: Int, options: TabUpdateOptions): TabInfo?
 
+    /** 把可见标签移动到目标下标；返回移动后的快照。 */
+    suspend fun move(tabIds: List<Int>, index: Int): List<TabInfo> =
+        throw ApiException(ErrorCodes.UNSUPPORTED, "标签排序暂不可用")
+
+    /** 复制标签。默认实现复制当前 URL；宿主可覆盖以保留更多会话状态。 */
+    suspend fun duplicate(tabId: Int): TabInfo? {
+        val source = get(tabId) ?: return null
+        return create(TabCreateOptions(url = source.url.takeIf { it.isNotBlank() }, active = true, openerTabId = source.id))
+    }
+
     /** 关闭标签。存在的会被关闭，返回的是**不存在**的 id（空 = 全部成功） */
     suspend fun remove(tabIds: List<Int>): List<Int>
 
@@ -130,6 +140,8 @@ interface TabEventListener {
 
     /** [tab] 是变化后的完整快照，[change] 只含变化的字段 */
     fun onUpdated(tab: TabInfo, change: TabChange) {}
+
+    fun onMoved(tabId: Int, fromIndex: Int, toIndex: Int) {}
 
     /** 标签已被关闭（快照已不存在，只给 id） */
     fun onRemoved(tabId: Int) {}

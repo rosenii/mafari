@@ -21,6 +21,27 @@ class MatchPattern private constructor(
 ) {
     val matchesAllUrls: Boolean get() = raw == ALL_URLS
 
+    /** Whether this granted pattern fully contains another requested pattern (conservative for wildcard paths). */
+    fun covers(other: MatchPattern): Boolean {
+        if (matchesAllUrls) return true
+        if (!schemes.containsAll(other.schemes)) return false
+        if (host != null) {
+            val otherHost = other.host ?: return false
+            val hostCovered = if (subdomains) otherHost == host || otherHost.endsWith(".$host") else otherHost == host && !other.subdomains
+            if (!hostCovered) return false
+        }
+        if (port != null && port != "*" && port != other.port) return false
+        fun pathOf(pattern: MatchPattern): String {
+            val rest = pattern.raw.substringAfter("://", "")
+            val slash = rest.indexOf('/')
+            return if (slash >= 0) rest.substring(slash) else "/*"
+        }
+        val ownPath = pathOf(this)
+        val otherPath = pathOf(other)
+        if (ownPath != "/*" && ownPath != otherPath) return false
+        return true
+    }
+
     fun matches(url: String): Boolean {
         val uri = try { URI(url) } catch (_: Exception) { return false }
         val scheme = uri.scheme?.lowercase() ?: return false

@@ -36,7 +36,7 @@ function (CFG, ENTRIES) {
   // 早于监听器注册到达的事件先缓存（只缓存下面 BUFFERED 里的几种，每种最多 BUF_MAX 条，页面启动 BUF_MS 之后不再缓存），
   // 第一个监听器注册时统一补投。常见时序：后台页的脚本是异步加载 / 动态 import 的，原生已经把 onStartup / onAlarm 送到了。
   var BUF = {}, BUF_MAX = 32, BUF_MS = 5000;
-  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'alarms.onAlarm': 1 };
+  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'alarms.onAlarm': 1, 'webNavigation.onBeforeNavigate': 1, 'webNavigation.onCommitted': 1, 'webNavigation.onCompleted': 1, 'webNavigation.onHistoryStateUpdated': 1, 'webNavigation.onReferenceFragmentUpdated': 1 };
   function ev(name) {
     return {
       addListener: function (f) {
@@ -67,7 +67,15 @@ function (CFG, ENTRIES) {
     'tabs.onCreated': function (p) { return [['tabs.onCreated', [p.tab]]]; },
     'tabs.onUpdated': function (p) { return [['tabs.onUpdated', [p.tabId, p.changeInfo, p.tab]]]; },
     'tabs.onRemoved': function (p) { return [['tabs.onRemoved', [p.tabId, p.removeInfo]]]; },
-    'tabs.onActivated': function (p) { return [['tabs.onActivated', [p.activeInfo]]]; }
+    'tabs.onActivated': function (p) { return [['tabs.onActivated', [p.activeInfo]]]; },
+    'tabs.onMoved': function (p) { return [['tabs.onMoved', [p.tabId, p.moveInfo]]]; },
+    'permissions.onAdded': function (p) { return [['permissions.onAdded', [p]]]; },
+    'permissions.onRemoved': function (p) { return [['permissions.onRemoved', [p]]]; },
+    'webNavigation.onBeforeNavigate': function (p) { return [['webNavigation.onBeforeNavigate', [p]]]; },
+    'webNavigation.onCommitted': function (p) { return [['webNavigation.onCommitted', [p]]]; },
+    'webNavigation.onCompleted': function (p) { return [['webNavigation.onCompleted', [p]]]; },
+    'webNavigation.onHistoryStateUpdated': function (p) { return [['webNavigation.onHistoryStateUpdated', [p]]]; },
+    'webNavigation.onReferenceFragmentUpdated': function (p) { return [['webNavigation.onReferenceFragmentUpdated', [p]]]; }
   };
   function deliverEvent(name, args) {
     if ((L[name] || []).length) { fire(name, args); return; }
@@ -349,6 +357,8 @@ function (CFG, ENTRIES) {
       update: promised(function (a, b) {
         return isObj(a) ? rpc('tabs.update', [null, a]) : rpc('tabs.update', [nul(a), nul(b)]);
       }),
+      duplicate: promised(function (tabId) { return rpc('tabs.duplicate', [tabId]); }),
+      move: promised(function (tabIds, moveProperties) { return rpc('tabs.move', [tabIds, nul(moveProperties)]); }),
       // remove(tabId | tabId[])
       remove: promised(function (ids) { return rpc('tabs.remove', [ids]); }),
       // reload([tabId], [reloadProperties])
@@ -364,14 +374,15 @@ function (CFG, ENTRIES) {
       onCreated: ev('tabs.onCreated'),
       onUpdated: ev('tabs.onUpdated'),
       onRemoved: ev('tabs.onRemoved'),
-      onActivated: ev('tabs.onActivated')
+      onActivated: ev('tabs.onActivated'),
+      onMoved: ev('tabs.onMoved')
     };
   }
 
   // scripting：只在拓展自己的页面里提供（content script 不能调，原生侧也会拒绝），且 manifest 要声明 scripting 权限。
   // func 是函数对象，JSON 序列化会把它丢掉，所以这里转成源码字符串再发；其它字段按白名单复制，
   // 原生不认的（injectImmediately 等）不转发。executeScript 的结果只有主框架一项，见 ScriptingApi 的说明。
-  // registerContentScripts 一族原生还没实现：照样发过去，由原生回 UNSUPPORTED「尚未实现」，将来实现时垫片不用再改。
+  // 动态脚本注册由原生持久化，并在下一次导航时生效；当前已加载文档不会回溯注入。
   var scripting = null;
   if (CFG.page && declares('scripting')) {
     var sn = function (v) { return v === undefined ? null : v; };
@@ -404,16 +415,34 @@ function (CFG, ENTRIES) {
     };
   }
 
-  // permissions：只实现只读查询。request/remove 需要原生权限确认 UI，暂不伪装成功。
+  // permissions：request/remove 由浏览器原生确认 UI 执行；事件在所有拓展上下文中分发。
   var permissions = {
     getAll: promised(function () { return rpc('permissions.getAll', []); }),
-    contains: promised(function (p) { return rpc('permissions.contains', [p === undefined ? {} : p]); })
+    contains: promised(function (p) { return rpc('permissions.contains', [p === undefined ? {} : p]); }),
+    request: promised(function (p) { return rpc('permissions.request', [p === undefined ? {} : p]); }),
+    remove: promised(function (p) { return rpc('permissions.remove', [p === undefined ? {} : p]); }),
+    onAdded: ev('permissions.onAdded'),
+    onRemoved: ev('permissions.onRemoved')
   };
+
+  var webNavigation = null;
+  if (CFG.page && declares('webNavigation')) {
+    webNavigation = {
+      getFrame: promised(function (details) { return rpc('webNavigation.getFrame', [nul(details)]); }),
+      getAllFrames: promised(function (details) { return rpc('webNavigation.getAllFrames', [nul(details)]); }),
+      onBeforeNavigate: ev('webNavigation.onBeforeNavigate'),
+      onCommitted: ev('webNavigation.onCommitted'),
+      onCompleted: ev('webNavigation.onCompleted'),
+      onHistoryStateUpdated: ev('webNavigation.onHistoryStateUpdated'),
+      onReferenceFragmentUpdated: ev('webNavigation.onReferenceFragmentUpdated')
+    };
+  }
 
   var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext, permissions: permissions };
   if (alarms) browser.alarms = alarms;
   if (tabs) browser.tabs = tabs;
   if (scripting) browser.scripting = scripting;
+  if (webNavigation) browser.webNavigation = webNavigation;
 
   var chromeRuntime = cbObj(runtime);
   Object.defineProperty(chromeRuntime, 'lastError', { get: function () { return lastError.v; }, enumerable: true });
@@ -430,6 +459,7 @@ function (CFG, ENTRIES) {
   if (alarms) chrome.alarms = cbObj(alarms);
   if (tabs) chrome.tabs = cbObj(tabs);
   if (scripting) chrome.scripting = cbObj(scripting);
+  if (webNavigation) chrome.webNavigation = cbObj(webNavigation);
 
   // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上。
   // 所有上下文都握手：原生由此登记当前标签里的 content script，供 tabs.sendMessage 定向投递。
