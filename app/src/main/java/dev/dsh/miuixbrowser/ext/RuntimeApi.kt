@@ -18,7 +18,9 @@ class RuntimeApi(
     fun register(router: ApiRouter) {
         router.register("runtime.getManifest") { ctx, _ ->
             val f = File(ctx.ext.rootDir, "manifest.json")
-            JSONObject(f.readText(Charsets.UTF_8).removePrefix("\uFEFF"))
+            I18nMessages.localizeManifest(
+                JSONObject(f.readText(Charsets.UTF_8).removePrefix("\uFEFF")), ctx.ext.rootDir, ctx.ext.spec.id,
+            )
         }
         router.register("runtime.getURL") { ctx, a ->
             val path = a.argOrNull(0) as? String ?: throw ApiException(ErrorCodes.BAD_REQUEST, "getURL 需要路径")

@@ -2,13 +2,14 @@ package dev.dsh.miuixbrowser.ext
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class ManifestException(message: String) : Exception(message)
 
 /**
  * manifest.json → ExtensionSpec。抹平 MV2 / MV3 / Firefox 的写法差异，并顺带生成兼容性问题清单（针对 WebView 适配器）。
  * `id` 由调用方决定（CRX 公钥、gecko id 或随机生成），不在这里推导。
- * 注意：__MSG_xxx__ 国际化占位符暂不展开。
+ * 传入 [root]（拓展包根目录）时会按设备语言展开 manifest 里的 `__MSG_xxx__`；不传则原样保留。
  */
 object ManifestParser {
 
@@ -18,12 +19,13 @@ object ManifestParser {
         "omnibox", "externally_connectable", "declarative_net_request", "theme", "chrome_settings_overrides",
     )
 
-    fun parse(json: String, id: String): ExtensionSpec {
+    fun parse(json: String, id: String, root: File? = null): ExtensionSpec {
         val m = try {
             JSONObject(json.removePrefix("\uFEFF"))
         } catch (e: Exception) {
             throw ManifestException("manifest.json 不是合法 JSON：${e.message}")
         }
+        if (root != null) I18nMessages.localizeManifest(m, root, id)
         val mv = when (m.optInt("manifest_version", 0)) {
             2 -> ManifestVersion.MV2
             3 -> ManifestVersion.MV3

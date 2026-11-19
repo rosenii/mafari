@@ -186,9 +186,45 @@ function (CFG, ENTRIES) {
     local: storageArea('local'), sync: storageArea('sync'), session: storageArea('session'),
     onChanged: ev('storage.onChanged')
   };
+  // i18n：getMessage 是同步的，所以消息表由原生按设备语言合并好（default_locale 兜底、键名已转小写）放进 CFG.i18n，这里只查表。
+  // CFG.i18n = { locale: 'zh_CN', msgs: { key: { m: '文本含 $name$ $1 $$', p: { name: '$1' } } } }；拓展没有 _locales 时为空表
+  var I18N = CFG.i18n || null, MSGS = (I18N && I18N.msgs) || {};
+  var HOP = Object.prototype.hasOwnProperty, IA = Array.isArray;
+  var UI_LOCALE = (I18N && I18N.locale) || String((win.navigator && win.navigator.language) || 'en').replace(/-/g, '_');
+  var RTL = /^(ar|he|iw|fa|ur)(_|$)/i.test(UI_LOCALE);
+  var BUILTIN = {
+    '@@extension_id': CFG.extId, '@@ui_locale': UI_LOCALE,
+    '@@bidi_dir': RTL ? 'rtl' : 'ltr', '@@bidi_reversed_dir': RTL ? 'ltr' : 'rtl',
+    '@@bidi_start_edge': RTL ? 'right' : 'left', '@@bidi_end_edge': RTL ? 'left' : 'right'
+  };
+  // 一次扫描：$$ → $；$name$ → 占位符（content 里的 $1-$9 再换成 substitutions）；$1-$9 → substitutions。
+  // 占位符名必须以字母 / _ / @ 开头，所以 "$1$" 永远按「$1 后跟一个 $」处理。缺的 substitution 当空串；
+  // 一次扫描就完事，替换进去的内容不会被再次展开（拓展的消息文本里出现 $1 不会被 substitutions 里的 $ 影响）
+  function expandMessage(text, subs, ph) {
+    var sub = function (n) { var v = subs[n - 1]; return v === undefined ? '' : String(v); };
+    return text.replace(/\$(?:(\$)|([A-Za-z_@][A-Za-z0-9_@]*)\$|([1-9]))/g, function (all, dollar, name, digit) {
+      if (dollar) return '$';
+      if (digit) return sub(+digit);
+      var k = name.toLowerCase();
+      if (!ph || !HOP.call(ph, k)) return '';
+      return String(ph[k]).replace(/\$([1-9])/g, function (a, d) { return sub(+d); });
+    });
+  }
   var i18n = {
-    getMessage: function (k) { return String(k); },
-    getUILanguage: function () { return (win.navigator && win.navigator.language) || 'en'; }
+    getMessage: function (name, substitutions) {
+      var key = String(name).toLowerCase();
+      if (key.slice(0, 2) === '@@') return HOP.call(BUILTIN, key) ? BUILTIN[key] : '';
+      if (!HOP.call(MSGS, key)) return '';
+      var subs = (substitutions === undefined || substitutions === null) ? [] : (IA(substitutions) ? substitutions : [substitutions]);
+      if (subs.length > 9) return undefined; // 与 Chrome 一致：最多 9 个
+      var m = MSGS[key];
+      return expandMessage(String(m.m), subs, m.p);
+    },
+    getUILanguage: function () { return UI_LOCALE.replace(/_/g, '-'); },
+    getAcceptLanguages: promised(function () {
+      var l = win.navigator && win.navigator.languages;
+      return P.resolve(l && l.length ? slice.call(l) : [UI_LOCALE.replace(/_/g, '-')]);
+    })
   };
   var ext = { getURL: getURL };
 
@@ -227,7 +263,7 @@ function (CFG, ENTRIES) {
       local: cbObj(storage.local), sync: cbObj(storage.sync), session: cbObj(storage.session),
       onChanged: storage.onChanged
     },
-    i18n: i18n,
+    i18n: cbObj(i18n),
     extension: ext
   };
   if (alarms) chrome.alarms = cbObj(alarms);

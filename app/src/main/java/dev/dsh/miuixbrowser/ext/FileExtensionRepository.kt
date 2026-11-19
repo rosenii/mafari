@@ -92,7 +92,7 @@ class FileExtensionRepository(
         val state = JSONObject(stateFile.readText(Charsets.UTF_8))
         val dir = File(packagesRoot, id)
         val manifest = File(dir, "manifest.json").readText(Charsets.UTF_8)
-        val spec = ManifestParser.parse(manifest, id)
+        val spec = ManifestParser.parse(manifest, id, dir)
         val engines = state.strings("engines").mapNotNull { name ->
             try { EngineKind.valueOf(name) } catch (_: IllegalArgumentException) { null }
         }.toSet()

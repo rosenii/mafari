@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
+import java.util.Locale
 
 /**
  * 一个拓展要装到 WebView 上的东西：
@@ -35,6 +36,12 @@ object ExtensionInjection {
     fun build(ext: InstalledExtension, shim: String, readText: (String) -> String?): InjectionPlan? {
         val spec = ext.spec
         val warnings = mutableListOf<String>()
+        val manifest = try {
+            JSONObject(readText("manifest.json")?.removePrefix("\uFEFF") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        val loc = Localization.of(ext, manifest, readText, warnings)
         val entries = StringBuilder("[")
         val rules = linkedSetOf<String>()
         var count = 0
@@ -45,7 +52,10 @@ object ExtensionInjection {
                 warnings.add("content script 的 matches 不含 http(s)，已跳过：${cs.matches.joinToString()}")
                 continue
             }
-            val css = cs.css.mapNotNull { path -> readText(path) ?: null.also { warnings.add("读不到 css：$path") } }
+            // CSS 里的 __MSG_名字__ 与 Chrome 一样在注入前展开
+            val css = cs.css.mapNotNull { path ->
+                readText(path)?.let { loc.localizeText(it) } ?: null.also { warnings.add("读不到 css：$path") }
+            }
             val js = cs.js.mapNotNull { path -> readText(path) ?: null.also { warnings.add("读不到 js：$path") } }
             if (css.isEmpty() && js.isEmpty()) continue
             rules.addAll(origin)
@@ -67,16 +77,12 @@ object ExtensionInjection {
 
         val effective = if ("*" in rules) setOf("*") else rules
         val bridge = bridgeNameFor(spec.id)
-        val manifest = try {
-            JSONObject(readText("manifest.json")?.removePrefix("\uFEFF") ?: "{}")
-        } catch (_: Exception) {
-            JSONObject()
-        }
         val cfg = JSONObject()
             .put("extId", spec.id)
             .put("bridge", bridge)
             .put("origin", ExtensionOrigins.originFor(spec.id))
-            .put("manifest", manifest)
+            .put("manifest", loc.localizedManifest())
+        loc.injectable(warnings)?.let { cfg.put("i18n", it) }
         return InjectionPlan(spec.id, bridge, effective, assemble(shim, cfg, entries.toString()), warnings)
     }
 
@@ -88,18 +94,58 @@ object ExtensionInjection {
         val id = ext.spec.id
         val bridge = bridgeNameFor(id)
         val origin = ExtensionOrigins.originFor(id)
+        val read = fileReader(ext.rootDir)
         val manifest = try {
             JSONObject(File(ext.rootDir, "manifest.json").readText(Charsets.UTF_8).removePrefix("\uFEFF"))
         } catch (_: Exception) {
             JSONObject()
         }
+        val warnings = mutableListOf<String>()
+        val loc = Localization.of(ext, manifest, read, warnings)
         val cfg = JSONObject()
             .put("extId", id)
             .put("bridge", bridge)
             .put("origin", origin)
-            .put("manifest", manifest)
+            .put("manifest", loc.localizedManifest())
             .put("page", true)
-        return InjectionPlan(id, bridge, setOf(origin), assemble(shim, cfg, "[]"), emptyList())
+        loc.injectable(warnings)?.let { cfg.put("i18n", it) }
+        return InjectionPlan(id, bridge, setOf(origin), assemble(shim, cfg, "[]"), warnings)
+    }
+
+    /**
+     * 一个拓展在当前设备语言下的本地化上下文：完整消息表（展开 manifest / CSS 的 `__MSG_`）
+     * 与注入页面用的那份（有大小上限）。
+     */
+    private class Localization(
+        private val extId: String,
+        private val manifest: JSONObject,
+        private val locale: String,
+        private val result: I18nMessages.Result,
+    ) {
+        private val msgs: JSONObject? get() = result.json?.optJSONObject("msgs")
+
+        fun localizeText(text: String) = I18nMessages.localize(text, msgs, extId, locale)
+
+        /** getManifest 与 Chrome 一样返回已本地化的 manifest（原地修改 [manifest]） */
+        fun localizedManifest(): JSONObject = I18nMessages.localizeJson(manifest, msgs, extId, locale)
+
+        fun injectable(warnings: MutableList<String>): JSONObject? = I18nMessages.forInjection(result, warnings)
+
+        companion object {
+            fun of(
+                ext: InstalledExtension,
+                manifest: JSONObject,
+                readText: (String) -> String?,
+                warnings: MutableList<String>,
+            ): Localization {
+                val locale = I18nMessages.chromeLocale(Locale.getDefault())
+                val r = I18nMessages.build(
+                    ext.rootDir, manifest.optString("default_locale").ifEmpty { null }, locale, readText,
+                )
+                warnings.addAll(r.warnings)
+                return Localization(ext.spec.id, manifest, locale, r)
+            }
+        }
     }
 
     /** 与 tools/ext-shim-test/run.js 里的 assemble() 必须保持同样的拼法 */

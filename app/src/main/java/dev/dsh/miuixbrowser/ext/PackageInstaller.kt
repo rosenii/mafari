@@ -68,9 +68,9 @@ class PackageInstaller(
                 ?: crxId
                 ?: ExtensionIds.fromManifestKey(raw.optString("key"))
                 ?: ExtensionIds.geckoIdOf(raw)
-                ?: ExtensionIds.localId(raw.optString("name"))
+                ?: ExtensionIds.localId(stableName(raw, staging))
 
-            val spec = ManifestParser.parse(text, id)
+            val spec = ManifestParser.parse(text, id, staging)
             return PreparedPackage(spec, staging, format, enginesFor(spec, format), sourceUrl)
         } catch (e: Exception) {
             staging.deleteRecursively()
@@ -78,6 +78,18 @@ class PackageInstaller(
         } finally {
             crxZip?.delete()
         }
+    }
+
+    /**
+     * 生成本地 ID 用的名称。名称是 `__MSG_xxx__` 时取 default_locale 下的文本：
+     * 一来不同拓展不会因为都叫 `__MSG_extName__` 而撞 ID，二来换设备语言也不会变。
+     */
+    private fun stableName(raw: JSONObject, root: File): String {
+        val name = raw.optString("name")
+        if (!name.contains("__MSG_")) return name
+        val dl = raw.optString("default_locale").ifEmpty { return name }
+        return I18nMessages.localizeManifest(JSONObject().put("name", name).put("default_locale", dl), root, "", dl)
+            .optString("name")
     }
 
     fun discard(p: PreparedPackage) {
