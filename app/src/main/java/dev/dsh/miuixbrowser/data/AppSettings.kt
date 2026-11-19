@@ -676,6 +676,15 @@ class AppSettings(context: Context) {
         prefs.edit().putBoolean(KEY_ENHANCE, enabled).apply()
     }
 
+    /** 手动标记广告：长按网页元素时是否出现「标记为广告」（需要网页增强开启，WebView 内核） */
+    var adMarkLongPress by mutableStateOf(prefs.getBoolean(KEY_AD_MARK_LONG_PRESS, true))
+        private set
+
+    fun updateAdMarkLongPress(enabled: Boolean) {
+        adMarkLongPress = enabled
+        prefs.edit().putBoolean(KEY_AD_MARK_LONG_PRESS, enabled).apply()
+    }
+
     /** 启用范围：油猴脚本是否在无痕浏览 / 轻应用（桌面快捷方式）中运行 */
     var scriptsInIncognito by mutableStateOf(prefs.getBoolean(KEY_SCRIPTS_INCOGNITO, true))
         private set
@@ -1025,6 +1034,7 @@ class AppSettings(context: Context) {
         const val KEY_DEFAULT_BROWSER_PROMPTED = "default_browser_prompted"
         const val KEY_ONBOARDING = "onboarding_version"
         const val KEY_ENHANCE = "page_enhancements"
+        const val KEY_AD_MARK_LONG_PRESS = "ad_mark_long_press"
         const val KEY_SCRIPTS = "scripts_enabled"
         const val KEY_SCRIPTS_INCOGNITO = "scripts_in_incognito"
         const val KEY_SCRIPTS_WEBAPP = "scripts_in_webapp"

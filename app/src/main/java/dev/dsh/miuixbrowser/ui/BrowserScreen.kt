@@ -281,6 +281,11 @@ fun BrowserScreen(
         state.tabs.forEach { it.pageEnhancements = settings.pageEnhancements }
     }
 
+    // 手动标记广告开关 → 所有标签页
+    LaunchedEffect(settings.adMarkLongPress, state.tabs.size) {
+        state.tabs.forEach { it.adMarkLongPress = settings.adMarkLongPress }
+    }
+
     LaunchedEffect(tab.id) {
         tab.onLongPressLink = { link ->
             linkUrl = link

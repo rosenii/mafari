@@ -298,6 +298,16 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                                 onCheckedChange = { settings.updateBlockTrackingScripts(it) },
                                 enabled = AdBlock.enabled,
                             )
+                            // 标记广告依赖 WebView 的页面内 JS：Gecko 内核下不提供
+                            if (!settings.geckoMode) {
+                                AppSwitchPreference(
+                                    title = tr("手动标记广告"),
+                                    summary = tr("长按网页元素时显示「标记为广告」，需要网页增强开启"),
+                                    checked = settings.adMarkLongPress,
+                                    onCheckedChange = { settings.updateAdMarkLongPress(it) },
+                                    enabled = AdBlock.enabled,
+                                )
+                            }
                             AppDropdownPreference(
                                 backdrop = if (glass) backdrop else null,
                                 title = tr("自动更新订阅"),

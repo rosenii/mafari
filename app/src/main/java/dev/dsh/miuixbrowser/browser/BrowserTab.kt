@@ -204,6 +204,9 @@ class BrowserTab(
             syncUserScripts()
         }
 
+    /** 手动标记广告开关：关闭后长按元素不再检测 / 注入标记逻辑（仅 WebView） */
+    @Volatile var adMarkLongPress: Boolean = true
+
     /** 网页增强总开关：关闭后不再注入任何脚本 / 长按逻辑，用于排查（去广告有自己的开关，见 AdBlock） */
     var pageEnhancements: Boolean = true
         set(value) {
@@ -1221,7 +1224,7 @@ class BrowserTab(
 
     /** 只在广告浮层（fixed/absolute 且像广告或面积大）上响应长按，文字区域交给系统选词 */
     private fun installElementInspector(view: WebView) {
-        if (!pageEnhancements) return
+        if (!pageEnhancements || !adMarkLongPress) return
         val js = """(function(){
   if (window.__mafariInspector) return;
   window.__mafariInspector = true;

@@ -888,6 +888,8 @@ SSH 地址形如 git@主机:用户/仓库.git	SSH address looks like git@host:us
 在新标签页打开	Open in new tab
 在外部浏览器打开	Open in external browser
 标记为广告	Mark as ad
+手动标记广告	Manually mark ads
+长按网页元素时显示「标记为广告」，需要网页增强开启	Shows "Mark as ad" when you long-press a page element; requires page enhancements
 选中这个广告位，可记住规则下次自动隐藏	Select this ad slot; the rule is remembered and it's hidden automatically next time
 没找到可标记的元素	No markable element found
 保存图片	Save image
