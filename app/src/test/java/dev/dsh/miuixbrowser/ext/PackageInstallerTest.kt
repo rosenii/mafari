@@ -41,6 +41,21 @@ class PackageInstallerTest {
         assertFalse(updated.enabled)
     }
 
+
+    @Test fun updateMigratesDynamicContentScriptRegistrationsButNotOldPackageFiles() {
+        val first = installer.prepare(pkg("manifest.json" to mf(), "old.js" to "old"))
+        val installed = installer.commit(first, emptySet(), emptyList(), now = 10)
+        val state = File(installed.rootDir, ".mafari-dynamic-content-scripts.json")
+        state.writeText("{\"schemaVersion\":1,\"extensionId\":\"${installed.spec.id}\",\"scripts\":[]}")
+
+        val second = installer.prepare(pkg("manifest.json" to mf(), "new.js" to "new"), forcedId = installed.spec.id)
+        val updated = installer.commit(second, emptySet(), emptyList(), now = 20)
+        assertTrue(File(updated.rootDir, ".mafari-dynamic-content-scripts.json").isFile)
+        assertTrue(File(updated.rootDir, ".mafari-dynamic-content-scripts.json").readText().contains("schemaVersion"))
+        assertFalse(File(updated.rootDir, "old.js").exists())
+        assertTrue(File(updated.rootDir, "new.js").isFile)
+    }
+
     @Test fun singleTopLevelFolderIsFlattened() {
         val p = installer.prepare(pkg("my-ext/manifest.json" to mf(), "my-ext/js/a.js" to "1"))
         assertTrue(File(p.stagingDir, "manifest.json").isFile)

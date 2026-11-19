@@ -27,7 +27,7 @@ class PermissionsApiTest {
             as JSONObject
         assertTrue(getAll.getJSONArray("permissions").toString().contains("storage"))
         assertFalse(getAll.getJSONArray("permissions").toString().contains("alarms"))
-        assertEquals("[\\"https://granted.com/*\\"]", getAll.getJSONArray("origins").toString())
+        assertEquals("[\"https://granted.com/*\"]", getAll.getJSONArray("origins").toString())
 
         val contains = router.find("permissions.contains")!!
         assertEquals(true, contains.handle(
@@ -47,7 +47,8 @@ class PermissionsApiTest {
         val emitted = mutableListOf<Pair<String, JSONObject>>()
         val events = EventSink { _, name, payload -> emitted += name to JSONObject(payload.toString()) }
         val router = ApiRouter()
-        PermissionsApi(repo, events) { _, _, _ -> true }.register(router)
+        val refreshed = mutableListOf<String>()
+        PermissionsApi(repo, events, { _, _, _ -> true }, { refreshed += it }).register(router)
         val sender = Sender(SenderKind.EXTENSION_PAGE, ExtensionOrigins.originFor(ext.spec.id), true)
         val request = router.find("permissions.request")!!
         assertEquals(true, request.handle(CallContext(ext, sender, "permissions.request"), org.json.JSONArray().put(
@@ -57,6 +58,7 @@ class PermissionsApiTest {
         assertTrue("alarms" in PermissionChecker.effectivePermissions(granted))
         assertEquals(1, granted.grantedHostPermissions.size)
         assertEquals("permissions.onAdded", emitted.single().first)
+        assertEquals(listOf(ext.spec.id), refreshed)
 
         val remove = router.find("permissions.remove")!!
         assertEquals(true, remove.handle(CallContext(granted, sender, "permissions.remove"), org.json.JSONArray().put(
@@ -66,6 +68,7 @@ class PermissionsApiTest {
         assertFalse("alarms" in PermissionChecker.effectivePermissions(after))
         assertTrue(after.grantedHostPermissions.isEmpty())
         assertEquals("permissions.onRemoved", emitted.last().first)
+        assertEquals(listOf(ext.spec.id, ext.spec.id), refreshed)
     }
 
     @Test fun requestCannotEscalateUndeclaredPermissions() = runBlocking {

@@ -1,7 +1,7 @@
 # Mafari WebExtensions API 兼容性矩阵
 
 > 基准：Firefox WebExtensions（MDN JavaScript APIs 与 manifest permissions 文档）  
-> 审查对象：从 `mafari_webext_fixed (2).zip` 起持续增量更新的 WebView 拓展适配器  
+> 审查对象：`dual_webext_api_update2.zip` 中的 WebView 拓展适配器  
 > 审查日期：2026-11-19  
 > 范围：仅评估 Mafari 自研 WebView 适配层；GeckoView 使用 Gecko 原生 WebExtensions，不计入本矩阵。
 
@@ -21,13 +21,12 @@
 
 | 模块 | 当前评估 | 主要缺口 |
 |---|---|---|
-| `runtime` | PARTIAL | 消息与 Port 已实现；Port 只连接一个最佳接收上下文；跨扩展与外部连接能力缺失 |
+| `runtime` | PARTIAL | 消息与 Port 已实现；Port 可向同一拓展多个已就绪页面上下文 fan-out；跨扩展与外部连接能力缺失 |
 | `storage` | PARTIAL | local/session CRUD 与事件已实现；sync 是独立本地持久化，不是真正跨设备同步 |
 | `alarms` | PARTIAL（本轮不修改） | 有 create/get/getAll/clear/clearAll；进程被杀期间不能准点执行，启动后补发 |
 | `permissions` | PARTIAL | getAll/contains/request/remove、用户确认、持久化与权限事件已实现；复杂 host pattern 子集边界仍有限 |
 | `tabs` | PARTIAL | query/create/update/remove/reload/history/sendMessage/move/duplicate 与 onMoved 已实现；单窗口、主框架限制及截图等能力缺失 |
 | `scripting` | PARTIAL | executeScript/insertCSS/removeCSS 与动态注册系列已实现；无真正 isolated world，frameId 仅支持 0 |
-| `webNavigation` | PARTIAL | 主框架导航事件与 getFrame/getAllFrames 已接入；子框架、documentId 和完整错误阶段缺失 |
 | `i18n` | FULL（需边界测试） | 已有本地化消息表和 manifest 本地化 |
 | 其余 Firefox API | NONE 或 MANIFEST | 尚未接入原生 API handler / 浏览器宿主 |
 
@@ -37,10 +36,10 @@
 
 | API 命名空间 | 状态 | 代码证据 / 说明 | 优先级 |
 |---|---|---|---|
-| `action` | MANIFEST | `ManifestParser` 能解析 MV3 `action`，但没有 `browser.action` 的完整方法、事件和工具栏状态接口 | P1 |
-| `alarms` | PARTIAL | `AlarmsApi` 注册 create/get/getAll/clear/clearAll；进程死亡时延后补发，不等同常驻浏览器调度 | P1 |
+| `action` | PARTIAL | `action` / `browserAction` 共用原生状态；setBadgeText/setBadgeBackgroundColor/setTitle/setPopup 已接入 Mafari 拓展快捷菜单与 popup 宿主，仍缺部分 Firefox 工具栏事件 / 行为 | P1 |
+| `alarms` | PARTIAL | create/get/getAll/clear/clearAll 已接入；进程死亡时延后补发，不等同常驻浏览器调度 | P1 |
 | `bookmarks` | NONE | 未发现 WebView API handler；不能把 Mafari 自身书签 UI 当成扩展 `bookmarks` API | P2 |
-| `browserAction` | MANIFEST | 能解析 MV2 `browser_action` 配置；未形成完整 `browser.browserAction` API | P1 |
+| `browserAction` | PARTIAL | 兼容入口已接入，与 `action` 共用原生状态；仍有工具栏事件 / 行为差异 | P1 |
 | `browserSettings` | NONE | 无扩展可调用的浏览器设置 API | P3 |
 | `browsingData` | NONE | 无按扩展权限清理浏览数据 API | P3 |
 | `captivePortal` | NONE | 无网络门户状态 API | P4 |
@@ -63,7 +62,7 @@
 | `identity` | NONE | 无 OAuth 身份授权 API | P4 |
 | `idle` | NONE | 无系统空闲/锁屏状态 API | P4 |
 | `management` | NONE | 无安装拓展枚举、启停和管理 API | P3 |
-| `menus` | NONE | 未接入浏览器菜单项注册、更新、删除和点击事件 | P1 |
+| `menus` | PARTIAL | contextMenus.create/update/remove/removeAll、onClicked 与常用 URL/context 过滤已接入；WebView 菜单宿主入口与 Firefox 全部上下文仍有边界 | P1 |
 | `notifications` | NONE | 未接入 Android 通知渠道和扩展通知事件 | P2 |
 | `omnibox` | NONE | Android 地址栏没有扩展建议提供者接口 | P4 |
 | `pageAction` | MANIFEST | 能解析 MV2 `page_action` 配置；没有完整 API 和地址栏按钮宿主 | P2 |
@@ -72,7 +71,7 @@
 | `privacy` | NONE | 无扩展隐私设置读取/修改 API | P1 |
 | `proxy` | NONE | 无扩展代理配置和按请求代理事件 API | P2 |
 | `publicSuffix` | NONE | 无 Public Suffix List 查询 API | P2 |
-| `runtime` | PARTIAL | getManifest/getURL/getPlatformInfo/openOptionsPage/sendMessage/connect/Port 已实现；Port 只连接一个最佳接收上下文；跨扩展与外部连接不支持 | P1 |
+| `runtime` | PARTIAL | getManifest/getURL/getPlatformInfo/openOptionsPage/sendMessage/connect/Port 已实现；Port 支持同一拓展内多个已就绪页面上下文；跨扩展与外部连接不支持 | P1 |
 | `scripting` | PARTIAL | executeScript/insertCSS/removeCSS 与动态 content scripts 注册/查询/更新/注销已接入；仅主框架、无真正 isolated world | P1 |
 | `search` | NONE | 无扩展搜索引擎枚举/执行 API | P3 |
 | `sessions` | NONE | 无最近关闭标签/窗口恢复 API | P3 |
@@ -85,8 +84,8 @@
 | `types` | N/A | 公共类型命名空间，不是独立运行时服务 | — |
 | `userScripts` | NONE | Mafari 自身 Userscript/GM 系统不等同 Firefox `browser.userScripts` API | P2 |
 | `userScripts (Legacy)` | NONE | MV2 legacy userScripts API 未实现 | P4 |
-| `webNavigation` | PARTIAL | 已接入主框架 beforeNavigate/committed/completed/historyStateUpdated/referenceFragmentUpdated 与 getFrame/getAllFrames；不支持子框架、documentId 和完整错误阶段 | P1 |
-| `webRequest` | NONE | 无请求生命周期事件与 blocking/redirect/header 修改 API | P0 |
+| `webNavigation` | PARTIAL | 主框架 before/commit/complete/error 与 SPA History/Fragment 近似事件；子框架、DOMContentLoaded、documentId 语义不完整 | P1 |
+| `webRequest` | PARTIAL | 已接入 WebView `shouldInterceptRequest` 的 `onBeforeRequest` 观察事件；blocking / response 生命周期未实现 | P0 |
 | `windows` | NONE | 当前标签桥接按单窗口模型设计，无扩展窗口管理 API | P3 |
 
 `FULL*` 表示源码已有完整主路径，但仍需更广泛的 Firefox 行为兼容测试；不代表已经证明 100% 一致。
@@ -182,12 +181,74 @@
 - `storage.sync` 仍是独立本地持久化，不具备云同步；不能标记为 Firefox Sync 完整兼容。
 - `alarms` 本轮未修改。
 
-验证：Node shim 测试 45 项通过，WebExtension 示例测试通过。Android Gradle 测试未能启动：Gradle Wrapper 需要下载 Gradle 9.9.1，但当前环境无法解析 `services.gradle.org`。
+验证：Node shim 测试 43 项通过，WebExtension 示例测试通过。Android Gradle 测试未能启动：Gradle Wrapper 需要下载 Gradle 9.9.1，但当前环境无法解析 `services.gradle.org`。
 
 
-## 11. 2026-11-20 增量更新（二）
+## 11. 2026-11-20 WebRequest 增量
 
-- `webNavigation`：接入主框架 `onBeforeNavigate`、`onCommitted`、`onCompleted`、`onHistoryStateUpdated`、`onReferenceFragmentUpdated`。
-- `webNavigation.getFrame/getAllFrames`：仅支持主框架 `frameId=0`；其他 frameId 明确返回 UNSUPPORTED。
-- 事件按 `webNavigation` API 权限与目标 URL host 权限双重过滤；无痕标签不发事件。
-- WebView 无法提供完整 Firefox frame/documentId、DOMContentLoaded 与网络错误阶段语义，因此仍标记 PARTIAL。
+基于 `mafari_webext_contextmenus_action_patch.zip` 的后续增量：
+
+- 新增 `WebRequestApi`，通过 WebView `WebViewClient.shouldInterceptRequest` 接入真实请求来源，不依赖页面 JS 自报 URL。
+- 暂支持 `webRequest.onBeforeRequest`，事件字段包含 `requestId`、`url`、`method`、`tabId`、`frameId`、`parentFrameId`、`type`、`timeStamp`。
+- `onBeforeRequest.addListener(listener, filter, extraInfoSpec)` 支持多 listener 独立 token；`removeListener` 只移除对应 listener。
+- filter 支持 `urls`、`types`、`tabId`、`excludedUrls`；并且逐请求执行 host permission 检查。
+- 无痕标签不发送 webRequest 事件。拓展停用、更新、卸载时清理 listener filter。
+- `blocking` / `requestBody` extraInfoSpec 明确返回 `UNSUPPORTED`；`webRequestBlocking` 在 `ApiSupport` 标为 NONE。原因是后台拓展页运行在异步 WebView 消息通道上，不能安全地在同步网络回调中等待 JS listener。
+- WebView 当前入口不提供完整响应头 / 完成 / 错误回调，因此 `onHeadersReceived`、`onCompleted`、`onErrorOccurred` 等仍不注册。
+
+验证：`node tools/ext-shim-test/run.js` 48 项通过；`node tools/webext-test/run.js` 两个 WebExtension 示例通过。新增 Kotlin `WebRequestApiTest` 覆盖 URL / type / tabId / excludedUrls 过滤，但 Android Gradle 测试仍未能启动：Wrapper 需要下载 Gradle 9.9.1，当前环境无法解析 `services.gradle.org`。因此 Kotlin 编译与真机网络行为尚未验证。
+
+
+## 11. 2026-11-20 Port 断开语义增量
+
+- `runtime.Port.disconnect()` 由本端主动调用时，本端 Port 立即关闭且不触发本端 `onDisconnect`；原生层只向对端发送 `portDisconnect`，由对端触发 `onDisconnect`。
+- endpoint 页面销毁时，只通知仍存活的对端；拓展整体停用/卸载时先移除该拓展全部 endpoint，再静默清理 Port，避免向即将销毁的上下文发送断开事件。
+- `runtime.connect` 仍只选择一个最佳接收上下文（后台页优先），跨拓展连接和多接收上下文 fan-out 仍未实现，状态继续为 PARTIAL。
+- 新增 JS shim 本端主动断开测试，以及原生 MessageBroker 双向断开测试。
+
+
+## 12. 2026-11-20 WebNavigation 增量
+
+- `onBeforeNavigate` 由 `shouldOverrideUrlLoading` 记录用户/页面发起的主框架导航；`onPageStarted` 仅作程序化导航兜底，避免重定向落点重复发送 before 事件。
+- `onCommitted` 改由 `onPageCommitVisible` 触发；`onPageFinished` 负责 `onCompleted`，并在较旧 WebView 未产生 commit 回调时补齐 commit。
+- 新增 `onErrorOccurred`，覆盖主框架 `onReceivedError` 和主框架 SSL 失败；HTTP 4xx/5xx 仍视为 HTTP 响应，不伪装成网络错误。
+- 重定向沿用同一导航状态；完成 / 失败后结束状态；错误页后续 `onPageFinished` 不再误报成功完成。标签销毁时清理状态。
+- History / Fragment 事件使用独立的 last-visited URL，避免 `onPageStarted` 已更新标签 URL 后丢失旧 URL；仅在同源、非加载期报告近似 SPA 事件。WebView 无专用 History API 回调，因此仍标记 PARTIAL。
+- 未实现 `onDOMContentLoaded`、`onCreatedNavigationTarget`、子框架事件和 `documentId`；不得把主框架近似事件描述为 Firefox 完整语义。
+
+验证：新增 webNavigation shim 错误事件分发用例；Node shim 测试结果见本轮交付说明。Android Gradle / 真机回调时序仍需设备验证。
+
+
+## 13. 2026-11-20 tabs.sendMessage 增量
+
+- `MessageEndpoint` 增加 `frameId` 元数据，默认值为 0；WebView 当前 content endpoint 仍只由 `isMainFrame=true` 的页面注册，因此不会把子框架误标为主框架。
+- `MessageBroker.sendToTab` 支持可选 `frameId` 过滤；不指定时按该标签所有已注册 frame endpoint 投递，指定时只投递对应 frame。
+- `tabs.sendMessage` 对 options 类型、`frameId` 整数和非负约束进行校验；`frameId=0` 可用，非零 frameId 明确返回 `UNSUPPORTED`，负值 / 非整数 / 非对象 options 返回 `BAD_REQUEST`。
+- 回复语义沿用多接收端 first-response-wins：任一目标返回真实响应即完成 Promise；所有目标均无接收端 / 未注册监听器则 `NO_RECEIVER`；无响应超时返回 `TIMEOUT`。
+- 新增 broker 测试覆盖指定 frame 与未指定 frame 的投递选择；Tabs API 测试覆盖 options 和 frameId 参数边界。
+
+验证：`node tools/ext-shim-test/run.js` 49 项通过。Kotlin / Android Gradle 测试尚未执行：当前环境没有已安装的 Gradle 命令，且 Gradle Wrapper 发行版未缓存；因此本轮 Kotlin 编译和真机行为仍待验证。
+
+
+## 14. 2026-11-20 runtime.Port 多上下文增量
+
+- `runtime.connect` 不再只选择后台页或一个最佳接收上下文；现在向同一拓展内所有已注册且具备投递通道的扩展页面 endpoint 分发 `runtime.onConnect`，包括 background、popup、options 等页面。
+- 同一调用端 Port 使用一个 portId；调用端 `postMessage` fan-out 到所有仍存活的接收页面。任一接收页面的 `postMessage` 均可回传到原始调用端。
+- `runtime.connect` 按 `portPriority` 从高到低尝试投递（后台页优先），但不会因一个页面投递失败而阻止其他已就绪页面建立连接。若全部目标均无法投递，则返回 `NO_RECEIVER`。
+- 任一参与上下文主动断开或销毁时，当前实现关闭该 portId 对应的整组连接，并只向仍存活的对端上下文发送 `onDisconnect`；主动调用方仍按上一轮语义只在本地关闭，不触发自己的 `onDisconnect`。
+- WebView content endpoint 仍按每个标签主框架一个 endpoint 注册；本次多接收上下文指扩展页面上下文，不代表已支持多个 content-script frame。
+- 跨扩展 `runtime.connect(extensionId)`、外部连接及真正的多 frame content-script endpoint 仍未实现，`runtime` 继续标记 PARTIAL。
+
+验证：`node tools/ext-shim-test/run.js` 49 项通过。新增 Kotlin `MessageBrokerTest` 覆盖 background/popup/options 多目标 connect fan-out、调用端消息广播及任一接收端回复路由。Android Kotlin 单元测试未能启动：Gradle Wrapper 需要下载 Gradle 9.9.1，但当前环境无法解析 `services.gradle.org`；因此 Kotlin 编译与真机行为尚未验证。
+
+
+## 15. 2026-11-20 动态 Content Scripts 生命周期增量（本轮）
+
+- `DynamicContentScriptStore` 持久化文件增加 `schemaVersion` 与 `extensionId`；兼容读取旧版 JSON 数组并迁移为版本化对象。
+- 写入使用临时文件同步落盘、旧文件备份与失败回滚；损坏 / 未知版本文件隔离，不再静默当作空注册覆盖。
+- 恢复时校验 JS/CSS 路径位于拓展目录内且文件仍存在；持久化数据只恢复 `persistAcrossSessions=true` 的注册。
+- 扩展更新时将动态注册状态从旧包目录迁移到新 staging 目录，不携带旧版本代码文件；更新后仍按新包文件存在性校验注册。
+- 扩展停用与更新不再误清除当前进程的 session-only 注册；卸载时清除注册状态。进程重启后 session-only 注册自然消失。
+- `scripting` 注入计划构建时重新按当前已授予 host permissions 过滤动态脚本匹配项；权限 request/remove 后刷新标签的 document-start handler，并使用更新后的权限快照。已执行的当前文档脚本无法被 WebView 回滚，页面重新加载后才会按新权限生效。
+- 新增 Store 恢复 / 损坏 / 文件缺失 / 旧格式迁移测试、权限变化刷新测试、更新迁移测试及撤权注入测试。
+- Node shim 49 项、WebExtension 示例 2 项通过。Android Gradle 测试仍需在可下载 Gradle 9.9.1 的环境运行；WebView 真机回调时序仍需设备验证。

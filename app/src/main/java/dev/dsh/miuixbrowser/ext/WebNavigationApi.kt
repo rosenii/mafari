@@ -38,14 +38,94 @@ class WebNavigationApi(
         }
     }
 
-    fun beforeNavigate(tabId: Int, url: String, frameId: Int = 0) = emit("webNavigation.onBeforeNavigate", tabId, url, frameId)
-    fun committed(tabId: Int, url: String, transitionType: String = "link") = emit(
-        "webNavigation.onCommitted", tabId, url, 0,
-        JSONObject().put("transitionType", transitionType).put("transitionQualifiers", JSONArray()),
-    )
-    fun completed(tabId: Int, url: String) = emit("webNavigation.onCompleted", tabId, url)
+    private val navigationStates = java.util.concurrent.ConcurrentHashMap<Int, NavigationState>()
+
+    /**
+     * WebView 的回调不等价于 Gecko 的导航阶段。这里把 shouldOverrideUrlLoading / onPageStarted
+     * 归一为一次 beforeNavigate，并把 onPageCommitVisible 作为 committed 的最佳近似。
+     * 同一标签的重定向沿用同一导航状态，避免每次 onPageStarted 都重复报告 beforeNavigate。
+     */
+    @Synchronized
+    fun beforeNavigate(tabId: Int, url: String, transitionType: String = "other", frameId: Int = 0) {
+        if (url.isBlank()) return
+        val current = navigationStates[tabId]
+        if (current != null && !current.terminal && current.initialUrl == url) return
+        // 新的顶层导航取代尚未结束的导航；WebView 不提供可靠的 redirect chain，因此只保留初始 URL。
+        navigationStates[tabId] = NavigationState(initialUrl = url, transitionType = transitionType)
+        emit("webNavigation.onBeforeNavigate", tabId, url, frameId)
+    }
+
+    /** onPageStarted 的兜底入口：若 shouldOverride 已登记初始 URL，重定向落点不应再生成一次 beforeNavigate。 */
+    @Synchronized
+    fun ensureBeforeNavigate(tabId: Int, url: String) {
+        val current = navigationStates[tabId]
+        if (current == null || current.terminal) beforeNavigate(tabId, url, "other")
+    }
+
+    @Synchronized
+    fun committed(tabId: Int, url: String, transitionType: String? = null) {
+        if (url.isBlank()) return
+        var state = navigationStates[tabId]
+        if (state == null || state.terminal) {
+            beforeNavigate(tabId, url)
+            state = navigationStates[tabId]
+        }
+        val active = state ?: return
+        if (active.terminal || active.committedUrl == url) return
+        active.committedUrl = url
+        val type = transitionType ?: active.transitionType
+        emit(
+            "webNavigation.onCommitted", tabId, url, 0,
+            JSONObject().put("transitionType", type).put("transitionQualifiers", JSONArray()),
+        )
+    }
+
+    @Synchronized
+    fun completed(tabId: Int, url: String) {
+        if (url.isBlank()) return
+        val state = navigationStates[tabId]
+        if (state?.failedUrl == url) return // WebView 可能在错误页渲染后仍回调 onPageFinished
+        if (state?.completed == true && state.committedUrl == url) return // 防止重复 finish 回调重复发事件
+        if (state == null || state.terminal) beforeNavigate(tabId, url)
+        val active = navigationStates[tabId] ?: return
+        if (active.committedUrl != url) committed(tabId, url)
+        if (active.completed) return
+        active.completed = true
+        active.terminal = true
+        emit("webNavigation.onCompleted", tabId, url)
+    }
+
+    @Synchronized
+    fun errorOccurred(tabId: Int, url: String, error: String) {
+        if (url.isBlank()) return
+        val state = navigationStates[tabId]
+        if (state == null || state.terminal) beforeNavigate(tabId, url)
+        val active = navigationStates[tabId] ?: return
+        if (active.terminal || active.completed) return
+        active.terminal = true
+        active.failedUrl = url
+        emit(
+            "webNavigation.onErrorOccurred", tabId, url, 0,
+            JSONObject().put("error", error.ifBlank { "net::ERR_FAILED" }),
+        )
+    }
+
     fun historyStateUpdated(tabId: Int, url: String) = emit("webNavigation.onHistoryStateUpdated", tabId, url)
     fun referenceFragmentUpdated(tabId: Int, url: String) = emit("webNavigation.onReferenceFragmentUpdated", tabId, url)
+
+    @Synchronized
+    fun forgetTab(tabId: Int) {
+        navigationStates.remove(tabId)
+    }
+
+    private data class NavigationState(
+        val initialUrl: String,
+        val transitionType: String,
+        var committedUrl: String? = null,
+        var completed: Boolean = false,
+        var terminal: Boolean = false,
+        var failedUrl: String? = null,
+    )
 
     private fun emit(event: String, tabId: Int, url: String, frameId: Int = 0, extra: JSONObject = JSONObject()) {
         if (url.isBlank()) return

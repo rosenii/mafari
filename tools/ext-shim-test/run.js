@@ -354,13 +354,36 @@ test('webNavigation API is exposed only when declared and forwards frame queries
   assert.deepStrictEqual(await p, { tabId: 7, frameId: 0 });
 });
 
-test('webNavigation events dispatch details to listeners', () => {
+test('webRequest exposes filtered onBeforeRequest and registers/removes listeners natively', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 2, name: 'Demo', version: '1', permissions: ['webRequest', 'https://*.example.com/*'] } }), entry([
+    'window.requests = []; window.listener = function (d) { window.requests.push(d.url); };' +
+    'browser.webRequest.onBeforeRequest.addListener(window.listener, { urls: ["https://*.example.com/*"], types: ["script"], tabId: 4 }, []);'
+  ])));
+  const add = env.posted.find(x => x.api === 'webRequest.addListener');
+  assert.ok(add);
+  assert.strictEqual(add.args[0], 'onBeforeRequest');
+  assert.strictEqual(add.args[2].tabId, 4);
+  env.native({ event: 'webRequest.onBeforeRequest', payload: { url: 'https://cdn.example.com/a.js', tabId: 4, listenerTokens: [add.args[1]] } });
+  assert.deepStrictEqual(Array.from(env.sandbox.requests), ['https://cdn.example.com/a.js']);
+  env.sandbox.browser.webRequest.onBeforeRequest.removeListener(env.sandbox.listener);
+  const remove = env.posted.find(x => x.api === 'webRequest.removeListener');
+  assert.ok(remove);
+  assert.strictEqual(remove.args[0], add.args[1]);
+  await tick();
+});
+
+test('webNavigation events dispatch committed and error details to listeners', () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['webNavigation'] } }), entry([
-    'window.nav = []; browser.webNavigation.onCommitted.addListener(function (d) { window.nav.push(d.tabId + ":" + d.frameId + ":" + d.url); });'
+    'window.nav = []; window.navErrors = [];' +
+    'browser.webNavigation.onCommitted.addListener(function (d) { window.nav.push(d.tabId + ":" + d.frameId + ":" + d.url); });' +
+    'browser.webNavigation.onErrorOccurred.addListener(function (d) { window.navErrors.push(d.error); });'
   ])));
   env.native({ event: 'webNavigation.onCommitted', payload: { tabId: 9, frameId: 0, url: 'https://example.com/', timeStamp: 1 } });
+  env.native({ event: 'webNavigation.onErrorOccurred', payload: { tabId: 9, frameId: 0, url: 'https://example.com/', error: 'net::ERR_FAILED', timeStamp: 2 } });
   assert.deepStrictEqual(Array.from(env.sandbox.nav), ['9:0:https://example.com/']);
+  assert.deepStrictEqual(Array.from(env.sandbox.navErrors), ['net::ERR_FAILED']);
 });
 
 test('permissions request/remove and lifecycle events are exposed', async () => {
@@ -405,6 +428,26 @@ test('runtime.connect returns a Port, queues early messages, and receives remote
   env.native('not json');
   env.native({ id: '999', ok: true });
   env.native({ event: 'whatever' });
+});
+
+test('runtime.Port.disconnect closes only the local side and does not fire its own onDisconnect', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg(), entry([
+    'window.disconnected = 0;' +
+    'var port = browser.runtime.connect({name:"local-close"});' +
+    'port.onDisconnect.addListener(function () { window.disconnected++; });' +
+    'window.port = port;'
+  ])));
+  const connect = env.posted.find(x => x.api === 'runtime.connect');
+  env.native({ id: connect.id, ok: true, result: 'port-local-close' });
+  await tick();
+  env.sandbox.port.disconnect();
+  assert.strictEqual(env.sandbox.disconnected, 0);
+  const close = env.posted.find(x => x.api === 'runtime.port.disconnect');
+  assert.deepStrictEqual(close.args, ['port-local-close']);
+  // A late native disconnect cannot notify the already-closed local Port a second time.
+  env.native({ type: 'portDisconnect', portId: 'port-local-close' });
+  assert.strictEqual(env.sandbox.disconnected, 0);
 });
 
 test('runtime.onConnect receives inbound Ports', () => {
@@ -663,6 +706,30 @@ test('scripting.registerContentScripts family: forwarded to native with promise 
   const regId = env.posted.find((p2) => p2.api === 'scripting.registerContentScripts').id; // posted[0] 是 runtime.hello
   env.native({ id: regId, ok: true, result: null });
   await p;
+});
+
+test('contextMenus API exposes create/update/remove/removeAll and click event', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['contextMenus'] } }), entry([
+    "window.menuId = browser.contextMenus.create({ title: 'Open', contexts: ['link'], documentUrlPatterns: ['https://*.example.com/*'], targetUrlPatterns: ['https://target.example/*'] });",
+    "browser.contextMenus.update(window.menuId, { title: 'Updated' }); browser.contextMenus.remove(window.menuId); browser.contextMenus.removeAll();",
+    "window.clicks = []; browser.contextMenus.onClicked.addListener(function (info, tab) { window.clicks.push(info.menuItemId + ':' + tab.id); });"
+  ])));
+  const calls = env.posted.filter((x) => x.api && x.api.indexOf('contextMenus.') === 0);
+  assert.deepStrictEqual(calls.map((x) => x.api), ['contextMenus.create', 'contextMenus.update', 'contextMenus.remove', 'contextMenus.removeAll']);
+  assert.strictEqual(calls[0].args[0].id, 'mafari-menu-1');
+  env.native({ event: 'contextMenus.onClicked', payload: { info: { menuItemId: 'mafari-menu-1' }, tab: { id: 7 } } });
+  assert.deepStrictEqual(Array.from(env.sandbox.clicks), ['mafari-menu-1:7']);
+});
+
+test('action and browserAction expose compatible setters through shared API shape', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: [] } }), entry([
+    "browser.action.setBadgeText({ text: '3' }); browser.action.setBadgeBackgroundColor({ color: '#123456' }); browser.action.setTitle({ title: 'New' }); browser.action.setPopup({ popup: 'popup.html' });",
+    "chrome.browserAction.setBadgeText({ text: '4' });"
+  ])));
+  const calls = env.posted.filter((x) => x.api && (x.api.indexOf('action.') === 0 || x.api.indexOf('browserAction.') === 0));
+  assert.deepStrictEqual(calls.map((x) => x.api), ['action.setBadgeText', 'action.setBadgeBackgroundColor', 'action.setTitle', 'action.setPopup', 'browserAction.setBadgeText']);
 });
 
 // ───────────── 垫片 ⇄ 原生 的静态一致性（不跑 Kotlin，只读源码）：专抓「写了没接上」────────────

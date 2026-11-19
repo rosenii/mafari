@@ -36,7 +36,7 @@ function (CFG, ENTRIES) {
   // 早于监听器注册到达的事件先缓存（只缓存下面 BUFFERED 里的几种，每种最多 BUF_MAX 条，页面启动 BUF_MS 之后不再缓存），
   // 第一个监听器注册时统一补投。常见时序：后台页的脚本是异步加载 / 动态 import 的，原生已经把 onStartup / onAlarm 送到了。
   var BUF = {}, BUF_MAX = 32, BUF_MS = 5000;
-  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'alarms.onAlarm': 1, 'webNavigation.onBeforeNavigate': 1, 'webNavigation.onCommitted': 1, 'webNavigation.onCompleted': 1, 'webNavigation.onHistoryStateUpdated': 1, 'webNavigation.onReferenceFragmentUpdated': 1 };
+  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'alarms.onAlarm': 1, 'webNavigation.onBeforeNavigate': 1, 'webNavigation.onCommitted': 1, 'webNavigation.onCompleted': 1, 'webNavigation.onErrorOccurred': 1, 'webNavigation.onHistoryStateUpdated': 1, 'webNavigation.onReferenceFragmentUpdated': 1, 'contextMenus.onClicked': 1 };
   function ev(name) {
     return {
       addListener: function (f) {
@@ -74,8 +74,11 @@ function (CFG, ENTRIES) {
     'webNavigation.onBeforeNavigate': function (p) { return [['webNavigation.onBeforeNavigate', [p]]]; },
     'webNavigation.onCommitted': function (p) { return [['webNavigation.onCommitted', [p]]]; },
     'webNavigation.onCompleted': function (p) { return [['webNavigation.onCompleted', [p]]]; },
+    'webNavigation.onErrorOccurred': function (p) { return [['webNavigation.onErrorOccurred', [p]]]; },
     'webNavigation.onHistoryStateUpdated': function (p) { return [['webNavigation.onHistoryStateUpdated', [p]]]; },
-    'webNavigation.onReferenceFragmentUpdated': function (p) { return [['webNavigation.onReferenceFragmentUpdated', [p]]]; }
+    'webNavigation.onReferenceFragmentUpdated': function (p) { return [['webNavigation.onReferenceFragmentUpdated', [p]]]; },
+    'contextMenus.onClicked': function (p) { return [['contextMenus.onClicked', [p.info || {}, p.tab || {}]]]; },
+    'webRequest.onBeforeRequest': function (p) { return [['webRequest.onBeforeRequest', [p]]]; }
   };
   function deliverEvent(name, args) {
     if ((L[name] || []).length) { fire(name, args); return; }
@@ -88,7 +91,11 @@ function (CFG, ENTRIES) {
     if (!table) return;
     var list;
     try { list = table(payload || {}); } catch (e) { return; }
-    list.forEach(function (t) { deliverEvent(t[0], t[1]); });
+    list.forEach(function (t) {
+      if (t[0] === 'webRequest.onBeforeRequest' && webRequest && webRequest.onBeforeRequest) {
+        webRequestListeners.slice().forEach(function (x) { if ((t[1][0].listenerTokens || []).indexOf(x.token) < 0) return; try { x.fn.apply(null, [t[1][0]]); } catch (e) { cerr(e); } });
+      } else deliverEvent(t[0], t[1]);
+    });
   }
 
   function onNative(raw) {
@@ -158,18 +165,20 @@ function (CFG, ENTRIES) {
       },
       disconnect: function () {
         if (p._closed) return;
-        if (!p._id) { p._close(); return; }
-        rpc('runtime.port.disconnect', [p._id]).catch(function () { p._close(); });
+        var id = p._id;
+        // A locally initiated disconnect closes this side without firing its own onDisconnect.
+        p._close(false);
+        if (id) rpc('runtime.port.disconnect', [id]).catch(function () {});
       },
       _id: id || null,
       _queue: [],
       _closed: false,
       _message: function (message) { if (!p._closed) notify(msgListeners, [message, p]); },
-      _close: function () {
+      _close: function (notifyLocal) {
         if (p._closed) return;
         p._closed = true;
         if (p._id) delete ports[p._id];
-        notify(disconnectListeners, [p]);
+        if (notifyLocal !== false) notify(disconnectListeners, [p]);
       }
     };
     if (id) ports[id] = p;
@@ -425,6 +434,65 @@ function (CFG, ENTRIES) {
     onRemoved: ev('permissions.onRemoved')
   };
 
+  // action / browserAction share one native implementation but remain separate API entry points.
+  function makeAction(prefix) {
+    return {
+      setBadgeText: promised(function (d) { return rpc(prefix + '.setBadgeText', [d || {}]); }),
+      setBadgeBackgroundColor: promised(function (d) { return rpc(prefix + '.setBadgeBackgroundColor', [d || {}]); }),
+      setTitle: promised(function (d) { return rpc(prefix + '.setTitle', [d || {}]); }),
+      setPopup: promised(function (d) { return rpc(prefix + '.setPopup', [d || {}]); }),
+      getTitle: promised(function (d) { return rpc(prefix + '.getTitle', [d || {}]); }),
+      getBadgeText: promised(function (d) { return rpc(prefix + '.getBadgeText', [d || {}]); })
+    };
+  }
+  var action = CFG.page ? makeAction('action') : null;
+  var browserAction = CFG.page ? makeAction('browserAction') : null;
+
+  // Context menu definitions are managed natively; create keeps Chrome's synchronous id return.
+  var contextMenus = null, menuSequence = 1;
+  if (CFG.page && (declares('contextMenus') || declares('menus'))) {
+    contextMenus = {
+      create: function (properties, callback) {
+        var p = properties || {}, id = p.id === undefined ? 'mafari-menu-' + (menuSequence++) : String(p.id);
+        var item = {}; OK(p).forEach(function (k) { item[k] = p[k]; }); item.id = id;
+        rpc('contextMenus.create', [item]).then(function () { if (typeof callback === 'function') callback(); }, function (e) {
+          if (typeof callback === 'function') { lastError.v = { message: e && e.message }; try { callback(); } finally { lastError.v = undefined; } }
+        });
+        return id;
+      },
+      update: promised(function (id, properties) { return rpc('contextMenus.update', [id, properties || {}]); }),
+      remove: promised(function (id) { return rpc('contextMenus.remove', [id]); }),
+      removeAll: promised(function () { return rpc('contextMenus.removeAll', []); }),
+      onClicked: ev('contextMenus.onClicked')
+    };
+  }
+
+  var webRequest = null, webRequestSequence = 1;
+  if (CFG.page && declares('webRequest')) {
+    var webRequestListeners = [];
+    var onBeforeRequest = {
+      addListener: function (fn, filter, extraInfoSpec) {
+        if (typeof fn !== 'function') return;
+        var token = 'wr-' + (webRequestSequence++);
+        var entry = { fn: fn, token: token, filter: filter || {}, extra: extraInfoSpec || [] };
+        webRequestListeners.push(entry);
+        rpc('webRequest.addListener', ['onBeforeRequest', token, entry.filter, entry.extra]).catch(function (e) {
+          var i = webRequestListeners.indexOf(entry); if (i >= 0) webRequestListeners.splice(i, 1); cerr(e);
+        });
+      },
+      removeListener: function (fn) {
+        for (var i = webRequestListeners.length - 1; i >= 0; i--) {
+          if (webRequestListeners[i].fn === fn) {
+            var entry = webRequestListeners.splice(i, 1)[0];
+            rpc('webRequest.removeListener', [entry.token]).catch(function () {});
+          }
+        }
+      },
+      hasListener: function (fn) { return webRequestListeners.some(function (x) { return x.fn === fn; }); }
+    };
+    webRequest = { onBeforeRequest: onBeforeRequest };
+  }
+
   var webNavigation = null;
   if (CFG.page && declares('webNavigation')) {
     webNavigation = {
@@ -433,6 +501,7 @@ function (CFG, ENTRIES) {
       onBeforeNavigate: ev('webNavigation.onBeforeNavigate'),
       onCommitted: ev('webNavigation.onCommitted'),
       onCompleted: ev('webNavigation.onCompleted'),
+      onErrorOccurred: ev('webNavigation.onErrorOccurred'),
       onHistoryStateUpdated: ev('webNavigation.onHistoryStateUpdated'),
       onReferenceFragmentUpdated: ev('webNavigation.onReferenceFragmentUpdated')
     };
@@ -443,6 +512,10 @@ function (CFG, ENTRIES) {
   if (tabs) browser.tabs = tabs;
   if (scripting) browser.scripting = scripting;
   if (webNavigation) browser.webNavigation = webNavigation;
+  if (webRequest) browser.webRequest = webRequest;
+  if (action) browser.action = action;
+  if (browserAction) browser.browserAction = browserAction;
+  if (contextMenus) { browser.contextMenus = contextMenus; browser.menus = contextMenus; }
 
   var chromeRuntime = cbObj(runtime);
   Object.defineProperty(chromeRuntime, 'lastError', { get: function () { return lastError.v; }, enumerable: true });
@@ -460,6 +533,10 @@ function (CFG, ENTRIES) {
   if (tabs) chrome.tabs = cbObj(tabs);
   if (scripting) chrome.scripting = cbObj(scripting);
   if (webNavigation) chrome.webNavigation = cbObj(webNavigation);
+  if (webRequest) chrome.webRequest = { onBeforeRequest: webRequest.onBeforeRequest };
+  if (action) chrome.action = cbObj(action);
+  if (browserAction) chrome.browserAction = cbObj(browserAction);
+  if (contextMenus) { chrome.contextMenus = cbObj(contextMenus); chrome.contextMenus.create = contextMenus.create; chrome.menus = chrome.contextMenus; }
 
   // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上。
   // 所有上下文都握手：原生由此登记当前标签里的 content script，供 tabs.sendMessage 定向投递。

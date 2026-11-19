@@ -196,15 +196,15 @@ internal fun BrowserTab.setupWebView() {
     CookieManager.getInstance().setAcceptCookie(true)
     CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-    var navigationBeforeUrl: String? = null
+    var lastVisitedHistoryUrl: String? = url
     webView.webViewClient = object : WebViewClient() {
         override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
             WebViewDebug.logPage("start", pageUrl)
             if (!incognito && !pageUrl.isNullOrBlank()) {
                 val ext = appContext.appContainer.webExtensions
-                if (navigationBeforeUrl != pageUrl) ext.onWebNavigationBefore(id, pageUrl)
-                navigationBeforeUrl = null
-                ext.onWebNavigationCommitted(id, pageUrl)
+                // loadUrl() 等程序化导航可能不会经过 shouldOverrideUrlLoading；这里补齐 beforeNavigate。
+                ext.onWebNavigationStarted(id, pageUrl)
+                lastVisitedHistoryUrl = pageUrl
             }
             requestLog.clear() // 换页：本页请求重新统计
             pageAdBlocked.set(0)
@@ -237,10 +237,16 @@ internal fun BrowserTab.setupWebView() {
             }
         }
 
+        override fun onPageCommitVisible(view: WebView, pageUrl: String?) {
+            if (!incognito && !pageUrl.isNullOrBlank()) appContext.appContainer.webExtensions
+                .onWebNavigationCommitted(id, pageUrl)
+        }
+
         override fun onPageFinished(view: WebView, pageUrl: String?) {
             WebViewDebug.logPage("finish", pageUrl)
             if (!incognito && !pageUrl.isNullOrBlank()) appContext.appContainer.webExtensions
                 .onWebNavigationCompleted(id, pageUrl)
+            if (!pageUrl.isNullOrBlank()) lastVisitedHistoryUrl = pageUrl
             if (!parked) pageUrl?.let { url = it }
             loading = false
             progress = 1f
@@ -260,19 +266,24 @@ internal fun BrowserTab.setupWebView() {
         }
 
         override fun doUpdateVisitedHistory(view: WebView, pageUrl: String?, isReload: Boolean) {
-            val previousUrl = url
-            if (!incognito && !pageUrl.isNullOrBlank() && !loading && previousUrl != pageUrl) {
+            val previousUrl = lastVisitedHistoryUrl ?: url
+            if (!pageUrl.isNullOrBlank() && previousUrl != pageUrl) {
                 val oldUri = runCatching { Uri.parse(previousUrl) }.getOrNull()
                 val newUri = runCatching { Uri.parse(pageUrl) }.getOrNull()
-                val sameDocumentPath = oldUri != null && newUri != null &&
-                    oldUri.scheme == newUri.scheme && oldUri.authority == newUri.authority &&
-                    oldUri.path == newUri.path && oldUri.query == newUri.query
-                if (sameDocumentPath && oldUri?.fragment != newUri?.fragment) {
-                    appContext.appContainer.webExtensions.onWebNavigationFragment(id, pageUrl)
-                } else if (!isReload) {
-                    appContext.appContainer.webExtensions.onWebNavigationHistoryState(id, pageUrl)
+                val sameOrigin = oldUri != null && newUri != null &&
+                    oldUri.scheme == newUri.scheme && oldUri.authority == newUri.authority
+                val onlyFragmentChanged = sameOrigin && oldUri?.path == newUri?.path && oldUri?.query == newUri?.query &&
+                    oldUri?.fragment != newUri?.fragment
+                // WebView 没有暴露 pushState / replaceState 专用回调；只在同文档、非加载期报告近似事件。
+                if (!incognito && !loading && !isReload && sameOrigin) {
+                    if (onlyFragmentChanged) {
+                        appContext.appContainer.webExtensions.onWebNavigationFragment(id, pageUrl)
+                    } else {
+                        appContext.appContainer.webExtensions.onWebNavigationHistoryState(id, pageUrl)
+                    }
                 }
             }
+            if (!pageUrl.isNullOrBlank()) lastVisitedHistoryUrl = pageUrl
             // 服务端重定向的最终落点只有这里看得到：未预注册就按策略兜底
             fpInjector?.onCommitted(pageUrl)
             if (!parked) pageUrl?.let { url = it }
@@ -282,11 +293,13 @@ internal fun BrowserTab.setupWebView() {
             if (!parked && !isReload && !loading) reader.onWebPageSettled(pageUrl, 800L)
         }
 
-        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-            webExtensionResource(request) ?:
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+            if (!incognito) appContext.appContainer.webExtensions.onWebRequestBefore(id, request)
+            return webExtensionResource(request) ?:
             if (incognito && !adblockInIncognito) null
             else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
                 ?.also { pageAdBlocked.incrementAndGet() }
+        }
 
         /**
          * 网页请求 `runtime.getURL()` 给出的拓展地址：只放行 web_accessible_resources。
@@ -311,6 +324,9 @@ internal fun BrowserTab.setupWebView() {
                 return
             }
             handler.cancel()
+            if (!incognito && (ErrorPages.sameUrl(errUrl, url) || ErrorPages.sameUrl(errUrl, view.url))) {
+                appContext.appContainer.webExtensions.onWebNavigationError(id, errUrl, "net::ERR_CERT_INVALID (${error.primaryError})")
+            }
             Diag.log("webview ssl error primary=${error.primaryError} url=$errUrl page=$url")
             // 主框架：直接在这里渲染引导页。取消之后系统不一定还会回调 onReceivedError，
             // 只靠它的话页面会停在空白；子资源（图片 / 脚本）的证书错误只取消，不动页面
@@ -327,6 +343,9 @@ internal fun BrowserTab.setupWebView() {
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (request.isForMainFrame) {
                 val failing = request.url.toString()
+                if (!incognito) appContext.appContainer.webExtensions.onWebNavigationError(
+                    id, failing, "${error.errorCode}: ${error.description ?: "net::ERR_FAILED"}",
+                )
                 val shownBySsl = ErrorPages.sameUrl(failing, sslPageShownFor) &&
                     android.os.SystemClock.uptimeMillis() - sslPageShownAt < 5_000
                 if (!shownBySsl) {
@@ -367,9 +386,10 @@ internal fun BrowserTab.setupWebView() {
                 if (interceptRedirect(request, external = false, onAllowed = proceed)) return true
             }
             // 只在 Mafari 确认放行当前标签导航后发送 beforeNavigate；被重定向到新标签 / 外部应用的请求不发送。
-            if (!incognito && request.isForMainFrame && (scheme == "http" || scheme == "https")) {
-                navigationBeforeUrl = target
-                appContext.appContainer.webExtensions.onWebNavigationBefore(id, target)
+            if (!incognito && request.isForMainFrame && !request.isRedirect && (scheme == "http" || scheme == "https")) {
+                appContext.appContainer.webExtensions.onWebNavigationBefore(
+                    id, target, if (request.hasGesture()) "link" else "generated",
+                )
             }
             // 主框架导航放行前，先为目标 origin 注册指纹保护脚本（注入只作用于注册之后才开始加载的文档）
             if (request.isForMainFrame && (scheme == "http" || scheme == "https")) fpInjector?.prepare(target)

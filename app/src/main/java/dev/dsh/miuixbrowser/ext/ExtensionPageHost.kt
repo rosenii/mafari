@@ -302,6 +302,8 @@ class ExtensionPageHost(
     }
 
     /** 向某个拓展所有在线页面推送事件（storage.onChanged 等） */
+    fun emitEvent(extId: String, event: String, payload: JSONObject) = emit(extId, event, payload)
+
     override fun emit(extId: String, event: String, payload: JSONObject) {
         val text = JSONObject().put("event", event).put("payload", payload).toString()
         for (p in pagesSnapshot) {

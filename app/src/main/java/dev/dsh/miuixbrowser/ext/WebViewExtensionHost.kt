@@ -56,6 +56,7 @@ class WebViewExtensionHost(
     ) : MessageEndpoint {
         override val contextId: String = "content:$extId:$tabId"
         override val kind: SenderKind = SenderKind.CONTENT_SCRIPT
+        override val frameId: Int = 0
         @Volatile var reply: JavaScriptReplyProxy = initialReply
 
         override fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean {
@@ -164,18 +165,25 @@ class WebViewExtensionHost(
     }
 
     /** 动态脚本注册发生变化时，重装受影响标签的 document-start handler；现有页面不回溯执行。 */
-    fun refreshDynamicScripts(extId: String) {
+    fun refreshDynamicScripts(extId: String, updatedExtension: InstalledExtension? = null) {
         main.post {
             val affected = synchronized(bindings) { bindings.values.filter { b -> b.exts.any { it.spec.id == extId } } }
             for (binding in affected) {
+                // Permission changes update the repository object; never rebuild with the stale snapshot
+                // captured when this tab was first installed.
+                val refreshedExts = if (updatedExtension == null) binding.exts else binding.exts.map { current ->
+                    if (current.spec.id == extId) updatedExtension else current
+                }
                 val old = binding.installation
                 old.closeForRefresh()
-                val fresh = install(binding.webView, binding.exts, binding.shim, binding.tabId)
+                val fresh = install(binding.webView, refreshedExts, binding.shim, binding.tabId)
                 if (fresh == null) {
                     synchronized(bindings) { bindings.remove(binding.tabId) }
                 } else {
                     old.adopt(fresh)
-                    synchronized(bindings) { bindings[binding.tabId] = binding.copy(installation = old) }
+                    synchronized(bindings) {
+                        bindings[binding.tabId] = binding.copy(exts = refreshedExts, installation = old)
+                    }
                 }
             }
         }

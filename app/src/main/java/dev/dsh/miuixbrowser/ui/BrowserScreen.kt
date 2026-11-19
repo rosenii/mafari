@@ -328,12 +328,38 @@ fun BrowserScreen(
 
     LaunchedEffect(tab.id) {
         tab.onLongPressLink = { link ->
-            linkUrl = link
-            sheet = Sheet.Link
+            val extSystem = context.appContainer.webExtensions
+            val matches = runCatching { extSystem.contextMenuItems("link", tab.url, link) }.getOrDefault(emptyList())
+            if (matches.isNotEmpty()) {
+                val flat = matches.flatMap { (ext, items) -> items.map { ext to it } }
+                AlertDialog.Builder(context)
+                    .setItems(flat.map { (_, item) -> item.title }.toTypedArray()) { _, which ->
+                        val (ext, item) = flat[which]
+                        extSystem.onContextMenuClicked(ext.spec.id, item.id,
+                            org.json.JSONObject().put("linkUrl", link).put("pageUrl", tab.url).put("frameUrl", tab.url),
+                            org.json.JSONObject().put("id", tab.id).put("url", tab.url))
+                    }.show()
+            } else {
+                linkUrl = link
+                sheet = Sheet.Link
+            }
         }
         tab.onLongPressImage = { url ->
-            imageUrl = url
-            sheet = Sheet.Image
+            val extSystem = context.appContainer.webExtensions
+            val matches = runCatching { extSystem.contextMenuItems("image", tab.url, url) }.getOrDefault(emptyList())
+            if (matches.isNotEmpty()) {
+                val flat = matches.flatMap { (ext, items) -> items.map { ext to it } }
+                AlertDialog.Builder(context)
+                    .setItems(flat.map { (_, item) -> item.title }.toTypedArray()) { _, which ->
+                        val (ext, item) = flat[which]
+                        extSystem.onContextMenuClicked(ext.spec.id, item.id,
+                            org.json.JSONObject().put("srcUrl", url).put("pageUrl", tab.url).put("frameUrl", tab.url),
+                            org.json.JSONObject().put("id", tab.id).put("url", tab.url))
+                    }.show()
+            } else {
+                imageUrl = url
+                sheet = Sheet.Image
+            }
         }
         tab.onElementLongPress = { hit ->
             elementHit = hit

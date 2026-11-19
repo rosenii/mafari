@@ -3,11 +3,13 @@ package dev.dsh.miuixbrowser.ext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 
 /**
- * scripting.registerContentScripts 的轻量存储。
- * persistAcrossSessions=true 的条目写入扩展私有目录；false 的条目只保留在当前进程。
- * 这里只存扩展相对文件路径，不接受内联代码，避免把动态注册变成任意代码持久化入口。
+ * Store for scripting.registerContentScripts.
+ * Persistent registrations live beside the unpacked extension; session-only registrations stay in memory.
+ * Only extension-relative JS/CSS paths are persisted (never inline code).
  */
 class DynamicContentScriptStore {
     data class Entry(
@@ -32,9 +34,7 @@ class DynamicContentScriptStore {
             if (current.containsKey(entry.id)) throw ApiException(ErrorCodes.BAD_REQUEST, "脚本 ID 已存在：${entry.id}")
             current[entry.id] = entry
         }
-        writePersisted(ext, current.values.filter { it.persistAcrossSessions })
-        val transientEntries = current.values.filterNot { it.persistAcrossSessions }.associateBy { it.id }
-        transient[ext.spec.id] = transientEntries.toMutableMap()
+        persistAndReplaceSession(ext, current.values)
     }
 
     @Synchronized
@@ -44,46 +44,106 @@ class DynamicContentScriptStore {
             if (!current.containsKey(entry.id)) throw ApiException(ErrorCodes.BAD_REQUEST, "未注册的脚本 ID：${entry.id}")
             current[entry.id] = entry
         }
-        writePersisted(ext, current.values.filter { it.persistAcrossSessions })
-        transient[ext.spec.id] = current.values.filterNot { it.persistAcrossSessions }.associateBy { it.id }.toMutableMap()
+        persistAndReplaceSession(ext, current.values)
     }
 
     @Synchronized
     fun unregister(ext: InstalledExtension, ids: Set<String>?) {
         val current = all(ext).associateBy { it.id }.toMutableMap()
-        if (ids == null) current.clear() else ids.forEach { current.remove(it) }
-        writePersisted(ext, current.values.filter { it.persistAcrossSessions })
-        transient[ext.spec.id] = current.values.filterNot { it.persistAcrossSessions }.associateBy { it.id }.toMutableMap()
+        if (ids == null) current.clear() else ids.forEach(current::remove)
+        persistAndReplaceSession(ext, current.values)
     }
 
+    /** Extension disable/update must not erase registrations; session entries die naturally with this Store/process. */
     @Synchronized
-    fun forget(extId: String) { transient.remove(extId) }
+    fun clearSession(extId: String) { transient.remove(extId) }
 
-    private fun file(ext: InstalledExtension) = File(ext.rootDir, ".mafari-dynamic-content-scripts.json")
+    /** Called only for an explicit uninstall. */
+    @Synchronized
+    fun clearAll(ext: InstalledExtension) {
+        transient.remove(ext.spec.id)
+        val f = file(ext)
+        f.delete()
+        File(ext.rootDir, f.name + ".bak").delete()
+        File(ext.rootDir, f.name + ".tmp").delete()
+    }
+
+    private fun persistAndReplaceSession(ext: InstalledExtension, entries: Collection<Entry>) {
+        val values = entries.toList()
+        writePersisted(ext, values.filter { it.persistAcrossSessions })
+        transient[ext.spec.id] = values.filterNot { it.persistAcrossSessions }.associateBy { it.id }.toMutableMap()
+    }
+
+    private fun file(ext: InstalledExtension) = File(ext.rootDir, FILE_NAME)
 
     private fun readPersisted(ext: InstalledExtension): List<Entry> {
         val f = file(ext)
+        val backup = File(ext.rootDir, f.name + ".bak")
+        if (!f.exists() && backup.isFile) backup.renameTo(f)
         if (!f.isFile) return emptyList()
         return try {
-            val arr = JSONArray(f.readText(Charsets.UTF_8))
-            (0 until arr.length()).mapNotNull { i -> parseEntry(arr.optJSONObject(i)) }
-        } catch (_: Exception) { emptyList() }
+            val root = JSONObject(f.readText(Charsets.UTF_8))
+            if (root.optInt("schemaVersion", -1) != SCHEMA_VERSION || root.optString("extensionId") != ext.spec.id) {
+                quarantine(f)
+                if (backup.isFile) backup.renameTo(f)
+                return if (f.isFile) readPersisted(ext) else emptyList()
+            }
+            val arr = root.optJSONArray("scripts") ?: run {
+                quarantine(f)
+                if (backup.isFile) backup.renameTo(f)
+                return if (f.isFile) readPersisted(ext) else emptyList()
+            }
+            backup.delete()
+            val restored = (0 until arr.length()).mapNotNull { i -> parseEntry(ext, arr.optJSONObject(i)) }
+            if (restored.size != arr.length()) writePersisted(ext, restored)
+            restored
+        } catch (_: Exception) {
+            // Backward compatibility: the previous implementation stored a bare JSON array.
+            try {
+                val arr = JSONArray(f.readText(Charsets.UTF_8))
+                val entries = (0 until arr.length()).mapNotNull { i -> parseEntry(ext, arr.optJSONObject(i)) }
+                writePersisted(ext, entries)
+                entries
+            } catch (_: Exception) {
+                quarantine(f)
+                if (backup.isFile && backup.renameTo(f)) readPersisted(ext) else emptyList()
+            }
+        }
+    }
+
+    private fun quarantine(f: File) {
+        val bad = File(f.parentFile, f.name + ".corrupt-" + System.currentTimeMillis())
+        if (!f.renameTo(bad)) f.delete()
     }
 
     private fun writePersisted(ext: InstalledExtension, entries: List<Entry>) {
+        val dir = ext.rootDir
         val f = file(ext)
-        val tmp = File(ext.rootDir, f.name + ".tmp")
-        val arr = JSONArray()
-        entries.forEach { arr.put(toJson(it)) }
+        val tmp = File(dir, f.name + ".tmp")
+        val backup = File(dir, f.name + ".bak")
+        val scripts = JSONArray()
+        entries.forEach { scripts.put(toJson(it)) }
+        val payload = JSONObject()
+            .put("schemaVersion", SCHEMA_VERSION)
+            .put("extensionId", ext.spec.id)
+            .put("scripts", scripts)
+            .toString()
         try {
-            ext.rootDir.mkdirs()
-            tmp.writeText(arr.toString(), Charsets.UTF_8)
-            if (!tmp.renameTo(f)) {
-                f.writeText(arr.toString(), Charsets.UTF_8)
-                tmp.delete()
+            if (!dir.exists() && !dir.mkdirs()) throw IOException("无法创建拓展目录")
+            FileOutputStream(tmp).use { stream ->
+                stream.write(payload.toByteArray(Charsets.UTF_8))
+                stream.fd.sync()
             }
+            backup.delete()
+            if (f.exists() && !f.renameTo(backup)) throw IOException("无法备份旧动态脚本文件")
+            if (!tmp.renameTo(f)) {
+                if (backup.exists()) backup.renameTo(f)
+                throw IOException("无法提交动态脚本文件")
+            }
+            backup.delete()
         } catch (e: Exception) {
             tmp.delete()
+            if (!f.exists() && backup.exists()) backup.renameTo(f)
             throw ApiException(ErrorCodes.INTERNAL, "动态脚本保存失败：${e.message}")
         }
     }
@@ -100,9 +160,11 @@ class DynamicContentScriptStore {
             RunAt.DOCUMENT_IDLE -> "document_idle"
         })
         .put("allFrames", entry.spec.allFrames)
+        .put("matchAboutBlank", entry.spec.matchAboutBlank)
+        .put("world", entry.spec.world.name)
         .put("persistAcrossSessions", entry.persistAcrossSessions)
 
-    private fun parseEntry(o: JSONObject?): Entry? {
+    private fun parseEntry(ext: InstalledExtension, o: JSONObject?): Entry? {
         o ?: return null
         val id = o.optString("id").takeIf { it.isNotBlank() } ?: return null
         val matches = strings(o, "matches").mapNotNull { MatchPattern.parse(it) }
@@ -111,16 +173,40 @@ class DynamicContentScriptStore {
         val js = strings(o, "js")
         val css = strings(o, "css")
         if (js.isEmpty() && css.isEmpty()) return null
+        if ((js + css).any { !isSafeExistingExtensionFile(ext.rootDir, it) }) return null
         val runAt = when (o.optString("runAt")) {
             "document_start" -> RunAt.DOCUMENT_START
             "document_end" -> RunAt.DOCUMENT_END
-            else -> RunAt.DOCUMENT_IDLE
+            "document_idle", "" -> RunAt.DOCUMENT_IDLE
+            else -> return null
         }
-        return Entry(id, ContentScriptSpec(matches, exclude, js, css, runAt, o.optBoolean("allFrames"), false, ScriptWorld.ISOLATED), true)
+        val world = runCatching { ScriptWorld.valueOf(o.optString("world", ScriptWorld.ISOLATED.name)) }
+            .getOrNull() ?: return null
+        val persist = o.optBoolean("persistAcrossSessions", true)
+        if (!persist) return null // session-only registrations must never be restored from disk
+        return Entry(
+            id,
+            ContentScriptSpec(matches, exclude, js, css, runAt, o.optBoolean("allFrames"), o.optBoolean("matchAboutBlank"), world),
+            true,
+        )
+    }
+
+    private fun isSafeExistingExtensionFile(root: File, relative: String): Boolean {
+        if (relative.isBlank() || relative.startsWith('/') || '\\' in relative) return false
+        return try {
+            val base = root.canonicalFile
+            val candidate = File(base, relative).canonicalFile
+            candidate.path.startsWith(base.path + File.separator) && candidate.isFile
+        } catch (_: Exception) { false }
     }
 
     private fun strings(o: JSONObject, key: String): List<String> {
         val a = o.optJSONArray(key) ?: return emptyList()
         return (0 until a.length()).mapNotNull { a.optString(it).takeIf(String::isNotBlank) }
+    }
+
+    companion object {
+        private const val SCHEMA_VERSION = 1
+        private const val FILE_NAME = ".mafari-dynamic-content-scripts.json"
     }
 }

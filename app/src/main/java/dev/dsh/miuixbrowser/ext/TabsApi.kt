@@ -7,7 +7,7 @@ import kotlin.math.abs
 /**
  * `tabs.*` 的处理器，建在 [TabBridge] 之上。
  *
- * 已实现：query / get / getCurrent / create / update / duplicate / move / remove / reload / goBack / goForward / sendMessage（仅主框架），
+ * 已实现：query / get / getCurrent / create / update / duplicate / move / remove / reload / goBack / goForward / sendMessage（按 frameId 路由；当前宿主仅主框架），
  * 以及 onCreated / onUpdated / onMoved / onRemoved / onActivated 事件。
  * 仍不支持：多窗口、captureVisibleTab、group、zoom、完整 frame 路由等宿主能力。
  *
@@ -80,12 +80,22 @@ class TabsApi(
             val tabId = toInt(a.argOrNull(0), "tabId")
             // tabId 必须是当前 WebView 普通标签；无痕 / Gecko / 已关闭标签不可被探测。
             if (bridge().get(tabId) == null) throw noTab(tabId)
-            val options = a.argOrNull(2) as? JSONObject
+            val rawOptions = a.argOrNull(2)
+            val options = when (rawOptions) {
+                null, JSONObject.NULL -> null
+                is JSONObject -> rawOptions
+                else -> throw ApiException(ErrorCodes.BAD_REQUEST, "sendMessage options 必须是对象")
+            }
             val frameId = options?.intOrNull("frameId")
+            if (frameId != null && frameId < 0) {
+                throw ApiException(ErrorCodes.BAD_REQUEST, "frameId 必须是非负整数")
+            }
             if (frameId != null && frameId != 0) {
                 throw ApiException(ErrorCodes.UNSUPPORTED, "WebView 扩展消息目前只支持主框架 frameId 0")
             }
-            messages.sendToTab(ctx, tabId, a.argOrNull(1))
+            // 未指定 frameId 时按 WebExtensions 语义投递到该标签所有匹配 frame；
+            // 当前宿主仅注册主框架 endpoint，因此实际只会命中 frameId=0。
+            messages.sendToTab(ctx, tabId, a.argOrNull(1), frameId)
         }
 
         router.register("tabs.create") { ctx, a ->

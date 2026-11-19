@@ -13,7 +13,7 @@ import java.io.File
 class MessageBrokerTest {
     @get:Rule val tmp = TemporaryFolder()
 
-    private class Ep(
+    private open class Ep(
         override val contextId: String,
         override val extId: String = TestExt.ID,
         override val kind: SenderKind = SenderKind.EXTENSION_PAGE,
@@ -166,6 +166,33 @@ class MessageBrokerTest {
         assertEquals("received", result.await())
     }
 
+    @Test fun tabsSendMessageCanTargetSpecificFrame() = runBlocking {
+        var n = 0
+        val b = MessageBroker(timeoutMs = 5000, newCid = { "frame${++n}" })
+        val main = object : Ep("content:main", kind = SenderKind.CONTENT_SCRIPT, tabId = 7) {
+            override val frameId: Int = 0
+        }
+        val child = object : Ep("content:child", kind = SenderKind.CONTENT_SCRIPT, tabId = 7) {
+            override val frameId: Int = 2
+        }
+        b.register(main); b.register(child)
+        val ext = TestExt.make(File(tmp.root, "tabs-message-frame"))
+        val ctx = CallContext(ext, pageSender("popup"), "tabs.sendMessage")
+        val result = async { b.sendToTab(ctx, 7, "main-only", frameId = 0) }
+        yield()
+        assertEquals(1, main.got.size)
+        assertEquals(0, child.got.size)
+        b.reply(TestExt.ID, main.got.single().first, "ok", false)
+        assertEquals("ok", result.await())
+
+        val all = async { b.sendToTab(ctx, 7, "all-frames") }
+        yield()
+        assertEquals(2, main.got.size)
+        assertEquals(1, child.got.size)
+        b.reply(TestExt.ID, main.got.last().first, "main", false)
+        assertEquals("main", all.await())
+    }
+
     @Test fun tabsSendMessageWithoutContentScriptReturnsNoReceiver() = runBlocking {
         val b = MessageBroker(timeoutMs = 100)
         val ext = TestExt.make(File(tmp.root, "tabs-message-none"))
@@ -182,7 +209,7 @@ class MessageBrokerTest {
         assertEquals(0, b.endpointCount("o@x"))
     }
 
-    @Test fun runtimeConnectCreatesBidirectionalPortAndDisconnectsBothSides() {
+    @Test fun runtimeConnectCreatesBidirectionalPortAndNotifiesOnlyPeerOnDisconnect() {
         val b = MessageBroker(newCid = { "port-1" })
         val content = Ep("content:${TestExt.ID}:7", kind = SenderKind.CONTENT_SCRIPT, tabId = 7)
         val background = Ep("background")
@@ -193,26 +220,71 @@ class MessageBrokerTest {
         val id = b.openPort(ctx, "native-test")
         assertEquals("port-1", id)
         assertEquals(1, background.got.size)
-        assertEquals(0, popup.got.size)
+        assertEquals(1, popup.got.size)
         val connectPayload = background.got.single().second as JSONObject
+        assertEquals("portConnect", (popup.got.single().second as JSONObject).getString("type"))
         assertEquals("portConnect", connectPayload.getString("type"))
         assertEquals("native-test", connectPayload.getString("name"))
 
         b.sendPortMessage(ctx, id, JSONObject("""{"from":"content"}"""))
         val backgroundMessage = background.got.last().second as JSONObject
+        val popupMessage = popup.got.last().second as JSONObject
         assertEquals("portMessage", backgroundMessage.getString("type"))
         assertEquals("content", backgroundMessage.getJSONObject("message").getString("from"))
+        assertEquals("portMessage", popupMessage.getString("type"))
+        assertEquals("content", popupMessage.getJSONObject("message").getString("from"))
 
         val pageCtx = CallContext(ext, pageSender("background"), "runtime.port.postMessage")
         b.sendPortMessage(pageCtx, id, "reply")
         val contentMessage = content.got.last().second as JSONObject
         assertEquals("portMessage", contentMessage.getString("type"))
         assertEquals("reply", contentMessage.getString("message"))
+        // A reply from any receiving context is routed to the original caller.
+        val popupCtx = CallContext(ext, pageSender("popup"), "runtime.port.postMessage")
+        b.sendPortMessage(popupCtx, id, "popup-reply")
+        assertEquals("popup-reply", (content.got.last().second as JSONObject).getString("message"))
 
         b.closePortFromContext(pageCtx, id)
-        assertEquals("portDisconnect", (background.got.last().second as JSONObject).getString("type"))
+        // The caller explicitly disconnected; only its peer receives onDisconnect.
         assertEquals("portDisconnect", (content.got.last().second as JSONObject).getString("type"))
+        assertEquals(0, background.got.count { (it.second as? JSONObject)?.optString("type") == "portDisconnect" })
         assertEquals(ErrorCodes.NO_RECEIVER, code { b.sendPortMessage(ctx, id, "after-close") })
+    }
+
+    @Test fun runtimeConnectFansOutToAllReadyExtensionPagesAndRoutesRepliesToCaller() {
+        val b = MessageBroker(newCid = { "port-fanout" })
+        val content = Ep("content:${TestExt.ID}:7", kind = SenderKind.CONTENT_SCRIPT, tabId = 7)
+        val background = Ep("background")
+        val popup = Ep("popup")
+        val options = Ep("options")
+        b.register(content); b.register(background); b.register(popup); b.register(options)
+        val ext = TestExt.make(File(tmp.root, "port-fanout"))
+        val ctx = CallContext(ext, csSender(), "runtime.connect")
+        val id = b.openPort(ctx, "fanout")
+        assertEquals("port-fanout", id)
+        listOf(background, popup, options).forEach { endpoint ->
+            assertEquals("portConnect", (endpoint.got.single().second as JSONObject).getString("type"))
+        }
+        b.sendPortMessage(ctx, id, "broadcast")
+        listOf(background, popup, options).forEach { endpoint ->
+            assertEquals("broadcast", (endpoint.got.last().second as JSONObject).getString("message"))
+        }
+        val popupCtx = CallContext(ext, pageSender("popup"), "runtime.port.postMessage")
+        b.sendPortMessage(popupCtx, id, "reply")
+        assertEquals("reply", (content.got.last().second as JSONObject).getString("message"))
+    }
+
+    @Test fun contentSideDisconnectNotifiesOnlyTheBackgroundPeer() {
+        val b = MessageBroker(newCid = { "port-3" })
+        val content = Ep("content:${TestExt.ID}:7", kind = SenderKind.CONTENT_SCRIPT, tabId = 7)
+        val background = Ep("background")
+        b.register(content); b.register(background)
+        val ext = TestExt.make(File(tmp.root, "port-disconnect-content"))
+        val contentCtx = CallContext(ext, csSender(), "runtime.port.disconnect")
+        val id = b.openPort(contentCtx, "")
+        b.closePortFromContext(contentCtx, id)
+        assertEquals(0, content.got.count { (it.second as? JSONObject)?.optString("type") == "portDisconnect" })
+        assertEquals("portDisconnect", (background.got.last().second as JSONObject).getString("type"))
     }
 
     @Test fun unregisteringPortEndpointClosesItsConnections() {

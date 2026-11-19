@@ -52,7 +52,16 @@ object ExtensionInjection {
         val rules = linkedSetOf<String>()
         var count = 0
 
-        for (cs in spec.contentScripts + dynamicContentScripts) {
+        // Dynamic registrations are durable configuration, not durable permission grants.
+        // Re-evaluate their host access every time a WebView injection plan is built.
+        val authorizedDynamicScripts = dynamicContentScripts.mapNotNull { script ->
+            val allowedMatches = script.matches.filter { requested ->
+                ext.grantedHostPermissions.any { granted -> granted.covers(requested) }
+            }
+            if (allowedMatches.isEmpty()) null else script.copy(matches = allowedMatches)
+        }
+
+        for (cs in spec.contentScripts + authorizedDynamicScripts) {
             val origin = cs.matches.flatMap { it.toOriginRules() }
             if (origin.isEmpty()) {
                 warnings.add("content script 的 matches 不含 http(s)，已跳过：${cs.matches.joinToString()}")

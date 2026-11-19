@@ -5,6 +5,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * 拓展的一个能接收 runtime.onMessage 的运行上下文：后台页、popup、options 或指定标签里的 content script。
@@ -16,6 +17,8 @@ interface MessageEndpoint {
     val kind: SenderKind
     /** CONTENT_SCRIPT endpoint 对应的浏览器标签；扩展页面为 null。 */
     val tabId: Int? get() = null
+    /** WebExtension frameId；当前 WebView 宿主只注册主框架 0。 */
+    val frameId: Int get() = 0
     /** runtime.connect 目标优先级：后台页最高。 */
     val portPriority: Int get() = 0
 
@@ -48,11 +51,12 @@ class MessageBroker(
         var sealed = false
     }
 
+    /** One caller-side Port can be observed by every live extension page context. */
     private data class PortConnection(
         val id: String,
         val extId: String,
         val leftContext: String,
-        val rightContext: String,
+        val rightContexts: CopyOnWriteArraySet<String>,
         val name: String,
         val sender: JSONObject,
     )
@@ -67,17 +71,23 @@ class MessageBroker(
 
     fun unregister(contextId: String) {
         endpoints.remove(contextId)
-        ports.values.filter { it.leftContext == contextId || it.rightContext == contextId }
-            .forEach { closePort(it.id, notifyBoth = true) }
+        ports.values.filter { it.leftContext == contextId || contextId in it.rightContexts }
+            .forEach { connection ->
+                val survivors = (setOf(connection.leftContext) + connection.rightContexts)
+                    .filterTo(linkedSetOf()) { it != contextId }
+                closePort(connection.id, notifyContexts = survivors)
+            }
     }
 
     /** 拓展停用 / 卸载时：丢掉它的所有上下文 */
     fun unregisterExtension(extId: String) {
-        endpoints.values.filter { it.extId == extId }.forEach { unregister(it.contextId) }
-        ports.values.filter { it.extId == extId }.forEach { closePort(it.id, notifyBoth = false) }
+        // Remove every endpoint first so extension shutdown cannot deliver disconnect events
+        // into another context that is itself being torn down in the same operation.
+        endpoints.values.filter { it.extId == extId }.map { it.contextId }.forEach(endpoints::remove)
+        ports.values.filter { it.extId == extId }.forEach { closePort(it.id, notifyContexts = emptySet()) }
     }
 
-    /** 建立 runtime.connect：当前版本每个 Port 连接一个最佳接收上下文，优先后台页。 */
+    /** 建立 runtime.connect：一个调用端 Port fan-out 到所有已就绪的拓展页面上下文。 */
     fun openPort(ctx: CallContext, name: String): String {
         val extId = ctx.ext.spec.id
         val callerId = ctx.sender.contextId ?: if (ctx.sender.kind == SenderKind.CONTENT_SCRIPT) {
@@ -85,9 +95,11 @@ class MessageBroker(
         } else null
         if (callerId.isNullOrBlank()) throw ApiException(ErrorCodes.UNSUPPORTED, "当前上下文无法建立 Port")
         val caller = endpoints[callerId] ?: throw noReceiver()
-        val target = endpoints.values.asSequence()
+        val targets = endpoints.values.asSequence()
             .filter { it.extId == extId && it.kind == SenderKind.EXTENSION_PAGE && it.contextId != callerId }
-            .maxByOrNull { it.portPriority } ?: throw noReceiver()
+            .sortedByDescending { it.portPriority }
+            .toList()
+        if (targets.isEmpty()) throw noReceiver()
         val id = newCid()
         val sender = JSONObject().put("id", extId)
             .put("url", if (ctx.sender.kind == SenderKind.EXTENSION_PAGE) ctx.sender.origin else ctx.sender.origin)
@@ -95,10 +107,18 @@ class MessageBroker(
             sender.put("frameId", 0)
             ctx.sender.tabId?.let { sender.put("tab", JSONObject().put("id", it)) }
         }
-        val connection = PortConnection(id, extId, caller.contextId, target.contextId, name, sender)
+        val connection = PortConnection(
+            id, extId, caller.contextId, CopyOnWriteArraySet(), name, sender,
+        )
         ports[id] = connection
-        if (!target.deliverPort("portConnect", id, name, sender)) {
-            ports.remove(id)
+        targets.forEach { target ->
+            // Register before delivery so an immediately responding endpoint is already authorized.
+            connection.rightContexts.add(target.contextId)
+            val delivered = runCatching { target.deliverPort("portConnect", id, name, sender) }.getOrDefault(false)
+            if (!delivered) connection.rightContexts.remove(target.contextId)
+        }
+        if (connection.rightContexts.isEmpty()) {
+            ports.remove(id, connection)
             throw noReceiver()
         }
         return id
@@ -109,14 +129,32 @@ class MessageBroker(
         val senderId = ctx.sender.contextId ?: if (ctx.sender.kind == SenderKind.CONTENT_SCRIPT) {
             ctx.sender.tabId?.let { "content:${ctx.ext.spec.id}:$it" }
         } else null
-        if (c.extId != ctx.ext.spec.id || (senderId != c.leftContext && senderId != c.rightContext)) {
+        if (c.extId != ctx.ext.spec.id || (senderId != c.leftContext && senderId !in c.rightContexts)) {
             throw ApiException(ErrorCodes.DENIED_PERMISSION, "无权使用此 Port")
         }
-        val targetId = if (senderId == c.leftContext) c.rightContext else c.leftContext
-        val target = endpoints[targetId] ?: run { closePort(portId, true); throw ApiException(ErrorCodes.NO_RECEIVER, "Port 接收端已关闭") }
-        if (!target.deliverPort("portMessage", portId, c.name, c.sender, message)) {
-            closePort(portId, true)
-            throw ApiException(ErrorCodes.NO_RECEIVER, "Port 接收端已关闭")
+        if (senderId == c.leftContext) {
+            val liveTargets = c.rightContexts.toList()
+            var delivered = 0
+            liveTargets.forEach { targetId ->
+                val target = endpoints[targetId]
+                val ok = target != null && runCatching {
+                    target.deliverPort("portMessage", portId, c.name, c.sender, message)
+                }.getOrDefault(false)
+                if (ok) delivered++ else c.rightContexts.remove(targetId)
+            }
+            if (delivered == 0) {
+                closePort(portId, notifyContexts = emptySet())
+                throw ApiException(ErrorCodes.NO_RECEIVER, "Port 接收端已关闭")
+            }
+        } else {
+            val target = endpoints[c.leftContext]
+            val ok = target != null && runCatching {
+                target.deliverPort("portMessage", portId, c.name, c.sender, message)
+            }.getOrDefault(false)
+            if (!ok) {
+                closePort(portId, notifyContexts = emptySet())
+                throw ApiException(ErrorCodes.NO_RECEIVER, "Port 调用端已关闭")
+            }
         }
     }
 
@@ -125,17 +163,21 @@ class MessageBroker(
         val senderId = ctx.sender.contextId ?: if (ctx.sender.kind == SenderKind.CONTENT_SCRIPT) {
             ctx.sender.tabId?.let { "content:${ctx.ext.spec.id}:$it" }
         } else null
-        if (c.extId != ctx.ext.spec.id || (senderId != c.leftContext && senderId != c.rightContext)) {
+        if (c.extId != ctx.ext.spec.id || (senderId != c.leftContext && senderId !in c.rightContexts)) {
             throw ApiException(ErrorCodes.DENIED_PERMISSION, "无权断开此 Port")
         }
-        closePort(portId, true)
+        val peers = if (senderId == c.leftContext) c.rightContexts.toSet() else {
+            setOf(c.leftContext) + c.rightContexts.filter { it != senderId }
+        }
+        closePort(portId, notifyContexts = peers)
     }
 
-    private fun closePort(portId: String, notifyBoth: Boolean) {
+    /** A locally initiated disconnect notifies peer contexts only; the initiating JS Port closes locally. */
+    private fun closePort(portId: String, notifyContexts: Set<String>) {
         val c = ports.remove(portId) ?: return
-        if (!notifyBoth) return
-        endpoints[c.leftContext]?.deliverPort("portDisconnect", c.id, c.name, c.sender)
-        endpoints[c.rightContext]?.deliverPort("portDisconnect", c.id, c.name, c.sender)
+        for (contextId in notifyContexts) {
+            endpoints[contextId]?.deliverPort("portDisconnect", c.id, c.name, c.sender)
+        }
     }
 
     fun endpointCount(extId: String): Int = endpoints.values.count { it.extId == extId }
@@ -150,10 +192,11 @@ class MessageBroker(
     }
 
     /** tabs.sendMessage：只投递到指定标签里已经注册的 content script，不广播到其它标签。 */
-    suspend fun sendToTab(ctx: CallContext, tabId: Int, message: Any?): Any? {
+    suspend fun sendToTab(ctx: CallContext, tabId: Int, message: Any?, frameId: Int? = null): Any? {
         val extId = ctx.ext.spec.id
         val targets = endpoints.values.filter {
-            it.extId == extId && it.kind == SenderKind.CONTENT_SCRIPT && it.tabId == tabId
+            it.extId == extId && it.kind == SenderKind.CONTENT_SCRIPT && it.tabId == tabId &&
+                (frameId == null || it.frameId == frameId)
         }
         val sender = JSONObject()
             .put("id", extId)

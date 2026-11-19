@@ -1516,6 +1516,7 @@ class BrowserTab(
     fun destroyNow() {
         if (destroyed) return
         destroyed = true
+        if (!isGecko) runCatching { appContext.appContainer.webExtensions.onWebNavigationForgetTab(id) }
         // 这几步任何一步抛异常都不能挡住后面的引擎销毁，否则会话没关，媒体停不下来
         runCatching { cancelFileChooser() }
         runCatching { exitCustomView() }

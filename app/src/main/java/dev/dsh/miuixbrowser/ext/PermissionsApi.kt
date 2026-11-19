@@ -13,7 +13,11 @@ class PermissionsApi(
     private val repo: ExtensionRepository,
     private val events: EventSink,
     private val prompt: ExtensionPermissionPrompt,
+    private val onPermissionsChanged: (String) -> Unit,
 ) {
+    constructor(repo: ExtensionRepository, events: EventSink, prompt: ExtensionPermissionPrompt) :
+        this(repo, events, prompt, {})
+
     fun register(router: ApiRouter) {
         router.register("permissions.getAll") { ctx, _ ->
             val api = PermissionChecker.effectivePermissions(ctx.ext).sorted()
@@ -55,6 +59,7 @@ class PermissionsApi(
                 grantedHostPermissions = (latest.grantedHostPermissions + missingOrigins).distinctBy { it.raw },
             )
             repo.put(updated)
+            onPermissionsChanged(updated.spec.id)
             events.emit(updated.spec.id, "permissions.onAdded", permissionPayload(missingApi, missingOrigins))
             true
         }
@@ -83,6 +88,7 @@ class PermissionsApi(
                 grantedHostPermissions = latest.grantedHostPermissions.filterNot { it.raw in removedOrigins.map(MatchPattern::raw) },
             ))
             if (removedApi.isNotEmpty() || removedOrigins.isNotEmpty()) {
+                onPermissionsChanged(latest.spec.id)
                 events.emit(latest.spec.id, "permissions.onRemoved", permissionPayload(removedApi, removedOrigins))
             }
             removedApi.isNotEmpty() || removedOrigins.isNotEmpty()

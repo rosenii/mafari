@@ -152,6 +152,16 @@ class TabsApiTest {
         assertEquals("world", result)
     }
 
+    @Test fun sendMessageRejectsUnsupportedFrameAndInvalidOptions() {
+        install()
+        val unsupported = call("tabs.sendMessage", tabA, "hello", JSONObject().put("frameId", 2))
+        assertEquals(ErrorCodes.UNSUPPORTED, unsupported.getJSONObject("error").getString("code"))
+        val negative = call("tabs.sendMessage", tabA, "hello", JSONObject().put("frameId", -1))
+        assertEquals(ErrorCodes.BAD_REQUEST, negative.getJSONObject("error").getString("code"))
+        val invalid = call("tabs.sendMessage", tabA, "hello", "not-an-object")
+        assertEquals(ErrorCodes.BAD_REQUEST, invalid.getJSONObject("error").getString("code"))
+    }
+
     @Test fun sendMessageWithoutInjectedContentScriptReturnsNoReceiver() {
         install()
         val result = call("tabs.sendMessage", tabA, "hello")

@@ -122,6 +122,31 @@ class PackageInstaller(
             backup?.renameTo(target)
         }
 
+        // Dynamic content-script registrations are extension state, not package payload.
+        // Preserve them across an update while allowing the new package to replace all code/resources.
+        val dynamicStateName = ".mafari-dynamic-content-scripts.json"
+        val oldDynamicState = backup?.let { File(it, dynamicStateName) }
+        if (oldDynamicState?.isFile == true) {
+            try {
+                oldDynamicState.copyTo(File(p.stagingDir, dynamicStateName), overwrite = true)
+                val oldBackup = File(backup, dynamicStateName + ".bak")
+                if (oldBackup.isFile) oldBackup.copyTo(File(p.stagingDir, dynamicStateName + ".bak"), overwrite = true)
+            } catch (e: Exception) {
+                rollback()
+                throw PackageException("迁移动态脚本注册失败：${e.message}")
+            }
+        } else if (backup != null) {
+            val oldBackup = File(backup, dynamicStateName + ".bak")
+            if (oldBackup.isFile) {
+                try {
+                    oldBackup.copyTo(File(p.stagingDir, dynamicStateName + ".bak"), overwrite = true)
+                } catch (e: Exception) {
+                    rollback()
+                    throw PackageException("迁移动态脚本备份失败：${e.message}")
+                }
+            }
+        }
+
         if (!p.stagingDir.renameTo(target)) {
             try {
                 p.stagingDir.copyRecursively(target, overwrite = true)

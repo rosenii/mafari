@@ -87,7 +87,7 @@ class ScriptingApi(
         if (matches.isEmpty()) throw bad("matches 不能为空")
         // 只能注册到用户已经授予的 host 范围；不接受用动态脚本绕过站点权限。
         val grants = ctx.ext.grantedHostPermissions
-        if (matches.any { requested -> grants.none { it.raw == requested.raw || it.matchesAllUrls } }) {
+        if (matches.any { requested -> grants.none { granted -> granted.covers(requested) } }) {
             throw ApiException(ErrorCodes.DENIED_PERMISSION, "动态脚本 matches 超出已授予的网站权限")
         }
         val js = if (o.has("js")) fileEntries(ctx, o.optJSONArray("js"), "js") else existing?.spec?.js.orEmpty()

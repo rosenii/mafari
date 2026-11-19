@@ -39,6 +39,7 @@ object PermissionChecker {
         "notifications." to setOf("notifications"),
         "cookies." to setOf("cookies"),
         "webNavigation." to setOf("webNavigation"),
+        "webRequest." to setOf("webRequest"),
         "declarativeNetRequest." to setOf("declarativeNetRequest", "declarativeNetRequestWithHostAccess"),
     )
 

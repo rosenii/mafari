@@ -54,15 +54,21 @@ class ExtensionSystem(
      */
     private val tabs = TabsApi(pages, { webViewExtensions() }, broker, activeTab)
     private val webNavigation = WebNavigationApi(pages, { webViewExtensions() }) { tabs.bridgeOrNull() }
+    val contextMenus = ContextMenusApi(pages)
+    val actionApi = ActionApi()
+    private val webRequest = WebRequestApi(pages) { webViewExtensions() }
 
     /** scripting.*：与 tabs 共用同一个标签桥接（[TabsApi.bridgeOrNull]），attach 之前同样回 UNSUPPORTED */
     private val scripting = ScriptingApi(
         { tabs.bridgeOrNull() }, dynamicScripts, { id -> tabHost.refreshDynamicScripts(id) }, activeTab = activeTab,
     )
     @Volatile var permissionPrompt: ExtensionPermissionPrompt? = null
-    private val permissions = PermissionsApi(repo, sinks) { ext, api, origins ->
-        permissionPrompt?.confirm(ext, api, origins) ?: false
-    }
+    private val permissions = PermissionsApi(
+        repo = repo,
+        events = sinks,
+        prompt = { ext, api, origins -> permissionPrompt?.confirm(ext, api, origins) ?: false },
+        onPermissionsChanged = { id -> tabHost.refreshDynamicScripts(id, repo.get(id)) },
+    )
 
     /**
      * 后台页启动流程与闹钟共用一个单线程 Executor：就绪 / 消失 / 唤醒按顺序处理，文件读写与事件投递都不占主线程。
@@ -82,6 +88,9 @@ class ExtensionSystem(
         alarms.register(router)
         tabs.register(router)
         webNavigation.register(router)
+        webRequest.register(router)
+        contextMenus.register(router)
+        actionApi.register(router)
         scripting.register(router)
         permissions.register(router)
         pages.backgroundListener = lifecycle
@@ -114,8 +123,19 @@ class ExtensionSystem(
     }
 
     /** WebViewClient 主框架导航回调；调用方不得传递网页脚本自报的 URL。 */
-    fun onWebNavigationBefore(tabId: Int, url: String) = webNavigation.beforeNavigate(tabId, url)
+    fun onContextMenuClicked(extId: String, itemId: String, info: org.json.JSONObject, tab: org.json.JSONObject? = null) =
+        contextMenus.click(extId, itemId, info, tab)
+
+    fun contextMenuItems(context: String, documentUrl: String, targetUrl: String? = null): List<Pair<InstalledExtension, List<ContextMenusApi.Item>>> =
+        webViewExtensions().mapNotNull { ext -> contextMenus.matching(ext, context, documentUrl, targetUrl).takeIf { it.isNotEmpty() }?.let { ext to it } }
+
+    fun onWebRequestBefore(tabId: Int, request: android.webkit.WebResourceRequest) = webRequest.beforeRequest(tabId, request)
+
+    fun onWebNavigationBefore(tabId: Int, url: String, transitionType: String = "other") = webNavigation.beforeNavigate(tabId, url, transitionType)
+    fun onWebNavigationStarted(tabId: Int, url: String) = webNavigation.ensureBeforeNavigate(tabId, url)
     fun onWebNavigationCommitted(tabId: Int, url: String) = webNavigation.committed(tabId, url)
+    fun onWebNavigationError(tabId: Int, url: String, error: String) = webNavigation.errorOccurred(tabId, url, error)
+    fun onWebNavigationForgetTab(tabId: Int) = webNavigation.forgetTab(tabId)
     fun onWebNavigationCompleted(tabId: Int, url: String) = webNavigation.completed(tabId, url)
     fun onWebNavigationHistoryState(tabId: Int, url: String) = webNavigation.historyStateUpdated(tabId, url)
     fun onWebNavigationFragment(tabId: Int, url: String) = webNavigation.referenceFragmentUpdated(tabId, url)
@@ -191,7 +211,8 @@ class ExtensionSystem(
         lifecycle.cancel(id)
         pages.shutdown(id)
         tabHost.forget(id)
-        dynamicScripts.forget(id)
+        actionApi.states.remove(id)
+        webRequest.forget(id)
         storage.forget(id)
         bgExecutor.execute { alarms.reset(id) } // 与就绪 / 消失事件同一个线程，保证顺序
         if (ext.enabled && EngineKind.WEBVIEW in ext.engines) {
@@ -214,14 +235,18 @@ class ExtensionSystem(
         lifecycle.cancel(extId)
         pages.shutdown(extId)
         tabHost.forget(extId)
-        dynamicScripts.forget(extId)
+        webRequest.forget(extId)
         bgExecutor.execute { alarms.forget(extId) }
     }
 
     /** 卸载（主线程）：先关页面再删仓库，避免页面还在读已删除的文件 */
     fun onUninstalled(extId: String) {
+        val installed = repo.get(extId)
         onDisabled(extId)
+        if (installed != null) dynamicScripts.clearAll(installed) else dynamicScripts.clearSession(extId)
         storage.forget(extId)
+        contextMenus.forget(extId)
+        actionApi.states.remove(extId)
         repo.remove(extId)
     }
 }

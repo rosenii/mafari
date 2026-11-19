@@ -190,7 +190,10 @@ internal fun WebViewExtMenuSheet(
                 ) {
                     all.forEach { item ->
                         val ext = system.repo.get(item.id)
-                        val popup = ext?.spec?.action?.popup?.takeIf { it.isNotBlank() }
+                        val actionState = ext?.let { system.actionApi.state(it) }
+                        val popup = actionState?.popup?.takeIf { it.isNotBlank() }
+                        val actionTitle = actionState?.title?.takeIf { it.isNotBlank() }
+                        val badgeText = actionState?.badgeText.orEmpty()
                         Row(
                             modifier = Modifier.fillMaxWidth().squircleClip(14.dp)
                                 .alpha(if (item.enabled) 1f else 0.45f)
@@ -235,7 +238,7 @@ internal fun WebViewExtMenuSheet(
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    text = item.name,
+                                    text = actionTitle ?: item.name,
                                     fontSize = 16.sp,
                                     color = MiuixTheme.colorScheme.onSurface,
                                     maxLines = 1,
@@ -253,7 +256,12 @@ internal fun WebViewExtMenuSheet(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            Spacer(Modifier.width(8.dp))
+                            if (badgeText.isNotBlank()) {
+                                Box(Modifier.clip(CircleShape).background(runCatching { Color(android.graphics.Color.parseColor(actionState?.badgeColor ?: "#D93025")) }.getOrDefault(Color(0xFFD93025))).padding(horizontal = 7.dp, vertical = 3.dp)) {
+                                    Text(badgeText.take(4), fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(8.dp))
+                            }
                             AppSwitch(
                                 checked = item.enabled,
                                 enabled = !bulkBusy,
