@@ -45,6 +45,9 @@ class HistoryStore(context: Context) {
 
     fun remove(url: String) = write { HistoryDao.delete(it, url) }
 
+    /** 删除指定时间范围内的记录；边界按毫秒时间戳闭区间处理。 */
+    fun removeRange(startTime: Long, endTime: Long) = write { HistoryDao.deleteRange(it, startTime, endTime) }
+
     /** 清除最近 [withinMillis] 毫秒内的记录 */
     fun clearWithin(withinMillis: Long) {
         val cutoff = System.currentTimeMillis() - withinMillis

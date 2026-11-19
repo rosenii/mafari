@@ -4,8 +4,6 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
-import dev.dsh.miuixbrowser.data.rememberSearchIcon
-import dev.dsh.miuixbrowser.engine.gecko.AmoAddon
 import androidx.compose.ui.graphics.ImageBitmap
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -147,11 +145,7 @@ fun ExtensionsManagerScreen(
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
 
-    var searchOpen by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<AmoAddon>?>(null) }
-    var searching by remember { mutableStateOf(false) }
-    var searchError by remember { mutableStateOf<String?>(null) }
+    val storeSearch = rememberExtStoreSearch()
     var installingIds by remember { mutableStateOf(setOf<String>()) }
     var showMore by remember { mutableStateOf(false) }
     var moreAnchor by remember { mutableStateOf(Rect.Zero) }
@@ -164,7 +158,6 @@ fun ExtensionsManagerScreen(
     var menuAnchor by remember { mutableStateOf(Rect.Zero) }
     var pageRequest by remember { mutableStateOf<ExtPageRequest?>(null) }
     val detail = detailId?.let { id -> backend.items.firstOrNull { it.id == id } }
-    val focus = remember { FocusRequester() }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
@@ -185,9 +178,6 @@ fun ExtensionsManagerScreen(
         onDispose { }
     }
     LaunchedEffect(Unit) { runCatching { backend.refresh(context) }.onFailure { toast(tr("读取拓展失败：{0}", it.message)) } }
-    LaunchedEffect(searchOpen) {
-        if (searchOpen) runCatching { focus.requestFocus() }
-    }
 
     fun installFrom(key: String, uri: String, label: String) {
         if (key in installingIds) {
@@ -206,22 +196,6 @@ fun ExtensionsManagerScreen(
                 // 无论成功 / 取消 / 失败 / 协程被取消，都要把「安装中」状态放掉
                 installingIds = installingIds - key
             }
-        }
-    }
-
-    fun runSearch() {
-        val q = query.trim()
-        if (q.isEmpty() || searching) return
-        searching = true
-        searchError = null
-        scope.launch {
-            backend.searchStore(q)
-                .onSuccess { results = it }
-                .onFailure {
-                    results = emptyList()
-                    searchError = it.message
-                }
-            searching = false
         }
     }
 
@@ -269,14 +243,7 @@ fun ExtensionsManagerScreen(
                         },
                         actions = {
                             if (backend.supportsStore) LiquidGlassButton(
-                                onClick = {
-                                    searchOpen = !searchOpen
-                                    if (!searchOpen) {
-                                        query = ""
-                                        results = null
-                                        searchError = null
-                                    }
-                                },
+                                onClick = { storeSearch.toggle() },
                                 backdrop = liquid,
                                 surfaceVisible = topScrolled,
                                 modifier = Modifier.padding(end = 8.dp),
@@ -285,7 +252,7 @@ fun ExtensionsManagerScreen(
                                     imageVector = MiuixIcons.Glass.Search,
                                     contentDescription = tr("搜索"),
                                     modifier = Modifier.size(22.dp),
-                                    tint = if (searchOpen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                                    tint = if (storeSearch.open) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
                                 )
                             }
                             LiquidGlassButton(
@@ -306,24 +273,7 @@ fun ExtensionsManagerScreen(
                         },
                         bottomContent = {
                             // 搜索框：在顶栏下方展开 / 收起
-                            AnimatedVisibility(
-                                visible = searchOpen,
-                                enter = expandVertically() + fadeIn(),
-                                exit = shrinkVertically() + fadeOut(),
-                            ) {
-                                TextField(
-                                    value = query,
-                                    onValueChange = { query = it },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                        .focusRequester(focus),
-                                    label = tr("在 Firefox 拓展商店搜索"),
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                    keyboardActions = KeyboardActions(onSearch = { runSearch() }),
-                                )
-                            }
+                            ExtStoreSearchBox(state = storeSearch, onSearch = { scope.launch { storeSearch.search(backend) } })
                         },
                     )
                 },
@@ -337,7 +287,6 @@ fun ExtensionsManagerScreen(
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
                         .background(MiuixTheme.colorScheme.surface),
                 ) {
-                    val found = results
                     LazyColumn(
                         contentPadding = PaddingValues(
                             top = innerPadding.calculateTopPadding() + 8.dp,
@@ -345,27 +294,12 @@ fun ExtensionsManagerScreen(
                         ),
                     ) {
                         // ---- 商店搜索结果（页面最上方）
-                        if (backend.supportsStore && searchOpen && (searching || found != null)) {
-                            item { SmallTitle(text = tr("商店搜索结果")) }
-                            when {
-                                searching -> item { HintText(tr("正在搜索…")) }
-                                searchError != null -> item { HintText(searchError ?: "") }
-                                found.isNullOrEmpty() -> item { HintText(tr("没有找到「{0}」相关的拓展", query.trim())) }
-                                else -> items(found, key = { it.id }) { addon ->
-                                    // 已装拓展的 id 是 GUID，与 AMO 返回的 guid 对应（GUID 大小写不敏感）；没有 guid 时才退回按名称比
-                                    val installed = backend.items.any {
-                                        if (addon.guid.isNotEmpty()) it.id.equals(addon.guid, ignoreCase = true)
-                                        else it.id == addon.slug || it.name == addon.name
-                                    }
-                                    AddonCard(
-                                        addon = addon,
-                                        installed = installed,
-                                        installing = "amo:${addon.id}" in installingIds,
-                                        onAdd = { installFrom("amo:${addon.id}", addon.xpiUrl, addon.name) },
-                                    )
-                                }
-                            }
-                        }
+                        if (backend.supportsStore) extStoreResults(
+                            state = storeSearch,
+                            installedItems = { backend.items },
+                            isInstalling = { "amo:${it.id}" in installingIds },
+                            onAdd = { installFrom("amo:${it.id}", it.xpiUrl, it.name) },
+                        )
 
                         // ---- 自动更新
                         if (backend.supportsAutoUpdate) item {
@@ -658,63 +592,6 @@ private fun ExtImportDialog(
 }
 
 @Composable
-private fun AddonCard(addon: AmoAddon, installed: Boolean, installing: Boolean, onAdd: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp),
-        insideMargin = PaddingValues(14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AddonIcon(url = addon.iconUrl, bitmap = null, fromStore = true)
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = addon.name,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = buildString {
-                        append(addon.version)
-                        if (addon.users > 0) append(" · ").append(formatUsers(addon.users)).append(tr(" 用户"))
-                        if (addon.rating > 0) append(" · ★ ").append(String.format(java.util.Locale.US, "%.1f", addon.rating))
-                    },
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (addon.summary.isNotBlank()) {
-                    Text(
-                        text = addon.summary,
-                        fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.width(8.dp))
-            AppTextButton(
-                text = when {
-                    installed -> tr("已添加")
-                    installing -> tr("安装中")
-                    else -> tr("添加")
-                },
-                onClick = onAdd,
-                enabled = !installed && !installing,
-                primary = !installed,
-                minWidth = 64.dp,
-                inPage = true, // 位于采样层内部，必须用实色底，否则液态玻璃下递归采样闪退
-            )
-        }
-    }
-}
-
-@Composable
 private fun InstalledCard(
     item: ExtEntry,
     icon: ImageBitmap?,
@@ -782,28 +659,6 @@ private fun InstalledCard(
             }
         }
     }
-}
-
-/** 拓展图标：商店结果按 url 加载；已安装的取后端给的位图；都没有时画占位色块 */
-@Composable
-private fun AddonIcon(url: String, bitmap: ImageBitmap?, fromStore: Boolean) {
-    val bmp = if (fromStore) rememberSearchIcon(url) else bitmap
-    if (bmp != null) {
-        Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(40.dp).squircleClip(10.dp))
-    } else {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .squircleClip(10.dp)
-                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)),
-        )
-    }
-}
-
-private fun formatUsers(n: Long): String = when {
-    n >= 100_000_000 -> String.format(java.util.Locale.US, tr("%.1f 亿"), n / 1e8)
-    n >= 10_000 -> String.format(java.util.Locale.US, tr("%.1f 万"), n / 1e4)
-    else -> n.toString()
 }
 
 private fun formatTime(ms: Long): String =

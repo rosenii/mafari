@@ -4,7 +4,8 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.State
 import androidx.compose.ui.graphics.ImageBitmap
-import dev.dsh.miuixbrowser.engine.gecko.AmoAddon
+import dev.dsh.miuixbrowser.net.AmoAddon
+import dev.dsh.miuixbrowser.net.AmoClient
 import dev.dsh.miuixbrowser.engine.gecko.GeckoExtItem
 import dev.dsh.miuixbrowser.engine.gecko.GeckoExtensionStore
 import dev.dsh.miuixbrowser.i18n.tr
@@ -60,9 +61,9 @@ class GeckoExtBackend : ExtManagerBackend {
 
     override suspend fun updateAll(context: Context): Pair<Int, Int> = store.updateAll(context)
 
-    override suspend fun searchStore(query: String): Result<List<AmoAddon>> = store.searchAmo(query)
+    override suspend fun searchStore(query: String): Result<List<AmoAddon>> = AmoClient.search(query)
 
-    override suspend fun resolveStorePage(url: String): Result<AmoAddon?> = store.resolveAmoPage(url)
+    override suspend fun resolveStorePage(url: String): Result<AmoAddon?> = AmoClient.resolvePage(url)
 
     override val autoUpdate: State<Int> get() = store.autoUpdate
     override val lastCheck: State<Long> get() = store.lastCheck

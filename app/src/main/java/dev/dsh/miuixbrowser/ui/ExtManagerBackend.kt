@@ -7,7 +7,7 @@ import android.net.Uri
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.ImageBitmap
-import dev.dsh.miuixbrowser.engine.gecko.AmoAddon
+import dev.dsh.miuixbrowser.net.AmoAddon
 
 /** 拓展管理页里一行拓展的展示数据（与内核无关）。[permissions] 已经是给用户看的文字。 */
 class ExtEntry(

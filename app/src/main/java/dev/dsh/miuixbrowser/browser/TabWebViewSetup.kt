@@ -244,8 +244,10 @@ internal fun BrowserTab.setupWebView() {
 
         override fun onPageFinished(view: WebView, pageUrl: String?) {
             WebViewDebug.logPage("finish", pageUrl)
-            if (!incognito && !pageUrl.isNullOrBlank()) appContext.appContainer.webExtensions
-                .onWebNavigationCompleted(id, pageUrl)
+            if (!incognito && !pageUrl.isNullOrBlank()) {
+                appContext.appContainer.webExtensions.onWebNavigationCompleted(id, pageUrl)
+                appContext.appContainer.webExtensions.onWebRequestMainFrameCompleted(id, pageUrl)
+            }
             if (!pageUrl.isNullOrBlank()) lastVisitedHistoryUrl = pageUrl
             if (!parked) pageUrl?.let { url = it }
             loading = false
@@ -326,6 +328,7 @@ internal fun BrowserTab.setupWebView() {
             handler.cancel()
             if (!incognito && (ErrorPages.sameUrl(errUrl, url) || ErrorPages.sameUrl(errUrl, view.url))) {
                 appContext.appContainer.webExtensions.onWebNavigationError(id, errUrl, "net::ERR_CERT_INVALID (${error.primaryError})")
+                appContext.appContainer.webExtensions.onWebRequestMainFrameFailed(id, errUrl, "net::ERR_CERT_INVALID (${error.primaryError})")
             }
             Diag.log("webview ssl error primary=${error.primaryError} url=$errUrl page=$url")
             // 主框架：直接在这里渲染引导页。取消之后系统不一定还会回调 onReceivedError，
@@ -343,9 +346,11 @@ internal fun BrowserTab.setupWebView() {
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (request.isForMainFrame) {
                 val failing = request.url.toString()
-                if (!incognito) appContext.appContainer.webExtensions.onWebNavigationError(
-                    id, failing, "${error.errorCode}: ${error.description ?: "net::ERR_FAILED"}",
-                )
+                if (!incognito) {
+                    val message = "${error.errorCode}: ${error.description ?: "net::ERR_FAILED"}"
+                    appContext.appContainer.webExtensions.onWebNavigationError(id, failing, message)
+                    appContext.appContainer.webExtensions.onWebRequestMainFrameFailed(id, failing, message)
+                }
                 val shownBySsl = ErrorPages.sameUrl(failing, sslPageShownFor) &&
                     android.os.SystemClock.uptimeMillis() - sslPageShownAt < 5_000
                 if (!shownBySsl) {

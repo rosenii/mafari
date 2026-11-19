@@ -33,6 +33,7 @@ class ExtensionSystem(
     val installer = PackageInstaller(repo, File(baseDir, "work"))
 
     private val router = ApiRouter()
+    private val historyStore by lazy { HistoryStore(context.applicationContext) }
     val broker = MessageBroker()
     private val dynamicScripts = DynamicContentScriptStore()
     private val sinks = CompositeEventSink()
@@ -96,6 +97,7 @@ class ExtensionSystem(
         ClipboardApi(context.applicationContext).register(router)
         NotificationsApi(context.applicationContext, pages).register(router)
         BookmarksApi(context.applicationContext, pages).register(router)
+        HistoryApi(historyStore).register(router)
         DownloadsApi(context.applicationContext, pages).register(router)
         CookiesApi().register(router)
         pages.backgroundListener = lifecycle
@@ -135,6 +137,8 @@ class ExtensionSystem(
         webViewExtensions().mapNotNull { ext -> contextMenus.matching(ext, context, documentUrl, targetUrl).takeIf { it.isNotEmpty() }?.let { ext to it } }
 
     fun onWebRequestBefore(tabId: Int, request: android.webkit.WebResourceRequest) = webRequest.beforeRequest(tabId, request)
+    fun onWebRequestMainFrameCompleted(tabId: Int, url: String) = webRequest.mainFrameCompleted(tabId, url)
+    fun onWebRequestMainFrameFailed(tabId: Int, url: String, error: String) = webRequest.mainFrameFailed(tabId, url, error)
 
     fun onWebNavigationBefore(tabId: Int, url: String, transitionType: String = "other") = webNavigation.beforeNavigate(tabId, url, transitionType)
     fun onWebNavigationStarted(tabId: Int, url: String) = webNavigation.ensureBeforeNavigate(tabId, url)

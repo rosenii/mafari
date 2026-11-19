@@ -86,7 +86,9 @@ function (CFG, ENTRIES) {
     'bookmarks.onRemoved': function (p) { return [['bookmarks.onRemoved', [p.id, p.removeInfo]]]; },
     'downloads.onCreated': function (p) { return [['downloads.onCreated', [p]]]; },
     'downloads.onErased': function (p) { return [['downloads.onErased', [p.id]]]; },
-    'webRequest.onBeforeRequest': function (p) { return [['webRequest.onBeforeRequest', [p]]]; }
+    'webRequest.onBeforeRequest': function (p) { return [['webRequest.onBeforeRequest', [p]]]; },
+    'webRequest.onCompleted': function (p) { return [['webRequest.onCompleted', [p]]]; },
+    'webRequest.onErrorOccurred': function (p) { return [['webRequest.onErrorOccurred', [p]]]; }
   };
   function deliverEvent(name, args) {
     if ((L[name] || []).length) { fire(name, args); return; }
@@ -100,8 +102,8 @@ function (CFG, ENTRIES) {
     var list;
     try { list = table(payload || {}); } catch (e) { return; }
     list.forEach(function (t) {
-      if (t[0] === 'webRequest.onBeforeRequest' && webRequest && webRequest.onBeforeRequest) {
-        webRequestListeners.slice().forEach(function (x) { if ((t[1][0].listenerTokens || []).indexOf(x.token) < 0) return; try { x.fn.apply(null, [t[1][0]]); } catch (e) { cerr(e); } });
+      if (t[0].indexOf('webRequest.') === 0 && webRequest && webRequest[t[0].slice(11)]) {
+        webRequestListeners[t[0].slice(11)].slice().forEach(function (x) { if ((t[1][0].listenerTokens || []).indexOf(x.token) < 0) return; try { x.fn.apply(null, [t[1][0]]); } catch (e) { cerr(e); } });
       } else deliverEvent(t[0], t[1]);
     });
   }
@@ -477,28 +479,34 @@ function (CFG, ENTRIES) {
 
   var webRequest = null, webRequestSequence = 1;
   if (CFG.page && declares('webRequest')) {
-    var webRequestListeners = [];
-    var onBeforeRequest = {
-      addListener: function (fn, filter, extraInfoSpec) {
-        if (typeof fn !== 'function') return;
-        var token = 'wr-' + (webRequestSequence++);
-        var entry = { fn: fn, token: token, filter: filter || {}, extra: extraInfoSpec || [] };
-        webRequestListeners.push(entry);
-        rpc('webRequest.addListener', ['onBeforeRequest', token, entry.filter, entry.extra]).catch(function (e) {
-          var i = webRequestListeners.indexOf(entry); if (i >= 0) webRequestListeners.splice(i, 1); cerr(e);
-        });
-      },
-      removeListener: function (fn) {
-        for (var i = webRequestListeners.length - 1; i >= 0; i--) {
-          if (webRequestListeners[i].fn === fn) {
-            var entry = webRequestListeners.splice(i, 1)[0];
-            rpc('webRequest.removeListener', [entry.token]).catch(function () {});
+    var webRequestListeners = { onBeforeRequest: [], onCompleted: [], onErrorOccurred: [] };
+    function makeWebRequestEvent(eventName) {
+      return {
+        addListener: function (fn, filter, extraInfoSpec) {
+          if (typeof fn !== 'function') return;
+          var token = 'wr-' + (webRequestSequence++);
+          var entry = { fn: fn, token: token, filter: filter || {}, extra: extraInfoSpec || [] };
+          webRequestListeners[eventName].push(entry);
+          rpc('webRequest.addListener', [eventName, token, entry.filter, entry.extra]).catch(function (e) {
+            var i = webRequestListeners[eventName].indexOf(entry); if (i >= 0) webRequestListeners[eventName].splice(i, 1); cerr(e);
+          });
+        },
+        removeListener: function (fn) {
+          for (var i = webRequestListeners[eventName].length - 1; i >= 0; i--) {
+            if (webRequestListeners[eventName][i].fn === fn) {
+              var entry = webRequestListeners[eventName].splice(i, 1)[0];
+              rpc('webRequest.removeListener', [entry.token]).catch(function () {});
+            }
           }
-        }
-      },
-      hasListener: function (fn) { return webRequestListeners.some(function (x) { return x.fn === fn; }); }
+        },
+        hasListener: function (fn) { return webRequestListeners[eventName].some(function (x) { return x.fn === fn; }); }
+      };
+    }
+    webRequest = {
+      onBeforeRequest: makeWebRequestEvent('onBeforeRequest'),
+      onCompleted: makeWebRequestEvent('onCompleted'),
+      onErrorOccurred: makeWebRequestEvent('onErrorOccurred')
     };
-    webRequest = { onBeforeRequest: onBeforeRequest };
   }
 
   var webNavigation = null;
@@ -568,6 +576,16 @@ function (CFG, ENTRIES) {
   }
 
   // Cookies: WebView only exposes URL-scoped CookieManager operations; no global enumeration or change events.
+  var history = null;
+  if (CFG.page && declares('history')) {
+    history = {
+      search: promised(function (details) { return rpc('history.search', [details || {}]); }),
+      deleteUrl: promised(function (details) { return rpc('history.deleteUrl', [details || {}]); }),
+      deleteRange: promised(function (details) { return rpc('history.deleteRange', [details || {}]); }),
+      deleteAll: promised(function () { return rpc('history.deleteAll', []); })
+    };
+  }
+
   var cookies = null;
   if (CFG.page && declares('cookies')) {
     cookies = {
@@ -589,6 +607,7 @@ function (CFG, ENTRIES) {
   if (bookmarks) browser.bookmarks = bookmarks;
   if (downloads) browser.downloads = downloads;
   if (cookies) browser.cookies = cookies;
+  if (history) browser.history = history;
   if (clipboard) browser.clipboard = clipboard;
   if (notifications) browser.notifications = notifications;
   if (alarms) browser.alarms = alarms;
@@ -615,13 +634,14 @@ function (CFG, ENTRIES) {
   if (bookmarks) chrome.bookmarks = cbObj(bookmarks);
   if (downloads) chrome.downloads = cbObj(downloads);
   if (cookies) chrome.cookies = cbObj(cookies);
+  if (history) chrome.history = cbObj(history);
   if (clipboard) chrome.clipboard = cbObj(clipboard);
   if (notifications) chrome.notifications = cbObj(notifications);
   if (alarms) chrome.alarms = cbObj(alarms);
   if (tabs) chrome.tabs = cbObj(tabs);
   if (scripting) chrome.scripting = cbObj(scripting);
   if (webNavigation) chrome.webNavigation = cbObj(webNavigation);
-  if (webRequest) chrome.webRequest = { onBeforeRequest: webRequest.onBeforeRequest };
+  if (webRequest) chrome.webRequest = cbObj(webRequest);
   if (action) chrome.action = cbObj(action);
   if (browserAction) chrome.browserAction = cbObj(browserAction);
   if (contextMenus) { chrome.contextMenus = cbObj(contextMenus); chrome.contextMenus.create = contextMenus.create; chrome.menus = chrome.contextMenus; }

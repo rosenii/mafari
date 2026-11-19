@@ -19,7 +19,7 @@ import dev.dsh.miuixbrowser.ext.PackageUnpacker
 import dev.dsh.miuixbrowser.ext.PreparedPackage
 import dev.dsh.miuixbrowser.ext.SupportLevel
 import dev.dsh.miuixbrowser.i18n.tr
-import dev.dsh.miuixbrowser.engine.gecko.AmoAddon
+import dev.dsh.miuixbrowser.net.AmoAddon
 import dev.dsh.miuixbrowser.net.AmoClient
 import dev.dsh.miuixbrowser.net.HttpFetcher
 import kotlinx.coroutines.Dispatchers

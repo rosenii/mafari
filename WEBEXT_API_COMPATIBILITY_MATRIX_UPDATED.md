@@ -57,7 +57,7 @@
 | `extension` | NONE | 未实现 legacy `extension.*` 命名空间；部分通用能力由 `runtime` 提供 | P3 |
 | `extensionTypes` | N/A | 公共类型定义，不是独立运行时服务 | — |
 | `find` | NONE | 无扩展页面查找与高亮 API | P3 |
-| `history` | NONE | 无扩展历史查询/修改 API | P2 |
+| `history` | PARTIAL | 新增 search/deleteUrl/deleteRange/deleteAll；历史库按 URL 聚合，缺少 getVisits 与逐次访问统计 | P2 |
 | `i18n` | FULL* | `I18nMessages` 提供消息表和 manifest 本地化；需补齐 Firefox 全部 locale/复数/占位符边界测试 | P2 |
 | `identity` | NONE | 无 OAuth 身份授权 API | P4 |
 | `idle` | NONE | 无系统空闲/锁屏状态 API | P4 |
@@ -304,3 +304,15 @@
 - 不支持 `getAll`、`getAllCookieStores`、`getPartitionKey`、`onChanged`，也无法列举所有站点 Cookie；remove 需要调用方提供正确的 URL、domain、path，不能保证清除同名的其他路径 Cookie。标记 PARTIAL。
 
 验证：新增 shim namespace / RPC 测试；Android Kotlin 编译及真机 Cookie 行为仍需构建环境验证。
+
+
+## 15. 2026-11-20 History API 增量
+
+- 新增原生 `HistoryApi`，接入 Mafari SQLCipher 浏览历史库：`history.search`、`deleteUrl`、`deleteRange`、`deleteAll`。
+- `search` 支持 text、startTime、endTime、maxResults；时间范围边界按毫秒时间戳闭区间过滤，并限制最大返回量。
+- `deleteRange` 通过参数化 SQL 删除时间区间，`deleteUrl` 删除指定 URL，`deleteAll` 清空历史。
+- JS shim 新增 `browser.history` Promise API 与 `chrome.history` callback 兼容入口；仅拓展页面暴露。
+- `PermissionChecker` 增加 `history` 权限校验；`ApiSupport` 登记为 PARTIAL。
+- 保持 PARTIAL：当前 Mafari 历史表按 URL 聚合，不保存每次访问记录，不能准确提供 Firefox/Chrome 的 `getVisits`、真实 `visitCount` 与 `onVisited` 语义；搜索结果不返回伪造的访问次数；本轮不伪造这些数据。
+
+验证：`node tools/ext-shim-test/run.js` 与 `node tools/webext-test/run.js` 通过。Android Kotlin 编译 / 真机测试仍需 Gradle 环境验证。

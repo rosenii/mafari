@@ -124,6 +124,7 @@ class ExtensionPageHost(
         if (!isSupported()) return null
         val id = ext.spec.id
         val plan = ExtensionInjection.buildPage(ext, shim())
+        plan.warnings.forEach { warning -> log("ext $id injection warning: $warning") }
         val webView = WebView(appContext)
         val page = ExtensionPage(UUID.randomUUID().toString(), id, pageKind, webView)
         try {
@@ -163,9 +164,21 @@ class ExtensionPageHost(
                     return true
                 }
 
+                override fun onPageCommitVisible(view: WebView, url: String?) {
+                    if (url != null && url.startsWith("$origin/")) {
+                        log("ext $id ${pageKind.name.lowercase()} commit-visible url=$url viewport=${view.width}x${view.height}")
+                    }
+                }
+
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (url != null && url.startsWith("$origin/")) {
                         page.finished = true
+                        log("ext $id ${pageKind.name.lowercase()} page-finished url=$url viewport=${view.width}x${view.height}")
+                        // 记录 DOM 与 Resource Timing 摘要，帮助区分资源加载失败和拓展自身初始化卡住。
+                        // 不读取页面正文，不改变页面状态。
+                        view.evaluateJavascript("(function(){try{var e=performance.getEntriesByType('resource')||[];var bad=e.filter(function(x){return x.responseStatus>=400});return JSON.stringify({state:document.readyState,body:!!document.body,bodyChildren:document.body?document.body.children.length:0,resources:e.length,failed:bad.slice(0,20).map(function(x){return {name:x.name,status:x.responseStatus||0}})});}catch(x){return JSON.stringify({probeError:String(x)})}})()") { result ->
+                            log("ext $id ${pageKind.name.lowercase()} dom-probe=${result?.take(1800) ?: "null"}")
+                        }
                         maybeNotifyReady(page)
                     }
                 }
@@ -173,6 +186,12 @@ class ExtensionPageHost(
             webView.webChromeClient = object : WebChromeClient() {
                 override fun onCloseWindow(window: WebView?) {
                     page.onCloseRequested?.invoke()
+                }
+
+                override fun onProgressChanged(view: WebView, newProgress: Int) {
+                    if (newProgress == 100) {
+                        log("ext $id ${page.pageKind.name.lowercase()} progress=100 url=${view.url}")
+                    }
                 }
 
                 // 拓展页面的 console 输出对调试拓展至关重要；截断避免刷屏
@@ -200,20 +219,32 @@ class ExtensionPageHost(
             // popup / options 是给人看的：必须等 WebView 挂上窗口再开始加载。
             // 还没挂窗口就加载，页面起步时视口是 0×0 且不可见，requestAnimationFrame 不会触发；
             // 而拓展（如 uBO）的 popup 要等若干帧之后才把 body 的 loading（opacity:0）去掉，结果就是一块空白。
-            val start = Runnable {
-                if (pages[page.contextId] !== page) return@Runnable
+            // 仅 attached 不够：Compose/BottomSheet 可能先 attach、后完成测量布局。
+            // uBO 等 popup 会在若干 requestAnimationFrame 后解除 loading/opacity 隐藏；
+            // 若首帧时 viewport 仍为 0×0，页面可能一直停留在白屏状态。
+            var started = false
+            var layoutListener: View.OnLayoutChangeListener? = null
+            fun startWhenVisibleAndLaidOut() {
+                if (started || pages[page.contextId] !== page || !webView.isAttachedToWindow) return
+                if (webView.width <= 0 || webView.height <= 0) return
+                started = true
+                layoutListener?.let(webView::removeOnLayoutChangeListener)
                 webView.onResume()
                 webView.resumeTimers()
-                log("ext $id ${pageKind.name.lowercase()} load $url")
+                log("ext $id ${pageKind.name.lowercase()} load $url viewport=${webView.width}x${webView.height}")
                 webView.loadUrl(url)
             }
+            val listener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                startWhenVisibleAndLaidOut()
+            }
+            layoutListener = listener
+            webView.addOnLayoutChangeListener(listener)
             if (webView.isAttachedToWindow) {
-                start.run()
+                startWhenVisibleAndLaidOut()
             } else {
                 webView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                     override fun onViewAttachedToWindow(v: View) {
-                        v.removeOnAttachStateChangeListener(this)
-                        start.run()
+                        startWhenVisibleAndLaidOut()
                     }
 
                     override fun onViewDetachedFromWindow(v: View) {}
@@ -293,14 +324,39 @@ class ExtensionPageHost(
         }
     }
 
-    private class PathHandler(private val repo: ExtensionRepository, private val id: String) : WebViewAssetLoader.PathHandler {
+    private fun errorResponse(status: Int, reason: String, message: String): WebResourceResponse =
+        WebResourceResponse(
+            "text/plain", "utf-8", status, reason,
+            mapOf("Cache-Control" to "no-store", "X-Content-Type-Options" to "nosniff"),
+            ByteArrayInputStream(message.toByteArray(Charsets.UTF_8)),
+        )
+
+    private inner class PathHandler(private val repo: ExtensionRepository, private val id: String) : WebViewAssetLoader.PathHandler {
         override fun handle(path: String): WebResourceResponse? {
-            // 每次请求都重新取：拓展停用 / 更新后立刻生效
-            val ext = repo.get(id)?.takeIf { it.enabled } ?: return null
-            val res = ExtensionPages.open(ext, path) ?: return null
-            val stream = res.file?.inputStream() ?: ByteArrayInputStream(res.bytes ?: return null)
-            val textual = res.mime.startsWith("text/") || res.mime == "application/json" || res.mime == "application/xml"
-            return WebResourceResponse(res.mime, if (textual) "utf-8" else null, stream)
+            // 每次请求都重新取：拓展停用 / 更新后立刻生效。拓展 origin 下的未知资源必须明确 404，
+            // 不能返回 null 让 WebView 再把虚拟域名当普通网络主机尝试请求。
+            val ext = repo.get(id)?.takeIf { it.enabled }
+            if (ext == null) {
+                log("ext $id resource gone (disabled or uninstalled): /$path")
+                return errorResponse(410, "Gone", "Extension is disabled or unavailable")
+            }
+            val res = ExtensionPages.open(ext, path)
+            if (res == null) {
+                log("ext $id resource MISS 404: /$path")
+                return errorResponse(404, "Not Found", "Extension resource not found")
+            }
+            val stream = res.file?.inputStream() ?: ByteArrayInputStream(res.bytes ?: ByteArray(0))
+            val textual = res.mime.startsWith("text/") || res.mime == "application/json" || res.mime == "application/xml" || res.mime.endsWith("+xml")
+            val length = res.file?.length() ?: (res.bytes?.size?.toLong() ?: 0L)
+            log("ext $id resource HIT 200: /$path mime=${res.mime} bytes=$length")
+            return WebResourceResponse(
+                res.mime,
+                if (textual || res.mime == "application/javascript") "utf-8" else null,
+                200,
+                "OK",
+                mapOf("Cache-Control" to "no-store"),
+                stream,
+            )
         }
     }
 
@@ -320,6 +376,7 @@ class ExtensionPageHost(
         if (isMainFrame) {
             page.reply = reply
             if (!page.registered) {
+                log("ext ${page.extId} ${page.pageKind.name.lowercase()} bridge-ready origin=$origin")
                 page.registered = true
                 broker.register(page)
             }
@@ -337,7 +394,18 @@ class ExtensionPageHost(
             return
         }
         val sender = Sender(SenderKind.EXTENSION_PAGE, origin, isMainFrame, null, page.contextId)
-        scope.launch { post(reply, runtime.handle(text, sender)) }
+        log("ext ${page.extId} ${page.pageKind.name.lowercase()} api-> ${req.api} id=${req.id}")
+        scope.launch {
+            val response = runtime.handle(text, sender)
+            val result = runCatching { JSONObject(response) }.getOrNull()
+            val error = result?.optJSONObject("error")
+            if (error != null) {
+                log("ext ${page.extId} ${page.pageKind.name.lowercase()} api<- ${req.api} error=${error.optString("code")}")
+            } else {
+                log("ext ${page.extId} ${page.pageKind.name.lowercase()} api<- ${req.api} ok=${result?.optBoolean("ok", false) == true}")
+            }
+            post(reply, response)
+        }
     }
 
     private fun post(reply: JavaScriptReplyProxy, text: String) {

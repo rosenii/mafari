@@ -84,23 +84,8 @@ data class GeckoPopup(
     val session: org.mozilla.geckoview.GeckoSession,
 )
 
-/** Firefox 拓展商店（AMO）搜索结果 */
-data class AmoAddon(
-    val id: Long,
-    val slug: String,
-    /** 拓展的 GUID（如 firefox@tampermonkey.net），与已安装拓展的 id 对应；判断「是否已添加」靠它 */
-    val guid: String,
-    val name: String,
-    val summary: String,
-    val iconUrl: String,
-    val xpiUrl: String,
-    val version: String,
-    val users: Long,
-    val rating: Double,
-)
-
 /**
- * Gecko WebExtension 的应用层封装：列表 / 安装 / 更新 + AMO 搜索。
+ * Gecko WebExtension 的应用层封装：列表 / 安装 / 更新 + 搜索 / 解析见 net/AmoClient。
  *
  * GeckoView 的 `WebExtensionController` 在不同 nightly 之间签名有过调整（install 的参数、提示委托的拆分），
  * 所以安装与提示委托这两处按名字反射 / 动态代理，缺方法时报错而不是编译失败。
@@ -1195,29 +1180,5 @@ object GeckoExtensionStore {
         }
         return result
     }
-
-    // ------------------------------------------------------------------ AMO（addons.mozilla.org）：实现见 net/AmoClient
-
-    suspend fun searchAmo(query: String): Result<List<AmoAddon>> = dev.dsh.miuixbrowser.net.AmoClient.search(query)
-
-    /** 把 addons.mozilla.org 的商店页面链接解析成拓展信息（取 xpi 下载地址）；不是商店页面返回 null */
-    suspend fun resolveAmoPage(url: String): Result<AmoAddon?> = dev.dsh.miuixbrowser.net.AmoClient.resolvePage(url)
 }
 
-/** GeckoResult → 协程；值可能为 null */
-suspend fun <T> GeckoResult<T>.await(): T? = suspendCancellableCoroutine { cont ->
-    accept(
-        { value -> if (cont.isActive) cont.resume(value) },
-        { error -> if (cont.isActive) cont.resumeWith(Result.failure(error ?: IllegalStateException(tr("操作失败")))) },
-    )
-}
-
-/** Compose 的 context 常是 ContextWrapper，剥到 Activity */
-fun Context.findActivity(): Activity? {
-    var c: Context? = this
-    while (c is ContextWrapper) {
-        if (c is Activity) return c
-        c = c.baseContext
-    }
-    return null
-}

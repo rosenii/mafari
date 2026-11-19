@@ -373,6 +373,26 @@ test('webRequest exposes filtered onBeforeRequest and registers/removes listener
   await tick();
 });
 
+test('webRequest main-frame terminal events register and dispatch independently', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['webRequest', 'https://example.com/*'] } }), entry([
+    'window.completed = []; window.failed = [];' +
+    'window.done = function (d) { window.completed.push(d.requestId); };' +
+    'window.fail = function (d) { window.failed.push(d.error); };' +
+    'browser.webRequest.onCompleted.addListener(window.done, { urls: ["https://example.com/*"] }, []);' +
+    'browser.webRequest.onErrorOccurred.addListener(window.fail, { urls: ["https://example.com/*"] }, []);'
+  ])));
+  const adds = env.posted.filter(x => x.api === 'webRequest.addListener');
+  assert.deepStrictEqual(adds.map(x => x.args[0]).sort(), ['onCompleted', 'onErrorOccurred']);
+  const done = adds.find(x => x.args[0] === 'onCompleted');
+  const fail = adds.find(x => x.args[0] === 'onErrorOccurred');
+  env.native({ event: 'webRequest.onCompleted', payload: { requestId: 'r1', url: 'https://example.com/', listenerTokens: [done.args[1]] } });
+  env.native({ event: 'webRequest.onErrorOccurred', payload: { requestId: 'r2', url: 'https://example.com/bad', error: 'net::ERR_FAILED', listenerTokens: [fail.args[1]] } });
+  assert.deepStrictEqual(Array.from(env.sandbox.completed), ['r1']);
+  assert.deepStrictEqual(Array.from(env.sandbox.failed), ['net::ERR_FAILED']);
+  await tick();
+});
+
 test('webNavigation events dispatch committed and error details to listeners', () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['webNavigation'] } }), entry([
@@ -886,6 +906,27 @@ test('cookies: get/set/remove forward details to native', () => {
   const calls = env.posted.filter((x) => x.api && x.api.indexOf('cookies.') === 0);
   assert.deepStrictEqual(calls.map((x) => x.api), ['cookies.get', 'cookies.set', 'cookies.remove', 'cookies.get']);
   assert.strictEqual(calls[1].args[0].value, 'abc');
+});
+
+test('history API is extension-page-only and exposes native-backed methods', () => {
+  const manifest = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['history'] };
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest }), entry(['window.has = typeof browser.history;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined');
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1' } }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.history, undefined);
+  const page = makeEnv();
+  page.run(assemble(cfg({ page: true, manifest }), entry([
+    "browser.history.search({ text: 'docs', maxResults: 20 });",
+    "browser.history.deleteUrl({ url: 'https://example.com/' });",
+    "browser.history.deleteRange({ startTime: 1, endTime: 2 });",
+    "browser.history.deleteAll();",
+    "chrome.history.search({ text: 'docs' }, function () {});"
+  ])));
+  assert.deepStrictEqual(page.posted.filter((x) => x.api && x.api.indexOf('history.') === 0).map((x) => x.api),
+    ['history.search', 'history.deleteUrl', 'history.deleteRange', 'history.deleteAll', 'history.search']);
+  assert.strictEqual(typeof page.sandbox.chrome.history.search, 'function');
 });
 
 test('action and browserAction expose compatible setters through shared API shape', () => {

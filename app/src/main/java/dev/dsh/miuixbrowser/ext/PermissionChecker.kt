@@ -38,6 +38,7 @@ object PermissionChecker {
         "alarms." to setOf("alarms"),
         "notifications." to setOf("notifications"),
         "bookmarks." to setOf("bookmarks"),
+        "history." to setOf("history"),
         "downloads." to setOf("downloads"),
         "clipboard.readText" to setOf("clipboardRead"),
         "clipboard.writeText" to setOf("clipboardWrite"),

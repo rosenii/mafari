@@ -27,6 +27,10 @@ internal object HistoryDao {
         db.execSQL("DELETE FROM history WHERE time>=$cutoff")
     }
 
+    fun deleteRange(db: SQLiteDatabase, startTime: Long, endTime: Long) {
+        db.execSQL("DELETE FROM history WHERE time>=? AND time<=?", arrayOf(startTime, endTime))
+    }
+
     fun clearAll(db: SQLiteDatabase) {
         db.execSQL("DELETE FROM history")
     }

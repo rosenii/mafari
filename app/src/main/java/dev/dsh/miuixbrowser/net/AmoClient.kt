@@ -1,7 +1,6 @@
 package dev.dsh.miuixbrowser.net
 
 import android.net.Uri
-import dev.dsh.miuixbrowser.engine.gecko.AmoAddon
 import dev.dsh.miuixbrowser.i18n.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

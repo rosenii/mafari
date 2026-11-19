@@ -189,12 +189,14 @@
 基于 `mafari_webext_contextmenus_action_patch.zip` 的后续增量：
 
 - 新增 `WebRequestApi`，通过 WebView `WebViewClient.shouldInterceptRequest` 接入真实请求来源，不依赖页面 JS 自报 URL。
-- 暂支持 `webRequest.onBeforeRequest`，事件字段包含 `requestId`、`url`、`method`、`tabId`、`frameId`、`parentFrameId`、`type`、`timeStamp`。
+- 支持 `webRequest.onBeforeRequest`，事件字段包含 `requestId`、`url`、`method`、`tabId`、`frameId`、`parentFrameId`、`type`、`timeStamp`。
 - `onBeforeRequest.addListener(listener, filter, extraInfoSpec)` 支持多 listener 独立 token；`removeListener` 只移除对应 listener。
 - filter 支持 `urls`、`types`、`tabId`、`excludedUrls`；并且逐请求执行 host permission 检查。
 - 无痕标签不发送 webRequest 事件。拓展停用、更新、卸载时清理 listener filter。
+- `onCompleted` / `onErrorOccurred` 现在由 WebView 主文档完成 / 失败回调驱动；保留 `onBeforeRequest` 的 requestId，并支持同一主文档请求的终态事件。
+- 终态事件仅覆盖主框架；WebView 不提供完整子资源完成回调，因此不能将其视为 Firefox 对所有请求的完整生命周期。
 - `blocking` / `requestBody` extraInfoSpec 明确返回 `UNSUPPORTED`；`webRequestBlocking` 在 `ApiSupport` 标为 NONE。原因是后台拓展页运行在异步 WebView 消息通道上，不能安全地在同步网络回调中等待 JS listener。
-- WebView 当前入口不提供完整响应头 / 完成 / 错误回调，因此 `onHeadersReceived`、`onCompleted`、`onErrorOccurred` 等仍不注册。
+- `onHeadersReceived` 仍不注册；响应头修改与请求体读取不可用。
 
 验证：`node tools/ext-shim-test/run.js` 48 项通过；`node tools/webext-test/run.js` 两个 WebExtension 示例通过。新增 Kotlin `WebRequestApiTest` 覆盖 URL / type / tabId / excludedUrls 过滤，但 Android Gradle 测试仍未能启动：Wrapper 需要下载 Gradle 9.9.1，当前环境无法解析 `services.gradle.org`。因此 Kotlin 编译与真机网络行为尚未验证。
 
@@ -303,3 +305,13 @@
 - 不支持 `getAll`、`getAllCookieStores`、`getPartitionKey`、`onChanged`，也无法列举所有站点 Cookie；remove 需要调用方提供正确的 URL、domain、path，不能保证清除同名的其他路径 Cookie。标记 PARTIAL。
 
 验证：新增 shim namespace / RPC 测试；Android Kotlin 编译及真机 Cookie 行为仍需构建环境验证。
+
+
+## 15. 2026-11-20 WebRequest 主框架终态事件增量
+
+- 新增 `webRequest.onCompleted` / `webRequest.onErrorOccurred` listener 注册与 shim 分发。
+- `TabWebViewSetup` 在主文档 `onPageFinished` / `onReceivedError` / SSL 失败回调时通知 WebRequestApi。
+- 对可关联的主文档请求沿用 `onBeforeRequest` 的 requestId；每个标签只保留当前主文档请求，避免无限累积。
+- 失败后若 WebView 再回调页面完成，不会重新生成一条虚假的完成事件；无对应 before 记录的终态回调直接忽略。
+- 仍然不支持子资源 `onCompleted/onErrorOccurred`、`onHeadersReceived`、`onBeforeSendHeaders`、`onSendHeaders`、`requestBody` 和 blocking；`webRequest` 继续为 PARTIAL。
+- 这不是完整 Firefox 生命周期兼容：WebView 的主文档回调与网络请求级回调并不一一对应，重定向和错误页行为需真机验证。

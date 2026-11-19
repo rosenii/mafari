@@ -16,11 +16,14 @@ class WebRequestApi(
 ) {
     private val sequence = AtomicLong(1)
     private val filters = java.util.concurrent.ConcurrentHashMap<String, JSONObject>()
+    private val inFlight = java.util.concurrent.ConcurrentHashMap<String, JSONObject>()
 
     fun register(router: ApiRouter) {
         router.register("webRequest.addListener") { ctx, args ->
             val event = args.optString(0)
-            if (event != "onBeforeRequest") throw ApiException(ErrorCodes.UNSUPPORTED, "当前仅支持 webRequest.onBeforeRequest")
+            if (event !in setOf("onBeforeRequest", "onCompleted", "onErrorOccurred")) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "当前支持 onBeforeRequest / onCompleted / onErrorOccurred")
+            }
             val token = args.optString(1)
             if (token.isBlank()) throw ApiException(ErrorCodes.BAD_REQUEST, "listener token 缺失")
             val filter = args.opt(2) as? JSONObject ?: JSONObject()
@@ -29,18 +32,22 @@ class WebRequestApi(
             if ((0 until extra.length()).any { extra.optString(it) == "blocking" || extra.optString(it) == "requestBody" }) {
                 throw ApiException(ErrorCodes.UNSUPPORTED, "WebView 暂不支持 webRequestBlocking / requestBody")
             }
-            filters["${ctx.ext.spec.id}:$token"] = JSONObject(filter.toString())
+            filters["${ctx.ext.spec.id}:$event:$token"] = JSONObject(filter.toString())
             true
         }
         router.register("webRequest.removeListener") { ctx, args ->
-            filters.remove("${ctx.ext.spec.id}:${args.optString(0)}")
+            filters.keys.filter { it.startsWith("${ctx.ext.spec.id}:") && it.endsWith(":${args.optString(0)}") }.forEach { filters.remove(it) }
             true
         }
 
     }
 
     /** 在 WebViewClient.shouldInterceptRequest 的 IO 线程调用；request 内容由 WebView 提供。 */
-    fun forget(extId: String) { filters.keys.filter { it.startsWith("$extId:") }.forEach { filters.remove(it) } }
+    fun forget(extId: String) {
+        filters.keys.filter { it.startsWith("$extId:") }.forEach { filters.remove(it) }
+        // Requests already in flight may finish after an extension is disabled; their events are
+        // dispatched only to currently enabled listeners, so no extension-specific state is retained.
+    }
 
     fun beforeRequest(tabId: Int, request: WebResourceRequest) {
         val url = request.url?.toString().orEmpty()
@@ -55,15 +62,42 @@ class WebRequestApi(
             .put("parentFrameId", -1)
             .put("type", type)
             .put("timeStamp", System.currentTimeMillis())
+        if (request.isForMainFrame) {
+            inFlight.keys.filter { it.startsWith("$tabId\u0000") }.forEach { inFlight.remove(it) }
+            inFlight[requestKey(tabId, url)] = JSONObject(payload.toString())
+        }
+        dispatch("onBeforeRequest", payload, url, tabId, type)
+    }
+
+    /** WebView exposes terminal callbacks reliably only for the main document; subresource completion is unavailable. */
+    fun mainFrameCompleted(tabId: Int, url: String) {
+        terminal("onCompleted", tabId, url, null)
+    }
+
+    fun mainFrameFailed(tabId: Int, url: String, error: String) {
+        terminal("onErrorOccurred", tabId, url, error)
+    }
+
+    private fun terminal(event: String, tabId: Int, url: String, error: String?) {
+        val payload = inFlight.remove(requestKey(tabId, url)) ?: return
+        payload.put("timeStamp", System.currentTimeMillis())
+        if (error != null) payload.put("error", error)
+        dispatch(event, payload, url, tabId, "main_frame")
+    }
+
+    private fun requestKey(tabId: Int, url: String) = "$tabId\u0000$url"
+
+    private fun dispatch(event: String, payload: JSONObject, url: String, tabId: Int, type: String) {
         for (ext in extensions()) {
             if (!ext.enabled || "webRequest" !in PermissionChecker.effectivePermissions(ext)) continue
             if (!PermissionChecker.hasHostAccess(ext, url)) continue
             val matchingTokens = filters.entries.mapNotNull { (key, filter) ->
-                if (key.startsWith("${ext.spec.id}:") && matchesFilter(filter, url, tabId, type)) key.substringAfter(':') else null
+                val prefix = "${ext.spec.id}:$event:"
+                if (key.startsWith(prefix) && matchesFilter(filter, url, tabId, type)) key.removePrefix(prefix) else null
             }
             if (matchingTokens.isEmpty()) continue
             val eventPayload = JSONObject(payload.toString()).put("listenerTokens", JSONArray(matchingTokens))
-            runCatching { events.emit(ext.spec.id, "webRequest.onBeforeRequest", eventPayload) }
+            runCatching { events.emit(ext.spec.id, "webRequest.$event", eventPayload) }
         }
     }
 
