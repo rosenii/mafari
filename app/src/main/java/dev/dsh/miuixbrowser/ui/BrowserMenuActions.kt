@@ -49,7 +49,7 @@ internal fun BrowserUiState.refreshScriptSheet(state: BrowserState) {
     t.queryMenuCommands { scriptMenuItems = it }
 }
 
-/** 菜单功能的执行：底部「更多」菜单和首页「快捷菜单」共用（从 BrowserScreen 拆出，逻辑未改） */
+/** 菜单功能的执行：底部「更多」菜单和首页「快捷菜单」共用。 */
 internal fun BrowserUiState.performMenuAction(
     action: MenuAction,
     state: BrowserState,
@@ -95,8 +95,8 @@ internal fun BrowserUiState.performMenuAction(
         MenuAction.Home -> state.goHome(tab)
         MenuAction.Downloads -> pushPage(AppRoute.Downloads)
         MenuAction.Scan -> launchers.launchScan()
-        // Gecko：单击是拓展快捷菜单（工具栏按钮 / 弹出页）；WebView 还没有快捷菜单，单击直接进拓展页。长按（见 onLongPressAction）：进入拓展页
-        MenuAction.GeckoExtensions -> if (tab.isGecko) geckoExtSheetShow = true else pushPage(AppRoute.WebViewExtensions)
+        // 两种内核单击均打开拓展快捷菜单；长按仍进入拓展管理页。
+        MenuAction.GeckoExtensions -> if (tab.isGecko) geckoExtSheetShow = true else webViewExtSheetShow = true
         MenuAction.ScriptMenu -> {
             scriptSheetShow = true
             refreshScriptSheet(state)

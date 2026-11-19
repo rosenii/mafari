@@ -156,6 +156,12 @@ class JsonStorageArea(
 class StorageApi(
     private val dataDir: (extId: String) -> File,
     private val events: EventSink,
+    /**
+     * `storage.session` 的变化事件只能发给这里：只含拓展自己的页面（后台页 / popup / options）的 sink。
+     * session 区对 content script 关闭（与 Chrome 默认的 TRUSTED_CONTEXTS 一致），change 事件里带着新旧值，
+     * 如果走 [events]（包含标签页里的 content script），等于把 session 的内容推到了网页所在的 JS 世界。
+     */
+    private val trustedEvents: EventSink = events,
 ) {
     private val areas = HashMap<String, JsonStorageArea>()
 
@@ -209,7 +215,8 @@ class StorageApi(
                 c.newValue?.let { one.put("newValue", it) }
                 obj.put(k, one)
             }
-            events.emit(
+            val sink = if (areaName == "session") trustedEvents else events
+            sink.emit(
                 ctx.ext.spec.id,
                 "storage.onChanged",
                 JSONObject().put("areaName", areaName).put("changes", obj),

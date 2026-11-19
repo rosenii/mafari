@@ -29,6 +29,8 @@ import java.lang.ref.WeakReference
  */
 class WebViewExtensionHost(
     private val runtime: ExtensionRuntime,
+    private val broker: MessageBroker,
+    private val dynamicContentScripts: (InstalledExtension) -> List<ContentScriptSpec> = { emptyList() },
     private val log: (String) -> Unit = {},
 ) : EventSink {
 
@@ -37,16 +39,90 @@ class WebViewExtensionHost(
 
     /** 每个拓展当前持有的页面端连接（回复代理），用来向页面推送事件。弱引用：页面销毁后自然失效 */
     private val connections = HashMap<String, MutableList<WeakReference<JavaScriptReplyProxy>>>()
+    private val contentEndpoints = HashMap<String, ContentEndpoint>()
+    private data class Binding(
+        val webView: WebView,
+        val exts: List<InstalledExtension>,
+        val shim: String,
+        val tabId: Int,
+        var installation: Installation,
+    )
+    private val bindings = HashMap<Int, Binding>()
+
+    private inner class ContentEndpoint(
+        override val extId: String,
+        override val tabId: Int,
+        initialReply: JavaScriptReplyProxy,
+    ) : MessageEndpoint {
+        override val contextId: String = "content:$extId:$tabId"
+        override val kind: SenderKind = SenderKind.CONTENT_SCRIPT
+        @Volatile var reply: JavaScriptReplyProxy = initialReply
+
+        override fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean {
+            val payload = JSONObject()
+                .put("type", "message")
+                .put("cid", cid)
+                .put("message", message ?: JSONObject.NULL)
+                .put("sender", sender)
+            main.post { runCatching { reply.postMessage(payload.toString()) } }
+            return true
+        }
+
+        override fun deliverPort(type: String, portId: String, name: String, sender: JSONObject, message: Any?): Boolean {
+            val payload = JSONObject().put("type", type).put("portId", portId).put("name", name).put("sender", sender)
+            if (type == "portMessage") payload.put("message", message ?: JSONObject.NULL)
+            main.post { runCatching { reply.postMessage(payload.toString()) } }
+            return true
+        }
+    }
 
     /** 一个 WebView 上的安装结果；拓展集合变化或标签销毁时 [close] */
     inner class Installation internal constructor(
         private val webView: WebView,
-        private val bridgeNames: List<String>,
-        private val handlers: List<ScriptHandler>,
+        bridgeNames: List<String>,
+        handlers: List<ScriptHandler>,
+        extIds: List<String>,
+        private val tabId: Int?,
     ) {
+        private var bridgeNames = bridgeNames.toMutableList()
+        private var handlers = handlers.toMutableList()
+        private var extIds = extIds.toMutableList()
+        private var closed = false
+
         fun close() {
+            if (closed) return
+            releaseResources()
+            closed = true
+            if (tabId != null) {
+                extIds.forEach { forgetTab(it, tabId) }
+                synchronized(bindings) {
+                    if (bindings[tabId]?.installation === this) bindings.remove(tabId)
+                }
+            }
+        }
+
+        internal fun closeForRefresh() {
+            if (closed) return
+            releaseResources()
+            closed = true
+        }
+
+        internal fun adopt(other: Installation) {
+            bridgeNames = other.bridgeNames
+            handlers = other.handlers
+            extIds = other.extIds
+            other.bridgeNames = mutableListOf()
+            other.handlers = mutableListOf()
+            other.extIds = mutableListOf()
+            other.closed = true
+            closed = false
+        }
+
+        private fun releaseResources() {
             handlers.forEach { runCatching { it.remove() } }
             bridgeNames.forEach { runCatching { WebViewCompat.removeWebMessageListener(webView, it) } }
+            handlers.clear()
+            bridgeNames.clear()
         }
     }
 
@@ -63,8 +139,12 @@ class WebViewExtensionHost(
         if (!isSupported()) return null
         val names = mutableListOf<String>()
         val handlers = mutableListOf<ScriptHandler>()
+        val installedExtIds = mutableListOf<String>()
         for (ext in exts) {
-            val plan = ExtensionInjection.build(ext, shim, ExtensionInjection.fileReader(ext.rootDir)) ?: continue
+            installedExtIds.add(ext.spec.id)
+            val plan = ExtensionInjection.build(
+                ext, shim, ExtensionInjection.fileReader(ext.rootDir), dynamicContentScripts(ext), tabId,
+            ) ?: continue
             plan.warnings.forEach { log("ext ${ext.spec.id}: $it") }
             try {
                 WebViewCompat.addWebMessageListener(webView, plan.bridgeName, plan.originRules) { _, message, sourceOrigin, isMainFrame, reply ->
@@ -76,7 +156,29 @@ class WebViewExtensionHost(
                 log("ext ${ext.spec.id}: install failed ${e.message}")
             }
         }
-        return Installation(webView, names, handlers)
+        val installation = Installation(webView, names, handlers, installedExtIds, tabId)
+        if (tabId != null) synchronized(bindings) {
+            bindings[tabId] = Binding(webView, exts, shim, tabId, installation)
+        }
+        return installation
+    }
+
+    /** 动态脚本注册发生变化时，重装受影响标签的 document-start handler；现有页面不回溯执行。 */
+    fun refreshDynamicScripts(extId: String) {
+        main.post {
+            val affected = synchronized(bindings) { bindings.values.filter { b -> b.exts.any { it.spec.id == extId } } }
+            for (binding in affected) {
+                val old = binding.installation
+                old.closeForRefresh()
+                val fresh = install(binding.webView, binding.exts, binding.shim, binding.tabId)
+                if (fresh == null) {
+                    synchronized(bindings) { bindings.remove(binding.tabId) }
+                } else {
+                    old.adopt(fresh)
+                    synchronized(bindings) { bindings[binding.tabId] = binding.copy(installation = old) }
+                }
+            }
+        }
     }
 
     private fun onPageMessage(
@@ -90,6 +192,8 @@ class WebViewExtensionHost(
         if (message.type != WebMessageCompat.TYPE_STRING) return
         val text = message.data ?: return
         remember(boundExtId, reply)
+        // tabs.sendMessage 默认目标是主框架；子框架目前没有独立 frameId 路由，不能覆盖主框架 endpoint。
+        if (tabId != null && isMainFrame) rememberContentEndpoint(boundExtId, tabId, reply)
 
         // 消息体里的 extId 必须与 listener 绑定的拓展一致
         val req = try {
@@ -103,7 +207,10 @@ class WebViewExtensionHost(
             return
         }
 
-        val sender = Sender(SenderKind.CONTENT_SCRIPT, origin, isMainFrame, tabId)
+        val sender = Sender(
+            SenderKind.CONTENT_SCRIPT, origin, isMainFrame, tabId,
+            if (isMainFrame && tabId != null) "content:$boundExtId:$tabId" else null,
+        )
         scope.launch {
             val response = runtime.handle(text, sender)
             send(reply, response)
@@ -125,6 +232,29 @@ class WebViewExtensionHost(
         }
     }
 
+
+    private fun rememberContentEndpoint(extId: String, tabId: Int, reply: JavaScriptReplyProxy) {
+        val key = "$extId:$tabId"
+        synchronized(contentEndpoints) {
+            val endpoint = contentEndpoints[key]
+            if (endpoint != null) {
+                endpoint.reply = reply
+            } else {
+                ContentEndpoint(extId, tabId, reply).also {
+                    contentEndpoints[key] = it
+                    broker.register(it)
+                }
+            }
+        }
+    }
+
+    private fun forgetTab(extId: String, tabId: Int) {
+        val key = "$extId:$tabId"
+        synchronized(contentEndpoints) {
+            contentEndpoints.remove(key)?.let { broker.unregister(it.contextId) }
+        }
+    }
+
     /** 向某个拓展所有在线页面推送事件（storage.onChanged 等），格式 `{"event":…,"payload":…}` */
     override fun emit(extId: String, event: String, payload: JSONObject) {
         val text = JSONObject().put("event", event).put("payload", payload).toString()
@@ -137,5 +267,9 @@ class WebViewExtensionHost(
     /** 拓展被卸载 / 停用时丢掉它的连接记录 */
     fun forget(extId: String) {
         synchronized(connections) { connections.remove(extId) }
+        synchronized(contentEndpoints) {
+            contentEndpoints.values.filter { it.extId == extId }.forEach { broker.unregister(it.contextId) }
+            contentEndpoints.entries.removeAll { it.value.extId == extId }
+        }
     }
 }

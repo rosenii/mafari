@@ -45,6 +45,15 @@ object ExtensionPages {
         return null
     }
 
+    /**
+     * 网页（标签页里的页面，不是拓展自己）请求拓展资源：只有 web_accessible_resources 放行的才给，
+     * 否则返回 null。[pageUrl] 必须取自浏览器自己记录的标签网址，不能用页面自报的。
+     */
+    fun openWebAccessible(ext: InstalledExtension, rawPath: String, pageUrl: String?): ExtensionResource? {
+        if (!isWebAccessible(ext, rawPath, pageUrl)) return null
+        return open(ext, rawPath)
+    }
+
     /** 取一份资源；路径不合法、越出拓展目录、不存在时返回 null */
     fun open(ext: InstalledExtension, rawPath: String): ExtensionResource? {
         val path = clean(rawPath) ?: return null

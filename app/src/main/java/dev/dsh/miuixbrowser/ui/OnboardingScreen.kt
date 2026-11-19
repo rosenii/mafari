@@ -791,7 +791,7 @@ private fun longPressSummary(action: MenuAction): String = when (action) {
     MenuAction.ScriptMenu -> tr("长按进入「脚本管理」，单击是当前页面的脚本菜单")
     MenuAction.Favorite -> tr("长按进入「书签」库，单击是收藏当前页面")
     MenuAction.Bookmarks -> tr("长按弹出「新建书签」，自动填入当前页的标题和网址；单击是打开书签")
-    MenuAction.GeckoExtensions -> tr("长按进入「拓展」管理页；Gecko 下单击是拓展快捷菜单，WebView 下单击同样进入管理页")
+    MenuAction.GeckoExtensions -> tr("单击打开正在运行的拓展快捷菜单；长按进入「拓展」管理页")
     else -> ""
 }
 

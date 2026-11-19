@@ -12,14 +12,14 @@ import java.util.UUID
  * `scripting.executeScript` / `insertCSS` / `removeCSS`，建在 [TabBridge.evaluate] 之上。
  *
  * 已实现 `target.tabId`、`func` + `args`、`files`、`css`、`files`（CSS）。
- * 未实现 `registerContentScripts` / `getRegisteredContentScripts` / `updateContentScripts` / `unregisterContentScripts`
- * （要改 [ExtensionInjection] 的装配，单独一步），调用会回 UNSUPPORTED。
+ * 支持 register / get / update / unregisterContentScripts；动态脚本注册 / 更新 / 注销后会通知宿主刷新受影响标签的 document-start handler；当前已加载文档不会回溯执行。
+ * 当前仅支持扩展包内的 file，不支持内联 code、frameId 非 0 和 MAIN 世界隔离。
  *
  * WebView 上的限制（会写进兼容性提示）：
  * - 只能注入主框架：`frameIds` 只接受 0，`allFrames` 被忽略（只回主框架的结果）；
  * - 没有隔离世界：`world: "ISOLATED"` 也在页面世界里跑，注入的代码拿不到 `chrome` / `browser`，页面脚本能看到它的全局与源码；
  * - `files` 里的脚本抛异常时无法得知（`evaluateJavascript` 对异常与 undefined 都回 null），`func` 的异常会被捕获并报错；
- * - 没有 `activeTab`：必须对该标签当前网址有 host 权限。
+ * - `activeTab`：没有 host 权限时，用户点击过该拓展（快捷菜单）的标签当前 origin 也可以注入，导航到别的 origin 即作废。
  *
  * 安全：
  * - 注入前核对 host 权限；脚本开头再用 `location.origin` 对照「检查权限时的 origin」，
@@ -30,9 +30,13 @@ import java.util.UUID
  */
 class ScriptingApi(
     private val bridge: () -> TabBridge?,
+    private val dynamicScripts: DynamicContentScriptStore = DynamicContentScriptStore(),
+    private val onDynamicScriptsChanged: (String) -> Unit = {},
     private val pollIntervalMs: Long = 50L,
     private val timeoutMs: Long = 15_000L,
     private val newToken: () -> String = { UUID.randomUUID().toString().replace("-", "") },
+    /** 用户点击拓展后临时授予的「当前标签」访问；null = 不支持 activeTab */
+    private val activeTab: ActiveTabGrants? = null,
 ) {
 
     fun register(router: ApiRouter) {
@@ -45,6 +49,102 @@ class ScriptingApi(
             removeCss(ctx, details(a))
             null
         }
+        router.register("scripting.registerContentScripts") { ctx, a ->
+            val list = a.argOrNull(0) as? JSONArray ?: throw bad("registerContentScripts 需要数组")
+            dynamicScripts.register(ctx.ext, (0 until list.length()).map { parseDynamic(ctx, list.optJSONObject(it)) })
+            onDynamicScriptsChanged(ctx.ext.spec.id)
+            null
+        }
+        router.register("scripting.getRegisteredContentScripts") { ctx, a ->
+            val filter = a.argOrNull(0) as? JSONObject
+            val ids = filter?.optJSONArray("ids")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.toSet() }
+            val out = JSONArray()
+            dynamicScripts.all(ctx.ext).filter { ids == null || it.id in ids }.forEach { out.put(dynamicToJson(it)) }
+            out
+        }
+        router.register("scripting.updateContentScripts") { ctx, a ->
+            val list = a.argOrNull(0) as? JSONArray ?: throw bad("updateContentScripts 需要数组")
+            dynamicScripts.update(ctx.ext, (0 until list.length()).map { parseDynamic(ctx, list.optJSONObject(it)) })
+            onDynamicScriptsChanged(ctx.ext.spec.id)
+            null
+        }
+        router.register("scripting.unregisterContentScripts") { ctx, a ->
+            val filter = a.argOrNull(0) as? JSONObject
+            val ids = filter?.optJSONArray("ids")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.toSet() }
+            dynamicScripts.unregister(ctx.ext, ids)
+            onDynamicScriptsChanged(ctx.ext.spec.id)
+            null
+        }
+    }
+
+    private fun parseDynamic(ctx: CallContext, o: JSONObject?): DynamicContentScriptStore.Entry {
+        o ?: throw bad("动态脚本条目必须是对象")
+        val id = o.optString("id").trim()
+        if (id.isEmpty()) throw bad("动态脚本缺少 id")
+        val existing = dynamicScripts.all(ctx.ext).firstOrNull { it.id == id }
+        val matches = if (o.has("matches")) stringArray(o, "matches").map { MatchPattern.parse(it) ?: throw bad("无效 matches：$it") }
+            else existing?.spec?.matches ?: throw bad("动态脚本缺少 matches")
+        if (matches.isEmpty()) throw bad("matches 不能为空")
+        // 只能注册到用户已经授予的 host 范围；不接受用动态脚本绕过站点权限。
+        val grants = ctx.ext.grantedHostPermissions
+        if (matches.any { requested -> grants.none { it.raw == requested.raw || it.matchesAllUrls } }) {
+            throw ApiException(ErrorCodes.DENIED_PERMISSION, "动态脚本 matches 超出已授予的网站权限")
+        }
+        val js = if (o.has("js")) fileEntries(ctx, o.optJSONArray("js"), "js") else existing?.spec?.js.orEmpty()
+        val css = if (o.has("css")) fileEntries(ctx, o.optJSONArray("css"), "css") else existing?.spec?.css.orEmpty()
+        if (js.isEmpty() && css.isEmpty()) throw bad("动态脚本必须至少包含一个 js 或 css 文件")
+        val exclude = if (o.has("excludeMatches")) stringArray(o, "excludeMatches").map { MatchPattern.parse(it) ?: throw bad("无效 excludeMatches：$it") }
+            else existing?.spec?.excludeMatches.orEmpty()
+        val runAt = when (o.optString("runAt", existing?.spec?.runAt?.let(::runAtName) ?: "document_idle")) {
+            "document_start" -> RunAt.DOCUMENT_START
+            "document_end" -> RunAt.DOCUMENT_END
+            "document_idle" -> RunAt.DOCUMENT_IDLE
+            else -> throw bad("runAt 必须是 document_start / document_end / document_idle")
+        }
+        val allFrames = o.optBoolean("allFrames", existing?.spec?.allFrames ?: false)
+        val persist = o.optBoolean("persistAcrossSessions", existing?.persistAcrossSessions ?: true)
+        return DynamicContentScriptStore.Entry(
+            id,
+            ContentScriptSpec(matches, exclude, js, css, runAt, allFrames, false, ScriptWorld.ISOLATED),
+            persist,
+        )
+    }
+
+    private fun fileEntries(ctx: CallContext, arr: JSONArray?, key: String): List<String> {
+        arr ?: return emptyList()
+        if (arr.length() > MAX_FILES) throw bad("$key 文件数量过多")
+        return (0 until arr.length()).map { i ->
+            val item = arr.opt(i)
+            val path = when (item) {
+                is String -> item
+                is JSONObject -> item.optString("file").takeIf { it.isNotBlank() }
+                    ?: throw bad("$key 目前只支持 file，不支持内联 code")
+                else -> throw bad("$key 条目格式错误")
+            }
+            if (ExtensionInjection.fileReader(ctx.ext.rootDir)(path.trimStart('/')) == null) throw bad("读不到文件：$path")
+            path.trimStart('/')
+        }
+    }
+
+    private fun stringArray(o: JSONObject, key: String): List<String> {
+        val arr = o.optJSONArray(key) ?: throw bad("$key 必须是字符串数组")
+        return (0 until arr.length()).map { arr.optString(it).takeIf(String::isNotBlank) ?: throw bad("$key 必须是字符串数组") }
+    }
+
+    private fun dynamicToJson(e: DynamicContentScriptStore.Entry) = JSONObject()
+        .put("id", e.id)
+        .put("matches", JSONArray(e.spec.matches.map { it.raw }))
+        .put("excludeMatches", JSONArray(e.spec.excludeMatches.map { it.raw }))
+        .put("js", JSONArray(e.spec.js.map { JSONObject().put("file", it) }))
+        .put("css", JSONArray(e.spec.css.map { JSONObject().put("file", it) }))
+        .put("runAt", runAtName(e.spec.runAt))
+        .put("allFrames", e.spec.allFrames)
+        .put("persistAcrossSessions", e.persistAcrossSessions)
+
+    private fun runAtName(runAt: RunAt) = when (runAt) {
+        RunAt.DOCUMENT_START -> "document_start"
+        RunAt.DOCUMENT_END -> "document_end"
+        RunAt.DOCUMENT_IDLE -> "document_idle"
     }
 
     // ------------------------------------------------------------------ executeScript
@@ -225,20 +325,18 @@ class ScriptingApi(
             ErrorCodes.DENIED_PERMISSION,
             "Cannot access contents of the page. Extension manifest must request permission to access the respective host.",
         )
-        if (!PermissionChecker.hasHostAccess(ctx.ext, tab.url)) throw denied
+        if (!PermissionChecker.hasHostAccess(ctx.ext, tab.url) && !activeTabAllows(ctx.ext, tab)) throw denied
         return b to (originOf(tab.url) ?: throw denied)
     }
 
-    /** `scheme://host[:port]`：小写、去掉用户信息与默认端口，与页面里的 `location.origin` 同形 */
-    internal fun originOf(url: String): String? {
-        val scheme = url.substringBefore("://", "").lowercase()
-        if (scheme != "http" && scheme != "https") return null
-        val authority = url.substringAfter("://").takeWhile { it != '/' && it != '?' && it != '#' && it != '\\' }
-        var hostPort = authority.substringAfterLast('@').lowercase()
-        if (hostPort.isEmpty()) return null
-        hostPort = hostPort.removeSuffix(if (scheme == "http") ":80" else ":443")
-        return "$scheme://$hostPort"
-    }
+    /** 声明并获授 activeTab，且用户已对这个标签的当前 origin 点击过该拓展 */
+    private fun activeTabAllows(ext: InstalledExtension, tab: TabInfo): Boolean =
+        activeTab != null &&
+            "activeTab" in PermissionChecker.effectivePermissions(ext) &&
+            activeTab.isGranted(ext.spec.id, tab.id, tab.url)
+
+    /** `scheme://host[:port]`：与页面里的 `location.origin` 同形 */
+    internal fun originOf(url: String): String? = UrlOrigin.of(url)
 
     private fun readFiles(ctx: CallContext, files: List<String>): List<String> {
         val read = ExtensionInjection.fileReader(ctx.ext.rootDir)

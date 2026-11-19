@@ -1,6 +1,12 @@
 package dev.dsh.miuixbrowser.ext
 
 import android.content.Context
+import android.webkit.WebResourceResponse
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -28,21 +34,31 @@ class ExtensionSystem(
 
     private val router = ApiRouter()
     val broker = MessageBroker()
+    private val dynamicScripts = DynamicContentScriptStore()
     private val sinks = CompositeEventSink()
-    private val storage = StorageApi({ repo.dataDir(it) }, sinks)
+    /** 用户点击拓展后临时授予的「当前标签」访问（activeTab），只存内存 */
+    val activeTab = ActiveTabGrants()
+    private var attachedBridge: TabBridge? = null
+    private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val runtime = ExtensionRuntime(repo, router)
 
-    val tabHost = WebViewExtensionHost(runtime, log)
+    val tabHost = WebViewExtensionHost(runtime, broker, { ext -> dynamicScripts.all(ext).map { it.spec } }, log)
     val pages = ExtensionPageHost(context.applicationContext, repo, runtime, broker, { shim() }, log)
+
+    // session 区的变化事件只发给拓展自己的页面（pages），不能经 sinks 推进标签页里的 content script
+    private val storage = StorageApi({ repo.dataDir(it) }, sinks, pages)
 
     /**
      * tabs.*：事件只发往拓展自己的页面（[pages]），不走 [sinks]——后者包含标签页里的 content script，
      * 标签的网址不能推到网页里去。浏览器界面建好后调用 [attachTabs] 接上真实的标签桥接（BrowserScreen 里接），之前调用回 UNSUPPORTED。
      */
-    private val tabs = TabsApi(pages) { webViewExtensions() }
+    private val tabs = TabsApi(pages, { webViewExtensions() }, broker, activeTab)
 
     /** scripting.*：与 tabs 共用同一个标签桥接（[TabsApi.bridgeOrNull]），attach 之前同样回 UNSUPPORTED */
-    private val scripting = ScriptingApi({ tabs.bridgeOrNull() })
+    private val scripting = ScriptingApi(
+        { tabs.bridgeOrNull() }, dynamicScripts, { id -> tabHost.refreshDynamicScripts(id) }, activeTab = activeTab,
+    )
+    private val permissions = PermissionsApi()
 
     /**
      * 后台页启动流程与闹钟共用一个单线程 Executor：就绪 / 消失 / 唤醒按顺序处理，文件读写与事件投递都不占主线程。
@@ -55,25 +71,85 @@ class ExtensionSystem(
     @Volatile private var shimText: String? = null
 
     init {
-        RuntimeApi(broker).register(router)
+        pages.externalLinkHandler = { extId, url -> openExternalLink(extId, url) }
+        RuntimeApi(broker) { tabs.bridgeOrNull() }.register(router)
         broker.register(router)
         storage.register(router)
         alarms.register(router)
         tabs.register(router)
         scripting.register(router)
+        permissions.register(router)
         pages.backgroundListener = lifecycle
         sinks.add(tabHost)
         sinks.add(pages)
     }
 
     /** 浏览器界面建好后（主线程）接上标签页桥接；重复调用会替换旧的 */
-    fun attachTabs(bridge: TabBridge) = tabs.attach(bridge)
+    fun attachTabs(bridge: TabBridge) {
+        attachedBridge?.removeListener(activeTab)
+        tabs.attach(bridge)
+        bridge.addListener(activeTab)
+        attachedBridge = bridge
+    }
 
     /** 浏览器界面销毁时摘掉桥接，避免持有已销毁的标签状态 */
-    fun detachTabs() = tabs.detach()
+    fun detachTabs() {
+        attachedBridge?.removeListener(activeTab)
+        attachedBridge = null
+        tabs.detach()
+    }
 
     /** 只在当前接着的就是 [bridge] 时才摘：界面重建后旧界面的销毁回调晚到，不会把新界面刚接上的桥接摘掉 */
-    fun detachTabs(bridge: TabBridge) = tabs.detach(bridge)
+    fun detachTabs(bridge: TabBridge) {
+        if (attachedBridge === bridge) {
+            bridge.removeListener(activeTab)
+            attachedBridge = null
+        }
+        tabs.detach(bridge)
+    }
+
+    /**
+     * 用户在快捷菜单里点了某个拓展：对当前前台标签的当前 origin 授予 activeTab。
+     * 拓展没声明 / 没获授 `activeTab`、没有前台标签、前台不是 http(s) 页面时返回 false（什么也不授予）。
+     * 必须由用户手势触发（点击菜单项），不要从拓展自己的请求里调用。
+     */
+    suspend fun grantActiveTab(extId: String): Boolean {
+        val ext = repo.get(extId)?.takeIf { it.enabled && EngineKind.WEBVIEW in it.engines } ?: return false
+        if ("activeTab" !in PermissionChecker.effectivePermissions(ext)) return false
+        val tab = tabs.bridgeOrNull()?.list()?.firstOrNull { it.active } ?: return false
+        return activeTab.grant(extId, tab)
+    }
+
+    /** 拓展页面里的外链：交给普通标签打开。网址过 [TabUrlPolicy]（只放行 http / https，且不能是别的拓展的页面） */
+    private fun openExternalLink(extId: String, url: String) {
+        val bridge = tabs.bridgeOrNull() ?: return
+        val safe = try { TabUrlPolicy.normalize(extId, url) } catch (_: ApiException) { return }
+        uiScope.launch { runCatching { bridge.create(TabCreateOptions(url = safe, active = true)) } }
+    }
+
+    /**
+     * 标签页里的网页请求了拓展的虚拟 origin（`runtime.getURL()` 给的地址）：只放行 web_accessible_resources 声明的资源，
+     * 并带上 CORS / CORP 头，让 content script 注入的 `<img>`、`fetch` 能用。不是拓展 origin 的请求返回 null（交给后续拦截器）。
+     * 在 WebView 的 IO 线程上调用；[pageUrl] 必须是浏览器自己记录的标签网址，不能取页面自报的。
+     */
+    fun webAccessibleResponse(url: String, pageUrl: String?): WebResourceResponse? {
+        val uri = try { java.net.URI(url) } catch (_: Exception) { return null }
+        val host = uri.host?.lowercase() ?: return null
+        if (!uri.scheme.equals("https", ignoreCase = true) || !ExtensionOrigins.isExtensionHost(host)) return null
+        val ext = webViewExtensions().firstOrNull { ExtensionOrigins.hostFor(it.spec.id) == host }
+        val res = ext?.let { ExtensionPages.openWebAccessible(it, uri.path.orEmpty(), pageUrl) }
+        if (res == null) {
+            return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+        }
+        val stream = res.file?.inputStream() ?: ByteArrayInputStream(res.bytes ?: ByteArray(0))
+        val textual = res.mime.startsWith("text/") || res.mime == "application/json" || res.mime == "application/xml"
+        val headers = mapOf(
+            "Access-Control-Allow-Origin" to "*",
+            "Cross-Origin-Resource-Policy" to "cross-origin",
+            "Cache-Control" to "no-cache",
+        )
+        return WebResourceResponse(res.mime, if (textual) "utf-8" else null, 200, "OK", headers, stream)
+    }
 
     /** 已启用、能在 WebView 上运行的拓展：标签页注入、后台页、菜单角标都用它（无痕范围由调用方过滤） */
     fun webViewExtensions(): List<InstalledExtension> =
@@ -99,9 +175,11 @@ class ExtensionSystem(
      */
     fun onInstalled(ext: InstalledExtension, previous: InstalledExtension? = null) {
         val id = ext.spec.id
+        activeTab.revokeExtension(id)
         lifecycle.cancel(id)
         pages.shutdown(id)
         tabHost.forget(id)
+        dynamicScripts.forget(id)
         storage.forget(id)
         bgExecutor.execute { alarms.reset(id) } // 与就绪 / 消失事件同一个线程，保证顺序
         if (ext.enabled && EngineKind.WEBVIEW in ext.engines) {
@@ -120,9 +198,11 @@ class ExtensionSystem(
 
     /** 停用（主线程）：关掉页面与连接；已打开标签里的 content script 要等页面重新加载才会消失。闹钟留在磁盘上 */
     fun onDisabled(extId: String) {
+        activeTab.revokeExtension(extId)
         lifecycle.cancel(extId)
         pages.shutdown(extId)
         tabHost.forget(extId)
+        dynamicScripts.forget(extId)
         bgExecutor.execute { alarms.forget(extId) }
     }
 

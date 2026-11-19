@@ -19,5 +19,9 @@ object ExtensionOrigins {
 
     fun urlFor(id: String, path: String): String = originFor(id) + "/" + path.trimStart('/')
 
+    /** 主机名是否落在拓展虚拟域名下（标签页拦截请求时先做这一步廉价判断，避免无谓地初始化拓展系统） */
+    fun isExtensionHost(host: String): Boolean =
+        host.equals(DOMAIN, ignoreCase = true) || host.endsWith(".$DOMAIN", ignoreCase = true)
+
     fun isExtensionOrigin(origin: String, id: String): Boolean = origin.equals(originFor(id), ignoreCase = true)
 }

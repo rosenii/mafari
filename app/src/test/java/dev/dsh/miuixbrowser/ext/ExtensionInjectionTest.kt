@@ -119,6 +119,24 @@ class ExtensionInjectionTest {
         assertTrue(plan.script.contains("function helper(){return 1}\n;\nhelper()"))
     }
 
+
+    @Test fun dynamicContentScriptsAreMergedIntoDocumentStartPlan() {
+        val e = ext(mf("[]"), "dynamic.js" to "window.dynamicInjected = true;")
+        val dynamic = ContentScriptSpec(
+            matches = listOf(MatchPattern.parse("https://example.com/*")!!),
+            excludeMatches = emptyList(),
+            js = listOf("dynamic.js"),
+            css = emptyList(),
+            runAt = RunAt.DOCUMENT_START,
+            allFrames = false,
+            matchAboutBlank = false,
+            world = ScriptWorld.ISOLATED,
+        )
+        val plan = ExtensionInjection.build(e, "function(c,e){}", ExtensionInjection.fileReader(e.rootDir), listOf(dynamic))!!
+        assertTrue(plan.originRules.contains("https://example.com"))
+        assertTrue(plan.script.contains("window.dynamicInjected = true;"))
+    }
+
     @Test fun pagePlanUsesOnlyTheExtensionOriginAndPageMode() {
         val e = ext(mf("[]"))
         val plan = ExtensionInjection.buildPage(e, "function(c,e){}")

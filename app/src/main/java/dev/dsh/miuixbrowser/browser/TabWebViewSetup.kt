@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import dev.dsh.miuixbrowser.adblock.AdBlock
+import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.adblock.AdBlockBridge
 import dev.dsh.miuixbrowser.adblock.RequestLog
 import dev.dsh.miuixbrowser.crypto.TrustedChannel
@@ -260,9 +261,22 @@ internal fun BrowserTab.setupWebView() {
         }
 
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+            webExtensionResource(request) ?:
             if (incognito && !adblockInIncognito) null
             else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
                 ?.also { pageAdBlocked.incrementAndGet() }
+
+        /**
+         * 网页请求 `runtime.getURL()` 给出的拓展地址：只放行 web_accessible_resources。
+         * 先做廉价的主机名判断，只有真的是拓展域名才去碰（可能尚未初始化的）拓展系统；无痕标签不跑拓展。
+         * 页面网址取标签自己记录的 [url]，不在 IO 线程上调用 WebView 的方法，也不信任页面自报。
+         */
+        private fun webExtensionResource(request: WebResourceRequest): WebResourceResponse? {
+            if (incognito) return null
+            val host = request.url.host ?: return null
+            if (!dev.dsh.miuixbrowser.ext.ExtensionOrigins.isExtensionHost(host)) return null
+            return appContext.appContainer.webExtensions.webAccessibleResponse(request.url.toString(), url)
+        }
 
         override fun onReceivedSslError(view: WebView, handler: android.webkit.SslErrorHandler, error: android.net.http.SslError) {
             val errUrl = error.url.orEmpty()

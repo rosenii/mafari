@@ -48,6 +48,7 @@ internal class BrowserUiState {
     var scriptSheetShow by mutableStateOf(false)
     var translateSheetShow by mutableStateOf(false)
     var geckoExtSheetShow by mutableStateOf(false)
+    var webViewExtSheetShow by mutableStateOf(false)
     var requestSheetShow by mutableStateOf(false)
     var scriptMenuItems by mutableStateOf<List<ScriptMenuCommand>>(emptyList())
     var runningScripts by mutableStateOf<List<RunningScript>>(emptyList())

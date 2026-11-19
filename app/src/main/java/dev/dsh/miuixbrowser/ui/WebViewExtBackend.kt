@@ -39,8 +39,7 @@ internal fun webViewEnabledExtCount(system: ExtensionSystem): Int =
  * - 启停 / 卸载：交给 [ExtensionSystem.onInstalled] / [ExtensionSystem.onDisabled] / [ExtensionSystem.onUninstalled]；
  * - 任何改动后调 [onChanged]，让已打开的标签重新装配 content script（对下一次页面加载生效）。
  *
- * 暂未实现：拓展自己的设置页 / popup 的界面承载（[ExtensionSystem.pages] 已能创建页面，缺少显示它的 UI）、商店搜索、
- * 隐私浏览（无痕标签一律不装拓展）。
+ * 快捷菜单 popup 由 WebViewExtMenuSheet 直接承载；商店搜索与隐私浏览（无痕标签一律不装拓展）暂未支持。
  */
 class WebViewExtBackend(
     private val system: ExtensionSystem,
@@ -98,7 +97,7 @@ class WebViewExtBackend(
             version = s.version,
             description = s.description,
             enabled = e.enabled,
-            // 设置页需要一个能显示拓展页面的界面，目前没有：先不给入口
+            // Options 页面暂时没有独立管理入口；快捷菜单 popup 由 WebViewExtMenuSheet 承载。
             optionsUrl = null,
             permissions = describePermissions(e),
             notes = compatNotes(e),

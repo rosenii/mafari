@@ -24,6 +24,7 @@ object PermissionChecker {
     /** API 前缀 → 需要的权限（任一即可）。空集 = 无需权限。按最长前缀匹配 */
     private val REQUIRED: Map<String, Set<String>> = mapOf(
         "runtime." to emptySet(),
+        "permissions." to emptySet(),
         "i18n." to emptySet(),
         "extension." to emptySet(),
         "action." to emptySet(),

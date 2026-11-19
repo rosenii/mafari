@@ -18,10 +18,18 @@ class MessageBrokerTest {
         override val extId: String = TestExt.ID,
         override val kind: SenderKind = SenderKind.EXTENSION_PAGE,
         val accepts: Boolean = true,
+        override val tabId: Int? = null,
     ) : MessageEndpoint {
+        override val portPriority: Int get() = if (contextId == "background") 100 else 0
         val got = ArrayList<Triple<String, Any?, JSONObject>>()
         override fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean {
             got.add(Triple(cid, message, sender))
+            return accepts
+        }
+        override fun deliverPort(type: String, portId: String, name: String, sender: JSONObject, message: Any?): Boolean {
+            val payload = JSONObject().put("type", type).put("portId", portId).put("name", name).put("sender", sender)
+            if (type == "portMessage") payload.put("message", message ?: JSONObject.NULL)
+            got.add(Triple("port:$portId", payload, sender))
             return accepts
         }
     }
@@ -138,6 +146,33 @@ class MessageBrokerTest {
         assertNull(router.find("runtime.hello")!!.handle(c, org.json.JSONArray()))
     }
 
+
+    @Test fun tabsSendMessageTargetsOnlyTheRequestedTab() = runBlocking {
+        var n = 0
+        val b = MessageBroker(timeoutMs = 5000, newCid = { "tab${++n}" })
+        val tab7 = Ep("content:7", kind = SenderKind.CONTENT_SCRIPT, tabId = 7)
+        val tab8 = Ep("content:8", kind = SenderKind.CONTENT_SCRIPT, tabId = 8)
+        val bg = Ep("background")
+        b.register(tab7); b.register(tab8); b.register(bg)
+        val ext = TestExt.make(File(tmp.root, "tabs-message"))
+        val ctx = CallContext(ext, pageSender("popup"), "tabs.sendMessage")
+        val result = async { b.sendToTab(ctx, 7, JSONObject("""{"hello":true}""")) }
+        yield()
+        assertEquals(1, tab7.got.size)
+        assertEquals(0, tab8.got.size)
+        assertEquals(0, bg.got.size)
+        val cid = tab7.got.single().first
+        b.reply(TestExt.ID, cid, "received", false)
+        assertEquals("received", result.await())
+    }
+
+    @Test fun tabsSendMessageWithoutContentScriptReturnsNoReceiver() = runBlocking {
+        val b = MessageBroker(timeoutMs = 100)
+        val ext = TestExt.make(File(tmp.root, "tabs-message-none"))
+        val ctx = CallContext(ext, pageSender("popup"), "tabs.sendMessage")
+        assertEquals(ErrorCodes.NO_RECEIVER, code { runBlocking { b.sendToTab(ctx, 123, "x") } })
+    }
+
     @Test fun unregisterRemovesContexts() {
         val b = MessageBroker()
         b.register(Ep("a")); b.register(Ep("b", extId = "o@x"))
@@ -145,6 +180,52 @@ class MessageBrokerTest {
         assertEquals(0, b.endpointCount(TestExt.ID))
         b.unregisterExtension("o@x")
         assertEquals(0, b.endpointCount("o@x"))
+    }
+
+    @Test fun runtimeConnectCreatesBidirectionalPortAndDisconnectsBothSides() {
+        val b = MessageBroker(newCid = { "port-1" })
+        val content = Ep("content:${TestExt.ID}:7", kind = SenderKind.CONTENT_SCRIPT, tabId = 7)
+        val background = Ep("background")
+        val popup = Ep("popup")
+        b.register(content); b.register(background); b.register(popup)
+        val ext = TestExt.make(File(tmp.root, "port-connect"))
+        val ctx = CallContext(ext, csSender(), "runtime.connect")
+        val id = b.openPort(ctx, "native-test")
+        assertEquals("port-1", id)
+        assertEquals(1, background.got.size)
+        assertEquals(0, popup.got.size)
+        val connectPayload = background.got.single().second as JSONObject
+        assertEquals("portConnect", connectPayload.getString("type"))
+        assertEquals("native-test", connectPayload.getString("name"))
+
+        b.sendPortMessage(ctx, id, JSONObject("""{"from":"content"}"""))
+        val backgroundMessage = background.got.last().second as JSONObject
+        assertEquals("portMessage", backgroundMessage.getString("type"))
+        assertEquals("content", backgroundMessage.getJSONObject("message").getString("from"))
+
+        val pageCtx = CallContext(ext, pageSender("background"), "runtime.port.postMessage")
+        b.sendPortMessage(pageCtx, id, "reply")
+        val contentMessage = content.got.last().second as JSONObject
+        assertEquals("portMessage", contentMessage.getString("type"))
+        assertEquals("reply", contentMessage.getString("message"))
+
+        b.closePortFromContext(pageCtx, id)
+        assertEquals("portDisconnect", (background.got.last().second as JSONObject).getString("type"))
+        assertEquals("portDisconnect", (content.got.last().second as JSONObject).getString("type"))
+        assertEquals(ErrorCodes.NO_RECEIVER, code { b.sendPortMessage(ctx, id, "after-close") })
+    }
+
+    @Test fun unregisteringPortEndpointClosesItsConnections() {
+        val b = MessageBroker(newCid = { "port-2" })
+        val content = Ep("content:${TestExt.ID}:7", kind = SenderKind.CONTENT_SCRIPT, tabId = 7)
+        val background = Ep("background")
+        b.register(content); b.register(background)
+        val ext = TestExt.make(File(tmp.root, "port-unregister"))
+        val ctx = CallContext(ext, csSender(), "runtime.connect")
+        val id = b.openPort(ctx, "")
+        b.unregister("background")
+        assertEquals("portDisconnect", (content.got.last().second as JSONObject).getString("type"))
+        assertEquals(ErrorCodes.NO_RECEIVER, code { b.sendPortMessage(ctx, id, "x") })
     }
 
     @Test fun compositeSinkIsolatesFailures() {

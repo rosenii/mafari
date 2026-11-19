@@ -4,6 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -52,6 +55,12 @@ class ExtensionPageHost(
     /** 后台页就绪 / 消失的通知（主线程回调）。就绪 = onPageFinished 且握手完成，缺一不可：只有握手后才有回复通道可投递 */
     @Volatile var backgroundListener: BackgroundListener? = null
 
+    /**
+     * 拓展页面里点了外链（http / https，且带用户手势）时回调 (extId, url)，由 UI 层用普通标签打开。
+     * 页面自己永远不会被导航到别的站点；没设置回调时外链被直接丢弃。
+     */
+    @Volatile var externalLinkHandler: ((extId: String, url: String) -> Unit)? = null
+
     fun isSupported(): Boolean = runCatching {
         WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -65,8 +74,16 @@ class ExtensionPageHost(
         val webView: WebView,
     ) : MessageEndpoint {
         override val kind: SenderKind = SenderKind.EXTENSION_PAGE
+        override val portPriority: Int = when (pageKind) {
+            PageKind.BACKGROUND -> 100
+            PageKind.POPUP -> 50
+            PageKind.OPTIONS -> 10
+        }
 
         @Volatile internal var reply: JavaScriptReplyProxy? = null
+
+        /** 页面调用 `window.close()`（popup 常用来关闭自己）时在主线程回调；后台页不设置，等于忽略 */
+        @Volatile var onCloseRequested: (() -> Unit)? = null
         internal var registered = false
         internal var finished = false // 主框架 onPageFinished 过（主线程访问）
         internal var readyNotified = false // 已通知过 backgroundListener（主线程访问）
@@ -80,6 +97,14 @@ class ExtensionPageHost(
                 .put("sender", sender)
                 .toString()
             post(r, text)
+            return true
+        }
+
+        override fun deliverPort(type: String, portId: String, name: String, sender: JSONObject, message: Any?): Boolean {
+            val r = reply ?: return false
+            val payload = JSONObject().put("type", type).put("portId", portId).put("name", name).put("sender", sender)
+            if (type == "portMessage") payload.put("message", message ?: JSONObject.NULL)
+            post(r, payload.toString())
             return true
         }
 
@@ -113,8 +138,13 @@ class ExtensionPageHost(
                     loader.shouldInterceptRequest(request.url)
 
                 // 拓展页面不允许自己导航到别的站点（外链交给 UI 层用标签打开）
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                    !request.url.toString().startsWith("$origin/")
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val target = request.url.toString()
+                    if (target.startsWith("$origin/")) return false
+                    val web = target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)
+                    if (web && request.hasGesture()) externalLinkHandler?.invoke(id, target)
+                    return true
+                }
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (url != null && url.startsWith("$origin/")) {
@@ -123,6 +153,18 @@ class ExtensionPageHost(
                     }
                 }
             })
+            webView.webChromeClient = object : WebChromeClient() {
+                override fun onCloseWindow(window: WebView?) {
+                    page.onCloseRequested?.invoke()
+                }
+
+                // 拓展页面的 console 输出对调试拓展至关重要；截断避免刷屏
+                override fun onConsoleMessage(m: ConsoleMessage): Boolean {
+                    log("ext $id ${page.pageKind.name.lowercase()} console.${m.messageLevel().name.lowercase()}: " +
+                        "${m.message().take(500)} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})")
+                    return true
+                }
+            }
             WebViewCompat.addWebMessageListener(webView, plan.bridgeName, plan.originRules) { _, message, sourceOrigin, isMainFrame, reply ->
                 onPageMessage(page, message, sourceOrigin.toString(), isMainFrame, reply)
             }
@@ -188,8 +230,11 @@ class ExtensionPageHost(
         if (backgrounds[page.extId] === page) backgrounds.remove(page.extId)
         broker.unregister(page.contextId)
         page.reply = null
+        page.onCloseRequested = null
         runCatching {
             page.webView.stopLoading()
+            // popup 的 WebView 可能还挂在 Sheet 的视图树上：先摘下来再销毁，否则系统会报「destroy while still attached」
+            (page.webView.parent as? ViewGroup)?.removeView(page.webView)
             page.webView.destroy()
         }
     }

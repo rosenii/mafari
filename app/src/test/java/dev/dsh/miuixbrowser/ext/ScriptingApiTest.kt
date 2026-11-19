@@ -17,6 +17,7 @@ class ScriptingApiTest {
     private val repo = FakeRepo()
     private lateinit var runtime: ExtensionRuntime
     private lateinit var extDir: File
+    private lateinit var dynamicStore: DynamicContentScriptStore
     private var tabG = 0 // granted.com
     private var tabO = 0 // other.com
 
@@ -27,7 +28,8 @@ class ScriptingApiTest {
 
     @Before fun setUp() {
         val router = ApiRouter()
-        ScriptingApi({ bridge }, pollIntervalMs = 1, timeoutMs = 300, newToken = { "tok" }).register(router)
+        dynamicStore = DynamicContentScriptStore()
+        ScriptingApi({ bridge }, dynamicStore, pollIntervalMs = 1, timeoutMs = 300, newToken = { "tok" }).register(router)
         runtime = ExtensionRuntime(repo, router)
         extDir = tmp.newFolder("ext")
         install()
@@ -39,10 +41,10 @@ class ScriptingApiTest {
         repo.put(TestExt.make(extDir, manifest = manifest, granted = granted))
     }
 
-    private fun call(api: String, details: JSONObject?, sender: Sender = pageSender): JSONObject = runBlocking {
-        val arr = JSONArray()
-        if (details != null) arr.put(details)
-        val raw = JSONObject().put("extId", TestExt.ID).put("id", "1").put("api", api).put("args", arr).toString()
+    private fun call(api: String, details: JSONObject?, sender: Sender = pageSender): JSONObject = callArgs(api, if (details == null) JSONArray() else JSONArray().put(details), sender)
+
+    private fun callArgs(api: String, args: JSONArray, sender: Sender = pageSender): JSONObject = runBlocking {
+        val raw = JSONObject().put("extId", TestExt.ID).put("id", "1").put("api", api).put("args", args).toString()
         JSONObject(runtime.handle(raw, sender))
     }
 
@@ -153,8 +155,42 @@ class ScriptingApiTest {
         assertEquals(ErrorCodes.BAD_REQUEST, code(call("scripting.executeScript", null)))
     }
 
-    @Test fun registerContentScriptsIsNotImplementedYet() {
-        assertEquals(ErrorCodes.UNSUPPORTED, code(call("scripting.registerContentScripts", null)))
+    @Test fun registerGetUpdateAndUnregisterDynamicContentScripts() {
+        File(extDir, "dynamic.js").writeText("window.dynamicLoaded = true;")
+        val entry = JSONObject()
+            .put("id", "dynamic-1")
+            .put("matches", JSONArray(listOf("https://granted.com/*")))
+            .put("js", JSONArray(listOf(JSONObject().put("file", "dynamic.js"))))
+            .put("runAt", "document_start")
+        val register = callArgs("scripting.registerContentScripts", JSONArray().put(entry))
+        assertTrue(register.toString(), register.getBoolean("ok"))
+        val get = callArgs("scripting.getRegisteredContentScripts", JSONArray())
+        assertEquals("dynamic-1", get.getJSONArray("result").getJSONObject(0).getString("id"))
+        val update = JSONObject().put("id", "dynamic-1").put("runAt", "document_end")
+        assertTrue(callArgs("scripting.updateContentScripts", JSONArray().put(update)).getBoolean("ok"))
+        assertEquals("document_end", callArgs("scripting.getRegisteredContentScripts", JSONArray()).getJSONArray("result").getJSONObject(0).getString("runAt"))
+        assertTrue(callArgs("scripting.unregisterContentScripts", JSONArray().put(JSONObject().put("ids", JSONArray(listOf("dynamic-1"))))).getBoolean("ok"))
+        assertEquals(0, callArgs("scripting.getRegisteredContentScripts", JSONArray()).getJSONArray("result").length())
+    }
+
+    @Test fun dynamicContentScriptsCannotExceedGrantedHostPermissions() {
+        val entry = JSONObject()
+            .put("id", "bad")
+            .put("matches", JSONArray(listOf("https://other.com/*")))
+            .put("js", JSONArray(listOf("dynamic.js")))
+        val result = callArgs("scripting.registerContentScripts", JSONArray().put(entry))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, code(result))
+    }
+
+    @Test fun dynamicContentScriptsPersistAcrossSessionsByDefault() {
+        File(extDir, "dynamic.js").writeText("window.dynamicLoaded = true;")
+        val entry = JSONObject()
+            .put("id", "persisted")
+            .put("matches", JSONArray(listOf("https://granted.com/*")))
+            .put("js", JSONArray(listOf("dynamic.js")))
+        assertTrue(callArgs("scripting.registerContentScripts", JSONArray().put(entry)).getBoolean("ok"))
+        val reloadedStore = DynamicContentScriptStore()
+        assertEquals("persisted", reloadedStore.all(repo.get(TestExt.ID)!!).single().id)
     }
 
     // ───── files ─────

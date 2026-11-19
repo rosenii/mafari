@@ -17,7 +17,7 @@ function (CFG, ENTRIES) {
   var cerr = (win.console && win.console.error) ? win.console.error.bind(win.console) : function () { };
 
   // ───────────── 与原生通信 ─────────────
-  var nextId = 1, pending = {};
+  var nextId = 1, pending = {}, ports = {}, pendingPorts = {};
   function rpc(api, args) {
     return new P(function (resolve, reject) {
       var id = String(nextId++);
@@ -36,7 +36,7 @@ function (CFG, ENTRIES) {
   // 早于监听器注册到达的事件先缓存（只缓存下面 BUFFERED 里的几种，每种最多 BUF_MAX 条，页面启动 BUF_MS 之后不再缓存），
   // 第一个监听器注册时统一补投。常见时序：后台页的脚本是异步加载 / 动态 import 的，原生已经把 onStartup / onAlarm 送到了。
   var BUF = {}, BUF_MAX = 32, BUF_MS = 5000;
-  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'alarms.onAlarm': 1 };
+  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'alarms.onAlarm': 1 };
   function ev(name) {
     return {
       addListener: function (f) {
@@ -100,7 +100,10 @@ function (CFG, ENTRIES) {
       return;
     }
     if (typeof m.event === 'string') { dispatchEvent(m.event, m.payload); return; }
-    if (m.type === 'message') deliverMessage(m);
+    if (m.type === 'message') { deliverMessage(m); return; }
+    if (m.type === 'portConnect') { receivePortConnect(m); return; }
+    if (m.type === 'portMessage') { receivePortMessage(m); return; }
+    if (m.type === 'portDisconnect') { receivePortDisconnect(m); return; }
   }
   bridge.onmessage = function (e) { onNative(e && e.data); };
 
@@ -122,6 +125,78 @@ function (CFG, ENTRIES) {
       else if (r && typeof r.then === 'function') { async = true; r.then(function (v) { reply(v); }, function () { reply(undefined); }); }
     });
     if (!async) reply(undefined);
+  }
+
+  // runtime.connect / Port。Port 在 JS 侧同步返回；底层连接异步建立，建立前 postMessage 会排队。
+  function makePort(id, name, sender, remote) {
+    var msgListeners = [], disconnectListeners = [];
+    function eventFor(list) {
+      return {
+        addListener: function (f) { if (typeof f === 'function' && list.indexOf(f) < 0) list.push(f); },
+        removeListener: function (f) { var i = list.indexOf(f); if (i >= 0) list.splice(i, 1); },
+        hasListener: function (f) { return list.indexOf(f) >= 0; }
+      };
+    }
+    function notify(list, args) { list.slice().forEach(function (f) { try { f.apply(null, args); } catch (e) { cerr(e); } }); }
+    var p = {
+      name: name || '',
+      sender: sender || undefined,
+      onMessage: eventFor(msgListeners),
+      onDisconnect: eventFor(disconnectListeners),
+      postMessage: function (message) {
+        if (p._closed) throw new E('Attempting to use a disconnected port object');
+        if (!p._id) { p._queue.push(message); return; }
+        rpc('runtime.port.postMessage', [p._id, message]).catch(function (e) { cerr(e); });
+      },
+      disconnect: function () {
+        if (p._closed) return;
+        if (!p._id) { p._close(); return; }
+        rpc('runtime.port.disconnect', [p._id]).catch(function () { p._close(); });
+      },
+      _id: id || null,
+      _queue: [],
+      _closed: false,
+      _message: function (message) { if (!p._closed) notify(msgListeners, [message, p]); },
+      _close: function () {
+        if (p._closed) return;
+        p._closed = true;
+        if (p._id) delete ports[p._id];
+        notify(disconnectListeners, [p]);
+      }
+    };
+    if (id) ports[id] = p;
+    return p;
+  }
+  function receivePortConnect(m) {
+    if (!m.portId || ports[m.portId]) return;
+    var p = makePort(m.portId, m.name, m.sender, true);
+    deliverEvent('runtime.onConnect', [p]);
+  }
+  function receivePortMessage(m) {
+    var p = ports[m.portId];
+    if (p) p._message(m.message);
+  }
+  function receivePortDisconnect(m) {
+    var p = ports[m.portId];
+    if (p) p._close();
+  }
+  function connect() {
+    var a = slice.call(arguments), target = null, info = null;
+    if (typeof a[0] === 'string') { target = a[0]; info = a[1] || {}; }
+    else info = a[0] || {};
+    if (target && target !== CFG.extId) throw new E('Connecting to another extension is not supported');
+    var p = makePort(null, info.name || '', null, false);
+    rpc('runtime.connect', [target, info]).then(function (id) {
+      if (p._closed) { rpc('runtime.port.disconnect', [id]).catch(function () {}); return; }
+      p._id = id;
+      ports[id] = p;
+      var q = p._queue.splice(0);
+      q.forEach(function (message) { p.postMessage(message); });
+    }, function (err) {
+      p._close();
+      cerr(err);
+    });
+    return p;
   }
 
   // ───────────── chrome 回调风格封装 ─────────────
@@ -179,8 +254,9 @@ function (CFG, ENTRIES) {
     getURL: getURL,
     getManifest: function () { return jparse(manifestJson); },
     getPlatformInfo: promised(function () { return rpc('runtime.getPlatformInfo', []); }),
+    openOptionsPage: promised(function () { return rpc('runtime.openOptionsPage', []); }),
     sendMessage: promised(sendMessage),
-    connect: function () { throw new E('runtime.connect is not supported yet'); },
+    connect: connect,
     onMessage: ev('runtime.onMessage'),
     onConnect: ev('runtime.onConnect'),
     onStartup: ev('runtime.onStartup'),
@@ -281,8 +357,10 @@ function (CFG, ENTRIES) {
       }),
       goBack: promised(function (tabId) { return rpc('tabs.goBack', [nul(tabId)]); }),
       goForward: promised(function (tabId) { return rpc('tabs.goForward', [nul(tabId)]); }),
-      // 还没有按标签的连接记录：明确报错，而不是让拓展调到 undefined 直接崩
-      sendMessage: promised(function () { return P.reject(new E('tabs.sendMessage is not supported yet')); }),
+      // 向指定标签已注入的 content script 发送一次性消息；原生只路由到该标签，不广播。
+      sendMessage: promised(function (tabId, message, options) {
+        return rpc('tabs.sendMessage', [tabId, message === undefined ? null : message, nul(options)]);
+      }),
       onCreated: ev('tabs.onCreated'),
       onUpdated: ev('tabs.onUpdated'),
       onRemoved: ev('tabs.onRemoved'),
@@ -326,7 +404,13 @@ function (CFG, ENTRIES) {
     };
   }
 
-  var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext };
+  // permissions：只实现只读查询。request/remove 需要原生权限确认 UI，暂不伪装成功。
+  var permissions = {
+    getAll: promised(function () { return rpc('permissions.getAll', []); }),
+    contains: promised(function (p) { return rpc('permissions.contains', [p === undefined ? {} : p]); })
+  };
+
+  var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext, permissions: permissions };
   if (alarms) browser.alarms = alarms;
   if (tabs) browser.tabs = tabs;
   if (scripting) browser.scripting = scripting;
@@ -340,14 +424,15 @@ function (CFG, ENTRIES) {
       onChanged: storage.onChanged
     },
     i18n: cbObj(i18n),
-    extension: ext
+    extension: ext,
+    permissions: cbObj(permissions)
   };
   if (alarms) chrome.alarms = cbObj(alarms);
   if (tabs) chrome.tabs = cbObj(tabs);
   if (scripting) chrome.scripting = cbObj(scripting);
 
-  // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上，
-  // 并发一次握手，让原生拿到回复通道（之后才能向本页面投递 runtime.onMessage）。
+  // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上。
+  // 所有上下文都握手：原生由此登记当前标签里的 content script，供 tabs.sendMessage 定向投递。
   // content script 里不挂全局：它们只通过参数拿到 browser / chrome。
   if (CFG.page) {
     var defGlobal = function (k, v) {
@@ -355,6 +440,8 @@ function (CFG, ENTRIES) {
     };
     defGlobal('browser', browser);
     defGlobal('chrome', chrome);
+  }
+  if (CFG.page || CFG.tabId !== undefined && CFG.tabId !== null) {
     rpc('runtime.hello', []).catch(function () { });
   }
 

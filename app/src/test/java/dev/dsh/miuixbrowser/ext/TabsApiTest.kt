@@ -23,6 +23,7 @@ class TabsApiTest {
     private val bridge = FakeTabBridge()
     private val sink = RecSink()
     private val repo = FakeRepo()
+    private val broker = MessageBroker(timeoutMs = 500)
     private lateinit var api: TabsApi
     private lateinit var runtime: ExtensionRuntime
     private var tabA = 0 // granted.com，前台
@@ -34,7 +35,7 @@ class TabsApiTest {
     }
 
     @Before fun setUp() {
-        api = TabsApi(sink) { repo.list().filter { it.enabled } }
+        api = TabsApi(sink, { repo.list().filter { it.enabled } }, broker)
         val router = ApiRouter()
         api.register(router)
         runtime = ExtensionRuntime(repo, router)
@@ -130,6 +131,32 @@ class TabsApiTest {
     }
 
     // ───── get / create / update / remove ─────
+
+
+    @Test fun sendMessageRoutesOnlyToTheRequestedTabContentScript() {
+        install()
+        val target = object : MessageEndpoint {
+            override val contextId = "content:${TestExt.ID}:$tabA"
+            override val extId = TestExt.ID
+            override val kind = SenderKind.CONTENT_SCRIPT
+            override val tabId = tabA
+            override fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean {
+                assertEquals("hello", message as String)
+                assertEquals(TestExt.ID, sender.getString("id"))
+                broker.reply(extId, cid, "world", false)
+                return true
+            }
+        }
+        broker.register(target)
+        val result = call("tabs.sendMessage", tabA, "hello").result()
+        assertEquals("world", result)
+    }
+
+    @Test fun sendMessageWithoutInjectedContentScriptReturnsNoReceiver() {
+        install()
+        val result = call("tabs.sendMessage", tabA, "hello")
+        assertEquals(ErrorCodes.NO_RECEIVER, result.getJSONObject("error").getString("code"))
+    }
 
     @Test fun getAndMissingTab() {
         install(setOf("tabs"))

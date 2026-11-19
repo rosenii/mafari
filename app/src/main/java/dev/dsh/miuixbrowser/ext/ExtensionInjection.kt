@@ -33,7 +33,13 @@ object ExtensionInjection {
      * [shim] 是 assets/mafari_ext_shim.js 全文；[readText] 按拓展包内的相对路径读文本（读不到返回 null）。
      * 没有任何可注入的 content script 时返回 null。
      */
-    fun build(ext: InstalledExtension, shim: String, readText: (String) -> String?): InjectionPlan? {
+    fun build(
+        ext: InstalledExtension,
+        shim: String,
+        readText: (String) -> String?,
+        dynamicContentScripts: List<ContentScriptSpec> = emptyList(),
+        tabId: Int? = null,
+    ): InjectionPlan? {
         val spec = ext.spec
         val warnings = mutableListOf<String>()
         val manifest = try {
@@ -46,7 +52,7 @@ object ExtensionInjection {
         val rules = linkedSetOf<String>()
         var count = 0
 
-        for (cs in spec.contentScripts) {
+        for (cs in spec.contentScripts + dynamicContentScripts) {
             val origin = cs.matches.flatMap { it.toOriginRules() }
             if (origin.isEmpty()) {
                 warnings.add("content script 的 matches 不含 http(s)，已跳过：${cs.matches.joinToString()}")
@@ -82,6 +88,7 @@ object ExtensionInjection {
             .put("bridge", bridge)
             .put("origin", ExtensionOrigins.originFor(spec.id))
             .put("manifest", loc.localizedManifest())
+        tabId?.let { cfg.put("tabId", it) }
         loc.injectable(warnings)?.let { cfg.put("i18n", it) }
         return InjectionPlan(spec.id, bridge, effective, assemble(shim, cfg, entries.toString()), warnings)
     }

@@ -7,14 +7,13 @@ import kotlin.math.abs
 /**
  * `tabs.*` 的处理器，建在 [TabBridge] 之上。
  *
- * 已实现：query / get / getCurrent / create / update / remove / reload / goBack / goForward，
+ * 已实现：query / get / getCurrent / create / update / remove / reload / goBack / goForward / sendMessage（仅主框架），
  * 以及 onCreated / onUpdated / onRemoved / onActivated 事件。
- * 未实现：`tabs.sendMessage`（需要把消息投递到某个标签里的 content script，要先有按标签的连接记录，单独一步做）、
- * move / duplicate / group / captureVisibleTab 等，调用会回 UNSUPPORTED。
+ * 未实现：move / duplicate / group / captureVisibleTab 等，调用会回 UNSUPPORTED。
  *
  * 安全约束：
  * - 只有拓展自己的页面能调（[PermissionChecker] 已限制 content script），所以不存在「网页借拓展读别的标签」；
- * - url / title / favIconUrl 只在有 `tabs` 权限、对该网址有 host 权限、或是本拓展自己的页面时才回给拓展，
+ * - url / title / favIconUrl 只在有 `tabs` 权限、对该网址有 host 权限、用户刚用 activeTab 授权了该标签、或是本拓展自己的页面时才回给拓展，
  *   用 url / title 当查询条件时也只匹配这些「看得到」的标签，否则能靠过滤结果猜出看不到的网址；
  * - create / update 的网址过 [TabUrlPolicy]；
  * - [events] 必须是**只发往拓展页面**的 sink（传 ExtensionPageHost，不要传包含标签页 content script 的 CompositeEventSink），
@@ -24,6 +23,9 @@ class TabsApi(
     private val events: EventSink,
     /** 当前启用、在 WebView 上运行的拓展：事件要按各自的权限分别序列化 */
     private val extensions: () -> List<InstalledExtension>,
+    private val messages: MessageBroker,
+    /** 用户点击拓展后临时授予的「当前标签」访问：让 url / title 对该标签可见；null = 不支持 activeTab */
+    private val activeTab: ActiveTabGrants? = null,
 ) : TabEventListener {
 
     @Volatile private var bridge: TabBridge? = null
@@ -48,6 +50,12 @@ class TabsApi(
     /** 给同样要用标签桥接的模块（scripting 等）共用同一个连接，没接上时为 null */
     fun bridgeOrNull(): TabBridge? = bridge
 
+    /** 该标签此刻是否被用户用 activeTab 授权给这个拓展（需声明并获授 activeTab） */
+    private fun activeGranted(ext: InstalledExtension, t: TabInfo): Boolean =
+        activeTab != null &&
+            "activeTab" in PermissionChecker.effectivePermissions(ext) &&
+            activeTab.isGranted(ext.spec.id, t.id, t.url)
+
     private fun bridge(): TabBridge =
         bridge ?: throw ApiException(ErrorCodes.UNSUPPORTED, "标签页暂不可用")
 
@@ -55,15 +63,30 @@ class TabsApi(
         router.register("tabs.query") { ctx, a ->
             val filter = TabQuery.parse(a.argOrNull(0) as? JSONObject ?: JSONObject())
             val out = JSONArray()
-            for (t in bridge().list()) if (filter.matches(ctx.ext, t)) out.put(toJson(ctx.ext, t))
+            for (t in bridge().list()) {
+                val granted = activeGranted(ctx.ext, t)
+                if (filter.matches(ctx.ext, t, granted)) out.put(toJson(ctx.ext, t, granted))
+            }
             out
         }
         router.register("tabs.get") { ctx, a ->
             val id = toInt(a.argOrNull(0), "tabId")
-            toJson(ctx.ext, bridge().get(id) ?: throw noTab(id))
+            val tab = bridge().get(id) ?: throw noTab(id)
+            toJson(ctx.ext, tab, activeGranted(ctx.ext, tab))
         }
         // 拓展页面不是标签页，Chrome 里同样返回 undefined
         router.register("tabs.getCurrent") { _, _ -> null }
+        router.register("tabs.sendMessage") { ctx, a ->
+            val tabId = toInt(a.argOrNull(0), "tabId")
+            // tabId 必须是当前 WebView 普通标签；无痕 / Gecko / 已关闭标签不可被探测。
+            if (bridge().get(tabId) == null) throw noTab(tabId)
+            val options = a.argOrNull(2) as? JSONObject
+            val frameId = options?.intOrNull("frameId")
+            if (frameId != null && frameId != 0) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "WebView 扩展消息目前只支持主框架 frameId 0")
+            }
+            messages.sendToTab(ctx, tabId, a.argOrNull(1))
+        }
 
         router.register("tabs.create") { ctx, a ->
             val p = a.argOrNull(0) as? JSONObject ?: JSONObject()
@@ -72,7 +95,8 @@ class TabsApi(
             val active = p.boolOrNull("active") ?: p.boolOrNull("selected") ?: true
             val opener = p.intOrNull("openerTabId")
             if (opener != null && bridge().get(opener) == null) throw noTab(opener)
-            toJson(ctx.ext, bridge().create(TabCreateOptions(url, active, opener)))
+            val tab = bridge().create(TabCreateOptions(url, active, opener))
+            toJson(ctx.ext, tab, activeGranted(ctx.ext, tab))
         }
         router.register("tabs.update") { ctx, a ->
             val id = resolveTabId(a.argOrNull(0))
@@ -80,7 +104,8 @@ class TabsApi(
             val url = p.stringOrNull("url")?.let { TabUrlPolicy.normalize(ctx.ext.spec.id, it) }
             // highlighted:true 在单窗口里等同于激活；pinned / muted / autoDiscardable 等没有对应概念，按空操作处理
             val active = p.boolOrNull("active") ?: p.boolOrNull("selected") ?: p.boolOrNull("highlighted")
-            toJson(ctx.ext, bridge().update(id, TabUpdateOptions(url, active)) ?: throw noTab(id))
+            val tab = bridge().update(id, TabUpdateOptions(url, active)) ?: throw noTab(id)
+            toJson(ctx.ext, tab, activeGranted(ctx.ext, tab))
         }
         router.register("tabs.remove") { _, a ->
             val ids = when (val v = a.argOrNull(0)) {
@@ -119,11 +144,11 @@ class TabsApi(
     // ------------------------------------------------------------------ 事件
 
     override fun onCreated(tab: TabInfo) = fanOut("tabs.onCreated") { ext ->
-        JSONObject().put("tab", toJson(ext, tab))
+        JSONObject().put("tab", toJson(ext, tab, activeGranted(ext, tab)))
     }
 
     override fun onUpdated(tab: TabInfo, change: TabChange) = fanOut("tabs.onUpdated") { ext ->
-        val see = canSeeDetails(ext, tab.url)
+        val see = canSeeDetails(ext, tab.url, activeGranted(ext, tab))
         val info = JSONObject()
         change.status?.let { info.put("status", it) }
         if (see) {
@@ -133,7 +158,7 @@ class TabsApi(
         }
         // 变化的全是看不到的字段：这个拓展不该收到事件（连「有变化」本身都不泄露）
         if (info.length() == 0) null
-        else JSONObject().put("tabId", tab.id).put("changeInfo", info).put("tab", toJson(ext, tab))
+        else JSONObject().put("tabId", tab.id).put("changeInfo", info).put("tab", toJson(ext, tab, activeGranted(ext, tab)))
     }
 
     override fun onRemoved(tabId: Int) = fanOut("tabs.onRemoved") { _ ->
@@ -164,11 +189,11 @@ class TabsApi(
         const val WINDOW_ID_NONE = -1
 
         /** url / title / favIconUrl 能不能给这个拓展：tabs 权限、host 权限，或是它自己的页面 */
-        internal fun canSeeDetails(ext: InstalledExtension, url: String): Boolean =
-            PermissionChecker.canSeeTabDetails(ext, url) ||
+        internal fun canSeeDetails(ext: InstalledExtension, url: String, activeTabGranted: Boolean = false): Boolean =
+            activeTabGranted || PermissionChecker.canSeeTabDetails(ext, url) ||
                 url.startsWith(ExtensionOrigins.originFor(ext.spec.id) + "/", ignoreCase = true)
 
-        internal fun toJson(ext: InstalledExtension, t: TabInfo): JSONObject {
+        internal fun toJson(ext: InstalledExtension, t: TabInfo, activeTabGranted: Boolean = false): JSONObject {
             val o = JSONObject()
                 .put("id", t.id)
                 .put("index", t.index)
@@ -185,7 +210,7 @@ class TabsApi(
                 .put("groupId", -1)
                 .put("mutedInfo", JSONObject().put("muted", false))
             t.openerTabId?.let { o.put("openerTabId", it) }
-            if (canSeeDetails(ext, t.url)) {
+            if (canSeeDetails(ext, t.url, activeTabGranted)) {
                 o.put("url", t.url).put("title", t.title)
                 t.favIconUrl?.let { o.put("favIconUrl", it) }
             }
@@ -248,7 +273,7 @@ internal class TabQuery private constructor(
     private val urls: List<MatchPattern>?,
     private val title: Regex?,
 ) {
-    fun matches(ext: InstalledExtension, t: TabInfo): Boolean {
+    fun matches(ext: InstalledExtension, t: TabInfo, activeTabGranted: Boolean = false): Boolean {
         if (active != null && t.active != active) return false
         if (highlighted != null && t.active != highlighted) return false
         if (pinned == true || audible == true || muted == true || discarded == true || incognito == true) return false
@@ -262,7 +287,7 @@ internal class TabQuery private constructor(
         if (status != null && t.status != status) return false
         if (urls != null || title != null) {
             // 看不到网址的标签不参与 url / title 过滤，否则能靠过滤结果探测它
-            if (!TabsApi.canSeeDetails(ext, t.url)) return false
+            if (!TabsApi.canSeeDetails(ext, t.url, activeTabGranted)) return false
             if (urls != null && !MatchPattern.anyMatches(urls, t.url)) return false
             if (title != null && !title.matches(t.title)) return false
         }

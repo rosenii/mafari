@@ -1,6 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
 import dev.dsh.miuixbrowser.i18n.tr
+import dev.dsh.miuixbrowser.appContainer
 
 import dev.dsh.miuixbrowser.browser.UpdateSheet
 import dev.dsh.miuixbrowser.browser.HOME_QUICK_COLS
@@ -344,6 +345,15 @@ BrowserChunk {
                     onDismiss = { geckoExtSheetShow = false },
                 )
             }
+
+            WebViewExtMenuSheet(
+                show = webViewExtSheetShow,
+                backdrop = if (glassAvailable && settings.blurEnabled) glassBackdrop else null,
+                system = context.appContainer.webExtensions,
+                incognito = tab.incognito,
+                onChanged = { state.tabs.forEach { it.applyWebExtensions() } },
+                onDismiss = { webViewExtSheetShow = false },
+            )
 
             TranslateSheet(
                 show = translateSheetShow,

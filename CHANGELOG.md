@@ -3,6 +3,11 @@
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
 ## [2.1.61-canary]
+- 新增：底栏「更多」菜单中的「拓展」单击后，WebView 与 Gecko 一样打开拓展快捷菜单；长按仍进入 WebView 拓展管理页。
+- 新增：快捷菜单展示当前 WebView 可运行的已安装拓展、图标、启用状态与 popup 可用状态，并提供单项 / 全部启停。
+- 新增：点击声明了 `action.default_popup` / `browser_action.default_popup` 的拓展，在同一底部 Sheet 中打开其扩展页面 WebView；关闭 popup 时释放页面资源。
+- 限制：没有 popup 的拓展暂显示「没有快捷菜单」；`action.onClicked` / `browserAction.onClicked` 事件尚未实现，因此暂不能通过菜单触发纯后台型 action。
+- 限制：无痕标签不运行 WebView 拓展，快捷菜单显示对应提示；Gecko 快捷菜单行为保持不变。
 - 新增：webview实验性支持拓展
 - 调整：全局使用平滑圆角
 - 调整：重构BrowserState

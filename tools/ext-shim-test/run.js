@@ -230,6 +230,24 @@ test('runtime.sendMessage argument normalisation', () => {
   assert.deepStrictEqual(a[4], [null, 'ping', null]);
 });
 
+
+test('tabs.sendMessage forwards tabId, message and options to the native router', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true }), '[]'));
+  const p = env.sandbox.browser.tabs.sendMessage(42, { ping: true }, { frameId: 0 });
+  const call = env.posted.find((x) => x.api === 'tabs.sendMessage');
+  assert.deepStrictEqual(call.args, [42, { ping: true }, { frameId: 0 }]);
+  env.native({ id: call.id, ok: true, result: 'pong' });
+  assert.strictEqual(await p, 'pong');
+});
+
+test('content-script mode handshakes only when installed for a browser tab', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: false, tabId: 42 }), '[]'));
+  assert.strictEqual(env.sandbox.window.browser, undefined);
+  assert.ok(env.posted.some((x) => x.api === 'runtime.hello'));
+});
+
 test('runtime.onMessage: sync, return true + sendResponse, promise, and no listener', async () => {
   // 没有监听器
   let env = makeEnv();
@@ -282,13 +300,71 @@ test('getManifest is synchronous and returns a fresh copy; getURL and platform',
   assert.strictEqual(env.posted[0].api, 'runtime.getPlatformInfo');
 });
 
-test('connect is explicitly unsupported; unknown replies are ignored', () => {
+test('runtime.openOptionsPage uses the native API and supports promise + callback styles', async () => {
+  const env = makeEnv({ page: true });
+  env.run(assemble(cfg({ page: true }), entry(['window.p = browser.runtime.openOptionsPage(); chrome.runtime.openOptionsPage(function () { window.cb = true; });'])));
+  const calls = env.posted.filter((x) => x.api === 'runtime.openOptionsPage');
+  assert.strictEqual(calls.length, 2);
+  assert.deepStrictEqual(calls.map((x) => x.args), [[], []]);
+  env.native({ id: calls[0].id, ok: true, result: null });
+  env.native({ id: calls[1].id, ok: true, result: null });
+  await env.sandbox.p;
+  await tick();
+  assert.strictEqual(env.sandbox.cb, true);
+});
+
+test('permissions API exposes promise and chrome callback query methods', async () => {
   const env = makeEnv();
-  env.run(assemble(cfg(), entry(['try { browser.runtime.connect(); } catch (e) { window.msg = e.message; }'])));
-  assert.ok(/not supported/.test(env.sandbox.msg));
+  env.run(assemble(cfg(), entry([
+    'window.p = browser.permissions.getAll().then(function (v) { window.all = v; });' +
+    'chrome.permissions.contains({permissions:["storage"]}, function (v) { window.hasStorage = v; });'
+  ])));
+  assert.strictEqual(env.posted[0].api, 'permissions.getAll');
+  assert.strictEqual(env.posted[1].api, 'permissions.contains');
+  assert.deepStrictEqual(env.posted[1].args, [{ permissions: ['storage'] }]);
+  env.native({ id: env.posted[0].id, ok: true, result: { permissions: ['storage'], origins: [] } });
+  env.native({ id: env.posted[1].id, ok: true, result: true });
+  await env.sandbox.p;
+  await tick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.all)), { permissions: ['storage'], origins: [] });
+  assert.strictEqual(env.sandbox.hasStorage, true);
+});
+
+test('runtime.connect returns a Port, queues early messages, and receives remote messages/disconnect', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg(), entry([
+    'window.connected = 0; window.received = null; window.disconnected = 0;' +
+    'var port = browser.runtime.connect({name:"mafari-test"});' +
+    'port.onMessage.addListener(function (m) { window.received = m; });' +
+    'port.onDisconnect.addListener(function () { window.disconnected++; });' +
+    'port.postMessage({hello:"world"}); window.port = port;'
+  ])));
+  assert.strictEqual(env.posted[0].api, 'runtime.connect');
+  assert.deepStrictEqual(env.posted[0].args, [null, { name: 'mafari-test' }]);
+  env.native({ id: env.posted[0].id, ok: true, result: 'port-1' });
+  await tick();
+  assert.strictEqual(env.posted[1].api, 'runtime.port.postMessage');
+  assert.deepStrictEqual(env.posted[1].args, ['port-1', { hello: 'world' }]);
+  env.native({ type: 'portMessage', portId: 'port-1', message: { answer: 42 } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.received)), { answer: 42 });
+  env.native({ type: 'portDisconnect', portId: 'port-1' });
+  assert.strictEqual(env.sandbox.disconnected, 1);
   env.native('not json');
   env.native({ id: '999', ok: true });
   env.native({ event: 'whatever' });
+});
+
+test('runtime.onConnect receives inbound Ports', () => {
+  const env = makeEnv({ page: true });
+  env.run(assemble(cfg({ page: true }), entry([
+    'window.inbound = null; browser.runtime.onConnect.addListener(function (p) {' +
+    'window.inbound = p.name; p.onMessage.addListener(function (m) { window.inboundMessage = m; });' +
+    '});'
+  ])));
+  env.native({ type: 'portConnect', portId: 'remote-1', name: 'worker', sender: { id: 'local-test' } });
+  assert.strictEqual(env.sandbox.inbound, 'worker');
+  env.native({ type: 'portMessage', portId: 'remote-1', message: 'hello' });
+  assert.strictEqual(env.sandbox.inboundMessage, 'hello');
 });
 
 test('circular args reject instead of throwing synchronously', async () => {
@@ -519,7 +595,7 @@ test('scripting: native result passes through; chrome callback style and lastErr
   assert.strictEqual(err, 'nope');
 });
 
-test('scripting.registerContentScripts family: sent to native (which answers UNSUPPORTED), not stubbed in the shim', async () => {
+test('scripting.registerContentScripts family: forwarded to native with promise support', async () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true, manifest: SCRIPTING_MANIFEST }), '[]'));
   const s = env.sandbox.browser.scripting;
@@ -532,8 +608,8 @@ test('scripting.registerContentScripts family: sent to native (which answers UNS
   ]);
   assert.deepStrictEqual(calls[1][1], [null]);
   const regId = env.posted.find((p2) => p2.api === 'scripting.registerContentScripts').id; // posted[0] 是 runtime.hello
-  env.native({ id: regId, ok: false, error: { code: 'UNSUPPORTED', message: '尚未实现' } });
-  await assert.rejects(p, (e) => e.code === 'UNSUPPORTED');
+  env.native({ id: regId, ok: true, result: null });
+  await p;
 });
 
 // ───────────── 垫片 ⇄ 原生 的静态一致性（不跑 Kotlin，只读源码）：专抓「写了没接上」────────────
@@ -542,10 +618,7 @@ const extKt = fs.readdirSync(EXT_SRC).filter((f) => f.endsWith('.kt')).map((f) =
 /** 垫片里直接写死名字的 rpc 调用（storage.* 的名字是拼出来的，不在此列） */
 const SHIM_RPC = [...new Set([...shim.matchAll(/rpc\('([A-Za-z]+\.[A-Za-z.]+)'/g)].map((m) => m[1]))];
 /** 垫片已经发、但原生明确还没实现（调用会回 UNSUPPORTED）的 API：实现后必须从这里删掉 */
-const KNOWN_UNIMPLEMENTED = new Set([
-  'scripting.registerContentScripts', 'scripting.getRegisteredContentScripts',
-  'scripting.updateContentScripts', 'scripting.unregisterContentScripts',
-]);
+const KNOWN_UNIMPLEMENTED = new Set([]);
 
 test('wiring: every API name the shim sends has a native handler (or is on the known-unimplemented list)', () => {
   const registered = new Set();
