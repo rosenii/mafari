@@ -487,6 +487,12 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         }
     }
 
+    /** 标签被重排（如 tabs.move）后，把活动索引对齐到 [tab] 的新位置；只改索引，不触发切换副作用 */
+    fun realignActive(tab: BrowserTab) {
+        val i = tabs.indexOf(tab)
+        if (i >= 0) activeIndex = i
+    }
+
     fun select(index: Int) {
         // 切走前给当前标签拍一张缩略图
         if (index != activeIndex) {

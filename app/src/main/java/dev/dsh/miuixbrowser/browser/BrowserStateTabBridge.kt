@@ -136,7 +136,7 @@ class BrowserStateTabBridge(private val state: BrowserState) : TabBridge {
         moving.forEach { state.tabs.remove(it) }
         val target = if (index < 0) state.tabs.size else index.coerceAtMost(state.tabs.size)
         state.tabs.addAll(target, moving)
-        active?.let { state.activeIndex = state.tabs.indexOf(it).coerceAtLeast(0) }
+        active?.let { state.realignActive(it) }
         moving.mapNotNull { infoOf(it.id) }
     }
 
