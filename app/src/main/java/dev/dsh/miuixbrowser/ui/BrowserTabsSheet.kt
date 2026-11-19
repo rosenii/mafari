@@ -176,7 +176,7 @@ internal fun TabsSheetBody(
             top = sheetInsets.top + 4.dp,
             bottom = sheetInsets.bottom + 8.dp,
         ),
-        verticalArrangement = if (cardStyle) Arrangement.spacedBy(8.dp) else Arrangement.Top,
+        verticalArrangement = if (cardStyle) Arrangement.spacedBy(10.dp) else Arrangement.Top,
     ) {
         if (cardStyle) {
             items(
@@ -185,8 +185,8 @@ internal fun TabsSheetBody(
                 contentType = { "tabCardRow" },
             ) { rowItems ->
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     rowItems.forEach { indexed ->
                         TabCard(
