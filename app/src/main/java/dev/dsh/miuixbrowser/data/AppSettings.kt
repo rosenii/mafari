@@ -214,6 +214,14 @@ class AppSettings(context: Context) {
         homeFavRows = rows.coerceIn(0, HOME_FAV_ROWS_MAX)
         prefs.edit().putInt(KEY_HOME_FAV_ROWS, homeFavRows).apply()
     }
+    /** 个人收藏的排列方式：false = 图标在左标题在右（每行 3 个，默认）；true = 图标在上标题在下（每行个数随宽度自适应）。 */
+    var homeFavGrid by mutableStateOf(prefs.getBoolean(KEY_HOME_FAV_GRID, false))
+        private set
+
+    fun updateHomeFavGrid(grid: Boolean) {
+        homeFavGrid = grid
+        prefs.edit().putBoolean(KEY_HOME_FAV_GRID, grid).apply()
+    }
     /** 首页顶部的 Mafari LOGO 标识：显示 / 隐藏（定制主页里设置） */
     var homeShowLogo by mutableStateOf(prefs.getBoolean(KEY_HOME_LOGO, true))
         private set
@@ -982,6 +990,7 @@ class AppSettings(context: Context) {
         const val KEY_GLASS_PRESET_VER = "glass_preset_ver"
         const val KEY_HOME_FAV = "home_show_favorites"
         const val KEY_HOME_FAV_ROWS = "home_fav_rows"
+        const val KEY_HOME_FAV_GRID = "home_fav_grid"
         const val KEY_HOME_LOGO = "home_show_logo"
         const val KEY_HOME_PRIVACY = "home_show_privacy"
         const val KEY_HOME_RECENT = "home_show_recent"

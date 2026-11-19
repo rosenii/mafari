@@ -107,7 +107,8 @@ internal fun TabsSheetHeader(
     // Row 而不是叠放的 Box：中间的分段切换占两侧按钮之外的剩余宽度（最宽 236dp 并居中），
     // 窄屏上只会收缩，不会再和两侧按钮重叠
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        // sheet 本身不再留左右边距，头部按钮自己离开屏幕边缘
+        modifier = Modifier.fillMaxWidth().padding(horizontal = top.yukonga.miuix.kmp.layout.BottomSheetDefaults.insideMargin.width),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -169,10 +170,13 @@ internal fun TabsSheetBody(
             .fillMaxWidth()
             .heightIn(max = screenH * 0.68f + sheetInsets.top + sheetInsets.bottom),
         contentPadding = PaddingValues(
+            // 卡片样式靠两边（行内自带 3dp 边距）；列表样式保持原来的左右留白
+            start = if (cardStyle) 0.dp else top.yukonga.miuix.kmp.layout.BottomSheetDefaults.insideMargin.width,
+            end = if (cardStyle) 0.dp else top.yukonga.miuix.kmp.layout.BottomSheetDefaults.insideMargin.width,
             top = sheetInsets.top + 4.dp,
             bottom = sheetInsets.bottom + 8.dp,
         ),
-        verticalArrangement = if (cardStyle) Arrangement.spacedBy(10.dp) else Arrangement.Top,
+        verticalArrangement = if (cardStyle) Arrangement.spacedBy(8.dp) else Arrangement.Top,
     ) {
         if (cardStyle) {
             items(
@@ -181,8 +185,8 @@ internal fun TabsSheetBody(
                 contentType = { "tabCardRow" },
             ) { rowItems ->
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     rowItems.forEach { indexed ->
                         TabCard(

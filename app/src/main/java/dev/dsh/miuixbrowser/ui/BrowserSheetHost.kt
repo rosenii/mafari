@@ -93,6 +93,8 @@ BrowserChunk {
                     null
                 },
                 endAction = null,
+                // 标签列表：sheet 两侧不留白，卡片自己靠边（头部、列表行的留白在 BrowserTabsSheet 里自己加）
+                contentHorizontalPadding = if (lastActiveSheet == Sheet.Tabs) 0.dp else top.yukonga.miuix.kmp.layout.BottomSheetDefaults.insideMargin.width,
                 // 标签列表 / 更多菜单自带滚动容器，自己把头部和导航栏高度做成内边距（铺到头部和导航栏下面再渐隐）
                 scrollContent = true,
                 // 所有弹层统一采样页面模糊。卡顿的根因不在弹层自己的模糊，而在页面每帧被重复回放，

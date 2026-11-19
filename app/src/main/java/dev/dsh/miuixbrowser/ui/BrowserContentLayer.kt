@@ -150,6 +150,8 @@ internal fun BrowserUiState.BrowserContentLayer(
                     barOnTop = barOnTop,
                     showFavorites = settings.homeShowFavorites,
                     favRows = settings.homeFavRows,
+                    favGrid = settings.homeFavGrid,
+                    onFavGridChange = { settings.updateHomeFavGrid(it) },
                     onOpenBookmarks = { pushPage(AppRoute.Library(0)) },
                     showPrivacy = settings.homeShowPrivacy,
                     geckoMode = tab.isGecko,
