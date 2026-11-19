@@ -122,9 +122,10 @@ class WebViewExtBackend(
     /** 权限确认 → commit → 启动后台页 → 刷新界面。取消 / 失败时清掉暂存目录 */
     private suspend fun installPrepared(context: Context, p: PreparedPackage): String {
         val spec = p.spec
+        var previous: InstalledExtension? = null
         try {
             if (EngineKind.WEBVIEW !in p.engines) error(tr("此拓展不能在 WebView 内核上运行"))
-            val previous = withContext(Dispatchers.IO) { system.repo.get(spec.id) }
+            previous = withContext(Dispatchers.IO) { system.repo.get(spec.id) }
             val newApi = spec.apiPermissions - (previous?.grantedApiPermissions ?: emptySet())
             val oldHosts = previous?.grantedHostPermissions?.map { it.raw }?.toSet() ?: emptySet()
             val newHosts = spec.hostPermissions.map { it.raw }.filter { it !in oldHosts }
@@ -143,7 +144,7 @@ class WebViewExtBackend(
             system.installer.discard(p)
             throw t
         }
-        withContext(Dispatchers.Main) { system.onInstalled(ext) }
+        withContext(Dispatchers.Main) { system.onInstalled(ext, previous) }
         refresh(context)
         onChanged()
         return spec.name
@@ -230,7 +231,7 @@ class WebViewExtBackend(
             system.repo.get(id) ?: ext
         }
         withContext(Dispatchers.Main) {
-            if (enabled) system.onInstalled(updated) else system.onDisabled(id)
+            if (enabled) system.onEnabled(updated) else system.onDisabled(id)
         }
         refresh(context)
         onChanged()

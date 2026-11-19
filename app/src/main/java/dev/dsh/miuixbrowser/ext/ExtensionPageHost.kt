@@ -49,6 +49,9 @@ class ExtensionPageHost(
     private val backgrounds = HashMap<String, ExtensionPage>() // extId → 后台页（主线程访问）
     private val pagesSnapshot = java.util.concurrent.CopyOnWriteArrayList<ExtensionPage>() // emit 用，任意线程读
 
+    /** 后台页就绪 / 消失的通知（主线程回调）。就绪 = onPageFinished 且握手完成，缺一不可：只有握手后才有回复通道可投递 */
+    @Volatile var backgroundListener: BackgroundListener? = null
+
     fun isSupported(): Boolean = runCatching {
         WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -65,6 +68,8 @@ class ExtensionPageHost(
 
         @Volatile internal var reply: JavaScriptReplyProxy? = null
         internal var registered = false
+        internal var finished = false // 主框架 onPageFinished 过（主线程访问）
+        internal var readyNotified = false // 已通知过 backgroundListener（主线程访问）
 
         override fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean {
             val r = reply ?: return false
@@ -110,6 +115,13 @@ class ExtensionPageHost(
                 // 拓展页面不允许自己导航到别的站点（外链交给 UI 层用标签打开）
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
                     !request.url.toString().startsWith("$origin/")
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    if (url != null && url.startsWith("$origin/")) {
+                        page.finished = true
+                        maybeNotifyReady(page)
+                    }
+                }
             })
             WebViewCompat.addWebMessageListener(webView, plan.bridgeName, plan.originRules) { _, message, sourceOrigin, isMainFrame, reply ->
                 onPageMessage(page, message, sourceOrigin.toString(), isMainFrame, reply)
@@ -158,7 +170,19 @@ class ExtensionPageHost(
         loaders.remove(ExtensionOrigins.hostFor(extId))
     }
 
+    /** 后台页同时满足「加载完」和「已握手」才算就绪；通知只发一次（页面自己 reload 不重发） */
+    private fun maybeNotifyReady(page: ExtensionPage) {
+        if (page.pageKind != PageKind.BACKGROUND || page.readyNotified) return
+        if (!page.finished || page.reply == null || pages[page.contextId] !== page) return
+        page.readyNotified = true
+        backgroundListener?.let { runCatching { it.onBackgroundReady(page.extId) } }
+    }
+
     private fun destroyNow(page: ExtensionPage) {
+        if (page.readyNotified) {
+            page.readyNotified = false
+            backgroundListener?.let { runCatching { it.onBackgroundGone(page.extId) } }
+        }
         pages.remove(page.contextId)
         pagesSnapshot.remove(page)
         if (backgrounds[page.extId] === page) backgrounds.remove(page.extId)
@@ -211,6 +235,7 @@ class ExtensionPageHost(
                 page.registered = true
                 broker.register(page)
             }
+            maybeNotifyReady(page)
         }
 
         val req = try {

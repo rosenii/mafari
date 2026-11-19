@@ -2,6 +2,7 @@ package dev.dsh.miuixbrowser.ext
 
 import android.content.Context
 import java.io.File
+import java.util.concurrent.Executors
 
 /**
  * 拓展系统的组装入口（WebView 内核）：一个应用一个实例，建议放进 AppContainer。
@@ -14,8 +15,8 @@ import java.io.File
  * installation = system.tabHost.install(webView, exts, system.shim(), tabId)
  * // 标签销毁或拓展集合变化时 installation?.close()
  * ```
- * 应用启动后（主线程）：`system.pages.startAllBackgrounds()`。
- * 安装 / 停用 / 卸载：见 [onInstalled] / [onDisabled] / [onUninstalled]，它们负责重启后台页并清理状态。
+ * 应用启动后（主线程）：`system.startAll()`（拉起后台页；每个后台页就绪后依次收到 runtime.onStartup、补发的 alarms.onAlarm）。
+ * 安装 / 启用 / 停用 / 卸载：见 [onInstalled] / [onEnabled] / [onDisabled] / [onUninstalled]，它们负责重启后台页并清理状态。
  */
 class ExtensionSystem(
     private val context: Context,
@@ -34,12 +35,22 @@ class ExtensionSystem(
     val tabHost = WebViewExtensionHost(runtime, log)
     val pages = ExtensionPageHost(context.applicationContext, repo, runtime, broker, { shim() }, log)
 
+    /**
+     * 后台页启动流程与闹钟共用一个单线程 Executor：就绪 / 消失 / 唤醒按顺序处理，文件读写与事件投递都不占主线程。
+     * alarms / runtime 启动事件只投给拓展自己的页面（[pages]），content script 里没有这些 API。
+     */
+    private val bgExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "ext-background").apply { isDaemon = true } }
+    private val alarms = AlarmService({ repo.dataDir(it) }, pages, HandlerWakeTimer(bgExecutor), log = log)
+    private val lifecycle = ExtensionLifecycle(pages, alarms) { bgExecutor.execute(it) }
+
     @Volatile private var shimText: String? = null
 
     init {
         RuntimeApi(broker).register(router)
         broker.register(router)
         storage.register(router)
+        alarms.register(router)
+        pages.backgroundListener = lifecycle
         sinks.add(tabHost)
         sinks.add(pages)
     }
@@ -52,18 +63,47 @@ class ExtensionSystem(
     fun shim(): String = shimText ?: context.assets.open("mafari_ext_shim.js").bufferedReader(Charsets.UTF_8)
         .use { it.readText() }.also { shimText = it }
 
-    /** 安装 / 更新完成后（主线程）：重启后台页 */
-    fun onInstalled(ext: InstalledExtension) {
-        pages.shutdown(ext.spec.id)
-        tabHost.forget(ext.spec.id)
-        storage.forget(ext.spec.id)
+    /**
+     * 应用启动后（主线程，幂等）：拉起所有已启用拓展的后台页。每个后台页就绪后先收到 runtime.onStartup，
+     * 再收到补发的 alarms.onAlarm（见 [ExtensionLifecycle]）。
+     */
+    fun startAll() {
+        for (ext in webViewExtensions()) {
+            if (pages.startBackground(ext) != null) lifecycle.expectStartup(ext.spec.id)
+        }
+    }
+
+    /**
+     * 安装 / 更新完成后（主线程）：重启后台页。[previous] 为更新前的版本（全新安装传 null）：
+     * 后台页就绪后收到 runtime.onInstalled（reason = install / update）；更新会清掉旧闹钟，与 Chrome 一致。
+     */
+    fun onInstalled(ext: InstalledExtension, previous: InstalledExtension? = null) {
+        val id = ext.spec.id
+        lifecycle.cancel(id)
+        pages.shutdown(id)
+        tabHost.forget(id)
+        storage.forget(id)
+        bgExecutor.execute { alarms.reset(id) } // 与就绪 / 消失事件同一个线程，保证顺序
+        if (ext.enabled && EngineKind.WEBVIEW in ext.engines) {
+            if (pages.startBackground(ext) != null) lifecycle.expectInstalled(id, previous?.spec?.version)
+        }
+    }
+
+    /** 重新启用（主线程）：拉起后台页，不触发 onInstalled / onStartup；闹钟保留，就绪后补发错过的 */
+    fun onEnabled(ext: InstalledExtension) {
+        val id = ext.spec.id
+        lifecycle.cancel(id)
+        pages.shutdown(id)
+        tabHost.forget(id)
         if (ext.enabled && EngineKind.WEBVIEW in ext.engines) pages.startBackground(ext)
     }
 
-    /** 停用（主线程）：关掉页面与连接；已打开标签里的 content script 要等页面重新加载才会消失 */
+    /** 停用（主线程）：关掉页面与连接；已打开标签里的 content script 要等页面重新加载才会消失。闹钟留在磁盘上 */
     fun onDisabled(extId: String) {
+        lifecycle.cancel(extId)
         pages.shutdown(extId)
         tabHost.forget(extId)
+        bgExecutor.execute { alarms.forget(extId) }
     }
 
     /** 卸载（主线程）：先关页面再删仓库，避免页面还在读已删除的文件 */

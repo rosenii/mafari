@@ -38,6 +38,8 @@ function makeEnv(opts) {
     setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length; },
     navigator: { language: 'zh-CN' },
   };
+  const clock = { t: 1000 };
+  sandbox.Date = { now: () => clock.t };
   sandbox.window = sandbox;
   sandbox.top = opts.sub ? {} : sandbox;
   sandbox.location = { href: opts.href || 'https://a.com/' };
@@ -45,7 +47,7 @@ function makeEnv(opts) {
   sandbox[BRIDGE] = bridge;
   vm.createContext(sandbox);
   return {
-    sandbox, bridge, posted, doc, timers, appended, docListeners, winListeners,
+    sandbox, bridge, posted, doc, timers, appended, docListeners, winListeners, clock,
     run(src) { vm.runInContext(src, sandbox); },
     native(obj) { bridge.onmessage({ data: typeof obj === 'string' ? obj : JSON.stringify(obj) }); },
     fireDoc(n) { (docListeners[n] || []).splice(0).forEach((f) => f()); },
@@ -328,6 +330,111 @@ test('page mode: onMessage listener on a page receives native delivery and repli
   await tick();
   const reply = env.posted.find((p) => p.api === 'runtime.reply');
   assert.deepStrictEqual(reply.args, ['k1', { got: 'hello' }, null]);
+});
+
+const ALARM_MANIFEST = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['alarms'] };
+
+test('alarms: only on extension pages that declare the permission', () => {
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest: ALARM_MANIFEST }), entry(['window.has = typeof browser.alarms;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined', 'content script must not get alarms');
+
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.alarms, undefined);
+  assert.strictEqual(noPerm.sandbox.chrome.alarms, undefined);
+
+  const ok = makeEnv();
+  ok.run(assemble(cfg({ page: true, manifest: ALARM_MANIFEST }), '[]'));
+  assert.strictEqual(typeof ok.sandbox.browser.alarms.create, 'function');
+  assert.strictEqual(typeof ok.sandbox.chrome.alarms.onAlarm.addListener, 'function');
+});
+
+test('alarms: request shapes (name / info overloads, optional names become null)', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: ALARM_MANIFEST }), '[]'));
+  const a = env.sandbox.browser.alarms;
+  a.create({ delayInMinutes: 1 });
+  a.create('n', { periodInMinutes: 2 });
+  a.get(); a.get('n'); a.getAll(); a.clear(); a.clear('n'); a.clearAll();
+  const calls = env.posted.filter((p) => p.api && p.api.startsWith('alarms.')).map((p) => [p.api, p.args]);
+  assert.deepStrictEqual(calls, [
+    ['alarms.create', [null, { delayInMinutes: 1 }]],
+    ['alarms.create', ['n', { periodInMinutes: 2 }]],
+    ['alarms.get', [null]], ['alarms.get', ['n']], ['alarms.getAll', []],
+    ['alarms.clear', [null]], ['alarms.clear', ['n']], ['alarms.clearAll', []],
+  ]);
+});
+
+test('alarms: null result resolves to undefined; chrome callback style works', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: ALARM_MANIFEST }), '[]'));
+  const p = env.sandbox.browser.alarms.get('missing');
+  const id = env.posted[env.posted.length - 1].id;
+  env.native({ id, ok: true, result: null });
+  assert.strictEqual(await p, undefined);
+  let got = 'unset';
+  env.sandbox.chrome.alarms.clear('x', (r) => { got = r; });
+  env.native({ id: env.posted[env.posted.length - 1].id, ok: true, result: false });
+  await tick();
+  assert.strictEqual(got, false);
+});
+
+test('events: alarms.onAlarm / runtime.onStartup / runtime.onInstalled reach listeners via the dispatch table', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: ALARM_MANIFEST }), '[]'));
+  const log = [];
+  const b = env.sandbox.browser;
+  b.alarms.onAlarm.addListener((al) => log.push('alarm:' + al.name));
+  b.runtime.onStartup.addListener(() => log.push('startup'));
+  b.runtime.onInstalled.addListener((d) => log.push('installed:' + d.reason));
+  env.native({ event: 'runtime.onStartup', payload: {} });
+  env.native({ event: 'alarms.onAlarm', payload: { name: 'a', scheduledTime: 1 } });
+  env.native({ event: 'runtime.onInstalled', payload: { reason: 'update', previousVersion: '0.9' } });
+  env.native({ event: 'no.such.event', payload: {} });
+  assert.deepStrictEqual(log, ['startup', 'alarm:a', 'installed:update']);
+});
+
+test('events: early events are buffered per kind (max 32), replayed in order once a listener registers', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: ALARM_MANIFEST }), '[]'));
+  env.native({ event: 'runtime.onStartup', payload: {} });
+  for (let i = 0; i < 40; i++) env.native({ event: 'alarms.onAlarm', payload: { name: 'a' + i } });
+  const log = [];
+  env.sandbox.browser.alarms.onAlarm.addListener((al) => log.push(al.name));
+  assert.deepStrictEqual(log, [], 'replay is asynchronous');
+  env.runTimers();
+  assert.strictEqual(log.length, 32);
+  assert.strictEqual(log[0], 'a0');
+  assert.strictEqual(log[31], 'a31');
+  // startup was buffered separately and is still available
+  let started = 0;
+  env.sandbox.browser.runtime.onStartup.addListener(() => started++);
+  env.runTimers();
+  assert.strictEqual(started, 1);
+});
+
+test('events: buffering stops 5s after the page started; non-buffered events are never queued', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: ALARM_MANIFEST }), '[]'));
+  env.clock.t += 5001;
+  env.native({ event: 'alarms.onAlarm', payload: { name: 'late' } });
+  env.native({ event: 'storage.onChanged', payload: { areaName: 'local', changes: { k: { newValue: 1 } } } });
+  const log = [];
+  env.sandbox.browser.alarms.onAlarm.addListener((al) => log.push(al.name));
+  env.sandbox.browser.storage.onChanged.addListener(() => log.push('storage'));
+  env.runTimers();
+  assert.deepStrictEqual(log, []);
+});
+
+test('events: content scripts never buffer', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ manifest: ALARM_MANIFEST }), entry(['window.api = browser;'])));
+  env.native({ event: 'runtime.onStartup', payload: {} });
+  let n = 0;
+  env.sandbox.api.runtime.onStartup.addListener(() => n++);
+  env.runTimers();
+  assert.strictEqual(n, 0);
 });
 
 (async () => {

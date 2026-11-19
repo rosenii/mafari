@@ -12,6 +12,7 @@ function (CFG, ENTRIES) {
 
   var P = Promise, J = JSON, jstr = J.stringify, jparse = J.parse, U = win.URL, RE = RegExp;
   var ST = win.setTimeout, E = Error, OK = Object.keys, slice = Array.prototype.slice;
+  var DN = Date.now.bind(Date), T0 = DN();
   var docAdd = doc.addEventListener.bind(doc), winAdd = win.addEventListener.bind(win);
   var cerr = (win.console && win.console.error) ? win.console.error.bind(win.console) : function () { };
 
@@ -32,15 +33,50 @@ function (CFG, ENTRIES) {
 
   // ───────────── 事件 ─────────────
   var L = {};
+  // 早于监听器注册到达的事件先缓存（只缓存下面 BUFFERED 里的几种，每种最多 BUF_MAX 条，页面启动 BUF_MS 之后不再缓存），
+  // 第一个监听器注册时统一补投。常见时序：后台页的脚本是异步加载 / 动态 import 的，原生已经把 onStartup / onAlarm 送到了。
+  var BUF = {}, BUF_MAX = 32, BUF_MS = 5000;
+  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'alarms.onAlarm': 1 };
   function ev(name) {
     return {
-      addListener: function (f) { var a = L[name] = L[name] || []; if (typeof f === 'function' && a.indexOf(f) < 0) a.push(f); },
+      addListener: function (f) {
+        var a = L[name] = L[name] || [];
+        if (typeof f !== 'function' || a.indexOf(f) >= 0) return;
+        a.push(f);
+        var q = BUF[name];
+        if (q && q.length) {
+          delete BUF[name];
+          ST(function () { q.forEach(function (args) { fire(name, args); }); }, 0);
+        }
+      },
       removeListener: function (f) { var a = L[name] || [], i = a.indexOf(f); if (i >= 0) a.splice(i, 1); },
       hasListener: function (f) { return (L[name] || []).indexOf(f) >= 0; }
     };
   }
   function fire(name, args) {
     (L[name] || []).slice().forEach(function (f) { try { f.apply(null, args); } catch (e) { cerr(e); } });
+  }
+  // 原生事件 → 要触发的监听器列表 [[监听器名, 参数数组], ...]。新增事件只需在这张表里加一行
+  var DISPATCH = {
+    'storage.onChanged': function (p) {
+      return [['storage.onChanged', [p.changes, p.areaName]], ['storage.' + p.areaName + '.onChanged', [p.changes]]];
+    },
+    'runtime.onStartup': function () { return [['runtime.onStartup', []]]; },
+    'runtime.onInstalled': function (p) { return [['runtime.onInstalled', [p]]]; },
+    'alarms.onAlarm': function (p) { return [['alarms.onAlarm', [p]]]; }
+  };
+  function deliverEvent(name, args) {
+    if ((L[name] || []).length) { fire(name, args); return; }
+    if (!CFG.page || !BUFFERED[name] || DN() - T0 > BUF_MS) return;
+    var q = BUF[name] = BUF[name] || [];
+    if (q.length < BUF_MAX) q.push(args);
+  }
+  function dispatchEvent(name, payload) {
+    var table = DISPATCH[name];
+    if (!table) return;
+    var list;
+    try { list = table(payload || {}); } catch (e) { return; }
+    list.forEach(function (t) { deliverEvent(t[0], t[1]); });
   }
 
   function onNative(raw) {
@@ -59,11 +95,7 @@ function (CFG, ENTRIES) {
       }
       return;
     }
-    if (m.event === 'storage.onChanged' && m.payload) {
-      fire('storage.onChanged', [m.payload.changes, m.payload.areaName]);
-      fire('storage.' + m.payload.areaName + '.onChanged', [m.payload.changes]);
-      return;
-    }
+    if (typeof m.event === 'string') { dispatchEvent(m.event, m.payload); return; }
     if (m.type === 'message') deliverMessage(m);
   }
   bridge.onmessage = function (e) { onNative(e && e.data); };
@@ -146,7 +178,9 @@ function (CFG, ENTRIES) {
     sendMessage: promised(sendMessage),
     connect: function () { throw new E('runtime.connect is not supported yet'); },
     onMessage: ev('runtime.onMessage'),
-    onConnect: ev('runtime.onConnect')
+    onConnect: ev('runtime.onConnect'),
+    onStartup: ev('runtime.onStartup'),
+    onInstalled: ev('runtime.onInstalled')
   };
   var storage = {
     local: storageArea('local'), sync: storageArea('sync'), session: storageArea('session'),
@@ -158,7 +192,32 @@ function (CFG, ENTRIES) {
   };
   var ext = { getURL: getURL };
 
+  // alarms：只在拓展自己的页面里提供，且 manifest 要声明 alarms 权限（原生侧还会再校验一次）
+  function declares(perm) {
+    var m = CFG.manifest || {}, lists = [m.permissions, m.optional_permissions];
+    for (var i = 0; i < lists.length; i++) if (lists[i] && lists[i].indexOf && lists[i].indexOf(perm) >= 0) return true;
+    return false;
+  }
+  var alarms = null;
+  if (CFG.page && declares('alarms')) {
+    var nn = function (v) { return v === undefined ? null : v; };
+    alarms = {
+      // create([name], alarmInfo)
+      create: promised(function (a, b) {
+        var name = null, info = a;
+        if (typeof a === 'string' || (a === undefined && b !== undefined)) { name = nn(a); info = b; }
+        return rpc('alarms.create', [name, nn(info)]);
+      }),
+      get: promised(function (name) { return rpc('alarms.get', [nn(name)]); }),
+      getAll: promised(function () { return rpc('alarms.getAll', []); }),
+      clear: promised(function (name) { return rpc('alarms.clear', [nn(name)]); }),
+      clearAll: promised(function () { return rpc('alarms.clearAll', []); }),
+      onAlarm: ev('alarms.onAlarm')
+    };
+  }
+
   var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext };
+  if (alarms) browser.alarms = alarms;
 
   var chromeRuntime = cbObj(runtime);
   Object.defineProperty(chromeRuntime, 'lastError', { get: function () { return lastError.v; }, enumerable: true });
@@ -171,6 +230,7 @@ function (CFG, ENTRIES) {
     i18n: i18n,
     extension: ext
   };
+  if (alarms) chrome.alarms = cbObj(alarms);
 
   // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上，
   // 并发一次握手，让原生拿到回复通道（之后才能向本页面投递 runtime.onMessage）。

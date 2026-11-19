@@ -12,7 +12,7 @@ object ApiSupport {
         "scripting" to SupportLevel.PLANNED,
         "contextMenus" to SupportLevel.PLANNED,
         "menus" to SupportLevel.PLANNED,
-        "alarms" to SupportLevel.PLANNED,
+        "alarms" to SupportLevel.FULL,
         "declarativeNetRequest" to SupportLevel.PLANNED,
         "unlimitedStorage" to SupportLevel.FULL,
         "notifications" to SupportLevel.PLANNED,

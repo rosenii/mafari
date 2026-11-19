@@ -103,7 +103,7 @@ internal object StartupCoordinator {
         // WebView 拓展的后台页：没有已启用的拓展就什么都不建；幂等（Activity 重建时已在运行的会跳过）
         activity.window.decorView.post {
             Handler(Looper.getMainLooper()).postDelayed({
-                runCatching { app.appContainer.webExtensions.pages.startAllBackgrounds() }
+                runCatching { app.appContainer.webExtensions.startAll() }
                     .onFailure { Diag.log("web extensions: start backgrounds failed ${it.message}") }
             }, EXT_BACKGROUND_DELAY_MS)
         }
