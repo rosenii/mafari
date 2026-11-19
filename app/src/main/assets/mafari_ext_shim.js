@@ -36,7 +36,7 @@ function (CFG, ENTRIES) {
   // 早于监听器注册到达的事件先缓存（只缓存下面 BUFFERED 里的几种，每种最多 BUF_MAX 条，页面启动 BUF_MS 之后不再缓存），
   // 第一个监听器注册时统一补投。常见时序：后台页的脚本是异步加载 / 动态 import 的，原生已经把 onStartup / onAlarm 送到了。
   var BUF = {}, BUF_MAX = 32, BUF_MS = 5000;
-  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'alarms.onAlarm': 1, 'webNavigation.onBeforeNavigate': 1, 'webNavigation.onCommitted': 1, 'webNavigation.onCompleted': 1, 'webNavigation.onErrorOccurred': 1, 'webNavigation.onHistoryStateUpdated': 1, 'webNavigation.onReferenceFragmentUpdated': 1, 'contextMenus.onClicked': 1 };
+  var BUFFERED = { 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'alarms.onAlarm': 1, 'webNavigation.onBeforeNavigate': 1, 'webNavigation.onCommitted': 1, 'webNavigation.onCompleted': 1, 'webNavigation.onErrorOccurred': 1, 'webNavigation.onHistoryStateUpdated': 1, 'webNavigation.onReferenceFragmentUpdated': 1, 'contextMenus.onClicked': 1, 'notifications.onClicked': 1, 'notifications.onClosed': 1, 'bookmarks.onCreated': 1, 'bookmarks.onChanged': 1, 'bookmarks.onMoved': 1, 'bookmarks.onRemoved': 1, 'downloads.onCreated': 1, 'downloads.onErased': 1 };
   function ev(name) {
     return {
       addListener: function (f) {
@@ -78,6 +78,14 @@ function (CFG, ENTRIES) {
     'webNavigation.onHistoryStateUpdated': function (p) { return [['webNavigation.onHistoryStateUpdated', [p]]]; },
     'webNavigation.onReferenceFragmentUpdated': function (p) { return [['webNavigation.onReferenceFragmentUpdated', [p]]]; },
     'contextMenus.onClicked': function (p) { return [['contextMenus.onClicked', [p.info || {}, p.tab || {}]]]; },
+    'notifications.onClicked': function (p) { return [['notifications.onClicked', [p.notificationId]]]; },
+    'notifications.onClosed': function (p) { return [['notifications.onClosed', [p.notificationId, !!p.byUser]]]; },
+    'bookmarks.onCreated': function (p) { return [['bookmarks.onCreated', [p.id, p.bookmark]]]; },
+    'bookmarks.onChanged': function (p) { return [['bookmarks.onChanged', [p.id, p.changeInfo]]]; },
+    'bookmarks.onMoved': function (p) { return [['bookmarks.onMoved', [p.id, p.moveInfo]]]; },
+    'bookmarks.onRemoved': function (p) { return [['bookmarks.onRemoved', [p.id, p.removeInfo]]]; },
+    'downloads.onCreated': function (p) { return [['downloads.onCreated', [p]]]; },
+    'downloads.onErased': function (p) { return [['downloads.onErased', [p.id]]]; },
     'webRequest.onBeforeRequest': function (p) { return [['webRequest.onBeforeRequest', [p]]]; }
   };
   function deliverEvent(name, args) {
@@ -507,7 +515,71 @@ function (CFG, ENTRIES) {
     };
   }
 
+  // Notifications: basic text notifications only; native side enforces the declared permission and Android app-level grant.
+  var notifications = null;
+  if (CFG.page && declares('notifications')) {
+    notifications = {
+      create: promised(function (notificationId, options) {
+        if (notificationId && typeof notificationId === 'object') return rpc('notifications.create', [notificationId]);
+        return rpc('notifications.create', [notificationId == null ? '' : String(notificationId), options || {}]);
+      }),
+      update: promised(function (notificationId, options) { return rpc('notifications.update', [String(notificationId), options || {}]); }),
+      clear: promised(function (notificationId) { return rpc('notifications.clear', [String(notificationId)]); }),
+      getAll: promised(function () { return rpc('notifications.getAll', []); }),
+      onClicked: ev('notifications.onClicked'),
+      onClosed: ev('notifications.onClosed')
+    };
+  }
+
+  // Bookmarks: backed by the same FavoritesStore as Mafari's own bookmark UI and Floccus Gecko bridge.
+  var bookmarks = null;
+  if (CFG.page && declares('bookmarks')) {
+    bookmarks = {
+      getTree: promised(function () { return rpc('bookmarks.getTree', []); }),
+      getSubTree: promised(function (id) { return rpc('bookmarks.getSubTree', [String(id)]); }),
+      get: promised(function (ids) { return rpc('bookmarks.get', [ids]); }),
+      getChildren: promised(function (id) { return rpc('bookmarks.getChildren', [String(id)]); }),
+      search: promised(function (query) { return rpc('bookmarks.search', [query]); }),
+      create: promised(function (details) { return rpc('bookmarks.create', [details || {}]); }),
+      update: promised(function (id, changes) { return rpc('bookmarks.update', [String(id), changes || {}]); }),
+      move: promised(function (id, destination) { return rpc('bookmarks.move', [String(id), destination || {}]); }),
+      remove: promised(function (id) { return rpc('bookmarks.remove', [String(id)]); }),
+      removeTree: promised(function (id) { return rpc('bookmarks.removeTree', [String(id)]); }),
+      onCreated: ev('bookmarks.onCreated'),
+      onChanged: ev('bookmarks.onChanged'),
+      onMoved: ev('bookmarks.onMoved'),
+      onRemoved: ev('bookmarks.onRemoved')
+    };
+  }
+
+  // Downloads: backed by Mafari's persistent built-in downloader. Unsupported Chrome fields are rejected natively.
+  var downloads = null;
+  if (CFG.page && declares('downloads')) {
+    downloads = {
+      download: promised(function (options) { return rpc('downloads.download', [options || {}]); }),
+      search: promised(function (query) { return rpc('downloads.search', [query || {}]); }),
+      pause: promised(function (id) { return rpc('downloads.pause', [id]); }),
+      resume: promised(function (id) { return rpc('downloads.resume', [id]); }),
+      cancel: promised(function (id) { return rpc('downloads.cancel', [id]); }),
+      erase: promised(function (query) { return rpc('downloads.erase', [query || {}]); }),
+      onCreated: ev('downloads.onCreated'),
+      onErased: ev('downloads.onErased')
+    };
+  }
+
+  // Mafari clipboard bridge: deliberately extension-page-only; native permission checks remain authoritative.
+  var clipboard = null;
+  if (CFG.page && (declares('clipboardRead') || declares('clipboardWrite'))) {
+    clipboard = {};
+    if (declares('clipboardRead')) clipboard.readText = promised(function () { return rpc('clipboard.readText', []); });
+    if (declares('clipboardWrite')) clipboard.writeText = promised(function (text) { return rpc('clipboard.writeText', [String(text == null ? '' : text)]); });
+  }
+
   var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext, permissions: permissions };
+  if (bookmarks) browser.bookmarks = bookmarks;
+  if (downloads) browser.downloads = downloads;
+  if (clipboard) browser.clipboard = clipboard;
+  if (notifications) browser.notifications = notifications;
   if (alarms) browser.alarms = alarms;
   if (tabs) browser.tabs = tabs;
   if (scripting) browser.scripting = scripting;
@@ -529,6 +601,10 @@ function (CFG, ENTRIES) {
     extension: ext,
     permissions: cbObj(permissions)
   };
+  if (bookmarks) chrome.bookmarks = cbObj(bookmarks);
+  if (downloads) chrome.downloads = cbObj(downloads);
+  if (clipboard) chrome.clipboard = cbObj(clipboard);
+  if (notifications) chrome.notifications = cbObj(notifications);
   if (alarms) chrome.alarms = cbObj(alarms);
   if (tabs) chrome.tabs = cbObj(tabs);
   if (scripting) chrome.scripting = cbObj(scripting);

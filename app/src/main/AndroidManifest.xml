@@ -194,6 +194,10 @@
             android:name=".GmNotificationReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".ext.ExtensionNotificationReceiver"
+            android:exported="false" />
+
         <service
             android:name=".download.DownloadService"
             android:exported="false"

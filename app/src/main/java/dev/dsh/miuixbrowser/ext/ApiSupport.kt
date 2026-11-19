@@ -19,13 +19,15 @@ object ApiSupport {
         "alarms" to SupportLevel.PARTIAL, // 进程死亡期间不能准点执行，启动后补发
         "declarativeNetRequest" to SupportLevel.PLANNED,
         "unlimitedStorage" to SupportLevel.FULL,
-        "notifications" to SupportLevel.PLANNED,
+        "bookmarks" to SupportLevel.PARTIAL, // Firefox bookmarks 树 API 映射到 Mafari FavoritesStore；四个根容器与分组路径模拟文件夹
+        "notifications" to SupportLevel.PARTIAL, // basic 文本通知 create/update/clear/getAll 与点击/关闭事件；Android 系统通知权限由用户在系统设置管理
+        "downloads" to SupportLevel.PARTIAL, // 复用 Mafari 下载器：download/search/pause/resume/cancel/erase；选项、过滤器及事件为子集
         "webNavigation" to SupportLevel.PARTIAL, // 主框架 before/commit/complete/error 与 SPA 近似事件；无子框架 / documentId，DOMContentLoaded 受限
         "webRequest" to SupportLevel.PARTIAL, // onBeforeRequest 观察事件；blocking 与 response 生命周期暂不支持
         "webRequestBlocking" to SupportLevel.NONE, // WebView 后台页异步模型不能安全实现同步阻断
         "cookies" to SupportLevel.PLANNED,
-        "clipboardWrite" to SupportLevel.PLANNED,
-        "clipboardRead" to SupportLevel.PLANNED,
+        "clipboardWrite" to SupportLevel.PARTIAL, // Mafari clipboard.readText/writeText；仅拓展页面，受 Android 系统前后台剪贴板限制
+        "clipboardRead" to SupportLevel.PARTIAL,
     )
 
     fun forWebView(permission: String): SupportLevel = webView[permission] ?: SupportLevel.NONE

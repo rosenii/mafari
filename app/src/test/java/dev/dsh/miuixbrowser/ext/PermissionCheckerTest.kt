@@ -81,6 +81,52 @@ class PermissionCheckerTest {
         assertFalse(PermissionChecker.canSeeTabDetails(noTabs, null))
     }
 
+    @Test fun clipboardApisRequireTheirSpecificPermissionsAndExtensionPages() {
+        val manifest = """{"manifest_version":3,"name":"Clip","version":"1","permissions":["clipboardRead","clipboardWrite"],"host_permissions":["https://granted.com/*"],"content_scripts":[{"matches":["https://a.com/*"],"js":["c.js"]}]}"""
+        val granted = TestExt.make(File(tmp.root, "clip-granted"), manifest = manifest, granted = setOf("clipboardRead", "clipboardWrite"))
+        assertNull(codeOf(granted, "clipboard.readText", page()))
+        assertNull(codeOf(granted, "clipboard.writeText", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "clipboard.readText", cs("https://a.com")))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "clipboard.writeText", cs("https://a.com")))
+
+        val readOnly = TestExt.make(File(tmp.root, "clip-read"), manifest = manifest, granted = setOf("clipboardRead"))
+        assertNull(codeOf(readOnly, "clipboard.readText", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(readOnly, "clipboard.writeText", page()))
+        val writeOnly = TestExt.make(File(tmp.root, "clip-write"), manifest = manifest, granted = setOf("clipboardWrite"))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(writeOnly, "clipboard.readText", page()))
+        assertNull(codeOf(writeOnly, "clipboard.writeText", page()))
+    }
+
+    @Test fun notificationsRequirePermissionAndExtensionPageContext() {
+        val manifest = """{"manifest_version":3,"name":"Notify","version":"1","permissions":["notifications"],"host_permissions":["https://granted.com/*"],"content_scripts":[{"matches":["https://a.com/*"],"js":["c.js"]}]}"""
+        val granted = TestExt.make(File(tmp.root, "notify-granted"), manifest = manifest, granted = setOf("notifications"))
+        assertNull(codeOf(granted, "notifications.create", page()))
+        assertNull(codeOf(granted, "notifications.getAll", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "notifications.create", cs("https://a.com")))
+        val missing = TestExt.make(File(tmp.root, "notify-missing"), manifest = manifest, granted = emptySet())
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "notifications.create", page()))
+    }
+
+    @Test fun bookmarksApiRequiresPermissionAndExtensionPageContext() {
+        val manifest = """{"manifest_version":3,"name":"Marks","version":"1","permissions":["bookmarks"],"host_permissions":["https://granted.com/*"],"content_scripts":[{"matches":["https://a.com/*"],"js":["c.js"]}]}"""
+        val granted = TestExt.make(File(tmp.root, "bookmarks-granted"), manifest = manifest, granted = setOf("bookmarks"))
+        assertNull(codeOf(granted, "bookmarks.getTree", page()))
+        assertNull(codeOf(granted, "bookmarks.create", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "bookmarks.getTree", cs("https://a.com")))
+        val missing = TestExt.make(File(tmp.root, "bookmarks-missing"), manifest = manifest, granted = emptySet())
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "bookmarks.getTree", page()))
+    }
+
+    @Test fun downloadsApiRequiresPermissionAndExtensionPageContext() {
+        val manifest = """{"manifest_version":3,"name":"Downloads","version":"1","permissions":["downloads"],"content_scripts":[{"matches":["https://a.com/*"],"js":["c.js"]}]}"""
+        val granted = TestExt.make(File(tmp.root, "downloads-granted"), manifest = manifest, granted = setOf("downloads"))
+        assertNull(codeOf(granted, "downloads.download", page()))
+        assertNull(codeOf(granted, "downloads.search", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "downloads.search", cs("https://a.com")))
+        val missing = TestExt.make(File(tmp.root, "downloads-missing"), manifest = manifest, granted = emptySet())
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "downloads.search", page()))
+    }
+
     @Test fun originsAreDistinctAndHostSafe() {
         val a = ExtensionOrigins.originFor("a@x.org")
         val b = ExtensionOrigins.originFor("{uuid}")

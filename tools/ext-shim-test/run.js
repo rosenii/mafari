@@ -609,6 +609,69 @@ test('events: content scripts never buffer', () => {
   assert.strictEqual(n, 0);
 });
 
+const CLIPBOARD_MANIFEST = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['clipboardRead', 'clipboardWrite'] };
+
+test('clipboard: only extension pages with declared permissions expose the matching methods', () => {
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest: CLIPBOARD_MANIFEST }), entry(['window.has = typeof browser.clipboard;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined', 'content script must not get clipboard');
+
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.clipboard, undefined);
+  assert.strictEqual(noPerm.sandbox.chrome.clipboard, undefined);
+
+  const ok = makeEnv();
+  ok.run(assemble(cfg({ page: true, manifest: CLIPBOARD_MANIFEST }), '[]'));
+  assert.strictEqual(typeof ok.sandbox.browser.clipboard.readText, 'function');
+  assert.strictEqual(typeof ok.sandbox.browser.clipboard.writeText, 'function');
+  assert.strictEqual(typeof ok.sandbox.chrome.clipboard.readText, 'function');
+  assert.strictEqual(typeof ok.sandbox.chrome.clipboard.writeText, 'function');
+});
+
+test('clipboard: read and write use distinct native RPC names', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: CLIPBOARD_MANIFEST }), '[]'));
+  env.sandbox.browser.clipboard.readText();
+  env.sandbox.browser.clipboard.writeText('copied');
+  assert.deepStrictEqual(env.posted.filter((p) => p.api && p.api.startsWith('clipboard.')).map((p) => [p.api, p.args]), [
+    ['clipboard.readText', []], ['clipboard.writeText', ['copied']]
+  ]);
+});
+
+const NOTIFICATIONS_MANIFEST = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['notifications'] };
+
+test('notifications: only extension pages declaring notifications get the namespace', () => {
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest: NOTIFICATIONS_MANIFEST }), entry(['window.has = typeof browser.notifications;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined');
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.notifications, undefined);
+  const page = makeEnv();
+  page.run(assemble(cfg({ page: true, manifest: NOTIFICATIONS_MANIFEST }), '[]'));
+  for (const method of ['create', 'update', 'clear', 'getAll']) assert.strictEqual(typeof page.sandbox.browser.notifications[method], 'function');
+  assert.strictEqual(typeof page.sandbox.chrome.notifications.create, 'function');
+});
+
+test('notifications: overloads and native event dispatch preserve IDs and close state', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: NOTIFICATIONS_MANIFEST }), entry([
+    "browser.notifications.create('job', { type: 'basic', title: 'Done', message: 'OK' });",
+    "browser.notifications.create({ type: 'basic', title: 'Auto', message: 'Generated' });",
+    "browser.notifications.update('job', { message: 'Updated' }); browser.notifications.clear('job'); browser.notifications.getAll();",
+    "window.notificationEvents = []; browser.notifications.onClicked.addListener(function (id) { window.notificationEvents.push('click:' + id); });",
+    "browser.notifications.onClosed.addListener(function (id, byUser) { window.notificationEvents.push('close:' + id + ':' + byUser); });"
+  ])));
+  const calls = env.posted.filter((x) => x.api && x.api.indexOf('notifications.') === 0);
+  assert.deepStrictEqual(calls.map((x) => x.api), ['notifications.create', 'notifications.create', 'notifications.update', 'notifications.clear', 'notifications.getAll']);
+  assert.deepStrictEqual(calls[0].args, ['job', { type: 'basic', title: 'Done', message: 'OK' }]);
+  assert.deepStrictEqual(calls[1].args, [{ type: 'basic', title: 'Auto', message: 'Generated' }]);
+  env.native({ event: 'notifications.onClicked', payload: { notificationId: 'job' } });
+  env.native({ event: 'notifications.onClosed', payload: { notificationId: 'job', byUser: true } });
+  assert.deepStrictEqual(Array.from(env.sandbox.notificationEvents), ['click:job', 'close:job:true']);
+});
+
 const SCRIPTING_MANIFEST = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['scripting'] };
 
 test('scripting: only on extension pages that declare the permission', () => {
@@ -720,6 +783,78 @@ test('contextMenus API exposes create/update/remove/removeAll and click event', 
   assert.strictEqual(calls[0].args[0].id, 'mafari-menu-1');
   env.native({ event: 'contextMenus.onClicked', payload: { info: { menuItemId: 'mafari-menu-1' }, tab: { id: 7 } } });
   assert.deepStrictEqual(Array.from(env.sandbox.clicks), ['mafari-menu-1:7']);
+});
+
+test('bookmarks: namespace is extension-page-only and requires the manifest permission', () => {
+  const manifest = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['bookmarks'] };
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest }), entry(['window.has = typeof browser.bookmarks;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined');
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1' } }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.bookmarks, undefined);
+  const page = makeEnv();
+  page.run(assemble(cfg({ page: true, manifest }), '[]'));
+  for (const method of ['getTree', 'getSubTree', 'get', 'getChildren', 'search', 'create', 'update', 'move', 'remove', 'removeTree']) {
+    assert.strictEqual(typeof page.sandbox.browser.bookmarks[method], 'function', method);
+    assert.strictEqual(typeof page.sandbox.chrome.bookmarks[method], 'function', 'chrome.' + method);
+  }
+});
+
+test('bookmarks: methods forward to native and events preserve Firefox argument order', () => {
+  const manifest = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['bookmarks'] };
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest }), entry([
+    "browser.bookmarks.getTree(); browser.bookmarks.getSubTree('folder'); browser.bookmarks.get(['a','b']); browser.bookmarks.getChildren('folder');",
+    "browser.bookmarks.search('hello'); browser.bookmarks.create({ parentId: 'menu________', title: 'x', url: 'https://x.test' });",
+    "browser.bookmarks.update('a', { title: 'new' }); browser.bookmarks.move('a', { parentId: 'toolbar_____' }); browser.bookmarks.remove('a'); browser.bookmarks.removeTree('folder');",
+    "window.bookmarkEvents = []; browser.bookmarks.onCreated.addListener(function (id, node) { window.bookmarkEvents.push('c:' + id + ':' + node.title); });",
+    "browser.bookmarks.onChanged.addListener(function (id, info) { window.bookmarkEvents.push('u:' + id + ':' + info.title); });",
+    "browser.bookmarks.onMoved.addListener(function (id, info) { window.bookmarkEvents.push('m:' + id + ':' + info.index); });",
+    "browser.bookmarks.onRemoved.addListener(function (id, info) { window.bookmarkEvents.push('r:' + id + ':' + info.index); });"
+  ])));
+  const calls = env.posted.filter((x) => x.api && x.api.indexOf('bookmarks.') === 0);
+  assert.deepStrictEqual(calls.map((x) => x.api), [
+    'bookmarks.getTree', 'bookmarks.getSubTree', 'bookmarks.get', 'bookmarks.getChildren', 'bookmarks.search',
+    'bookmarks.create', 'bookmarks.update', 'bookmarks.move', 'bookmarks.remove', 'bookmarks.removeTree'
+  ]);
+  env.native({ event: 'bookmarks.onCreated', payload: { id: 'n1', bookmark: { id: 'n1', title: 'Created' } } });
+  env.native({ event: 'bookmarks.onChanged', payload: { id: 'n1', changeInfo: { title: 'Changed' } } });
+  env.native({ event: 'bookmarks.onMoved', payload: { id: 'n1', moveInfo: { index: 2 } } });
+  env.native({ event: 'bookmarks.onRemoved', payload: { id: 'n1', removeInfo: { index: 2 } } });
+  assert.deepStrictEqual(Array.from(env.sandbox.bookmarkEvents), ['c:n1:Created', 'u:n1:Changed', 'm:n1:2', 'r:n1:2']);
+});
+
+test('downloads: namespace is extension-page-only and requires the manifest permission', () => {
+  const manifest = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['downloads'] };
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest }), entry(['window.has = typeof browser.downloads;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined');
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1' } }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.downloads, undefined);
+  const page = makeEnv();
+  page.run(assemble(cfg({ page: true, manifest }), '[]'));
+  for (const method of ['download', 'search', 'pause', 'resume', 'cancel', 'erase']) {
+    assert.strictEqual(typeof page.sandbox.browser.downloads[method], 'function', method);
+    assert.strictEqual(typeof page.sandbox.chrome.downloads[method], 'function', 'chrome.' + method);
+  }
+});
+
+test('downloads: methods forward to native and creation/erasure events are delivered', () => {
+  const manifest = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['downloads'] };
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest }), entry([
+    "browser.downloads.download({ url: 'https://x.test/a.zip', filename: 'a.zip' }); browser.downloads.search({ state: 'complete' });",
+    "browser.downloads.pause(3); browser.downloads.resume(3); browser.downloads.cancel(3); browser.downloads.erase({ id: '3' });",
+    "window.downloadEvents = []; browser.downloads.onCreated.addListener(function (item) { window.downloadEvents.push('c:' + item.id); });",
+    "browser.downloads.onErased.addListener(function (id) { window.downloadEvents.push('e:' + id); });"
+  ])));
+  const calls = env.posted.filter((x) => x.api && x.api.indexOf('downloads.') === 0);
+  assert.deepStrictEqual(calls.map((x) => x.api), ['downloads.download', 'downloads.search', 'downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.erase']);
+  env.native({ event: 'downloads.onCreated', payload: { id: 3, filename: 'a.zip' } });
+  env.native({ event: 'downloads.onErased', payload: { id: 3 } });
+  assert.deepStrictEqual(Array.from(env.sandbox.downloadEvents), ['c:3', 'e:3']);
 });
 
 test('action and browserAction expose compatible setters through shared API shape', () => {

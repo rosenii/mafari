@@ -38,12 +38,12 @@
 |---|---|---|---|
 | `action` | PARTIAL | `action` / `browserAction` 共用原生状态；setBadgeText/setBadgeBackgroundColor/setTitle/setPopup 已接入 Mafari 拓展快捷菜单与 popup 宿主，仍缺部分 Firefox 工具栏事件 / 行为 | P1 |
 | `alarms` | PARTIAL | create/get/getAll/clear/clearAll 已接入；进程死亡时延后补发，不等同常驻浏览器调度 | P1 |
-| `bookmarks` | NONE | 未发现 WebView API handler；不能把 Mafari 自身书签 UI 当成扩展 `bookmarks` API | P2 |
+| `bookmarks` | PARTIAL | `getTree/getSubTree/get/getChildren/search/create/update/move/remove/removeTree` 接入现有 FavoritesStore；四个 Firefox 根容器映射 Mafari 分组，文件夹路径模拟嵌套树；缺少 getRecent / import 事件等语义 | P2 |
 | `browserAction` | PARTIAL | 兼容入口已接入，与 `action` 共用原生状态；仍有工具栏事件 / 行为差异 | P1 |
 | `browserSettings` | NONE | 无扩展可调用的浏览器设置 API | P3 |
 | `browsingData` | NONE | 无按扩展权限清理浏览数据 API | P3 |
 | `captivePortal` | NONE | 无网络门户状态 API | P4 |
-| `clipboard` | NONE | 无 WebExtensions 专用剪贴板 API | P3 |
+| `clipboard` | PARTIAL（Mafari 扩展 API） | `browser.clipboard.readText/writeText` 与 `chrome.clipboard` callback 入口；仅扩展页面，读写权限分别校验；Android 前后台限制，非 Firefox 完整语义 | P2 |
 | `commands` | NONE | 未发现快捷键注册/触发 API | P2 |
 | `contentScripts` | MANIFEST | 静态 `content_scripts` 可由注入器处理；动态 API `register/unregister/update/getRegisteredContentScripts` 在 shim 有入口，但原生 router 没有 handler | P1 |
 | `contextualIdentities` | NONE | 无容器身份 API；Android 标签隐私模式不等同 Firefox Containers | P4 |
@@ -52,7 +52,7 @@
 | `devtools` | NONE | 无扩展 DevTools 页面及面板宿主 | P4 |
 | `dns` | NONE | 无扩展 DNS resolve API | P2 |
 | `dom` | NONE | 无 Firefox 扩展专用 DOM 扩展接口 | P4 |
-| `downloads` | NONE | 无完整扩展下载 API；浏览器自身下载能力不等于该 API | P2 |
+| `downloads` | PARTIAL | 支持内置下载器的 download/search/pause/resume/cancel/erase；暂不支持完整 Chrome 下载字段、过滤条件及 onChanged 等事件 | P2 |
 | `events` | N/A | 公共事件模型/类型；具体事件需由各 API 实现，不单独算已支持 | — |
 | `extension` | NONE | 未实现 legacy `extension.*` 命名空间；部分通用能力由 `runtime` 提供 | P3 |
 | `extensionTypes` | N/A | 公共类型定义，不是独立运行时服务 | — |
@@ -63,7 +63,7 @@
 | `idle` | NONE | 无系统空闲/锁屏状态 API | P4 |
 | `management` | NONE | 无安装拓展枚举、启停和管理 API | P3 |
 | `menus` | PARTIAL | contextMenus.create/update/remove/removeAll、onClicked 与常用 URL/context 过滤已接入；WebView 菜单宿主入口与 Firefox 全部上下文仍有边界 | P1 |
-| `notifications` | NONE | 未接入 Android 通知渠道和扩展通知事件 | P2 |
+| `notifications` | PARTIAL | basic 文本通知 create/update/clear/getAll 与点击/关闭事件；Android 系统授权和渠道由用户控制 | P2 |
 | `omnibox` | NONE | Android 地址栏没有扩展建议提供者接口 | P4 |
 | `pageAction` | MANIFEST | 能解析 MV2 `page_action` 配置；没有完整 API 和地址栏按钮宿主 | P2 |
 | `permissions` | PARTIAL | getAll/contains/request/remove 与原生授权弹窗、持久化授权、onAdded/onRemoved 已实现；复杂 match pattern 子集判断仍有限 | P1 |
@@ -139,7 +139,7 @@
 | P1 | `action` / `browserAction`、`menus`、`commands` | 大量扩展依赖按钮、popup、右键菜单和快捷键 |
 | P1 | `webNavigation` | 让扩展可靠感知导航、frame 和页面状态 |
 | P1 | `permissions.contains` 复杂匹配边界 | 继续核对通配符路径及 Firefox 权限语义 |
-| P2 | `cookies`、`downloads`、`history`、`bookmarks` | 常见浏览器集成能力 |
+| P2 | `cookies`、`history`、`bookmarks` | 常见浏览器集成能力 |
 | P2 | `declarativeNetRequest` | 为声明式过滤拓展提供独立规则执行引擎；与 webRequest 分别评估 |
 | P2 | `dns`、`publicSuffix`、`privacy`、`proxy` | 对 uBlock 等复杂拓展及隐私工具有较高价值 |
 | P3 | `sessions`、`windows`、`tabGroups`、`topSites`、`search` | 完善浏览器管理类拓展 |
@@ -252,3 +252,45 @@
 - `scripting` 注入计划构建时重新按当前已授予 host permissions 过滤动态脚本匹配项；权限 request/remove 后刷新标签的 document-start handler，并使用更新后的权限快照。已执行的当前文档脚本无法被 WebView 回滚，页面重新加载后才会按新权限生效。
 - 新增 Store 恢复 / 损坏 / 文件缺失 / 旧格式迁移测试、权限变化刷新测试、更新迁移测试及撤权注入测试。
 - Node shim 49 项、WebExtension 示例 2 项通过。Android Gradle 测试仍需在可下载 Gradle 9.9.1 的环境运行；WebView 真机回调时序仍需设备验证。
+
+
+## 16. 2026-11-20 Mafari 剪贴板 API 增量
+
+- 新增 Mafari 扩展页面专用 `browser.clipboard.readText()` / `browser.clipboard.writeText(text)`，并提供 `chrome.clipboard` callback 风格入口。该 namespace 仅在拓展自己的 background / popup / options 页面暴露，不注入普通网页 content script。
+- `clipboardRead` 与 `clipboardWrite` 分别控制读写；原生 `PermissionChecker` 对两个方法独立校验，content script 即使拥有权限也不能直接调用。
+- 写入通过 Android `ClipboardManager` 设置纯文本；读取首个剪贴板条目并限制返回长度为 1 MiB。Android 系统可能限制后台读取或返回空值；系统拒绝时返回 `DENIED_PERMISSION`，不是模拟成功。
+- 这是 Mafari 提供的便捷扩展 API，不声称完全等同 Firefox / Chrome 的 `document.execCommand` 剪贴板授权语义，也不实现图片 / HTML / 多条目剪贴板。
+- `ApiSupport` 将 `clipboardRead` / `clipboardWrite` 从 PLANNED 调整为 PARTIAL。新增权限隔离测试，覆盖读写权限独立性及 content script 拒绝。
+- Node shim / Android Kotlin 测试结果以本轮交付说明为准；完整 Android 构建与系统剪贴板前后台行为仍需设备验证。
+
+
+## 17. 2026-11-20 Notifications API 增量
+
+- WebView 扩展页面新增 `browser.notifications` / `chrome.notifications`：`create`（支持传 ID 或自动生成 ID）、`update`、`clear`、`getAll`。
+- 新增 `onClicked` / `onClosed` 事件；事件只投递给同一扩展的 background / popup / options 页面，不暴露给网页 content script。
+- 仅实现 `basic` 纯文本通知，字段为 title / message / contextMessage / priority；图片、进度、列表、按钮、自定义图标及 `onButtonClicked` 明确未实现。
+- Android 13+ 的 `POST_NOTIFICATIONS` 与应用通知开关由原生层检查；未授权时返回 `DENIED_PERMISSION`，不伪造成功。按扩展和 priority 创建 Android 通知渠道（每个扩展最多五个）；未知通知字段明确返回 `UNSUPPORTED`。
+- 通知记录只在当前进程内维护，进程重启后系统残留通知可能仍显示，但 `getAll()` 不保证恢复；点击/关闭事件也依赖进程内扩展页面宿主已初始化。
+- `ApiSupport.notifications` 从 PLANNED 调整为 PARTIAL。
+
+验证：本轮新增 shim 事件 / API 测试；Node 测试结果见交付说明。Android Gradle / 真机通知权限与点击回调尚待可用构建环境验证。
+
+
+## 18. 2026-11-20 WebView Bookmarks API 增量（本轮）
+
+- 新增 `browser.bookmarks` / `chrome.bookmarks`，仅扩展自己的 background / popup / options 页面可见；需要 manifest 声明 `bookmarks`，原生 PermissionChecker 再次校验。content script 不允许调用。
+- 实现 `getTree`、`getSubTree`、`get`、`getChildren`、`search`、`create`、`update`、`move`、`remove`、`removeTree`。
+- 复用 Gecko/Floccus 适配中的 `BookmarksBridge.Ops` 树映射，直接读写 Mafari `FavoritesStore`，不经 Gecko `sendNativeMessage`，也不建立第二份书签数据库。四个 Firefox 根目录映射到「书签栏」「个人收藏」「其他书签」「移动设备书签」；应用分组路径映射成嵌套文件夹。
+- separator 继续使用 Floccus separator URL 占位映射；日期字段目前为 0。书签事件支持 onCreated/onChanged/onMoved/onRemoved，事件只投递扩展页面。
+- 当前为 PARTIAL：没有 `getRecent`、`onChildrenReordered`、导入事件；应用自身仅支持文件夹路径的有限树语义，日期信息不完整。Floccus 在 GeckoView 中仍走原有原生桥；本实现仅服务 WebView 扩展。
+
+
+## 19. 2026-11-20 WebView Downloads API 增量（本轮）
+
+- 新增 `browser.downloads` / `chrome.downloads`，仅扩展自己的 background / popup / options 页面可用；需声明 `downloads` 权限，content script 明确拒绝。
+- 实现 `download`、`search`、`pause`、`resume`、`cancel`、`erase`，以及 `onCreated` / `onErased`。下载任务直接复用 Mafari `Downloader`、SQLCipher 下载记录与默认下载目录，不另建下载队列或数据库。
+- `download()` 目前只接受 HTTP/HTTPS 和 `url` / `filename` 两个字段；文件名只能是 basename。搜索支持 url、filename、id、state、mimeType、limit 和有限排序；`erase()` 清除任务记录，不删除已完成文件。
+- 暂不支持 headers、POST body、saveAs、conflictAction、子目录、自定义下载目录、`onChanged`、`onDeterminingFilename`、`open`、`show`、`removeFile`、文件图标等。状态/时间字段按 Mafari 下载任务模型近似映射，不代表 Chrome 完整语义。
+- `ApiSupport.downloads` 标记 PARTIAL；新增 shim 权限隔离、方法 RPC、事件分发和原生注册 wiring 测试。
+
+验证：`node tools/ext-shim-test/run.js` 57 项通过；`node tools/webext-test/run.js` 2 项通过。Android Kotlin 编译尝试失败于 Gradle Wrapper 下载阶段：环境无法解析 `services.gradle.org`（UnknownHostException），所以本轮 Kotlin 编译、Android 单元测试和真机下载流程均未验证。

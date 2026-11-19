@@ -322,6 +322,19 @@ object Downloader {
      * 应用自更新专用：固定走内置下载器（不交给第三方下载器，才能拿到进度并在完成后安装），
      * 返回任务 id，界面据此从 [tasks] 读进度、用 [delete] 取消。[onComplete] 在主线程回调（取消时为 false + "cancelled"）。
      */
+    /** WebExtension downloads.download：始终使用 Mafari 内置下载器，返回稳定的任务 ID。 */
+    fun startForExtension(
+        context: Context,
+        url: String,
+        fileName: String,
+        mimeType: String? = null,
+        userAgent: String? = null,
+        referer: String? = null,
+    ): Long = startInternal(
+        context.applicationContext, url, userAgent, originalName(fileName), mimeType,
+        null, referer, false, false,
+    )
+
     fun startForUpdate(
         context: Context,
         url: String,
