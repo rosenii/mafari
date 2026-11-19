@@ -32,7 +32,6 @@ import dev.dsh.miuixbrowser.i18n.tr
 import dev.dsh.miuixbrowser.translate.TranslateLangs
 import dev.dsh.miuixbrowser.translate.TranslateManager
 import dev.dsh.miuixbrowser.translate.TranslateSourceId
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
@@ -105,7 +104,8 @@ fun TranslateSheet(
             Spacer(Modifier.size(8.dp))
 
             // ---- 翻译源 / 目标语言 ----
-            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), insideMargin = PaddingValues0) {
+            // 不套 Card：去掉行下面的白底，让行直接浮在玻璃上；行自带 16dp 内边距，外面补 8dp 与标题的 24dp 左对齐
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
                 AppDropdownPreference(
                     backdrop = backdrop,
                     title = tr("翻译源"),
@@ -227,8 +227,6 @@ fun TranslateSheet(
         }
     }
 }
-
-private val PaddingValues0 = androidx.compose.foundation.layout.PaddingValues(0.dp)
 
 private fun statusText(t: TabTranslate): String = when (t.phase) {
     TabTranslate.Phase.IDLE -> tr("当前页面未翻译")

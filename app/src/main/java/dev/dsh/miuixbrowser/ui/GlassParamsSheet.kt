@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.GlassField
 import dev.dsh.miuixbrowser.data.GlassPresets
@@ -113,10 +112,10 @@ fun GlassParamsSheet(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(text = tr("叠加磨砂白色材质"), fontSize = 16.sp, color = MiuixTheme.colorScheme.onSurface)
+                            Text(text = tr("叠加磨砂白色材质"), style = MiuixTheme.textStyles.headline1, color = MiuixTheme.colorScheme.onSurface)
                             Text(
                                 text = tr("开启后玻璃更雾、更不透，背景模糊跟「背景模糊」滑条走"),
-                                fontSize = 13.sp,
+                                style = MiuixTheme.textStyles.body2,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }
@@ -172,15 +171,16 @@ private fun PresetRow(title: String, summary: String, selected: Boolean, onClick
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
+            // 与 miuix 标准行（BasicComponent / 翻译弹窗的下拉行）一致：标题 headline1，副标题 body2
             Text(
                 text = title,
-                fontSize = 16.sp,
+                style = MiuixTheme.textStyles.headline1,
                 color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
             )
-            Text(text = summary, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text(text = summary, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         if (trailing != null) {
-            Text(text = trailing, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text(text = trailing, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         if (selected) {
             Icon(
@@ -198,8 +198,8 @@ private fun FieldSlider(field: GlassField, settings: AppSettings) {
     val value = field.get(settings.glassParams).coerceIn(field.min, field.max)
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = ContentInset, vertical = 4.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = tr(field.name), fontSize = 15.sp, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-            Text(text = field.show(value), fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text(text = tr(field.name), style = MiuixTheme.textStyles.headline1, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            Text(text = field.show(value), style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         Slider(
             value = value,
