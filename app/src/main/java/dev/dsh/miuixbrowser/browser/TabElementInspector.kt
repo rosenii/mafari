@@ -13,7 +13,7 @@ internal class TabElementInspector(private val tab: BrowserTab) {
         @android.webkit.JavascriptInterface
         fun onElement(selector: String, tag: String, imageUrl: String) {
             tab.webView.post {
-                tab.onElementLongPress?.invoke(ElementHit(tag, imageUrl, selector))
+                tab.onElementLongPress?.invoke(BrowserTab.ElementHit(tag, imageUrl, selector))
             }
         }
     }
