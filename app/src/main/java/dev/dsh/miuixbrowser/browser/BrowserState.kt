@@ -345,6 +345,17 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         openTabInternal(target, incognito, opener, fromLink, makeActive = true)
     }
 
+    /** 下一个新标签是不是 WebView 内核：拓展（WebView 适配器）只看得到 WebView 标签，Gecko 默认时不能替它新建 */
+    internal fun newTabUsesWebView(): Boolean =
+        !(readBrowserEngine(context) == ENGINE_GECKO && EngineSupport.geckoAvailable())
+
+    /**
+     * 拓展 tabs.create：新建一个普通（非无痕）标签，[active] 为 false 时后台打开。
+     * 与 [newTab] 的区别：不复用当前空白标签、返回新标签；到上限时返回 null。调用方先确认 [newTabUsesWebView]。
+     */
+    internal fun openTabForExtension(target: String, active: Boolean, opener: BrowserTab?): BrowserTab? =
+        openTabInternal(target, incognito = false, opener = opener, fromLink = false, makeActive = active, reuseBlank = false)
+
     /** [newTab] 的实现；[makeActive] = false 为后台打开（GM_openInTab({ active: false })），返回新标签（没建成返回 null） */
     private fun openTabInternal(
         target: String,
@@ -352,10 +363,12 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         opener: BrowserTab?,
         fromLink: Boolean,
         makeActive: Boolean,
+        /** false = 即使当前标签是同模式的空白标签也照样新建（拓展 tabs.create 要拿到一个确定的新标签） */
+        reuseBlank: Boolean = true,
     ): BrowserTab? {
         // 新建空白标签时，若设置了「指定页面」就打开它（无痕标签保持空白）
         val loadTarget = if (target.isEmpty() && !incognito) customHomeUrl().orEmpty() else target
-        if (loadTarget.isEmpty()) {
+        if (loadTarget.isEmpty() && reuseBlank) {
             val cur = tabs.getOrNull(activeIndex)
             if (cur != null && cur.isBlank && cur.incognito == incognito) return null
         }

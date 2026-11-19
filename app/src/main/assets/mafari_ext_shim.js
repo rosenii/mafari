@@ -63,7 +63,11 @@ function (CFG, ENTRIES) {
     },
     'runtime.onStartup': function () { return [['runtime.onStartup', []]]; },
     'runtime.onInstalled': function (p) { return [['runtime.onInstalled', [p]]]; },
-    'alarms.onAlarm': function (p) { return [['alarms.onAlarm', [p]]]; }
+    'alarms.onAlarm': function (p) { return [['alarms.onAlarm', [p]]]; },
+    'tabs.onCreated': function (p) { return [['tabs.onCreated', [p.tab]]]; },
+    'tabs.onUpdated': function (p) { return [['tabs.onUpdated', [p.tabId, p.changeInfo, p.tab]]]; },
+    'tabs.onRemoved': function (p) { return [['tabs.onRemoved', [p.tabId, p.removeInfo]]]; },
+    'tabs.onActivated': function (p) { return [['tabs.onActivated', [p.activeInfo]]]; }
   };
   function deliverEvent(name, args) {
     if ((L[name] || []).length) { fire(name, args); return; }
@@ -252,8 +256,80 @@ function (CFG, ENTRIES) {
     };
   }
 
+  // tabs：只在拓展自己的页面里提供（content script 不能调，原生侧也会拒绝）。query / create 等本身不要权限，
+  // url / title 等字段是否返回由原生按 tabs 权限 / host 权限裁剪。
+  // 参数约定：可选的 tabId 缺省时传 null（= 当前前台标签），属性对象缺省时传 null / {}。
+  var tabs = null;
+  if (CFG.page) {
+    var nul = function (v) { return v === undefined ? null : v; };
+    var isObj = function (v) { return v !== null && typeof v === 'object'; };
+    tabs = {
+      TAB_ID_NONE: -1,
+      query: promised(function (q) { return rpc('tabs.query', [q === undefined || q === null ? {} : q]); }),
+      get: promised(function (tabId) { return rpc('tabs.get', [tabId]); }),
+      getCurrent: promised(function () { return rpc('tabs.getCurrent', []); }),
+      create: promised(function (props) { return rpc('tabs.create', [nul(props)]); }),
+      // update([tabId], updateProperties)
+      update: promised(function (a, b) {
+        return isObj(a) ? rpc('tabs.update', [null, a]) : rpc('tabs.update', [nul(a), nul(b)]);
+      }),
+      // remove(tabId | tabId[])
+      remove: promised(function (ids) { return rpc('tabs.remove', [ids]); }),
+      // reload([tabId], [reloadProperties])
+      reload: promised(function (a, b) {
+        return isObj(a) ? rpc('tabs.reload', [null, a]) : rpc('tabs.reload', [nul(a), nul(b)]);
+      }),
+      goBack: promised(function (tabId) { return rpc('tabs.goBack', [nul(tabId)]); }),
+      goForward: promised(function (tabId) { return rpc('tabs.goForward', [nul(tabId)]); }),
+      // 还没有按标签的连接记录：明确报错，而不是让拓展调到 undefined 直接崩
+      sendMessage: promised(function () { return P.reject(new E('tabs.sendMessage is not supported yet')); }),
+      onCreated: ev('tabs.onCreated'),
+      onUpdated: ev('tabs.onUpdated'),
+      onRemoved: ev('tabs.onRemoved'),
+      onActivated: ev('tabs.onActivated')
+    };
+  }
+
+  // scripting：只在拓展自己的页面里提供（content script 不能调，原生侧也会拒绝），且 manifest 要声明 scripting 权限。
+  // func 是函数对象，JSON 序列化会把它丢掉，所以这里转成源码字符串再发；其它字段按白名单复制，
+  // 原生不认的（injectImmediately 等）不转发。executeScript 的结果只有主框架一项，见 ScriptingApi 的说明。
+  // registerContentScripts 一族原生还没实现：照样发过去，由原生回 UNSUPPORTED「尚未实现」，将来实现时垫片不用再改。
+  var scripting = null;
+  if (CFG.page && declares('scripting')) {
+    var sn = function (v) { return v === undefined ? null : v; };
+    var sObj = function (v) { return v !== null && typeof v === 'object'; };
+    var sPick = function (o, keys) {
+      var out = {};
+      keys.forEach(function (k) { if (o[k] !== undefined) out[k] = o[k]; });
+      return out;
+    };
+    scripting = {
+      executeScript: promised(function (inj) {
+        if (!sObj(inj)) return rpc('scripting.executeScript', [sn(inj)]);
+        var d = sPick(inj, ['target', 'args', 'files', 'world']);
+        if (inj.func !== undefined) {
+          if (typeof inj.func !== 'function') return P.reject(new E('scripting.executeScript: func must be a function'));
+          d.func = Function.prototype.toString.call(inj.func);
+        }
+        return rpc('scripting.executeScript', [d]);
+      }),
+      insertCSS: promised(function (inj) {
+        return rpc('scripting.insertCSS', [sObj(inj) ? sPick(inj, ['target', 'css', 'files']) : sn(inj)]);
+      }),
+      removeCSS: promised(function (inj) {
+        return rpc('scripting.removeCSS', [sObj(inj) ? sPick(inj, ['target', 'css', 'files']) : sn(inj)]);
+      }),
+      registerContentScripts: promised(function (list) { return rpc('scripting.registerContentScripts', [sn(list)]); }),
+      getRegisteredContentScripts: promised(function (filter) { return rpc('scripting.getRegisteredContentScripts', [sn(filter)]); }),
+      updateContentScripts: promised(function (list) { return rpc('scripting.updateContentScripts', [sn(list)]); }),
+      unregisterContentScripts: promised(function (filter) { return rpc('scripting.unregisterContentScripts', [sn(filter)]); })
+    };
+  }
+
   var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext };
   if (alarms) browser.alarms = alarms;
+  if (tabs) browser.tabs = tabs;
+  if (scripting) browser.scripting = scripting;
 
   var chromeRuntime = cbObj(runtime);
   Object.defineProperty(chromeRuntime, 'lastError', { get: function () { return lastError.v; }, enumerable: true });
@@ -267,6 +343,8 @@ function (CFG, ENTRIES) {
     extension: ext
   };
   if (alarms) chrome.alarms = cbObj(alarms);
+  if (tabs) chrome.tabs = cbObj(tabs);
+  if (scripting) chrome.scripting = cbObj(scripting);
 
   // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上，
   // 并发一次握手，让原生拿到回复通道（之后才能向本页面投递 runtime.onMessage）。

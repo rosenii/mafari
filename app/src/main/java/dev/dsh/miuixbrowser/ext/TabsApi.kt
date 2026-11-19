@@ -40,6 +40,11 @@ class TabsApi(
         bridge = null
     }
 
+    /** 仅当当前接着的是 [b] 才摘（界面重建时新旧桥接交替，旧的晚到的 detach 不能误伤新的） */
+    fun detach(b: TabBridge) {
+        if (bridge === b) detach()
+    }
+
     /** 给同样要用标签桥接的模块（scripting 等）共用同一个连接，没接上时为 null */
     fun bridgeOrNull(): TabBridge? = bridge
 

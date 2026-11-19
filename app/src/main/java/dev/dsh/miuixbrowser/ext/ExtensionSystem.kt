@@ -36,6 +36,15 @@ class ExtensionSystem(
     val pages = ExtensionPageHost(context.applicationContext, repo, runtime, broker, { shim() }, log)
 
     /**
+     * tabs.*：事件只发往拓展自己的页面（[pages]），不走 [sinks]——后者包含标签页里的 content script，
+     * 标签的网址不能推到网页里去。浏览器界面建好后调用 [attachTabs] 接上真实的标签桥接（BrowserScreen 里接），之前调用回 UNSUPPORTED。
+     */
+    private val tabs = TabsApi(pages) { webViewExtensions() }
+
+    /** scripting.*：与 tabs 共用同一个标签桥接（[TabsApi.bridgeOrNull]），attach 之前同样回 UNSUPPORTED */
+    private val scripting = ScriptingApi({ tabs.bridgeOrNull() })
+
+    /**
      * 后台页启动流程与闹钟共用一个单线程 Executor：就绪 / 消失 / 唤醒按顺序处理，文件读写与事件投递都不占主线程。
      * alarms / runtime 启动事件只投给拓展自己的页面（[pages]），content script 里没有这些 API。
      */
@@ -50,10 +59,21 @@ class ExtensionSystem(
         broker.register(router)
         storage.register(router)
         alarms.register(router)
+        tabs.register(router)
+        scripting.register(router)
         pages.backgroundListener = lifecycle
         sinks.add(tabHost)
         sinks.add(pages)
     }
+
+    /** 浏览器界面建好后（主线程）接上标签页桥接；重复调用会替换旧的 */
+    fun attachTabs(bridge: TabBridge) = tabs.attach(bridge)
+
+    /** 浏览器界面销毁时摘掉桥接，避免持有已销毁的标签状态 */
+    fun detachTabs() = tabs.detach()
+
+    /** 只在当前接着的就是 [bridge] 时才摘：界面重建后旧界面的销毁回调晚到，不会把新界面刚接上的桥接摘掉 */
+    fun detachTabs(bridge: TabBridge) = tabs.detach(bridge)
 
     /** 已启用、能在 WebView 上运行的拓展：标签页注入、后台页、菜单角标都用它（无痕范围由调用方过滤） */
     fun webViewExtensions(): List<InstalledExtension> =

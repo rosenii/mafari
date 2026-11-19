@@ -7,9 +7,9 @@ package dev.dsh.miuixbrowser.ext
 object ApiSupport {
     private val webView: Map<String, SupportLevel> = mapOf(
         "storage" to SupportLevel.FULL,
-        "tabs" to SupportLevel.PLANNED,
+        "tabs" to SupportLevel.PARTIAL, // 缺 sendMessage / move / duplicate / captureVisibleTab 等
         "activeTab" to SupportLevel.PLANNED,
-        "scripting" to SupportLevel.PLANNED,
+        "scripting" to SupportLevel.PARTIAL, // executeScript / insertCSS / removeCSS；缺 registerContentScripts 一族
         "contextMenus" to SupportLevel.PLANNED,
         "menus" to SupportLevel.PLANNED,
         "alarms" to SupportLevel.FULL,

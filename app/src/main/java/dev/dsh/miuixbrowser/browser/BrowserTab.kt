@@ -1493,6 +1493,26 @@ class BrowserTab(
         }
     }
 
+    /**
+     * 拓展 tabs.goBack / goForward 用（仅 WebView 内核）：只在页面自己的历史里走一步，返回是否真的发出了导航。
+     * 与 [goBack] 的区别：不退出阅读模式，也不会在「从主页进入的第一页」把标签收回主页，
+     * 更不会在主页上把被盖住的页面还原出来——拓展没有办法替用户藏起 / 翻出页面。
+     */
+    internal fun stepHistoryForExtension(forward: Boolean): Boolean {
+        if (isGecko || url.isEmpty()) return false
+        if (forward) {
+            if (!engineCanGoForward()) return false
+            fpInjector?.prepareHistory(1)
+            ops.goForward()
+            return true
+        }
+        if (!engineCanGoBack()) return false
+        if (fromHome && historyIndex() <= homeAnchor + 1) return false
+        fpInjector?.prepareHistory(-1)
+        ops.goBack()
+        return true
+    }
+
     fun destroyNow() {
         if (destroyed) return
         destroyed = true

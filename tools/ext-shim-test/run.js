@@ -437,6 +437,134 @@ test('events: content scripts never buffer', () => {
   assert.strictEqual(n, 0);
 });
 
+const SCRIPTING_MANIFEST = { manifest_version: 3, name: 'Demo', version: '1', permissions: ['scripting'] };
+
+test('scripting: only on extension pages that declare the permission', () => {
+  const cs = makeEnv();
+  cs.run(assemble(cfg({ manifest: SCRIPTING_MANIFEST }), entry(['window.has = typeof browser.scripting;'])));
+  assert.strictEqual(cs.sandbox.has, 'undefined', 'content script must not get scripting');
+
+  const noPerm = makeEnv();
+  noPerm.run(assemble(cfg({ page: true }), '[]'));
+  assert.strictEqual(noPerm.sandbox.browser.scripting, undefined);
+  assert.strictEqual(noPerm.sandbox.chrome.scripting, undefined);
+
+  const ok = makeEnv();
+  ok.run(assemble(cfg({ page: true, manifest: SCRIPTING_MANIFEST }), '[]'));
+  for (const k of ['executeScript', 'insertCSS', 'removeCSS', 'registerContentScripts',
+    'getRegisteredContentScripts', 'updateContentScripts', 'unregisterContentScripts']) {
+    assert.strictEqual(typeof ok.sandbox.browser.scripting[k], 'function', 'browser.scripting.' + k);
+    assert.strictEqual(typeof ok.sandbox.chrome.scripting[k], 'function', 'chrome.scripting.' + k);
+  }
+});
+
+test('scripting: optional_permissions also counts as declared', () => {
+  const env = makeEnv();
+  const m = { manifest_version: 3, name: 'Demo', version: '1', optional_permissions: ['scripting'] };
+  env.run(assemble(cfg({ page: true, manifest: m }), '[]'));
+  assert.strictEqual(typeof env.sandbox.browser.scripting.executeScript, 'function');
+});
+
+test('scripting.executeScript: func is sent as source text, only whitelisted fields are forwarded', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: SCRIPTING_MANIFEST }), '[]'));
+  env.sandbox.browser.scripting.executeScript({
+    target: { tabId: 7 }, func: (a, b) => a + b, args: [1, 2], world: 'MAIN', injectImmediately: true, bogus: 1,
+  });
+  env.sandbox.browser.scripting.executeScript({ target: { tabId: 7 }, files: ['a.js', 'b.js'] });
+  const calls = env.posted.filter((p) => p.api === 'scripting.executeScript');
+  assert.strictEqual(calls.length, 2);
+  assert.deepStrictEqual(Object.keys(calls[0].args[0]).sort(), ['args', 'func', 'target', 'world']);
+  assert.strictEqual(calls[0].args[0].func, '(a, b) => a + b');
+  assert.deepStrictEqual(calls[0].args[0].args, [1, 2]);
+  assert.deepStrictEqual(calls[1].args, [{ target: { tabId: 7 }, files: ['a.js', 'b.js'] }]);
+});
+
+test('scripting.executeScript: func that is not a function rejects locally; missing details reach native as null', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: SCRIPTING_MANIFEST }), '[]'));
+  await assert.rejects(env.sandbox.browser.scripting.executeScript({ target: { tabId: 1 }, func: 'alert(1)' }), /func must be a function/);
+  assert.strictEqual(env.posted.filter((p) => p.api === 'scripting.executeScript').length, 0, 'nothing may be posted');
+  env.sandbox.browser.scripting.executeScript();
+  assert.deepStrictEqual(env.posted[env.posted.length - 1].args, [null]);
+});
+
+test('scripting.insertCSS / removeCSS: css / files / target only', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: SCRIPTING_MANIFEST }), '[]'));
+  const s = env.sandbox.browser.scripting;
+  s.insertCSS({ target: { tabId: 3 }, css: 'a{}', origin: 'USER', bogus: 1 });
+  s.removeCSS({ target: { tabId: 3 }, files: ['x.css'] });
+  const calls = env.posted.filter((p) => p.api && p.api.startsWith('scripting.')).map((p) => [p.api, p.args]);
+  assert.deepStrictEqual(calls, [
+    ['scripting.insertCSS', [{ target: { tabId: 3 }, css: 'a{}' }]],
+    ['scripting.removeCSS', [{ target: { tabId: 3 }, files: ['x.css'] }]],
+  ]);
+});
+
+test('scripting: native result passes through; chrome callback style and lastError work', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: SCRIPTING_MANIFEST }), '[]'));
+  const p = env.sandbox.browser.scripting.executeScript({ target: { tabId: 1 }, func: () => 1 });
+  env.native({ id: env.posted[env.posted.length - 1].id, ok: true, result: [{ frameId: 0, result: 1 }] });
+  assert.deepStrictEqual(await p, [{ frameId: 0, result: 1 }]);
+
+  let got = 'unset', err = 'unset';
+  env.sandbox.chrome.scripting.executeScript({ target: { tabId: 1 }, func: () => 1 }, (r) => {
+    got = r; err = env.sandbox.chrome.runtime.lastError && env.sandbox.chrome.runtime.lastError.message;
+  });
+  env.native({ id: env.posted[env.posted.length - 1].id, ok: false, error: { code: 'DENIED_PERMISSION', message: 'nope' } });
+  await tick();
+  assert.strictEqual(got, undefined);
+  assert.strictEqual(err, 'nope');
+});
+
+test('scripting.registerContentScripts family: sent to native (which answers UNSUPPORTED), not stubbed in the shim', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: SCRIPTING_MANIFEST }), '[]'));
+  const s = env.sandbox.browser.scripting;
+  const p = s.registerContentScripts([{ id: 'a', matches: ['*://*/*'], js: ['a.js'] }]);
+  s.getRegisteredContentScripts(); s.updateContentScripts([]); s.unregisterContentScripts({ ids: ['a'] });
+  const calls = env.posted.filter((p2) => p2.api && p2.api.startsWith('scripting.')).map((p2) => [p2.api, p2.args]);
+  assert.deepStrictEqual(calls.map((c) => c[0]), [
+    'scripting.registerContentScripts', 'scripting.getRegisteredContentScripts',
+    'scripting.updateContentScripts', 'scripting.unregisterContentScripts',
+  ]);
+  assert.deepStrictEqual(calls[1][1], [null]);
+  const regId = env.posted.find((p2) => p2.api === 'scripting.registerContentScripts').id; // posted[0] 是 runtime.hello
+  env.native({ id: regId, ok: false, error: { code: 'UNSUPPORTED', message: '尚未实现' } });
+  await assert.rejects(p, (e) => e.code === 'UNSUPPORTED');
+});
+
+// ───────────── 垫片 ⇄ 原生 的静态一致性（不跑 Kotlin，只读源码）：专抓「写了没接上」────────────
+const EXT_SRC = path.join(root, 'app/src/main/java/dev/dsh/miuixbrowser/ext');
+const extKt = fs.readdirSync(EXT_SRC).filter((f) => f.endsWith('.kt')).map((f) => [f, fs.readFileSync(path.join(EXT_SRC, f), 'utf8')]);
+/** 垫片里直接写死名字的 rpc 调用（storage.* 的名字是拼出来的，不在此列） */
+const SHIM_RPC = [...new Set([...shim.matchAll(/rpc\('([A-Za-z]+\.[A-Za-z.]+)'/g)].map((m) => m[1]))];
+/** 垫片已经发、但原生明确还没实现（调用会回 UNSUPPORTED）的 API：实现后必须从这里删掉 */
+const KNOWN_UNIMPLEMENTED = new Set([
+  'scripting.registerContentScripts', 'scripting.getRegisteredContentScripts',
+  'scripting.updateContentScripts', 'scripting.unregisterContentScripts',
+]);
+
+test('wiring: every API name the shim sends has a native handler (or is on the known-unimplemented list)', () => {
+  const registered = new Set();
+  for (const [, src] of extKt) for (const m of src.matchAll(/\.register\("([A-Za-z]+\.[A-Za-z.]+)"/g)) registered.add(m[1]);
+  assert.ok(SHIM_RPC.length > 10 && registered.size > 10, 'regex found nothing — source layout changed?');
+  const missing = SHIM_RPC.filter((a) => !registered.has(a) && !KNOWN_UNIMPLEMENTED.has(a));
+  assert.deepStrictEqual(missing, [], '垫片会发出、原生却没注册的 API：' + missing.join(', '));
+  const stale = [...KNOWN_UNIMPLEMENTED].filter((a) => registered.has(a));
+  assert.deepStrictEqual(stale, [], '已经实现了，请从 KNOWN_UNIMPLEMENTED 删掉：' + stale.join(', '));
+});
+
+test('wiring: every `fun register(router: ApiRouter)` is actually called from ExtensionSystem', () => {
+  const defs = extKt.filter(([f, src]) => f !== 'ExtensionSystem.kt' && /fun register\(router: ApiRouter\)/.test(src)).map(([f]) => f);
+  const sys = extKt.find(([f]) => f === 'ExtensionSystem.kt')[1];
+  const calls = (sys.match(/\.register\(router\)/g) || []).length;
+  assert.ok(defs.length >= 6, 'expected the api classes: ' + defs);
+  assert.strictEqual(calls, defs.length, defs.length + ' 个 register(router) 定义（' + defs.join(', ') + '），ExtensionSystem 里只调用了 ' + calls + ' 个');
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

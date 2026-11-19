@@ -3,6 +3,7 @@ package dev.dsh.miuixbrowser.ui
 import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.browser.AppRoute
 import dev.dsh.miuixbrowser.browser.BrowserState
+import dev.dsh.miuixbrowser.browser.BrowserStateTabBridge
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.DefaultBrowser
 import dev.dsh.miuixbrowser.browser.MenuAction
@@ -40,6 +41,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -98,6 +100,17 @@ fun BrowserScreen(
         androidx.compose.runtime.snapshotFlow { state.tabRows() }.collect { rows ->
             state.saveTabs(rows)
             kotlinx.coroutines.delay(800)
+        }
+    }
+    // WebView 拓展的 tabs / scripting 要操作真实标签：界面建好后把标签桥接接到拓展系统上，界面销毁时摘掉。
+    // 摘桥接时按身份比对：界面重建时旧界面晚到的 onDispose 不会把新界面刚接上的桥接摘掉
+    DisposableEffect(state) {
+        val bridge = BrowserStateTabBridge(state)
+        val extSystem = context.appContainer.webExtensions
+        extSystem.attachTabs(bridge)
+        onDispose {
+            extSystem.detachTabs(bridge)
+            bridge.close()
         }
     }
     val favorites = remember { context.appContainer.favorites }
