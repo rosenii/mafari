@@ -73,7 +73,7 @@ class NotificationsApi(private val context: Context, private val pages: Extensio
         requireAndroidPermission()
         val entry = parseEntry(id, options)
         val byId = entries.computeIfAbsent(ext.spec.id) { ConcurrentHashMap() }
-        if (byId.size >= MAX_PER_EXTENSION && id !in byId) throw ApiException(ErrorCodes.QUOTA, "每个拓展最多 $MAX_PER_EXTENSION 条通知")
+        if (byId.size >= MAX_PER_EXTENSION && !byId.containsKey(id)) throw ApiException(ErrorCodes.QUOTA, "每个拓展最多 $MAX_PER_EXTENSION 条通知")
         byId[id] = entry
         show(ext, entry)
     }
