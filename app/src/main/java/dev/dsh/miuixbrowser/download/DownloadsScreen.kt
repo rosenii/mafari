@@ -39,6 +39,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import android.os.SystemClock
+import android.widget.Toast
+import kotlinx.coroutines.delay
 import androidx.compose.ui.state.ToggleableState
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Checkbox
@@ -214,6 +221,7 @@ fun DownloadsScreen(
     onExternalDownloaderChange: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val tasks = Downloader.tasks
     val backdrop = rememberLayerBackdrop()
     val liquidBackdrop = rememberKyantBackdrop()
@@ -355,6 +363,7 @@ fun DownloadsScreen(
                     }
                     items(group.tasks.size, key = { group.tasks[it].id }) { index ->
                         val task = group.tasks[index]
+                        val speed = rememberSpeedText(task)
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -383,13 +392,31 @@ fun DownloadsScreen(
                                     FilePreview(task)
                                     Spacer(Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = task.name,
-                                            fontSize = 15.sp,
-                                            color = MiuixTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = task.name,
+                                                fontSize = 15.sp,
+                                                color = MiuixTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f, fill = false),
+                                            )
+                                            // 复制下载链接：主题色超小图标，比标题文字（15sp）小一号
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_copy_link),
+                                                contentDescription = tr("复制链接"),
+                                                tint = MiuixTheme.colorScheme.primary,
+                                                modifier = Modifier
+                                                    .padding(start = 2.dp)
+                                                    .squircleClip(6.dp)
+                                                    .clickable {
+                                                        clipboard.setText(AnnotatedString(task.url))
+                                                        Toast.makeText(context, tr("已复制链接"), Toast.LENGTH_SHORT).show()
+                                                    }
+                                                    .padding(4.dp)
+                                                    .size(12.dp),
+                                            )
+                                        }
                                         Spacer(Modifier.height(3.dp))
                                         Text(
                                             text = when (task.state) {
@@ -398,7 +425,8 @@ fun DownloadsScreen(
                                                 DownloadState.FAILED -> tr("失败 · {0}", task.error ?: tr("未知错误"))
                                                 DownloadState.RUNNING -> {
                                                     val percent = (Downloader.progressOf(task) * 100).toInt()
-                                                    "$percent% · ${Downloader.progressSizeText(task.bytes, task.total)}"
+                                                    val base = "$percent% · ${Downloader.progressSizeText(task.bytes, task.total)}"
+                                                    if (speed.isNotEmpty()) "$base · $speed" else base
                                                 }
                                             },
                                             fontSize = 12.sp,
@@ -545,6 +573,38 @@ fun DownloadsScreen(
         }
     }
     }
+}
+
+/**
+ * 下载速度（非实时）：每 1.5 秒按这段时间内增加的字节数取一次平均值，
+ * 避免文字每次进度回调都跳动。非「下载中」时为空。
+ */
+@Composable
+private fun rememberSpeedText(task: DownloadTask): String {
+    val latest by rememberUpdatedState(task)
+    var speed by remember(task.id) { mutableStateOf(0L) }
+    val running = task.state == DownloadState.RUNNING
+    LaunchedEffect(task.id, running) {
+        speed = 0L
+        if (!running) return@LaunchedEffect
+        var lastBytes = latest.bytes
+        var lastTime = SystemClock.elapsedRealtime()
+        while (true) {
+            delay(1500)
+            val now = SystemClock.elapsedRealtime()
+            val bytes = latest.bytes
+            val dt = now - lastTime
+            speed = if (dt > 0 && bytes >= lastBytes) (bytes - lastBytes) * 1000 / dt else 0L
+            lastBytes = bytes
+            lastTime = now
+        }
+    }
+    return if (running && speed > 0) speedText(speed) else ""
+}
+
+private fun speedText(bytesPerSec: Long): String = when {
+    bytesPerSec < 1024 * 1024 -> "${bytesPerSec / 1024} KB/s"
+    else -> String.format(java.util.Locale.US, "%.1f MB/s", bytesPerSec / 1024f / 1024f)
 }
 
 /** 删除弹窗里的「同时删除本地文件」勾选行（默认不勾选） */

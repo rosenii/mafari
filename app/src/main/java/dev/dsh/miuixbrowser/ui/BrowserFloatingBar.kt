@@ -383,8 +383,16 @@ internal fun BoxScope.BrowserFloatingBar(
         ) {
         if (style.splitPills) {
             // Safari 三段式：左后退 / 中地址栏 / 右更多（地址栏：长按新建、左右滑切换标签、上滑开标签列表）
+            // 整体放大 SafariSplitScale（5%）：栏内一切 dp / sp 随 Density 放大；这里传进去的是放大前的尺寸（对外占位用的 metrics 已含放大）
+            val baseDensity = LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                LocalDensity provides androidx.compose.ui.unit.Density(
+                    density = baseDensity.density * SafariSplitScale,
+                    fontScale = baseDensity.fontScale,
+                ),
+            ) {
             SafariSplitBar(
-                metrics = metrics,
+                metrics = metrics.scaledBy(1f / SafariSplitScale),
                 backdrop = glassBackdrop,
                 liquid = if (settings.liquidGlass) barLiquidBackdrop else null,
                 blurEnabled = settings.blurEnabled,
@@ -450,6 +458,7 @@ internal fun BoxScope.BrowserFloatingBar(
                     sheet = Sheet.Tabs
                 },
             )
+            }
         } else BottomBar(
             drawSurface = false,
             metrics = metrics,

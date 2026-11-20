@@ -27,27 +27,57 @@
     return Math.min(CAP, Math.max(0, Math.round(left)));
   }
 
-  // 页面自己的固定底栏（底部导航 / 工具栏）：悬浮三段式据此决定是否让出底部位置。判据与 PageBottomBar.kt 一致
+  // 页面自己的固定底栏（底部导航 / 工具栏）：悬浮三段式据此决定是否让出底部位置。判据与 PageBottomBar.kt 完全一致（见那里的注释），改一处要同时改另一处
   var lastDock = null;
   var lastDockAt = 0;
+  function hasPaint(e, w) {
+    var r = e.getBoundingClientRect();
+    if (r.width < w * 0.6) return false;
+    var cs = getComputedStyle(e);
+    var bg = cs.backgroundColor || '';
+    var m = bg.match(/rgba?\(([^)]+)\)/);
+    if (m) {
+      var p = m[1].split(',');
+      if (p.length < 4 || parseFloat(p[3]) >= 0.3) return true;
+    } else if (bg && bg !== 'transparent') {
+      return true;
+    }
+    if (cs.backgroundImage && cs.backgroundImage !== 'none') return true;
+    if (cs.boxShadow && cs.boxShadow !== 'none') return true;
+    if (cs.backdropFilter && cs.backdropFilter !== 'none') return true;
+    return parseFloat(cs.borderTopWidth) > 0 && cs.borderTopStyle !== 'none';
+  }
+  function isBar(e, w, h, painted) {
+    var cs = getComputedStyle(e);
+    var pos = cs.position;
+    if (pos !== 'fixed' && !(pos === 'sticky' && cs.bottom !== 'auto')) return false;
+    if (cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.05) return false;
+    if (!painted) return false;
+    var r = e.getBoundingClientRect();
+    if (r.width < w * 0.9 || r.left > w * 0.05 || r.right < w * 0.95) return false;
+    if (r.height < 36 || r.height > Math.min(140, h * 0.22)) return false;
+    if (r.bottom < h - 3 || r.bottom > h + 2) return false;
+    var role = e.getAttribute('role');
+    if (role === 'dialog' || role === 'alertdialog' || e.getAttribute('aria-modal') === 'true') return false;
+    var tag = ((e.id || '') + ' ' + (typeof e.className === 'string' ? e.className : '')).toLowerCase();
+    if (/cookie|consent|gdpr|snackbar|toast|modal|dialog|popup|smartbanner|app-?install|install-?app|open-?in-?app|advert|adsbygoogle/.test(tag)) return false;
+    return e.querySelectorAll('a[href],button,[role=tab],[role=link],[role=button],input,textarea').length >= 2;
+  }
   function hasBottomBar() {
     try {
       var w = window.innerWidth, h = window.innerHeight;
       if (!w || !h) return false;
-      var xs = [w * 0.2, w * 0.5, w * 0.8];
-      for (var i = 0; i < xs.length; i++) {
-        var st = document.elementsFromPoint(xs[i], h - 3);
-        for (var j = 0; j < st.length; j++) {
-          var e = st[j];
-          while (e && e.nodeType === 1) {
-            var cs = getComputedStyle(e);
-            if (cs.position === 'fixed' || cs.position === 'sticky') {
-              var r = e.getBoundingClientRect();
-              if (r.width >= w * 0.6 && r.height >= 28 && r.height <= Math.min(200, h * 0.3) &&
-                  r.bottom >= h - 6 && cs.visibility !== 'hidden' && parseFloat(cs.opacity) > 0.05) return true;
-            }
-            e = e.parentElement;
+      var y = h - 3;
+      var st = document.elementsFromPoint(w * 0.5, y);
+      for (var j = 0; j < st.length && j < 8; j++) {
+        var e = st[j], painted = false;
+        while (e && e.nodeType === 1) {
+          if (!painted) painted = hasPaint(e, w);
+          if (isBar(e, w, h, painted)) {
+            var l = document.elementsFromPoint(w * 0.15, y), r = document.elementsFromPoint(w * 0.85, y);
+            if (l.indexOf(e) >= 0 && r.indexOf(e) >= 0) return true;
           }
+          e = e.parentElement;
         }
       }
     } catch (x) {}

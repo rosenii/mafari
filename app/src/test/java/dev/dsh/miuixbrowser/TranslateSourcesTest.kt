@@ -19,7 +19,6 @@ import org.junit.Assert.fail
 import org.junit.Test
 import java.net.InetSocketAddress
 import java.net.URLDecoder
-import java.util.concurrent.atomic.AtomicInteger
 
 /** 纯 JVM：用本地 HttpServer 模拟三个翻译源，覆盖请求格式、响应解析、token 缓存 / 刷新、批处理与缓存。 */
 class TranslateSourcesTest {
@@ -52,12 +51,6 @@ class TranslateSourcesTest {
 
     private fun formValues(body: String, key: String) =
         body.split('&').filter { it.startsWith("$key=") }.map { URLDecoder.decode(it.substringAfter('='), "UTF-8") }
-
-    private fun fakeJwt(expSec: Long): String {
-        val enc = java.util.Base64.getUrlEncoder().withoutPadding()
-        return enc.encodeToString("""{"alg":"none"}""".toByteArray()) + "." +
-            enc.encodeToString("""{"exp":$expSec}""".toByteArray()) + ".sig"
-    }
 
     // ------------------------------------------------------------------ Google
 
@@ -154,74 +147,54 @@ class TranslateSourcesTest {
         return JSONArray(
             (0 until texts.length()).map {
                 JSONObject().put("detectedLanguage", JSONObject().put("language", "en"))
-                    .put("translations", JSONArray().put(JSONObject().put("text", "B:" + texts.getJSONObject(it).getString("Text")).put("to", "zh-Hans")))
+                    .put("translations", JSONArray().put(JSONObject().put("text", "B:" + texts.getString(it)).put("to", "zh-Hans")))
             },
         ).toString()
     }
 
     @Test
-    fun bing_tokenIsCachedAndLanguageMapped() {
+    fun bing_postsStringArrayWithoutTokenAndMapsLanguage() {
         Mock().use { m ->
-            val auth = AtomicInteger()
-            val now = 1_000_000_000_000L
-            m.on("/auth") { auth.incrementAndGet(); 200 to fakeJwt(now / 1000 + 600) }
-            m.on("/translate") { r -> 200 to bingResponse(r.body) }
+            m.on("/translate/translatetext") { r -> 200 to bingResponse(r.body) }
             m.start()
-            val src = BingSource(m.base + "/auth", m.base, clock = { now })
+            val src = BingSource(m.base + "/translate/translatetext")
             assertEquals(listOf("B:hi"), src.translate(listOf("hi"), "zh-CN"))
             assertEquals(listOf("B:a", "B:b"), src.translate(listOf("a", "b"), "zh-TW"))
-            assertEquals("token 应缓存", 1, auth.get())
-            val tr = m.requests.filter { it.path == "/translate" }
-            assertTrue(tr[0].query, tr[0].query.contains("to=zh-Hans"))
-            assertTrue(tr[1].query, tr[1].query.contains("to=zh-Hant"))
-            assertTrue(tr[0].headers["authorization"]!!.startsWith("Bearer "))
+            val rs = m.requests
+            assertEquals(2, rs.size)
+            assertEquals("POST", rs[0].method)
+            assertTrue(rs[0].query, rs[0].query.contains("to=zh-Hans"))
+            assertTrue(rs[1].query, rs[1].query.contains("to=zh-Hant"))
+            assertTrue(rs[0].query, rs[0].query.contains("isEnterpriseClient=false"))
+            assertTrue("不再带 Authorization", rs[0].headers["authorization"] == null)
+            assertEquals("[\"hi\"]", rs[0].body)
         }
     }
 
     @Test
-    fun bing_refreshesTokenOnceWhenExpired() {
+    fun bing_http401IsAuthError() {
         Mock().use { m ->
-            val auth = AtomicInteger()
-            m.on("/auth") { 200 to fakeJwt(9_999_999_999L) + "-" + auth.incrementAndGet() }
-            m.on("/translate") { r ->
-                if (r.headers["authorization"]!!.endsWith("-1")) 401 to "expired" else 200 to bingResponse(r.body)
-            }
-            m.start()
-            val src = BingSource(m.base + "/auth", m.base)
-            assertEquals(listOf("B:x"), src.translate(listOf("x"), "en"))
-            assertEquals(2, auth.get())
-        }
-    }
-
-    @Test
-    fun bing_tokenExpiryTriggersRefetch() {
-        Mock().use { m ->
-            val auth = AtomicInteger()
-            var now = 1_000_000_000_000L
-            m.on("/auth") { auth.incrementAndGet(); 200 to fakeJwt(now / 1000 + 120) }
-            m.on("/translate") { r -> 200 to bingResponse(r.body) }
-            m.start()
-            val src = BingSource(m.base + "/auth", m.base, clock = { now })
-            src.translate(listOf("a"), "en")
-            now += 30_000
-            src.translate(listOf("a"), "en")
-            assertEquals(1, auth.get())
-            now += 60_000 // 离过期不到一分钟
-            src.translate(listOf("a"), "en")
-            assertEquals(2, auth.get())
-        }
-    }
-
-    @Test
-    fun bing_badTokenIsAuthError() {
-        Mock().use { m ->
-            m.on("/auth") { 200 to "<html>blocked</html>" }
+            m.on("/translate/translatetext") { 401 to "denied" }
             m.start()
             try {
-                BingSource(m.base + "/auth", m.base).translate(listOf("x"), "en")
+                BingSource(m.base + "/translate/translatetext").translate(listOf("x"), "en")
                 fail("should throw")
             } catch (e: TranslateException) {
                 assertEquals(TranslateException.Kind.AUTH, e.kind)
+            }
+        }
+    }
+
+    @Test
+    fun bing_htmlBodyIsParseError() {
+        Mock().use { m ->
+            m.on("/translate/translatetext") { 200 to "<html>blocked</html>" }
+            m.start()
+            try {
+                BingSource(m.base + "/translate/translatetext").translate(listOf("x"), "en")
+                fail("should throw")
+            } catch (e: TranslateException) {
+                assertEquals(TranslateException.Kind.PARSE, e.kind)
             }
         }
     }

@@ -52,7 +52,20 @@ internal data class BarMetrics(
 ) {
     /** 不随地址文字变化的那部分宽度：4 个按钮 + 两侧内边距 + 地址栏自身内边距（供悬浮样式计算胶囊宽度） */
     val fixedWidth: Dp get() = buttonSize * 4 + contentPadding * 2 + 24.dp
+
+    /** 所有尺寸同比例缩放（悬浮三段式整体放大用） */
+    fun scaledBy(f: Float) = BarMetrics(
+        height = height * f,
+        corner = corner * f,
+        buttonSize = buttonSize * f,
+        contentPadding = contentPadding * f,
+        addressHeight = addressHeight * f,
+        addressCorner = addressCorner * f,
+    )
 }
+
+/** 悬浮三段式整体放大倍数：栏内一切 dp / sp 都按它放大（见 [SafariSplitBar]），栏占掉的页面高度也按它算 */
+internal const val SafariSplitScale = 1.05f
 
 /** 首页（新建标签页）内容的上 / 下内边距 */
 @Immutable
@@ -213,7 +226,8 @@ private object SafariSplitStyle : BarStyle {
     override val id = "safari_split"
     override val docked = true
     override val splitPills = true
-    override val metrics = BarMetrics(
+    // 这里写的是「放大前」的设计值；对外（页面让位、首页内边距）暴露的是放大 5% 之后的尺寸，栏内部再按同一倍数放大绘制
+    private val baseMetrics = BarMetrics(
         // 玻璃件 44dp（原 52dp 同比例 ×0.85），上下各留 5dp
         height = 54.dp,
         corner = 22.dp,
@@ -224,11 +238,12 @@ private object SafariSplitStyle : BarStyle {
         addressHeight = 44.dp,
         addressCorner = 22.dp,
     )
+    override val metrics = baseMetrics.scaledBy(SafariSplitScale)
     override val horizontalMargin = 0.dp
     override fun edgeGap(edge: BarEdge): Dp = 0.dp
 
     // 首页内容一直铺到屏幕底，栏悬浮在它上面：底部要让出 栏高度 + 呼吸空间（导航栏那一段由首页层另外加上）
-    override fun homePadding(edge: BarEdge): BarHomePadding = BarHomePadding(top = 44.dp, bottom = 74.dp)
+    override fun homePadding(edge: BarEdge): BarHomePadding = BarHomePadding(top = 44.dp, bottom = 74.dp * SafariSplitScale)
 
     @Composable
     override fun surface(
