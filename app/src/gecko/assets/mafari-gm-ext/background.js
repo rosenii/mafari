@@ -376,7 +376,8 @@ browser.webRequest.onBeforeSendHeaders.addListener((d) => {
     if (j >= 0) h[j].value = String(p.headers[k]); else h.push({ name: k, value: String(p.headers[k]) });
   }
   return { requestHeaders: h };
-}, { urls: ['<all_urls>'], types: ['xmlhttprequest'] }, ['blocking', 'requestHeaders']);
+// tabId: -1 = 只有后台页自己发的请求才进监听器；否则所有标签页里每一个 XHR / fetch 都要同步跨进程问一次后台页，拖慢页面加载
+}, { urls: ['<all_urls>'], types: ['xmlhttprequest'], tabId: -1 }, ['blocking', 'requestHeaders']);
 
 async function doXhr(m, sender) {
   const reqId = typeof m.reqId === 'string' ? m.reqId : '';

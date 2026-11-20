@@ -216,14 +216,22 @@ internal object GeckoGm {
 
     fun detachSession(session: GeckoSession) { sessions.remove(session) }
 
+    /** 首次同步屏障已经放行过（已同步 / 超时）：之后的导航不再等，见 [whenReady] */
+    private var barrierDone = false
+
     /**
      * 首次导航前的屏障：已注册脚本尚未在后台页生效时，把 loadUri 推迟到「已同步」或超时。
      * 没有需要注入的脚本 / 已同步完成时立即回调。
+     *
+     * 只在进程内「第一次」生效：此后脚本 / 值每变一次 rev 都会 +1（GM_setValue 一次就会触发），
+     * 后台页重启还会把 syncedRev 置回 -1，若每次导航都等，页面就会被白白推迟最多 2 秒
+     * （后台页没起来 / 同步失败时每次打开网页都要多等满 2 秒）。后续变化只影响「之后新开的页面」，不阻塞导航。
      */
     fun whenReady(timeoutMs: Long = 2000, block: () -> Unit) {
-        if (payload.length() == 0 || syncedRev >= rev) { block(); return }
+        if (barrierDone || payload.length() == 0) { block(); return }
+        if (syncedRev >= rev) { barrierDone = true; block(); return }
         var done = false
-        val once = { if (!done) { done = true; block() } }
+        val once = { if (!done) { done = true; barrierDone = true; block() } }
         waiters += once
         main.postDelayed({ waiters.remove(once); once() }, timeoutMs)
     }
