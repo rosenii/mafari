@@ -113,6 +113,8 @@ class BrowserTab(
     var loading by mutableStateOf(false)
     var canGoBack by mutableStateOf(false)
     var canGoForward by mutableStateOf(false)
+    /** 页面自己带固定在底部的整宽栏（如 YouTube 的「首页 / 我」）：悬浮三段式据此决定是否让位。WebView 轮询检测，Gecko 由内容脚本回报 */
+    var pageHasBottomBar by mutableStateOf(false)
     var errorText by mutableStateOf<String?>(null)
     /** 应用当前深浅色：访问失败页按它配色 */
     @Volatile internal var displayDark = false
@@ -579,6 +581,12 @@ class BrowserTab(
     /** 距页面底部还剩多少像素（0 = 已到底，-1 = 引擎给不出来）：固定在底部的导航栏据此决定何时让出位置 */
     val scrollRemainingY: Int
         get() = ops.scrollRemaining
+
+    /** Gecko：内容脚本回报页面是否有固定在底部的整宽栏（主线程） */
+    internal fun geckoBottomBar(has: Boolean) {
+        if (closed || destroyed) return
+        pageHasBottomBar = has
+    }
 
     /** Gecko：内容脚本回报距页面底部的剩余像素（主线程）。顺手补发一次滚动信号，底栏判定是事件驱动的 */
     internal fun geckoScrollRemaining(px: Int) {

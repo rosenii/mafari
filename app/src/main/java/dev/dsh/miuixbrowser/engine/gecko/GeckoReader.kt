@@ -19,6 +19,7 @@ import org.mozilla.geckoview.WebExtension
  * 页面里的内容脚本 connectNative 过来，原生由此知道是哪个标签：
  *   内容脚本 → 原生：{ t:"state", readerable, active, url }
  *   内容脚本 → 原生：{ t:"scroll", r }（scroll-metrics.js，r = 距页面底部的设备像素，已封顶）
+ *   内容脚本 → 原生：{ t:"dock", b }（scroll-metrics.js，b = 页面带固定在底部的整宽栏）
  *   原生 → 内容脚本：{ t:"hi" }（握手）、{ t:"enter", dark }、{ t:"exit" }
  *
  * 注意：本文件依赖 GeckoView WebExtension 的消息 API，未在本环境编译；nightly 的签名若有变化只需改本文件。
@@ -96,6 +97,11 @@ internal object GeckoReader {
                         "scroll" -> {
                             val r = o.optInt("r", -1)
                             main.post { tab.geckoScrollRemaining(r) }
+                        }
+                        // scroll-metrics.js：页面是否带固定在底部的整宽栏（悬浮三段式据此决定是否让位）
+                        "dock" -> {
+                            val b = o.optBoolean("b")
+                            main.post { tab.geckoBottomBar(b) }
                         }
                     }
                 }

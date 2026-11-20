@@ -15,6 +15,7 @@ import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.DefaultBrowser
 import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.browser.MenuOrderStore
+import dev.dsh.miuixbrowser.browser.pollPageBottomBar
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_TOP
@@ -534,9 +535,20 @@ fun BrowserScreen(
     val dockedBottomBody = if (barLayout.reservesBottom) barLayout.style.metrics.height else 0.dp
     // 底栏停靠且页面已深入栏下：网页区域伸到屏幕底（栏 + 导航栏那一段都交给网页）。
     // WebView 随弹簧逐帧伸缩；Gecko 调整视口代价大（见上面 fixedContentTop 的说明），只在翻转时一次到位。
-    // 悬浮三段式没有整条底板：内容（网页 / 首页）一直铺到屏幕底，栏悬浮在它们上面
+    // 悬浮三段式：只有「网页自己带固定在底部的整宽栏」且三段式处于展开状态时才让出栏的位置，
+    // 页面的底部导航停在三段式上方不被遮挡；页面没有底栏、首页、或缩成小胶囊（向下滑动）时，内容铺满到屏幕底。
+    // WebView 每 0.8 秒检测一次，Gecko 由内容脚本回报（见 PageBottomBar.kt / scroll-metrics.js）
+    if (barLayout.style.splitPills) {
+        LaunchedEffect(tab.id, tab.url.isEmpty(), tab.isGecko) {
+            if (tab.url.isEmpty() || tab.isGecko) return@LaunchedEffect
+            while (true) {
+                kotlinx.coroutines.delay(800)
+                tab.pollPageBottomBar()
+            }
+        }
+    }
     val bottomOverlapTarget = barLayout.reservesBottom &&
-        (ui.barOverlap || barLayout.style.splitPills)
+        (ui.barOverlap || (barLayout.style.splitPills && (tab.url.isEmpty() || !tab.pageHasBottomBar)))
     val bottomOverlapAnim by animateFloatAsState(
         targetValue = if (bottomOverlapTarget) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
