@@ -283,12 +283,13 @@ private fun rememberOverlayContent(
     padInsets: Boolean = true,
     sheetBackdrop: Backdrop? = null,
     sheetScrim: Color = Color.Transparent,
+    fadeContent: Boolean = true,
 ): @Composable () -> Unit {
     val liquidBackdrop = LocalLiquidBackdrop.current
     val mode = LocalBlurMode.current
     val glassParams = LocalGlassParams.current
     val latest by rememberUpdatedState(content)
-    return remember(liquidBackdrop, mode, glassParams, immersive, sheetContentPadding, padInsets, sheetBackdrop, sheetScrim) {
+    return remember(liquidBackdrop, mode, glassParams, immersive, sheetContentPadding, padInsets, sheetBackdrop, sheetScrim, fadeContent) {
         val bandBase = SheetBandBase(sheetBackdrop, sheetScrim)
         val wrapped: @Composable () -> Unit = {
             CompositionLocalProvider(
@@ -297,7 +298,7 @@ private fun rememberOverlayContent(
                 LocalGlassParams provides glassParams,
                 LocalSheetBandBase provides bandBase,
             ) {
-                if (immersive) SheetImmersiveBody(sheetContentPadding, padInsets) { latest() } else latest()
+                if (immersive) SheetImmersiveBody(sheetContentPadding, padInsets, fadeContent) { latest() } else latest()
             }
         }
         wrapped
@@ -395,12 +396,18 @@ private fun sheetFadeBrush(startY: Float, endY: Float, fadeIn: Boolean, peak: Fl
  *   false：内容自己读 [LocalBottomSheetInsets] 并把内边距交给滚动容器，让滚动内容铺到头部和导航栏下面。
  */
 @Composable
-private fun SheetImmersiveBody(contentPadding: Dp, padInsets: Boolean, content: @Composable () -> Unit) {
+private fun SheetImmersiveBody(contentPadding: Dp, padInsets: Boolean, fadeContent: Boolean, content: @Composable () -> Unit) {
     val insets = LocalBottomSheetInsets.current
     val blur = LocalBlurMode.current != BLUR_OFF && top.yukonga.miuix.kmp.material.isRuntimeShaderSupported()
     val inner = Modifier
         .padding(horizontal = contentPadding)
         .then(if (padInsets) Modifier.padding(top = insets.top, bottom = insets.bottom) else Modifier)
+    // WebView/AndroidView 可能使用独立硬件渲染 surface；Offscreen + DstIn 会让其内容无法合成，表现为整块白屏。
+    // 这类内容可关闭渐隐蒙版，保留正常的原生视图合成路径。
+    if (!fadeContent) {
+        Box(modifier = inner) { content() }
+        return
+    }
     if (!blur) {
         Box(
             modifier = Modifier
@@ -928,6 +935,8 @@ fun AppBottomSheet(
      * 默认 false：不滚动的内容整体被推到头部下方、导航栏上方，不用自己处理导航栏留白。
      */
     scrollContent: Boolean = false,
+    /** 关闭内容层的离屏渐隐合成；承载 WebView 等原生 surface 时应设为 false。 */
+    fadeContent: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val material = currentMaterial()
@@ -949,6 +958,7 @@ fun AppBottomSheet(
             padInsets = !scrollContent,
             sheetBackdrop = backdrop,
             sheetScrim = if (enableWindowDim) GlassBottomSheetDefaults.ScrimColor else Color.Transparent,
+            fadeContent = fadeContent,
         ),
     )
 }

@@ -100,6 +100,7 @@ internal fun WebViewExtMenuSheet(
             if (popupPage != null) closePopup() else onDismiss()
         },
         scrollContent = true,
+        fadeContent = false,
     ) {
         val insets = LocalBottomSheetInsets.current
         val page = popupPage

@@ -91,6 +91,7 @@ internal fun WebViewExtPageSheet(
         backdrop = backdrop,
         onDismissRequest = onDismiss,
         scrollContent = true,
+        fadeContent = false,
     ) {
         val insets = LocalBottomSheetInsets.current
         val p = page ?: return@AppBottomSheet
