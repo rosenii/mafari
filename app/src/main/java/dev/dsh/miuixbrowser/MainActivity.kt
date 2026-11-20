@@ -10,6 +10,7 @@ import dev.dsh.miuixbrowser.engine.gecko.GeckoDebug
 import dev.dsh.miuixbrowser.engine.gecko.GeckoViewLifecycle
 import dev.dsh.miuixbrowser.script.ExtensionStore
 import dev.dsh.miuixbrowser.ui.AppIconManager
+import dev.dsh.miuixbrowser.browser.AppShortcuts
 import dev.dsh.miuixbrowser.ui.BrowserScreen
 import dev.dsh.miuixbrowser.ui.LocalBlurMode
 import dev.dsh.miuixbrowser.ui.StartupSkeleton
@@ -66,8 +67,19 @@ class MainActivity : ComponentActivity() {
     /** 点下载通知进来时要求打开下载页 */
     private val openDownloads = mutableStateOf(false)
 
+    /** 长按应用图标的快捷方式要执行的动作（见 [AppShortcuts]）；BrowserScreen 执行完置空 */
+    private val shortcutAction = mutableStateOf<String?>(null)
+
     companion object {
         const val EXTRA_OPEN_DOWNLOADS = "open_downloads"
+    }
+
+    private fun consumeShortcut(intent: Intent?) {
+        if (intent?.action != AppShortcuts.ACTION) return
+        val id = intent.getStringExtra(AppShortcuts.EXTRA_ACTION) ?: return
+        // 取走后抹掉，Activity 被系统重建时 intent 还是这一条，不能再执行一次
+        intent.removeExtra(AppShortcuts.EXTRA_ACTION)
+        shortcutAction.value = id
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -76,6 +88,7 @@ class MainActivity : ComponentActivity() {
         GmNotifications.consumeClick(intent)
         consumeOpenDownloads(intent)
         consumeViewIntent(intent)
+        consumeShortcut(intent)
     }
 
     private fun consumeOpenDownloads(intent: Intent?) {
@@ -193,6 +206,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             consumeOpenDownloads(intent)
             consumeViewIntent(intent)
+            consumeShortcut(intent)
         }
         StartupCoordinator.onActivityCreate(this)
 
@@ -253,6 +267,8 @@ class MainActivity : ComponentActivity() {
                             onInitialUrlConsumed = { incomingUrl.value = null },
                             openDownloads = openDownloads.value,
                             onOpenDownloadsConsumed = { openDownloads.value = false },
+                            shortcutAction = shortcutAction.value,
+                            onShortcutConsumed = { shortcutAction.value = null },
                         )
                     } else {
                         remember { Diag.log("placeholder composed (db not ready yet)") }

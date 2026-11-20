@@ -70,6 +70,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardActions
@@ -1119,24 +1121,37 @@ internal fun AddressField(
     val color = MiuixTheme.colorScheme.onSurface
     val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     var hadFocus by remember { mutableStateOf(false) }
-    // 用 TextFieldValue 才能控制选区：外部（String）是文字的唯一来源，这里只额外记住光标 / 选区
-    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
-    // 外部文字变了（切换显示标题 / 网址、页面跳转）而选区还是旧文字的：光标放到末尾
+    // 用 TextFieldState：它自带「拖动光标手柄到输入框边缘时文字跟着滚动」，旧的 TextFieldValue 版 BasicTextField 在这里
+    // 光标到了可见区边缘就不再往外走，前面 / 后面还有内容也到不了。外部（String）仍是文字的唯一来源，这里额外管光标 / 选区。
     // 未编辑时光标放在开头：输入框会把光标滚进可视区，光标在末尾的话，底栏收起时（地址栏很窄）文字被滚到末尾，
     // 之后滑出变宽，滚动位置不会回到开头，网址头部就被遮住一截
     val idleCursor = if (editing) value.length else 0
-    val shown = if (field.text == value) field else TextFieldValue(value, TextRange(idleCursor))
+    val fieldState = remember { TextFieldState(value, TextRange(value.length)) }
+    val scroll = rememberScrollState()
+    val latestValue by rememberUpdatedState(value)
+    fun TextFieldState.setTo(text: String, selection: TextRange) {
+        edit {
+            if (this.toString() != text) replace(0, length, text)
+            this.selection = selection
+        }
+    }
+    // 外部文字变了（切换显示标题 / 网址、页面跳转）：同步进输入框，光标放到末尾（未编辑时放开头）
     LaunchedEffect(value) {
-        if (field.text != value) field = TextFieldValue(value, TextRange(idleCursor))
+        if (fieldState.text.toString() != value) fieldState.setTo(value, TextRange(idleCursor))
+    }
+    // 用户输入：只有文字真的变了才通知外部（光标 / 选区移动不算输入，外部据此判断「用户是否改过地址」）
+    LaunchedEffect(fieldState) {
+        snapshotFlow { fieldState.text.toString() }.collect { t -> if (t != latestValue) onChange(t) }
     }
     // 进入编辑态（点击地址栏 / 圆形搜索钮）：先全选当前网址，再拿焦点，用户可以直接输入替换或粘贴；
-    // 退出编辑态时选区收起。失焦时通知外部退出编辑态。
+    // 退出编辑态时选区收起并滚回开头。失焦时通知外部退出编辑态。
     LaunchedEffect(editing) {
         if (editing) {
-            field = TextFieldValue(value, TextRange(0, value.length))
+            fieldState.setTo(value, TextRange(0, value.length))
             runCatching { focusRequester.requestFocus() }
         } else {
-            field = TextFieldValue(value, TextRange(0))
+            fieldState.setTo(value, TextRange(0))
+            runCatching { scroll.scrollTo(0) }
         }
     }
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
@@ -1152,17 +1167,13 @@ internal fun AddressField(
             )
         }
         BasicTextField(
-            value = shown,
-            onValueChange = { v ->
-                field = v
-                // 只有文字真的变了才通知外部：光标 / 选区移动不算输入（外部据此判断「用户是否改过地址」）
-                if (v.text != value) onChange(v.text)
-            },
-            singleLine = true,
+            state = fieldState,
+            lineLimits = TextFieldLineLimits.SingleLine,
+            scrollState = scroll,
             textStyle = TextStyle(fontSize = 15.sp, color = color),
             cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { onGo() }),
+            onKeyboardAction = { onGo() },
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester)

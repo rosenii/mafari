@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import android.app.AlertDialog
 import dev.dsh.miuixbrowser.appContainer
 import dev.dsh.miuixbrowser.browser.AppRoute
+import dev.dsh.miuixbrowser.browser.AppShortcuts
 import dev.dsh.miuixbrowser.browser.BrowserState
 import dev.dsh.miuixbrowser.browser.BrowserStateTabBridge
 import dev.dsh.miuixbrowser.browser.BrowserTab
@@ -90,6 +91,8 @@ fun BrowserScreen(
     onInitialUrlConsumed: () -> Unit = {},
     openDownloads: Boolean = false,
     onOpenDownloadsConsumed: () -> Unit = {},
+    shortcutAction: String? = null,
+    onShortcutConsumed: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val state = remember {
@@ -706,6 +709,28 @@ fun BrowserScreen(
         ui.performMenuAction(action, state, favorites, context, scope, clipboard, launchers, ::pushPage)
     }
     quickRunner.run = { runMenuAction(it) }
+
+    // 长按应用图标的快捷方式（搜索 / 设置 / 扫一扫 / 书签 / 历史，见 AppShortcuts）：先回到浏览主界面、收起弹层，再执行
+    LaunchedEffect(shortcutAction) {
+        val id = shortcutAction ?: return@LaunchedEffect
+        popToBrowser()
+        sheet = Sheet.None
+        when (id) {
+            // 搜索：展开底栏并进入地址编辑（全选当前网址 + 弹键盘，与点地址栏一致）
+            AppShortcuts.SEARCH -> {
+                barHidden = false
+                barMinimized = false
+                address = state.activeTab.url
+                addressDirty = false
+                editing = true
+            }
+            AppShortcuts.SETTINGS -> runMenuAction(MenuAction.Settings)
+            AppShortcuts.SCAN -> runMenuAction(MenuAction.Scan)
+            AppShortcuts.BOOKMARKS -> runMenuAction(MenuAction.Bookmarks)
+            AppShortcuts.HISTORY -> runMenuAction(MenuAction.History)
+        }
+        onShortcutConsumed()
+    }
 
     // 脚本总开关 / 启用范围 / 脚本菜单与地址栏脚本图标的状态同步（BrowserMenuActions.kt）
     ui.ScriptStateEffects(settings, state, context)
