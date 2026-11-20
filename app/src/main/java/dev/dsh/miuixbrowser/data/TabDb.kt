@@ -108,6 +108,24 @@ internal object TabDb {
     /** 新标签的持久 id（不会和库里已有的撞：63 位随机数） */
     fun newKey(): Long = ThreadLocalRandom.current().nextLong(1L, Long.MAX_VALUE)
 
+    /** 冷启动时在库就绪闸门里（后台线程）预先读好的标签行，由 BrowserState 初始化时取走一次，主线程就不用再读库 */
+    @Volatile
+    private var preloaded: List<TabRow>? = null
+
+    /** 后台线程调用：读好标签行备用，读失败当作没预读（BrowserState 会自己读）。 */
+    fun preload(db: SQLiteDatabase) {
+        preloaded = runCatching { load(db) }
+            .onFailure { Diag.log("tabs: preload failed: ${it.message}") }
+            .getOrNull()
+    }
+
+    /** 取走（并清掉）预读结果；没有预读返回 null。 */
+    fun takePreloaded(): List<TabRow>? {
+        val r = preloaded
+        preloaded = null
+        return r
+    }
+
     /** 按顺序读出上次保存的标签（不含缩略图）。 */
     fun load(db: SQLiteDatabase): List<TabRow> {
         val out = ArrayList<TabRow>()

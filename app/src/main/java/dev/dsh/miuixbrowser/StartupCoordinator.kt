@@ -1,6 +1,9 @@
 package dev.dsh.miuixbrowser
 
 import dev.dsh.miuixbrowser.adblock.AdBlock
+import dev.dsh.miuixbrowser.data.AppDatabase
+import dev.dsh.miuixbrowser.data.RestoreMode
+import dev.dsh.miuixbrowser.data.TabDb
 import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
 import dev.dsh.miuixbrowser.browser.CacheCleaner
 import dev.dsh.miuixbrowser.browser.CookieControl
@@ -87,7 +90,15 @@ internal object StartupCoordinator {
 
     /** 阶段 3：挂起直到库就绪（在 IO 线程等，不卡主线程）。 */
     suspend fun awaitContentReady(context: Context) {
-        withContext(Dispatchers.IO) { StartupWarmup.awaitDb(context) }
+        withContext(Dispatchers.IO) {
+            StartupWarmup.awaitDb(context)
+            // 顺手把标签列表读好：BrowserState 初始化（主线程）就不必再读库，只管建界面要用的那一个标签
+            runCatching {
+                if (context.appContainer.settings.restoreTabsMode != RestoreMode.NONE) {
+                    AppDatabase.get(context)?.let { TabDb.preload(it) }
+                }
+            }
+        }
     }
 
     /**

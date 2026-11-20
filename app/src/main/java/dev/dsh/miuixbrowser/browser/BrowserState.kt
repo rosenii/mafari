@@ -25,6 +25,7 @@ import android.webkit.WebView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 /** 多标签状态。 */
@@ -44,7 +45,16 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
     val activeTab: BrowserTab
         get() = tabs[activeIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))]
 
-    // 下面两个必须声明在 init 之前：init 里就要用
+    // 下面几个必须声明在 init 之前：init 里就要用
+
+    /**
+     * 标签列表正在分批恢复：此期间内存里的标签列表还不完整，所以不能落盘（[saveTabs] 的整表快照会把还没恢复出来的标签从库里删掉），
+     * 给拓展的标签事件也先不发（见 BrowserStateTabBridge）。是 Compose 状态，结束时观察者会收到变化。
+     */
+    private var restoring by mutableStateOf(false)
+
+    internal val isRestoring: Boolean get() = restoring
+
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /** 周期性回收闲置的后台 Gecko 引擎；旧实例（界面重建后被新 BrowserState 取代）自己停掉 */
@@ -68,17 +78,12 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         val coldStart = !instanceCreated
         instanceCreated = true
         val mode = if (coldStart) context.appContainer.settings.restoreTabsMode else RestoreMode.ALL
+        // 冷启动时标签列表已在库就绪闸门里于后台线程读好（见 StartupCoordinator.awaitContentReady），这里不再在主线程读库
+        val preloaded = if (coldStart) TabDb.takePreloaded() else null
         when (mode) {
             RestoreMode.NONE -> newTab()
-            RestoreMode.KEEP_NEW -> {
-                if (!restoreSavedTabs(activateLast = false)) {
-                    newTab()
-                } else {
-                    val blank = tabs.indexOfFirst { !it.incognito && it.persistedPageUrl.isBlank() }
-                    if (blank >= 0) activate(blank) else newTab(opener = null)
-                }
-            }
-            else -> if (!restoreSavedTabs(activateLast = true)) newTab()
+            RestoreMode.KEEP_NEW -> if (!restoreSavedTabs(activateLast = false, preloaded)) newTab()
+            else -> if (!restoreSavedTabs(activateLast = true, preloaded)) newTab()
         }
         if (EngineSupport.GECKO_BUNDLED) mainHandler.postDelayed(reclaimTick, RECLAIM_INTERVAL_MS)
     }
@@ -117,40 +122,114 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
     }
 
     /**
-     * 从 tabs 表恢复上次的普通标签：只建标签对象，页面不加载；回到最近用过的那个标签并只加载它，
-     * 其余标签在被切到前台时才加载（见 [BrowserTab.wakeIfPending]）。没有可恢复的返回 false。
+     * 从 tabs 表恢复上次的普通标签，分两步，避免标签多时把冷启动拖成长时间白屏：
+     *  1. 同步只建「马上要显示」的那一个标签（[activateLast] 时是最近用的，否则是已有的空白标签）并切过去，界面立刻出来；
+     *  2. 其余标签按库里的顺序插回列表，每次主线程只花几毫秒（[RESTORE_SLICE_MS]），片与片之间让出主线程给绘制 / 触摸。
+     * 恢复出来的标签都不加载页面：成为当前标签时才加载（见 [BrowserTab.wakeIfPending]）。没有可恢复的返回 false。
+     *
+     * [rowsOrNull] 是闸门期间已在后台读好的标签行；没有（库在首帧前就好了）就在这里读。
      */
-    private fun restoreSavedTabs(activateLast: Boolean = true): Boolean {
-        val db = AppDatabase.get(context) ?: return false
-        val rows = runCatching { TabDb.load(db) }
-            .onFailure { Diag.log("tabs: load failed: ${it.message}") }
-            .getOrDefault(emptyList())
+    private fun restoreSavedTabs(activateLast: Boolean = true, rowsOrNull: List<TabRow>? = null): Boolean {
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        val rows = (rowsOrNull ?: run {
+            val db = AppDatabase.get(context) ?: return false
+            runCatching { TabDb.load(db) }
+                .onFailure { Diag.log("tabs: load failed: ${it.message}") }
+                .getOrDefault(emptyList())
+        }).take(MAX_TABS)
         if (rows.isEmpty()) return false
+
         val byKey = HashMap<Long, BrowserTab>()
-        for (row in rows) {
-            if (tabs.size >= MAX_TABS) break
-            // 恢复出来的标签不建 Gecko 引擎：只有成为当前标签 / 真正要加载页面时才创建（见 BrowserTab.ensureGecko）
+        val rowOfTab = HashMap<Int, Int>() // 标签 id → 它在 rows 里的下标，插回列表时据此还原顺序
+
+        // 恢复出来的标签不建 Gecko 引擎：只有成为当前标签 / 真正要加载页面时才创建（见 BrowserTab.ensureGecko）
+        fun build(i: Int): BrowserTab? {
+            val row = rows[i]
             val tab = runCatching { createTab(incognito = false, opener = null, lazyEngine = true) }
                 .onFailure { Diag.log("tabs: restore tab failed: ${it.message}") }
-                .getOrNull() ?: continue
+                .getOrNull() ?: return null
             tab.dbKey = row.key
             tab.lastUsedAt = row.lastUsed
             tab.prepareRestore(row.url, row.title, row.onHome, row.desktop, row.fromLink, row.hasState)
-            tabs.add(tab)
             byKey[row.key] = tab
+            rowOfTab[tab.id] = i
+            return tab
         }
-        if (tabs.isEmpty()) return false
-        for (row in rows) {
-            val tab = byKey[row.key] ?: continue
-            tab.openerId = byKey[row.openerKey]?.id ?: -1
+
+        // 第一步：只建要先显示的那一个。
+        // activateLast：最近用过的；否则（重启后落在空白标签）：第一个空白标签，没有就稍后新建一个。
+        var firstIdx = if (activateLast) {
+            rows.indices.maxByOrNull { rows[it].lastUsed } ?: 0
+        } else {
+            rows.indexOfFirst { it.url.isBlank() || it.url.startsWith("about:") }
         }
-        tabs.sortedBy { it.lastUsedAt }.forEach { recentIds.add(it.id) }
-        // [activateLast] 为 false（关闭「重启恢复标签页」）时不切到最近的标签，免得白白加载一遍它的页面；由调用方落到空白标签
-        if (activateLast) {
-            val last = tabs.maxByOrNull { it.lastUsedAt } ?: tabs.last()
-            activate(tabs.indexOf(last).coerceAtLeast(0))
+        var firstTab: BrowserTab? = if (firstIdx >= 0) build(firstIdx) else null
+        if (firstTab == null && activateLast) {
+            // 最近的那个没建出来：换第一个能建出来的，实在没有就当没有可恢复的
+            for (i in rows.indices) {
+                if (i == firstIdx) continue
+                firstTab = build(i)
+                if (firstTab != null) { firstIdx = i; break }
+            }
+            if (firstTab == null) return false
         }
-        Diag.log("tabs: restored ${tabs.size} tabs")
+        val first: BrowserTab? = firstTab
+        val firstIndex = firstIdx
+        restoring = true
+        if (first != null) {
+            tabs.add(first)
+            activate(0)
+        } else {
+            newTab(opener = null)
+        }
+        Diag.log("tabs: first tab ready in ${android.os.SystemClock.elapsedRealtime() - t0}ms, ${rows.size - (if (first != null) 1 else 0)} more to restore")
+
+        // 第二步：其余标签分批插回
+        val pending = rows.indices.filter { it != firstIndex || first == null }
+        var cursor = 0
+        fun insertRestored(tab: BrowserTab, rowIdx: Int) {
+            // 插在「已恢复且顺序更靠前」的最后一个标签后面；用户在恢复期间新开的标签（不在 rowOfTab 里）留在原处
+            var at = 0
+            for (k in tabs.indices.reversed()) {
+                val r = rowOfTab[tabs[k].id]
+                if (r != null && r < rowIdx) { at = k + 1; break }
+            }
+            tabs.add(at, tab)
+            if (at <= activeIndex) activeIndex++ // 当前标签被挤后一位，下标跟着走
+        }
+        fun finish() {
+            for (row in rows) {
+                val tab = byKey[row.key] ?: continue
+                if (tab.closed) continue
+                tab.openerId = byKey[row.openerKey]?.takeIf { !it.closed }?.id ?: -1
+            }
+            // 最近使用顺序：恢复出来的旧标签排在恢复期间用户已经切过的标签前面
+            val older = byKey.values.filter { !it.closed && it.id !in recentIds }.sortedBy { it.lastUsedAt }.map { it.id }
+            recentIds.addAll(0, older)
+            restoring = false
+            Diag.log("tabs: restored ${tabs.size} tabs in ${android.os.SystemClock.elapsedRealtime() - t0}ms")
+            saveTabs() // 恢复期间挡掉的保存，补一次
+        }
+        if (pending.isEmpty()) {
+            finish()
+            return true
+        }
+        val step = object : Runnable {
+            override fun run() {
+                if (current !== this@BrowserState) return // 界面已重建，这个实例作废
+                val start = android.os.SystemClock.uptimeMillis()
+                while (cursor < pending.size) {
+                    if (tabs.size >= MAX_TABS) { cursor = pending.size; break }
+                    val i = pending[cursor++]
+                    build(i)?.let { insertRestored(it, i) }
+                    // 至少建一个；超出这一片的时间预算就让出主线程（WebView 内核建一个就可能超）
+                    if (android.os.SystemClock.uptimeMillis() - start >= RESTORE_SLICE_MS) break
+                }
+                if (cursor < pending.size) mainHandler.postDelayed(this, RESTORE_GAP_MS) else finish()
+            }
+        }
+        // 先让首帧画出来，再开始恢复其余标签
+        mainHandler.postDelayed(step, RESTORE_FIRST_DELAY_MS)
         return true
     }
 
@@ -182,6 +261,8 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
 
     /** 把标签列表写进 tabs 表（快照在主线程取，写入在 [AppDatabase.io] 上单事务执行）。 */
     internal fun saveTabs(rows: List<TabRow> = tabRows()) {
+        // 分批恢复期间列表不完整，整表快照会把还没恢复出来的标签从库里删掉：等恢复完再存（见 [restoreSavedTabs]）
+        if (restoring) return
         val db = AppDatabase.get(context) ?: return
         AppDatabase.io.execute {
             runCatching { TabDb.sync(db, rows) }.onFailure { Diag.log("tabs: save failed: ${it.message}") }
@@ -594,6 +675,11 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         private const val IDLE_RECLAIM_MS = 20 * 60_000L
         private const val MAX_LIVE_ENGINES = 6
         private const val TRIM_LIVE_ENGINES = 2
+
+        /** 分批恢复标签：首帧后多久开始 / 每一片最多占主线程多久 / 片与片的间隔（让绘制和触摸插进来） */
+        private const val RESTORE_FIRST_DELAY_MS = 60L
+        private const val RESTORE_SLICE_MS = 8L
+        private const val RESTORE_GAP_MS = 16L
 
         /** 本进程是否已经建过 BrowserState（用来区分冷启动和界面重建） */
         @Volatile

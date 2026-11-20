@@ -58,7 +58,8 @@ class BrowserStateTabBridge(private val state: BrowserState) : TabBridge {
     init {
         // Main.immediate：在主线程构造时这里同步跑到第一次收集，基线在构造返回前就建好了
         scope.launch {
-            snapshotFlow { visibleInfos() }.collect { tracker.update(it) }
+            // 标签列表还在分批恢复时不观察：恢复完的第一次才建立基线，恢复出来的标签不算「新建」，插队也不算「移动」
+            snapshotFlow { if (state.isRestoring) null else visibleInfos() }.collect { it?.let(tracker::update) }
         }
     }
 
