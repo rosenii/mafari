@@ -15,10 +15,10 @@ Content-Transfer-Encoding: 8bit
 
 ---
  .../miuix/kmp/glass/GlassBottomSheet.kt       |   4 +
- .../kmp/layout/BottomSheetContentLayout.kt    | 107 +++++++++++++++---
+ .../kmp/layout/BottomSheetContentLayout.kt    | 108 +++++++++++++++---
  .../miuix/kmp/layout/BottomSheetInsets.kt     |  31 +++++
  .../miuix/kmp/overlay/OverlayBottomSheet.kt   |   5 +
- 4 files changed, 132 insertions(+), 15 deletions(-)
+ 4 files changed, 133 insertions(+), 15 deletions(-)
  create mode 100644 miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
@@ -51,10 +51,13 @@ index b22f016..ea4819c 100644
          surface = surface ?: glassBottomSheetSurface(backdrop, material, stroke, containerColor, shading, style),
          content = content,
 diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
-index 56c687a..6fe30ac 100644
+index 992999e..7836814 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
-@@ -58,6 +58,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
+@@ -55,9 +55,11 @@ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+ import androidx.compose.ui.input.nestedscroll.nestedScroll
 +import androidx.compose.foundation.layout.navigationBars
  import androidx.compose.ui.input.pointer.PointerIcon
  import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -298,6 +301,3 @@ index fdbb63b..ce5338c 100644
          dimColor = dimColor,
          surface = surface,
          content = content,
--- 
-2.43.0
-

@@ -14,7 +14,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
-index 1b3259f..56c687a 100644
+index 280c20c..992999e 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 @@ -841,10 +841,12 @@ private fun TitleAndActionsRow(

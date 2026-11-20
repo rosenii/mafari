@@ -16,7 +16,7 @@ Content-Transfer-Encoding: 8bit
  4 files changed, 78 insertions(+), 12 deletions(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
-index acd6f24..8f81b9f 100644
+index 8b399cb..3fca00a 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
 @@ -26,6 +26,7 @@ import androidx.compose.ui.unit.Dp
@@ -35,7 +35,7 @@ index acd6f24..8f81b9f 100644
      content: @Composable ColumnScope.() -> Unit,
  ) {
      // Scaffold hosts compose after opening is requested; start closed to retain the enter transition.
-@@ -197,6 +199,7 @@ internal fun BoxScope.GlassDropdownPopupContent(
+@@ -196,6 +198,7 @@ internal fun BoxScope.GlassDropdownPopupContent(
              scaleY = scale
          },
          modifier = modifier,
@@ -44,7 +44,7 @@ index acd6f24..8f81b9f 100644
          scrollable = true,
          content = content,
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt
-index 4ce621d..ca2317b 100644
+index 4404487..0367720 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt
 @@ -6,6 +6,7 @@ package top.yukonga.miuix.kmp.glass
@@ -55,7 +55,7 @@ index 4ce621d..ca2317b 100644
  import androidx.compose.foundation.layout.PaddingValues
  import androidx.compose.foundation.layout.Row
  import androidx.compose.foundation.layout.fillMaxSize
-@@ -33,6 +34,7 @@ import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
+@@ -32,6 +33,7 @@ import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
  import top.yukonga.miuix.kmp.basic.DropdownArrowEndAction
  import top.yukonga.miuix.kmp.basic.Text
  import top.yukonga.miuix.kmp.blur.Backdrop
@@ -63,7 +63,7 @@ index 4ce621d..ca2317b 100644
  import top.yukonga.miuix.kmp.theme.MiuixTheme
  import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
  
-@@ -59,6 +61,8 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
+@@ -58,6 +60,8 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
   * @param sizing Popup size limits and window margin.
   * @param visuals Popup material, stroke, shadow and fallback color.
   * @param onExpandedChange Called when the popup is opened or dismissed.
@@ -72,7 +72,7 @@ index 4ce621d..ca2317b 100644
   */
  @Composable
  fun GlassDropdownPreference(
-@@ -80,6 +84,8 @@ fun GlassDropdownPreference(
+@@ -79,6 +83,8 @@ fun GlassDropdownPreference(
      sizing: GlassPopupSizing = GlassPopupSizing(),
      visuals: GlassPopupVisuals = GlassPopupDefaults.visuals(),
      onExpandedChange: ((Boolean) -> Unit)? = null,
@@ -81,7 +81,7 @@ index 4ce621d..ca2317b 100644
  ) {
      var expanded by remember { mutableStateOf(false) }
      val mounted = remember { mutableStateOf(false) }
-@@ -163,11 +169,13 @@ fun GlassDropdownPreference(
+@@ -168,11 +174,13 @@ fun GlassDropdownPreference(
                  sizing = sizing,
                  visuals = visuals,
                  onDismissFinished = { mounted.value = false },
@@ -96,7 +96,7 @@ index 4ce621d..ca2317b 100644
                              hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                              setExpanded(false)
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
-index 6431d26..40b282e 100644
+index 71ff77b..30fefde 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
 @@ -6,6 +6,10 @@ package top.yukonga.miuix.kmp.glass
@@ -110,9 +110,9 @@ index 6431d26..40b282e 100644
  import androidx.compose.foundation.interaction.MutableInteractionSource
  import androidx.compose.foundation.interaction.collectIsPressedAsState
  import androidx.compose.foundation.layout.BoxScope
-@@ -21,7 +25,11 @@ import androidx.compose.foundation.selection.selectable
- import androidx.compose.runtime.Composable
- import androidx.compose.runtime.derivedStateOf
+@@ -22,7 +26,11 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.ReadOnlyComposable
+ import androidx.compose.runtime.computedStateOf
  import androidx.compose.runtime.getValue
 +import androidx.compose.runtime.key
 +import androidx.compose.runtime.mutableIntStateOf
@@ -122,7 +122,7 @@ index 6431d26..40b282e 100644
  import androidx.compose.ui.Alignment
  import androidx.compose.ui.Modifier
  import androidx.compose.ui.draw.drawBehind
-@@ -34,6 +42,8 @@ import androidx.compose.ui.graphics.TileMode
+@@ -35,6 +43,8 @@ import androidx.compose.ui.graphics.TileMode
  import androidx.compose.ui.graphics.graphicsLayer
  import androidx.compose.ui.graphics.luminance
  import androidx.compose.ui.graphics.vector.ImageVector
@@ -131,7 +131,7 @@ index 6431d26..40b282e 100644
  import androidx.compose.ui.platform.LocalLayoutDirection
  import androidx.compose.ui.text.font.FontWeight
  import androidx.compose.ui.text.style.TextOverflow
-@@ -187,6 +197,8 @@ object GlassPopupDefaults {
+@@ -198,6 +208,8 @@ object GlassPopupDefaults {
   * @param sizing Panel size limits and window margin.
   * @param visuals Panel surface appearance.
   * @param cornerRadius Expanded panel corner radius.
@@ -140,7 +140,7 @@ index 6431d26..40b282e 100644
   * @param secondary Whether to use [GlassSecondaryPopup] geometry. Use that component directly
   *   to share the primary popup's appearance through `materialAnchor`.
   * @param contentPadding Padding around the items.
-@@ -202,8 +214,10 @@ fun BoxScope.GlassPopup(
+@@ -213,8 +225,10 @@ fun BoxScope.GlassPopup(
      sizing: GlassPopupSizing = GlassPopupSizing(),
      visuals: GlassPopupVisuals = GlassPopupDefaults.visuals(),
      cornerRadius: Dp = GlassPopupDefaults.CornerRadius,
@@ -151,7 +151,7 @@ index 6431d26..40b282e 100644
      content: @Composable ColumnScope.() -> Unit,
  ) {
      if (secondary) {
-@@ -260,8 +274,8 @@ fun BoxScope.GlassPopup(
+@@ -271,8 +285,8 @@ fun BoxScope.GlassPopup(
          panelLayer = {},
          overlay = {},
          frame = { end, windowBounds ->
@@ -162,15 +162,15 @@ index 6431d26..40b282e 100644
          },
          contentLayer = { _, _ ->
              val t = progress.value.coerceAtLeast(0f)
-@@ -273,6 +287,7 @@ fun BoxScope.GlassPopup(
-             alpha = fade
+@@ -284,6 +298,7 @@ fun BoxScope.GlassPopup(
+             alpha = fade.value
          },
          modifier = modifier,
 +        surface = surface,
          scrollable = true,
          content = content,
      )
-@@ -286,6 +301,7 @@ private fun directionFrame(
+@@ -297,6 +312,7 @@ private fun directionFrame(
      startRadius: Dp,
      endRadius: Dp,
      layoutDirection: androidx.compose.ui.unit.LayoutDirection,
@@ -178,7 +178,7 @@ index 6431d26..40b282e 100644
  ): GlassPopupFrame {
      // Keep the spring's overshoot so the silhouette and rows rebound together.
      val t = progress.coerceAtLeast(0f)
-@@ -293,7 +309,8 @@ private fun directionFrame(
+@@ -304,7 +320,8 @@ private fun directionFrame(
      val endRatio = if (end.width > 0f) end.height / end.width else 1f
      val ratio = GlassMotion.POPUP_START_RATIO + (endRatio - GlassMotion.POPUP_START_RATIO) * t
      val height = width * ratio
@@ -188,7 +188,7 @@ index 6431d26..40b282e 100644
          placement.rect.right - width
      } else {
          placement.rect.left
-@@ -322,7 +339,9 @@ private fun directionFrame(
+@@ -333,7 +350,9 @@ private fun directionFrame(
   * @param summaryColor Colour of the second line.
   * @param selectedContentColor Colour of a selected row's label and its tick.
   * @param pressedColor Pressed background color.
@@ -198,7 +198,7 @@ index 6431d26..40b282e 100644
  @Composable
  fun GlassPopupItem(
      text: String,
-@@ -338,7 +357,9 @@ fun GlassPopupItem(
+@@ -349,7 +368,9 @@ fun GlassPopupItem(
      summaryColor: Color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
      selectedContentColor: Color = MiuixTheme.colorScheme.primary,
      pressedColor: Color = GlassPopupDefaults.itemPressedColor(),
@@ -208,7 +208,7 @@ index 6431d26..40b282e 100644
      val interactionSource = remember { MutableInteractionSource() }
      val pressed by interactionSource.collectIsPressedAsState()
      val pressFill = animateColorAsState(
-@@ -356,6 +377,18 @@ fun GlassPopupItem(
+@@ -367,6 +388,18 @@ fun GlassPopupItem(
              .fillMaxWidth()
              .heightIn(min = GlassPopupDefaults.ItemMinHeight)
              .padding(horizontal = GlassPopupDefaults.ItemPressInset)
@@ -225,9 +225,9 @@ index 6431d26..40b282e 100644
 +                },
 +            )
              .drawBehind {
-                 drawRoundRect(
-                     color = pressFill.value,
-@@ -388,14 +421,33 @@ fun GlassPopupItem(
+                 val fill = pressFill.value
+                 if (fill.alpha > 0f) {
+@@ -402,14 +435,33 @@ fun GlassPopupItem(
              )
          }
          Column(modifier = Modifier.weight(1f)) {
@@ -270,7 +270,7 @@ index 6431d26..40b282e 100644
                  Text(
                      text = summary,
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-index c6c7a36..e2496bf 100644
+index b14f3ed..5d2373f 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 @@ -131,8 +131,11 @@ internal fun placeGlassPopup(

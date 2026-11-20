@@ -12,10 +12,10 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
-index e7da1f8..eee6104 100644
+index 423cce5..c720553 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
-@@ -161,7 +161,9 @@ private class GlassPipeline(
+@@ -169,7 +169,9 @@ private class GlassPipeline(
          with(scope) {
              noiseDither(noiseCoefficient)
              val radius = material?.blurRadius?.value ?: (style.blur.small / GlassDefaults.SourceDensity)
