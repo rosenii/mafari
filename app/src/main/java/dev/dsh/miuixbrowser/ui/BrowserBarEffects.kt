@@ -16,7 +16,7 @@ internal fun BrowserUiState.BarAutoHideEffects(
     dockedEdge: BarEdge?,
     /** 停靠栏占掉网页区域的高度（像素；底栏含导航栏）。读取函数：取值依赖当前窗口 insets */
     dockedBarPx: () -> Int,
-    /** Safari 样式：滑动页面时栏缩成小胶囊（[barCompact]），而不是隐藏；此时页面深入栏下（[barOverlap] 跟随 [barCompact]） */
+    /** 悬浮三段式：滑动页面时栏缩成小胶囊（[barCompact]），而不是隐藏；此时页面深入栏下（[barOverlap] 跟随 [barCompact]） */
     compactOnScroll: Boolean = false,
 ) {
     // Gecko 视频全屏：应用自己的顶栏 / 底栏一并收起，退出全屏后恢复
@@ -44,7 +44,7 @@ internal fun BrowserUiState.BarAutoHideEffects(
         }
     }
 
-    // 离开 Safari 样式：缩小状态复位
+    // 离开 悬浮三段式：缩小状态复位
     LaunchedEffect(compactOnScroll) {
         if (!compactOnScroll) barCompact = false
     }
@@ -61,7 +61,7 @@ internal fun BrowserUiState.BarAutoHideEffects(
                     barHidden = true
                     return@runCatching
                 }
-                // Safari 样式：栏固定显示，但随滚动方向在「完整三段式」和「标题小胶囊」之间切换；
+                // 悬浮三段式：栏固定显示，但随滚动方向在「完整三段式」和「标题小胶囊」之间切换；
                 // 缩小时页面深入栏下（网页铺满屏幕），展开时让出栏的位置。阈值与自动隐藏一致
                 if (barFixed && compactOnScroll) {
                     barHidden = false

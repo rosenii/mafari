@@ -14,7 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 「导航栏位置」→「边 + 样式」的映射，以及悬浮 / 停靠两种样式的占位约定 */
+/** 「导航栏样式」→「边 + 样式」的映射，以及悬浮 / 停靠两种样式的占位约定 */
 class BarStyleTest {
     @Test fun floatingPositionsKeepTheCapsule() {
         val top = BarStyles.resolve(BAR_POS_TOP)

@@ -1,8 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -11,6 +9,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,9 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -29,13 +32,22 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import kotlin.math.roundToInt
+import kotlin.math.tanh
 import androidx.compose.ui.unit.sp
 import dev.dsh.miuixbrowser.i18n.tr
 import top.yukonga.miuix.kmp.basic.Text
@@ -46,7 +58,7 @@ import top.yukonga.miuix.kmp.icon.glass.More
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * Safari 样式导航栏（[BarStyles.SafariSplit]）：三块分开的玻璃件——左边圆形「后退」、中间地址栏胶囊、右边圆形「更多」。
+ * 悬浮三段式导航栏（[BarStyles.SafariSplit]）：三块分开的玻璃件——左边圆形「后退」、中间地址栏胶囊、右边圆形「更多」。
  *
  * - 处于首页（[atHome]）时后退按钮置灰不可点；
  * - 地址栏：点击 = 输入网址，长按 = 新建标签页，左右滑动 = 切换标签页，上滑 = 打开标签页列表；
@@ -95,37 +107,48 @@ internal fun SafariSplitBar(
     /** 上滑地址栏：打开标签页列表 */
     onOpenTabs: () -> Unit,
 ) {
-    Crossfade(targetState = compact, animationSpec = tween(180), label = "safariBarCompact") { isCompact ->
-        if (isCompact) {
-            Box(
-                modifier = Modifier.fillMaxWidth().height(metrics.height),
-                contentAlignment = Alignment.Center,
-            ) {
-                SafariCompactPill(
-                    title = address,
-                    backdrop = backdrop,
-                    liquid = liquid,
-                    blurEnabled = blurEnabled,
-                    textureBlurEnabled = textureBlurEnabled,
-                    onClick = onExpand,
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(metrics.height)
-                    .padding(horizontal = metrics.contentPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (!editing) {
+    // 三段式 ↔ 小胶囊是同一套布局的连续变形（不是两套界面交叉淡入淡出）：
+    //   p: 0 = 三段式，1 = 小胶囊。后退 / 更多 两个圆钮宽度收到 0、淡出并缩小，
+    //   地址栏同时变矮、两侧留白变大，最后收成居中的标题胶囊；反向则是原路展开。
+    // 进度 p 只在布局 / 绘制阶段读取，动画期间不会逐帧重组整个栏。
+    val morph = animateFloatAsState(
+        targetValue = if (compact) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+        label = "safariMorph",
+    )
+    // 地址栏当前的横向位移（像素）：地址栏写，两侧圆钮读（只在绘制阶段读取）
+    val pillShift = remember { mutableFloatStateOf(0f) }
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth().height(metrics.height),
+        contentAlignment = Alignment.Center,
+    ) {
+        val compactWidth = if (SafariCompactWidth < maxWidth - metrics.contentPadding * 2) SafariCompactWidth else maxWidth - metrics.contentPadding * 2
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(metrics.height)
+                // 行左右留白：三段式 = contentPadding，小胶囊 = 把行收窄到 compactWidth 并居中
+                .layout { measurable, constraints ->
+                    val full = constraints.maxWidth
+                    val padFull = metrics.contentPadding.roundToPx()
+                    val padCompact = ((full - compactWidth.roundToPx()) / 2).coerceAtLeast(padFull)
+                    val pad = (padFull + (padCompact - padFull) * morph.value).roundToInt()
+                    val inner = (full - pad * 2).coerceAtLeast(0)
+                    val placeable = measurable.measure(Constraints.fixed(inner, constraints.maxHeight))
+                    layout(full, placeable.height) { placeable.placeRelative(pad, 0) }
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!editing) {
+                CollapseSlot(progress = morph, gap = SafariGap, gapAtStart = false) {
                     SafariCircleButton(
                         icon = MiuixIcons.Glass.Back,
                         description = tr("后退"),
                         // 首页不可点；阅读模式中「后退」= 退出阅读模式，所以即使没有历史也可点
                         enabled = !atHome && canGoBack,
                         size = metrics.buttonSize,
+                        side = -1,
+                        shift = pillShift,
                         backdrop = backdrop,
                         liquid = liquid,
                         blurEnabled = blurEnabled,
@@ -133,41 +156,49 @@ internal fun SafariSplitBar(
                         onClick = onBack,
                     )
                 }
-                SafariAddressPill(
-                    modifier = Modifier.weight(1f),
-                    metrics = metrics,
-                    backdrop = backdrop,
-                    liquid = liquid,
-                    blurEnabled = blurEnabled,
-                    textureBlurEnabled = textureBlurEnabled,
-                    address = address,
-                    loading = loading,
-                    editing = editing,
-                    onChange = onChange,
-                    onGo = onGo,
-                    onFocusLost = onFocusLost,
-                    onAddressTap = onAddressTap,
-                    readerVisible = readerVisible,
-                    readerActive = readerActive,
-                    onReader = onReader,
-                    scriptsRunning = scriptsRunning,
-                    onScripts = onScripts,
-                    download = download,
-                    onDownload = onDownload,
-                    translateVisible = translateVisible,
-                    translateOriginal = translateOriginal,
-                    onTranslateToggle = onTranslateToggle,
-                    onRefresh = onRefresh,
-                    onNewTab = onNewTab,
-                    onSwitchTab = onSwitchTab,
-                    onOpenTabs = onOpenTabs,
-                )
-                if (!editing) {
+            }
+            SafariAddressPill(
+                modifier = Modifier.weight(1f),
+                metrics = metrics,
+                morph = morph,
+                shiftOut = pillShift,
+                compact = compact,
+                onExpand = onExpand,
+                backdrop = backdrop,
+                liquid = liquid,
+                blurEnabled = blurEnabled,
+                textureBlurEnabled = textureBlurEnabled,
+                address = address,
+                loading = loading,
+                editing = editing,
+                onChange = onChange,
+                onGo = onGo,
+                onFocusLost = onFocusLost,
+                onAddressTap = onAddressTap,
+                readerVisible = readerVisible,
+                readerActive = readerActive,
+                onReader = onReader,
+                scriptsRunning = scriptsRunning,
+                onScripts = onScripts,
+                download = download,
+                onDownload = onDownload,
+                translateVisible = translateVisible,
+                translateOriginal = translateOriginal,
+                onTranslateToggle = onTranslateToggle,
+                onRefresh = onRefresh,
+                onNewTab = onNewTab,
+                onSwitchTab = onSwitchTab,
+                onOpenTabs = onOpenTabs,
+            )
+            if (!editing) {
+                CollapseSlot(progress = morph, gap = SafariGap, gapAtStart = true) {
                     SafariCircleButton(
                         icon = MiuixIcons.Glass.More,
                         description = tr("更多"),
                         enabled = true,
                         size = metrics.buttonSize,
+                        side = 1,
+                        shift = pillShift,
                         backdrop = backdrop,
                         liquid = liquid,
                         blurEnabled = blurEnabled,
@@ -176,72 +207,110 @@ internal fun SafariSplitBar(
                     )
                 }
             }
-
         }
     }
 }
 
-/** 缩小后的标题小胶囊：只显示标题，点一下恢复三段式。 */
+private val SafariGap = 7.dp
+
+/** 小胶囊的宽度（屏幕更窄时取屏宽减去两侧留白） */
+private val SafariCompactWidth = 240.dp
+
+/** 小胶囊的高度 */
+private val SafariCompactHeight = 32.dp
+
+/** 小胶囊的圆角 */
+private val SafariCompactCorner = 16.dp
+
+/**
+ * 圆钮的占位槽：宽度（含与地址栏之间的间距）随 [progress] 从 100% 收到 0，同时淡出、缩小。
+ * 收起过程中地址栏因此被连续地「挤宽」，不会有跳变。
+ */
 @Composable
-private fun SafariCompactPill(
-    title: String,
+private fun CollapseSlot(
+    progress: State<Float>,
+    gap: Dp,
+    gapAtStart: Boolean,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+                val gapPx = gap.roundToPx()
+                val w = ((placeable.width + gapPx) * (1f - progress.value)).roundToInt()
+                layout(w, placeable.height) { placeable.placeRelative(if (gapAtStart) gapPx else 0, 0) }
+            }
+            .graphicsLayer {
+                // 圆钮在前半段就淡完，后半段只剩宽度在收，视觉上更干脆
+                val f = (1f - progress.value * 1.8f).coerceIn(0f, 1f)
+                alpha = f
+                val sc = 0.6f + 0.4f * f
+                scaleX = sc
+                scaleY = sc
+            },
+    ) { content() }
+}
+
+/** 随变形进度改变圆角的玻璃底板：只有这一层在动画期间重组。 */
+@Composable
+private fun MorphGlass(
+    progress: State<Float>,
+    fromCorner: Dp,
+    toCorner: Dp,
     backdrop: LayerBackdrop,
     liquid: com.kyant.backdrop.Backdrop?,
     blurEnabled: Boolean,
     textureBlurEnabled: Boolean,
-    onClick: () -> Unit,
 ) {
-    val haptic = LocalHapticFeedback.current
     Box(
         modifier = Modifier
-            .height(36.dp)
-            .widthIn(max = 300.dp)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onClick()
-                },
+            .fillMaxSize()
+            .glassBar(
+                backdrop = backdrop,
+                corner = lerp(fromCorner, toCorner, progress.value),
+                blurEnabled = blurEnabled,
+                textureBlurEnabled = textureBlurEnabled,
+                liquid = liquid,
             ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .glassBar(
-                    backdrop = backdrop,
-                    corner = 18.dp,
-                    blurEnabled = blurEnabled,
-                    textureBlurEnabled = textureBlurEnabled,
-                    liquid = liquid,
-                ),
-        )
-        Text(
-            text = title.ifBlank { tr("搜索或输入网址") },
-            fontSize = 15.sp,
-            color = MiuixTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 22.dp),
-        )
-    }
+    )
 }
 
-/** 圆形玻璃按钮：玻璃底板与图标分层（避免 backdrop 采集层递归包含自身）。 */
+/**
+ * 圆形玻璃按钮：玻璃底板与图标分层（避免 backdrop 采集层递归包含自身）。
+ *
+ * - 手感与设置页顶栏按钮一致：按下放大、手指拖动时按钮跟手并沿拖动方向拉伸、按下处有高光（[applyLiquidDeform]）；
+ * - 地址栏左右滑动（切换标签）时与地址栏有「磁力」互动（[applyMagnet]）：地址栏逼近的这一侧被排斥、挤扁，另一侧被吸住、拉长。
+ *
+ * [side]：-1 = 左边的按钮，+1 = 右边的按钮。[shift] 是地址栏当前的横向位移（像素，向右为正）。
+ */
 @Composable
 private fun SafariCircleButton(
     icon: ImageVector,
     description: String,
     enabled: Boolean,
-    size: androidx.compose.ui.unit.Dp,
+    size: Dp,
+    side: Int,
+    shift: State<Float>,
     backdrop: LayerBackdrop,
     liquid: com.kyant.backdrop.Backdrop?,
     blurEnabled: Boolean,
     textureBlurEnabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Box(modifier = Modifier.size(size), contentAlignment = Alignment.Center) {
+    val scope = rememberCoroutineScope()
+    val highlight = remember(scope) { InteractiveHighlight(animationScope = scope) }
+    Box(
+        modifier = Modifier
+            .size(size)
+            .graphicsLayer {
+                applyLiquidDeform(highlight)
+                applyMagnet(shift.value, side)
+            }
+            // 手势挂在父层：图标自己的点击在子层，父层 Initial 阶段照样能看到按下和拖动
+            .then(if (enabled) highlight.gestureModifier else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -253,7 +322,41 @@ private fun SafariCircleButton(
                     liquid = liquid,
                 ),
         )
+        // 按下处的高光：盖在玻璃上、图标下
+        if (enabled) {
+            Box(modifier = Modifier.matchParentSize().clip(CircleShape).then(highlight.modifier))
+        }
         PressIcon(icon = icon, description = description, enabled = enabled, buttonSize = size, onClick = onClick)
+    }
+}
+
+/**
+ * 地址栏左右滑动时对两侧圆钮的磁力：
+ * - 地址栏朝这个按钮靠近 → 排斥：按钮被推向屏幕边缘并被挤扁（宽度变小、略变高）；
+ * - 地址栏远离这个按钮 → 吸附：按钮被地址栏拉着往里伸长，像被磁铁吸住。
+ * 位移用 tanh 做橡皮筋：越拖越吃力，反应幅度有上限；松手后随地址栏的弹簧一起回弹。
+ */
+private fun GraphicsLayerScope.applyMagnet(shiftPx: Float, side: Int) {
+    if (shiftPx == 0f) return
+    val t = tanh(shiftPx / 64.dp.toPx())
+    // >0：地址栏正朝这个按钮靠近（左钮 + 向左滑；右钮 + 向右滑）
+    val toward = t * -side
+    // 朝地址栏方向的单位向量（左钮向右，右钮向左）
+    val toPill = -side
+    val w = size.width
+    if (toward > 0f) {
+        val sx = 1f - 0.16f * toward
+        // 屏幕侧的边缘保持不动，再整体往屏幕边缘推一点
+        translationX += toPill * (w * (1f - sx) / 2f - 5.dp.toPx() * toward)
+        scaleX *= sx
+        scaleY *= 1f + 0.06f * toward
+    } else {
+        val away = -toward
+        val sx = 1f + 0.14f * away
+        // 屏幕侧的边缘保持不动，朝地址栏方向被拉长
+        translationX += toPill * (w * (sx - 1f) / 2f + 9.dp.toPx() * away)
+        scaleX *= sx
+        scaleY *= 1f - 0.05f * away
     }
 }
 
@@ -261,6 +364,13 @@ private fun SafariCircleButton(
 private fun SafariAddressPill(
     modifier: Modifier,
     metrics: BarMetrics,
+    /** 三段式 → 小胶囊的变形进度（0..1），只在布局 / 绘制阶段读取 */
+    morph: State<Float>,
+    /** 把地址栏当前的横向位移（像素）同步给两侧圆钮，做磁力互动 */
+    shiftOut: MutableFloatState,
+    /** 目标状态是小胶囊：不挂手势，整块点击 = 恢复三段式 */
+    compact: Boolean,
+    onExpand: () -> Unit,
     backdrop: LayerBackdrop,
     liquid: com.kyant.backdrop.Backdrop?,
     blurEnabled: Boolean,
@@ -321,32 +431,52 @@ private fun SafariAddressPill(
         animationSpec = if (dragging) snap() else spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium),
         label = "safariPillY",
     )
+    LaunchedEffect(Unit) {
+        snapshotFlow { animX * 0.35f }.collect { shiftOut.floatValue = it }
+    }
     val latestSwitch by rememberUpdatedState(onSwitchTab)
     val latestOpenTabs by rememberUpdatedState(onOpenTabs)
 
     Box(
         modifier = modifier
-            .height(metrics.addressHeight)
+            // 高度随变形进度从 addressHeight 连续收到小胶囊高度
+            .layout { measurable, constraints ->
+                val from = metrics.addressHeight.roundToPx()
+                val to = SafariCompactHeight.roundToPx()
+                val h = (from + (to - from) * morph.value).roundToInt()
+                val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+            }
             .graphicsLayer {
                 translationX = animX * 0.35f
                 // 只跟着上滑走，下拉不动
                 translationY = animY.coerceAtMost(0f) * 0.35f
             }
             // 输入网址时不挂手势：横向拖动要留给输入框（移动光标 / 选词）
-            .pointerInput(editing) {
-                if (editing) return@pointerInput
+            .pointerInput(editing, compact) {
+                if (editing || compact) return@pointerInput
                 val switchPx = 48.dp.toPx()
                 val openPx = 40.dp.toPx()
+                // 横向拖过切换阈值时「咔」一下：和圆钮的吸附 / 排斥配合，告诉手指松手就会切换
+                var crossed = false
                 detectDragGestures(
                     onDragStart = {
                         dragging = true
                         dragX = 0f
                         dragY = 0f
+                        crossed = false
                     },
                     onDrag = { change, amount ->
                         change.consume()
                         dragX += amount.x
                         dragY += amount.y
+                        val horizontal = kotlin.math.abs(dragX) > kotlin.math.abs(dragY)
+                        if (horizontal && !crossed && kotlin.math.abs(dragX) > switchPx) {
+                            crossed = true
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        } else if (crossed && (!horizontal || kotlin.math.abs(dragX) < switchPx * 0.8f)) {
+                            crossed = false
+                        }
                     },
                     onDragEnd = {
                         val dx = dragX
@@ -374,25 +504,28 @@ private fun SafariAddressPill(
                 )
             },
     ) {
-        // 玻璃底板与内容分层
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .glassBar(
-                    backdrop = backdrop,
-                    corner = metrics.addressCorner,
-                    blurEnabled = blurEnabled,
-                    textureBlurEnabled = textureBlurEnabled,
-                    liquid = liquid,
-                ),
+        // 玻璃底板与内容分层（圆角随变形进度从 addressCorner 收到小胶囊圆角）
+        MorphGlass(
+            progress = morph,
+            fromCorner = metrics.addressCorner,
+            toCorner = SafariCompactCorner,
+            backdrop = backdrop,
+            liquid = liquid,
+            blurEnabled = blurEnabled,
+            textureBlurEnabled = textureBlurEnabled,
         )
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!editing) {
                 // 左槽：固定宽度，没有图标时也占位，标题才能保持居中
-                Box(modifier = Modifier.width(AddressReaderWidth), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .width(AddressReaderWidth)
+                        .graphicsLayer { alpha = (1f - morph.value * 1.8f).coerceIn(0f, 1f) },
+                    contentAlignment = Alignment.Center,
+                ) {
                     when {
                         showTranslate -> AddressTranslateButton(original = translateOriginal, onClick = onTranslateToggle)
                         showDownload && download != null -> AddressDownloadButton(state = download, onClick = onDownload)
@@ -422,11 +555,13 @@ private fun SafariAddressPill(
                             indication = null,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onAddressTap()
+                                if (compact) onExpand() else onAddressTap()
                             },
                             onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onNewTab()
+                                if (!compact) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onNewTab()
+                                }
                             },
                         ),
                     contentAlignment = Alignment.Center,
@@ -434,14 +569,19 @@ private fun SafariAddressPill(
                     val blank = address.isBlank()
                     Text(
                         text = if (blank) tr("搜索或输入网址") else address,
-                        fontSize = 16.sp,
+                        fontSize = 14.sp,
                         color = if (blank) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 // 右槽：加载中是小圆点，加载完是刷新
-                Box(modifier = Modifier.width(AddressRefreshWidth), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .width(AddressRefreshWidth)
+                        .graphicsLayer { alpha = (1f - morph.value * 1.8f).coerceIn(0f, 1f) },
+                    contentAlignment = Alignment.Center,
+                ) {
                     if (loading) {
                         LoadingDot()
                     } else if (showRefresh) {
@@ -449,6 +589,21 @@ private fun SafariAddressPill(
                     }
                 }
             }
+        }
+        if (compact) {
+            // 小胶囊状态：盖住两侧已淡出的图标槽，整块点击 = 恢复三段式
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onExpand()
+                        },
+                    ),
+            )
         }
     }
 }

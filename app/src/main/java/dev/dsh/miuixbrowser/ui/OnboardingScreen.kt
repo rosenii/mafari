@@ -142,7 +142,7 @@ private val STEP_SUBTITLES = listOf(
     tr("Mafari 浏览器，接下来用几步帮你完成基础设置"),
     tr("先挑一种界面材质，后面的所有设置页都会按它显示，之后可在 设置 → 外观 里更换"),
     tr("给主页挑一张喜欢的图片，也可以先跳过，之后在 设置 → 外观 里更换"),
-    tr("选好起始页、导航栏位置和地址栏显示，再决定首页放哪些内容"),
+    tr("选好起始页、导航栏样式和地址栏显示，再决定首页放哪些内容"),
     tr("长按图标拖动即可排序，拖到分割线下方就隐藏；部分按钮长按还有更多功能"),
     tr("数据在你自己手里：多种方式备份，随时换机恢复"),
     tr("这是 Mafari 加密备份与同步使用的唯一口令"),
@@ -688,9 +688,9 @@ private fun HomeStep(settings: AppSettings, bd: Backdrop?) {
         }
         AppDropdownPreference(
             backdrop = bd,
-            title = tr("导航栏位置"),
+            title = tr("导航栏样式"),
             summary = tr("顶部 / 底部：随页面滚动自动隐藏；固定：始终显示"),
-            items = listOf(tr("顶部"), tr("底部"), tr("始终最小化"), tr("固定在底部"), tr("固定在顶部"), tr("Safari 样式")),
+            items = listOf(tr("顶部"), tr("底部"), tr("始终最小化"), tr("固定在底部"), tr("固定在顶部"), tr("悬浮三段式")),
             selectedIndex = settings.barPosition.coerceIn(0, 5),
             onSelectedIndexChange = { settings.updateBarPosition(it) },
         )

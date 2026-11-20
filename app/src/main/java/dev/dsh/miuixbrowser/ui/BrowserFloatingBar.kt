@@ -194,7 +194,7 @@ internal fun BoxScope.BrowserFloatingBar(
             animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
             label = "dynamicBottomBarWidth",
         )
-        // Safari 样式：页面向下滑动后缩成标题小胶囊（输入网址 / 主页不缩）。进度只在绘制阶段读取，不让弹簧逐帧重组
+        // 悬浮三段式：页面向下滑动后缩成标题小胶囊（输入网址 / 主页不缩）。进度只在绘制阶段读取，不让弹簧逐帧重组
         val compact = style.splitPills && ui.barCompact && !editing && tab.url.isNotEmpty()
         val compactProgress = animateFloatAsState(
             targetValue = if (compact) 1f else 0f,

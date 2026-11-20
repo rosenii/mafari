@@ -259,11 +259,11 @@ fun BrowserScreen(
     /** 底栏被左右滑动缩小为圆形搜索钮 */
     val barMinimizedState = remember { mutableStateOf(settings.barPosition == BAR_POS_MINIMIZED) }
     var barMinimized by barMinimizedState
-    // 「布局 → 导航栏位置」：顶部 / 底部 / 始终最小化（圆钮是常态，展开后一段时间无操作自动缩回）
+    // 「布局 → 导航栏样式」：顶部 / 底部 / 始终最小化（圆钮是常态，展开后一段时间无操作自动缩回）
     // 位置选项 → 「边 + 样式」（悬浮胶囊 / 停靠平铺…，见 BarStyle.kt）：下面所有与栏有关的布局都向它查询
     val barLayout = BarStyles.resolve(settings.barPosition)
     val alwaysMin = settings.barPosition == BAR_POS_MINIMIZED
-    // 固定在顶部 / 底部 / Safari 样式：不随滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边；栏停靠在屏幕边缘，网页从栏的另一侧展开
+    // 固定在顶部 / 底部 / 悬浮三段式：不随滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边；栏停靠在屏幕边缘，网页从栏的另一侧展开
     val barFixed = settings.barPosition == BAR_POS_FIXED_TOP || settings.barPosition == BAR_POS_FIXED_BOTTOM ||
         settings.barPosition == BAR_POS_SAFARI_BOTTOM
     var showQuickPicker by ui::showQuickPicker
@@ -534,7 +534,9 @@ fun BrowserScreen(
     val dockedBottomBody = if (barLayout.reservesBottom) barLayout.style.metrics.height else 0.dp
     // 底栏停靠且页面已深入栏下：网页区域伸到屏幕底（栏 + 导航栏那一段都交给网页）。
     // WebView 随弹簧逐帧伸缩；Gecko 调整视口代价大（见上面 fixedContentTop 的说明），只在翻转时一次到位。
-    val bottomOverlapTarget = barLayout.reservesBottom && ui.barOverlap
+    // 悬浮三段式没有整条底板：有页面时网页一直铺到栏后面（首页仍让位）
+    val bottomOverlapTarget = barLayout.reservesBottom &&
+        (ui.barOverlap || (barLayout.style.splitPills && tab.url.isNotEmpty()))
     val bottomOverlapAnim by animateFloatAsState(
         targetValue = if (bottomOverlapTarget) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),

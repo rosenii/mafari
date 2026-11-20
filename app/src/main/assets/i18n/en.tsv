@@ -1276,7 +1276,7 @@ M月d日	MMM d
 Mafari 浏览器，接下来用几步帮你完成基础设置	Welcome to the Mafari browser; a few steps will get the basics set up
 先挑一种界面材质，后面的所有设置页都会按它显示，之后可在 设置 → 外观 里更换	Pick an interface material first; all settings pages after this will use it. You can change it later in Settings → Appearance
 给主页挑一张喜欢的图片，也可以先跳过，之后在 设置 → 外观 里更换	Pick a picture you like for the home page, or skip it for now and change it later in Settings → Appearance
-选好起始页、导航栏位置和地址栏显示，再决定首页放哪些内容	Choose the start page, navigation bar position and address bar display, then decide what goes on the home page
+选好起始页、导航栏样式和地址栏显示，再决定首页放哪些内容	Choose the start page, navigation bar style and address bar display, then decide what goes on the home page
 长按图标拖动即可排序，拖到分割线下方就隐藏；部分按钮长按还有更多功能	Long-press and drag icons to reorder; drag below the divider to hide them; some buttons do more on long-press
 数据在你自己手里：多种方式备份，随时换机恢复	Your data is in your own hands: back up in several ways and restore on a new phone any time
 这是 Mafari 加密备份与同步使用的唯一口令	This is the one and only password used for Mafari's encrypted backup and sync
@@ -1309,7 +1309,7 @@ Mafari 浏览器，接下来用几步帮你完成基础设置	Welcome to the Maf
 指定页面地址	Specific page address
 未设置	Not set
 修改	Change
-导航栏位置	Navigation bar position
+导航栏样式	Navigation bar style
 顶部 / 底部：随页面滚动自动隐藏；固定：始终显示	Top / Bottom: auto-hides when the page scrolls; Fixed: always shown
 顶部	Top
 底部	Bottom
@@ -2083,4 +2083,4 @@ API Key（可选）	API key (optional)
 长按进入「拓展」管理页；Gecko 下单击是拓展快捷菜单，WebView 下单击同样进入管理页	Long-press opens the "Extensions" management page; on Gecko a tap opens the extension quick menu, on WebView a tap opens the page too
 {0} 个来自其他设备的标签页	{0} tabs from other devices
 还有 {0} 个未显示，请前往 Firefox 账户同步中心查看	{0} more not shown — see the Firefox account sync center
-Safari 样式	Safari style
+悬浮三段式	Floating three-piece

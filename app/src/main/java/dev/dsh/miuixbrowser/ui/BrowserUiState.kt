@@ -33,7 +33,7 @@ internal class BrowserUiState {
     var barHidden by mutableStateOf(false)
     /** 固定（停靠）导航栏：页面是否已深入栏下（滑动中为 true；回到页面顶部 / 底部恢复为 false），判定见 [BarOverlap] */
     var barOverlap by mutableStateOf(false)
-    /** Safari 样式导航栏：页面向下滑动后缩成只显示标题的小胶囊（上滑 / 回到顶部 / 点它恢复）；其他样式恒为 false */
+    /** 悬浮三段式导航栏：页面向下滑动后缩成只显示标题的小胶囊（上滑 / 回到顶部 / 点它恢复）；其他样式恒为 false */
     var barCompact by mutableStateOf(false)
     var favEditing by mutableStateOf(false)
     var groupEditing by mutableStateOf(false)

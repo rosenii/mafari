@@ -77,14 +77,14 @@ const val ONBOARDING_VERSION = 1
 /** 引导完成标记所在的 SharedPreferences（独立文件，不参与备份 / 恢复） */
 const val ONBOARDING_PREFS = "mafari_onboarding"
 
-/** 「布局 → 导航栏位置」：数值写进 SharedPreferences，不要改 */
+/** 「布局 → 导航栏样式」：数值写进 SharedPreferences，不要改 */
 const val BAR_POS_TOP = 0
 const val BAR_POS_BOTTOM = 1
 const val BAR_POS_MINIMIZED = 2
 /** 固定在底部 / 顶部：位置固定，不随页面滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边 */
 const val BAR_POS_FIXED_BOTTOM = 3
 const val BAR_POS_FIXED_TOP = 4
-/** Safari 样式（底部）：左后退 / 中地址栏 / 右更多 三块分开的玻璃件，固定显示不随滚动隐藏 */
+/** 悬浮三段式（底部）：左后退 / 中地址栏 / 右更多 三块分开的玻璃件，固定显示不随滚动隐藏 */
 const val BAR_POS_SAFARI_BOTTOM = 5
 
 private const val PREF_BAR_POSITION = "bar_position"
@@ -315,7 +315,7 @@ class AppSettings(context: Context) {
     var homeCustomUrl by mutableStateOf(readHomeCustomUrl(context))
         private set
 
-    /** 导航栏位置：顶部 / 底部（默认）/ 始终最小化 / 固定在底部 / 固定在顶部 / Safari 样式。快速上扫 / 下扫底栏也会改这里 */
+    /** 导航栏样式：顶部 / 底部（默认）/ 始终最小化 / 固定在底部 / 固定在顶部 / 悬浮三段式。快速上扫 / 下扫底栏也会改这里 */
     var barPosition by mutableStateOf(prefs.getInt(PREF_BAR_POSITION, BAR_POS_BOTTOM).coerceIn(BAR_POS_TOP, BAR_POS_SAFARI_BOTTOM))
         private set
 

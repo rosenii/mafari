@@ -115,25 +115,7 @@ fun LiquidGlassSurface(
     )
     val liquidLayer: GraphicsLayerScope.() -> Unit = liquid@{
         if (!deformable) return@liquid
-        val width = size.width
-        val height = size.height
-        val progress = highlight.pressProgress
-        val scale = lerp(1f, 1f + 4f.dp.toPx() / height, progress)
-
-        val maxOffset = size.minDimension
-        val initialDerivative = 0.05f
-        val offset = highlight.offset
-        translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
-        translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
-
-        val maxDragScale = 4f.dp.toPx() / height
-        val offsetAngle = atan2(offset.y, offset.x)
-        scaleX = scale +
-            maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
-            (width / height).fastCoerceAtMost(1f)
-        scaleY = scale +
-            maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
-            (height / width).fastCoerceAtMost(1f)
+        applyLiquidDeform(highlight)
     }
     val showSurface = surfaceAlpha > 0.001f
 
@@ -210,6 +192,32 @@ fun LiquidGlassSurface(
             content = { content() },
         )
     }
+}
+
+/**
+ * 液态玻璃按钮的按压放大 + 拖拽形变（跟手位移、沿拖动方向拉伸），写进 graphicsLayer。
+ * 顶栏按钮（[LiquidGlassSurface]）和悬浮三段式的后退 / 更多圆钮共用同一套参数，手感一致。
+ */
+internal fun GraphicsLayerScope.applyLiquidDeform(highlight: InteractiveHighlight) {
+    val width = size.width
+    val height = size.height
+    val progress = highlight.pressProgress
+    val scale = lerp(1f, 1f + 4f.dp.toPx() / height, progress)
+
+    val maxOffset = size.minDimension
+    val initialDerivative = 0.05f
+    val offset = highlight.offset
+    translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+    translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+
+    val maxDragScale = 4f.dp.toPx() / height
+    val offsetAngle = atan2(offset.y, offset.x)
+    scaleX = scale +
+        maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+        (width / height).fastCoerceAtMost(1f)
+    scaleY = scale +
+        maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+        (height / width).fastCoerceAtMost(1f)
 }
 
 /** 顶栏是否已被内容顶起（上滑）：与 GlassTopAppBar 内部判断相同，contentOffset < 0。 */
