@@ -1,4 +1,4 @@
-From 7c204679715f4ef0c363b2bd588484947024705d Mon Sep 17 00:00:00 2001
+From 121a4dd53864a712ad79ef5f2508086f63d5f888 Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Tue, 17 Nov 2026 19:43:47 +0000
 Subject: [PATCH] =?UTF-8?q?preference:=20SwitchPreference=20=E7=82=B9?=
@@ -8,14 +8,14 @@ Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
 ---
- .../top/yukonga/miuix/kmp/preference/SwitchPreference.kt | 9 +++++++++
- 1 file changed, 9 insertions(+)
+ .../miuix/kmp/preference/SwitchPreference.kt     | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
-index fa46100..5f1b636 100644
+index 13f3b03..b07a5cd 100644
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
-@@ -13,6 +13,8 @@ import androidx.compose.runtime.getValue
+@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
  import androidx.compose.runtime.rememberUpdatedState
  import androidx.compose.ui.Alignment
  import androidx.compose.ui.Modifier
@@ -24,24 +24,25 @@ index fa46100..5f1b636 100644
  import androidx.compose.ui.semantics.Role
  import androidx.compose.ui.unit.dp
  import top.yukonga.miuix.kmp.basic.BasicComponent
-@@ -59,6 +61,7 @@ fun SwitchPreference(
-     enabled: Boolean = true,
- ) {
+@@ -60,8 +62,20 @@ fun SwitchPreference(
      val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
+     val currentChecked by rememberUpdatedState(checked)
+     val currentEnabled by rememberUpdatedState(enabled)
 +    val hapticFeedback = LocalHapticFeedback.current
-     BasicComponent(
-         modifier = modifier,
-         insideMargin = insideMargin,
-@@ -85,6 +88,12 @@ fun SwitchPreference(
-         },
-         bottomAction = bottomAction,
-         onClick = {
-+            // 点整行切换时与点开关本体一样震动（开关本体点击自带震动，不会走到这里）
-+            if (enabled && currentOnCheckedChange != null) {
-+                hapticFeedback.performHapticFeedback(
-+                    if (!checked) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff,
++    val currentHapticFeedback by rememberUpdatedState(hapticFeedback)
+     val onRowClick = remember {
+-        { currentOnCheckedChange.takeIf { currentEnabled }?.invoke(!currentChecked) ?: Unit }
++        {
++            currentOnCheckedChange.takeIf { currentEnabled }?.let { change ->
++                val newChecked = !currentChecked
++                change(newChecked)
++                // 点整行切换时 Switch 自身不会触发震动，这里补上（与 Switch 保持一致）
++                currentHapticFeedback.performHapticFeedback(
++                    if (newChecked) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff,
 +                )
 +            }
-             currentOnCheckedChange.takeIf { enabled }?.invoke(!checked)
-         },
-         role = Role.Switch,
++            Unit
++        }
+     }
+     BasicComponent(
+         modifier = modifier,
