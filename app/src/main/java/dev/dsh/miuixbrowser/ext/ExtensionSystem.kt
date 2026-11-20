@@ -35,7 +35,7 @@ class ExtensionSystem(
 
     private val router = ApiRouter()
     private val historyStore by lazy { HistoryStore(context.applicationContext) }
-    val broker = MessageBroker()
+    val broker = MessageBroker().also { it.log = log }
     private val dynamicScripts = DynamicContentScriptStore()
     private val sinks = CompositeEventSink()
     /** 用户点击拓展后临时授予的「当前标签」访问（activeTab），只存内存 */

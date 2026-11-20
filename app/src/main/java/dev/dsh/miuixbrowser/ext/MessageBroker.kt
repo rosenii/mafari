@@ -1,6 +1,7 @@
 package dev.dsh.miuixbrowser.ext
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.util.UUID
@@ -40,6 +41,9 @@ interface MessageEndpoint {
 class MessageBroker(
     private val timeoutMs: Long = 30_000L,
     private val newCid: () -> String = { UUID.randomUUID().toString() },
+    /** 后台页刚被拉起、还没握手时，runtime.sendMessage 最多等它这么久（Firefox 的后台页是按需拉起并让消息排队的） */
+    private val backgroundGraceMs: Long = 5_000L,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : RuntimeMessenger {
 
     private class Reply(val value: Any?)
@@ -61,12 +65,28 @@ class MessageBroker(
         val sender: JSONObject,
     )
 
+    /** 诊断日志（Diag）。tabs.sendMessage / runtime.sendMessage 找不到接收端时写明「谁在线、谁不在」，不含消息内容 */
+    @Volatile var log: (String) -> Unit = {}
+
+    /** extId → 等待后台页握手的截止时间。后台页握手 / 拓展停用时清掉；过期后不再等（后台页起不来就别拖慢每一次发送） */
+    private val expectedBackground = ConcurrentHashMap<String, Long>()
+
     private val endpoints = ConcurrentHashMap<String, MessageEndpoint>()
     private val pending = ConcurrentHashMap<String, Pending>()
     private val ports = ConcurrentHashMap<String, PortConnection>()
 
     fun register(ep: MessageEndpoint) {
         endpoints[ep.contextId] = ep
+    }
+
+    /** 后台页已开始加载但还没握手：此后 [backgroundGraceMs] 内，找不到接收端的 runtime.sendMessage 先等一等再判 NO_RECEIVER */
+    fun expectBackground(extId: String) {
+        expectedBackground[extId] = clock() + backgroundGraceMs
+    }
+
+    /** 后台页已握手（它的 endpoint 已经 register） */
+    fun backgroundReady(extId: String) {
+        expectedBackground.remove(extId)
     }
 
     fun unregister(contextId: String) {
@@ -81,6 +101,7 @@ class MessageBroker(
 
     /** 拓展停用 / 卸载时：丢掉它的所有上下文 */
     fun unregisterExtension(extId: String) {
+        expectedBackground.remove(extId)
         // Remove every endpoint first so extension shutdown cannot deliver disconnect events
         // into another context that is itself being torn down in the same operation.
         endpoints.values.filter { it.extId == extId }.map { it.contextId }.forEach(endpoints::remove)
@@ -101,12 +122,9 @@ class MessageBroker(
             .toList()
         if (targets.isEmpty()) throw noReceiver()
         val id = newCid()
-        val sender = JSONObject().put("id", extId)
-            .put("url", if (ctx.sender.kind == SenderKind.EXTENSION_PAGE) ctx.sender.origin else ctx.sender.origin)
-        if (ctx.sender.kind == SenderKind.CONTENT_SCRIPT) {
-            sender.put("frameId", 0)
-            ctx.sender.tabId?.let { sender.put("tab", JSONObject().put("id", it)) }
-        }
+        // 与 Chrome / Firefox 一致：sender.url 是发送页面的完整网址（带路径），不是只有 origin
+        val sender = senderJson(ctx)
+        if (ctx.sender.kind == SenderKind.CONTENT_SCRIPT) sender.put("frameId", 0)
         val connection = PortConnection(
             id, extId, caller.contextId, CopyOnWriteArraySet(), name, sender,
         )
@@ -185,8 +203,20 @@ class MessageBroker(
     override suspend fun sendMessage(ctx: CallContext, extensionId: String?, message: Any?): Any? {
         val extId = ctx.ext.spec.id
         val self = ctx.sender.contextId
-        val targets = endpoints.values.filter {
+        fun livePages() = endpoints.values.filter {
             it.extId == extId && it.kind == SenderKind.EXTENSION_PAGE && (self == null || it.contextId != self)
+        }
+        var targets = livePages()
+        val deadline = expectedBackground[extId]
+        if (targets.isEmpty() && deadline != null) {
+            // 常见时序：恢复标签 / 刚启动时 content script 的第一条消息比后台页握手早到
+            while (targets.isEmpty() && clock() < deadline) {
+                delay(50)
+                targets = livePages()
+            }
+        }
+        if (targets.isEmpty()) {
+            log("ext $extId runtime.sendMessage from ${ctx.sender.kind.name.lowercase()}: no extension page online — 后台页没启动 / 启动时抛错 / 还没握手完成")
         }
         return deliverAndAwait(extId, targets, message, senderJson(ctx))
     }
@@ -198,9 +228,16 @@ class MessageBroker(
             it.extId == extId && it.kind == SenderKind.CONTENT_SCRIPT && it.tabId == tabId &&
                 (frameId == null || it.frameId == frameId)
         }
+        if (targets.isEmpty()) {
+            val online = endpoints.values.filter { it.extId == extId }
+                .joinToString { "${it.kind.name.lowercase()}${it.tabId?.let { t -> "@tab$t" }.orEmpty()}" }
+            log("ext $extId tabs.sendMessage tab=$tabId: no content-script endpoint (online: ${online.ifEmpty { "none" }}) — " +
+                "页面在安装 / 启用拓展之前加载的，或该页面的 content script 没有跑起来（看 content script 的 console 报错）")
+        }
         val sender = JSONObject()
             .put("id", extId)
             .put("url", ExtensionOrigins.urlFor(extId, ""))
+            .put("origin", ExtensionOrigins.originFor(extId))
         return deliverAndAwait(extId, targets, message, sender)
     }
 
@@ -282,11 +319,18 @@ class MessageBroker(
 
     private fun senderJson(ctx: CallContext): JSONObject {
         val s = ctx.sender
-        val o = JSONObject().put("id", ctx.ext.spec.id).put("origin", s.origin)
+        val url = s.url ?: (s.origin.trimEnd('/') + "/")
+        val o = JSONObject().put("id", ctx.ext.spec.id).put("origin", s.origin).put("url", url)
         if (s.kind == SenderKind.CONTENT_SCRIPT) {
             // 只有 content script 来自网页：帧编号取不到具体值，主框架是 0，其余统一记为 1
             o.put("frameId", if (s.isMainFrame) 0 else 1)
-            s.tabId?.let { o.put("tab", JSONObject().put("id", it)) }
+            s.tabId?.let { id ->
+                // Chrome 给的是完整 Tab 对象；拓展常读 sender.tab.url / windowId。url 取自宿主记录的主框架网址，
+                // 只有主框架才有（子框架的 sender.tab.url 在 Chrome 里是顶层页面网址，这里拿不到可信值，所以不给）
+                val tab = JSONObject().put("id", id).put("windowId", TabBridge.WINDOW_ID).put("incognito", false)
+                if (s.isMainFrame) tab.put("url", url)
+                o.put("tab", tab)
+            }
         }
         return o
     }

@@ -145,7 +145,11 @@ class WebViewExtensionHost(
             installedExtIds.add(ext.spec.id)
             val plan = ExtensionInjection.build(
                 ext, shim, ExtensionInjection.fileReader(ext.rootDir), dynamicContentScripts(ext), tabId,
-            ) ?: continue
+            )
+            if (plan == null) {
+                log("ext ${ext.spec.id}: tab $tabId 没有可注入的 content script（manifest 无 content_scripts，或脚本文件读不到）")
+                continue
+            }
             plan.warnings.forEach { log("ext ${ext.spec.id}: $it") }
             try {
                 WebViewCompat.addWebMessageListener(webView, plan.bridgeName, plan.originRules) { _, message, sourceOrigin, isMainFrame, reply ->
@@ -153,6 +157,7 @@ class WebViewExtensionHost(
                 }
                 names.add(plan.bridgeName)
                 handlers.add(WebViewCompat.addDocumentStartJavaScript(webView, plan.script, plan.originRules))
+                log("ext ${ext.spec.id}: tab $tabId content scripts installed rules=${plan.originRules.take(4)} script=${plan.script.length}B")
             } catch (e: Exception) {
                 log("ext ${ext.spec.id}: install failed ${e.message}")
             }
@@ -215,9 +220,14 @@ class WebViewExtensionHost(
             return
         }
 
+        // 回调在主线程：主框架网址取自这个标签的 WebView（浏览器自己记录的，不是页面自报的）；子框架只有 origin/
+        val frameUrl = (if (isMainFrame && tabId != null) synchronized(bindings) { bindings[tabId]?.webView?.url } else null)
+            ?.takeIf { it.startsWith(origin.trimEnd('/') + "/") }
+            ?: (origin.trimEnd('/') + "/")
         val sender = Sender(
             SenderKind.CONTENT_SCRIPT, origin, isMainFrame, tabId,
             if (isMainFrame && tabId != null) "content:$boundExtId:$tabId" else null,
+            frameUrl,
         )
         scope.launch {
             val response = runtime.handle(text, sender)
@@ -251,6 +261,7 @@ class WebViewExtensionHost(
                 ContentEndpoint(extId, tabId, reply).also {
                     contentEndpoints[key] = it
                     broker.register(it)
+                    log("ext $extId: content script connected tab=$tabId")
                 }
             }
         }

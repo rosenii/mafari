@@ -50,13 +50,15 @@ function (CFG, ENTRIES) {
         }
       },
       removeListener: function (f) { var a = L[name] || [], i = a.indexOf(f); if (i >= 0) a.splice(i, 1); },
-      hasListener: function (f) { return (L[name] || []).indexOf(f) >= 0; }
+      hasListener: function (f) { return (L[name] || []).indexOf(f) >= 0; },
+      hasListeners: function () { return (L[name] || []).length > 0; }
     };
   }
   function fire(name, args) {
     (L[name] || []).slice().forEach(function (f) { try { f.apply(null, args); } catch (e) { cerr(e); } });
   }
   // 原生事件 → 要触发的监听器列表 [[监听器名, 参数数组], ...]。新增事件只需在这张表里加一行
+  var menuHandlers = {}; // menus.create({ onclick }) —— Firefox 支持的写法；函数不能过桥，留在本地
   var DISPATCH = {
     'storage.onChanged': function (p) {
       return [['storage.onChanged', [p.changes, p.areaName]], ['storage.' + p.areaName + '.onChanged', [p.changes]]];
@@ -77,7 +79,11 @@ function (CFG, ENTRIES) {
     'webNavigation.onErrorOccurred': function (p) { return [['webNavigation.onErrorOccurred', [p]]]; },
     'webNavigation.onHistoryStateUpdated': function (p) { return [['webNavigation.onHistoryStateUpdated', [p]]]; },
     'webNavigation.onReferenceFragmentUpdated': function (p) { return [['webNavigation.onReferenceFragmentUpdated', [p]]]; },
-    'contextMenus.onClicked': function (p) { return [['contextMenus.onClicked', [p.info || {}, p.tab || {}]]]; },
+    'contextMenus.onClicked': function (p) {
+      var h = menuHandlers[(p.info || {}).menuItemId];
+      if (typeof h === 'function') ST(function () { try { h(p.info || {}, p.tab || {}); } catch (e) { cerr(e); } }, 0);
+      return [['contextMenus.onClicked', [p.info || {}, p.tab || {}]]];
+    },
     'notifications.onClicked': function (p) { return [['notifications.onClicked', [p.notificationId]]]; },
     'notifications.onClosed': function (p) { return [['notifications.onClosed', [p.notificationId, !!p.byUser]]]; },
     'bookmarks.onCreated': function (p) { return [['bookmarks.onCreated', [p.id, p.bookmark]]]; },
@@ -247,6 +253,50 @@ function (CFG, ENTRIES) {
   }
   function promised(f) { f.__p = true; return f; }
 
+  // ───────────── 兼容面：永不触发的事件 / 明确不支持的方法 ─────────────
+  // 目标面向 Firefox for Android：它上面能跑的拓展，在这里不该因为「命名空间 / 事件对象不存在」在启动阶段就抛 TypeError
+  // （后台页启动时抛错 = 后台页永远不会注册 onMessage / onConnect，popup 就一直转圈或白屏）。
+  // 规则：事件对象总是存在，可以 addListener，但宿主不会触发（首次注册时往控制台警告一次，诊断日志里能看到）；
+  // 带返回值的方法返回 UNSUPPORTED 拒绝，不伪造成功。
+  var cwarn = (win.console && win.console.warn) ? win.console.warn.bind(win.console) : function () { };
+  var warned = {};
+  function inertEvent(name, quiet) {
+    var list = [];
+    return {
+      addListener: function (f) {
+        if (typeof f !== 'function' || list.indexOf(f) >= 0) return;
+        list.push(f);
+        if (!quiet && !warned[name]) { warned[name] = 1; cwarn('[mafari] ' + name + ': 监听器已注册，但 WebView 适配层不会触发该事件'); }
+      },
+      removeListener: function (f) { var i = list.indexOf(f); if (i >= 0) list.splice(i, 1); },
+      hasListener: function (f) { return list.indexOf(f) >= 0; },
+      hasListeners: function () { return list.length > 0; }
+    };
+  }
+  function unsupported(name) {
+    return promised(function () {
+      var e = new E(name + ' is not supported by Mafari WebView');
+      e.code = 'UNSUPPORTED';
+      return P.reject(e);
+    });
+  }
+
+  // 兜底：拓展在后台页顶层对「命名空间上不存在的 onXxx 事件」直接 addListener 会抛 TypeError，把整个后台页带死。
+  // 逐个补事件永远补不完（Firefox 有上百个），所以对每个命名空间对象再包一层 Proxy：读到不存在的 `onXxx` 就给一个
+  // 惰性事件（可注册、不触发，首次注册时警告一次）。只兜事件名；方法不兜——方法缺失要让拓展的特性检测走降级路径，
+  // 带返回值的方法该显式返回 UNSUPPORTED。事件对象缓存在 Proxy 外，不改被包对象，所以 Object.keys / in 的结果不变。
+  var HAS_PROXY = typeof win.Proxy === 'function';
+  function withInertEvents(obj, ns) {
+    if (!HAS_PROXY || !obj) return obj;
+    var made = {};
+    return new win.Proxy(obj, {
+      get: function (t, k, r) {
+        if (typeof k === 'string' && !(k in t) && /^on[A-Z]/.test(k)) return made[k] || (made[k] = inertEvent(ns + '.' + k));
+        return Reflect.get(t, k, r);
+      }
+    });
+  }
+
   // ───────────── API ─────────────
   var manifestJson = jstr(CFG.manifest);
   function getURL(path) { return CFG.origin + '/' + String(path === undefined ? '' : path).replace(/^\/+/, ''); }
@@ -287,10 +337,30 @@ function (CFG, ENTRIES) {
     onMessage: ev('runtime.onMessage'),
     onConnect: ev('runtime.onConnect'),
     onStartup: ev('runtime.onStartup'),
-    onInstalled: ev('runtime.onInstalled')
+    onInstalled: ev('runtime.onInstalled'),
+    // 下面这些在 Firefox 里一直存在；拓展常在后台页顶层直接 addListener / 调用
+    onSuspend: inertEvent('runtime.onSuspend', true),
+    onSuspendCanceled: inertEvent('runtime.onSuspendCanceled', true),
+    onUpdateAvailable: inertEvent('runtime.onUpdateAvailable', true),
+    onBrowserUpdateAvailable: inertEvent('runtime.onBrowserUpdateAvailable', true),
+    onMessageExternal: inertEvent('runtime.onMessageExternal', true),
+    onConnectExternal: inertEvent('runtime.onConnectExternal', true),
+    setUninstallURL: promised(function () { return P.resolve(); }),
+    requestUpdateCheck: unsupported('runtime.requestUpdateCheck'),
+    reload: unsupported('runtime.reload'),
+    // 只有后台页自己能拿到自己的 window；别的页面在另一个 WebView 里，跨 WebView 拿不到
+    getBackgroundPage: promised(function () {
+      return CFG.background ? P.resolve(win) : unsupported('runtime.getBackgroundPage')();
+    })
   };
   var storage = {
     local: storageArea('local'), sync: storageArea('sync'), session: storageArea('session'),
+    // 没有企业策略：与 Firefox「没有 managed schema」时一致，读取失败而不是命名空间不存在
+    managed: {
+      get: promised(function () { return P.reject(new E('Managed storage manifest not found')); }),
+      getBytesInUse: promised(function () { return P.reject(new E('Managed storage manifest not found')); }),
+      onChanged: inertEvent('storage.managed.onChanged', true)
+    },
     onChanged: ev('storage.onChanged')
   };
   // i18n：getMessage 是同步的，所以消息表由原生按设备语言合并好（default_locale 兜底、键名已转小写）放进 CFG.i18n，这里只查表。
@@ -328,12 +398,20 @@ function (CFG, ENTRIES) {
       return expandMessage(String(m.m), subs, m.p);
     },
     getUILanguage: function () { return UI_LOCALE.replace(/_/g, '-'); },
+    detectLanguage: unsupported('i18n.detectLanguage'),
     getAcceptLanguages: promised(function () {
       var l = win.navigator && win.navigator.languages;
       return P.resolve(l && l.length ? slice.call(l) : [UI_LOCALE.replace(/_/g, '-')]);
     })
   };
-  var ext = { getURL: getURL };
+  var ext = {
+    getURL: getURL,
+    inIncognitoContext: false,
+    getBackgroundPage: function () { return CFG.background ? win : null; },
+    getViews: function (q) { return (CFG.background && (!q || !q.type || q.type === 'background')) ? [win] : []; },
+    isAllowedIncognitoAccess: promised(function () { return P.resolve(false); }),
+    isAllowedFileSchemeAccess: promised(function () { return P.resolve(false); })
+  };
 
   // alarms：只在拓展自己的页面里提供，且 manifest 要声明 alarms 权限（原生侧还会再校验一次）
   function declares(perm) {
@@ -390,11 +468,25 @@ function (CFG, ENTRIES) {
       sendMessage: promised(function (tabId, message, options) {
         return rpc('tabs.sendMessage', [tabId, message === undefined ? null : message, nul(options)]);
       }),
+      // MV2 注入接口：WebView 上注入的代码拿不到 browser / chrome，不能照 Firefox 语义工作，明确拒绝
+      executeScript: unsupported('tabs.executeScript'),
+      insertCSS: unsupported('tabs.insertCSS'),
+      removeCSS: unsupported('tabs.removeCSS'),
+      detectLanguage: unsupported('tabs.detectLanguage'),
+      captureVisibleTab: unsupported('tabs.captureVisibleTab'),
+      getZoom: unsupported('tabs.getZoom'),
+      setZoom: unsupported('tabs.setZoom'),
       onCreated: ev('tabs.onCreated'),
       onUpdated: ev('tabs.onUpdated'),
       onRemoved: ev('tabs.onRemoved'),
       onActivated: ev('tabs.onActivated'),
-      onMoved: ev('tabs.onMoved')
+      onMoved: ev('tabs.onMoved'),
+      // 单窗口模型下这几个事件不会发生，不算「没实现」，不警告
+      onReplaced: inertEvent('tabs.onReplaced', true),
+      onAttached: inertEvent('tabs.onAttached', true),
+      onDetached: inertEvent('tabs.onDetached', true),
+      onHighlighted: inertEvent('tabs.onHighlighted', true),
+      onZoomChange: inertEvent('tabs.onZoomChange', true)
     };
   }
 
@@ -446,13 +538,20 @@ function (CFG, ENTRIES) {
 
   // action / browserAction share one native implementation but remain separate API entry points.
   function makeAction(prefix) {
+    var noop = promised(function () { return P.resolve(); });
     return {
       setBadgeText: promised(function (d) { return rpc(prefix + '.setBadgeText', [d || {}]); }),
       setBadgeBackgroundColor: promised(function (d) { return rpc(prefix + '.setBadgeBackgroundColor', [d || {}]); }),
       setTitle: promised(function (d) { return rpc(prefix + '.setTitle', [d || {}]); }),
       setPopup: promised(function (d) { return rpc(prefix + '.setPopup', [d || {}]); }),
       getTitle: promised(function (d) { return rpc(prefix + '.getTitle', [d || {}]); }),
-      getBadgeText: promised(function (d) { return rpc(prefix + '.getBadgeText', [d || {}]); })
+      getBadgeText: promised(function (d) { return rpc(prefix + '.getBadgeText', [d || {}]); }),
+      // uBO 等会在每次标签变化时 setIcon；Mafari 的拓展菜单不画动态图标，纯外观调用，接受并忽略（不是能力缺失）
+      setIcon: noop, setBadgeTextColor: noop, enable: noop, disable: noop,
+      isEnabled: promised(function () { return P.resolve(true); }),
+      openPopup: unsupported(prefix + '.openPopup'),
+      // 工具栏点击事件：没有工具栏按钮，popup 由「拓展」菜单打开
+      onClicked: inertEvent(prefix + '.onClicked')
     };
   }
   var action = CFG.page ? makeAction('action') : null;
@@ -464,15 +563,16 @@ function (CFG, ENTRIES) {
     contextMenus = {
       create: function (properties, callback) {
         var p = properties || {}, id = p.id === undefined ? 'mafari-menu-' + (menuSequence++) : String(p.id);
-        var item = {}; OK(p).forEach(function (k) { item[k] = p[k]; }); item.id = id;
+        var item = {}; OK(p).forEach(function (k) { if (k !== 'onclick') item[k] = p[k]; }); item.id = id;
+        if (typeof p.onclick === 'function') menuHandlers[id] = p.onclick;
         rpc('contextMenus.create', [item]).then(function () { if (typeof callback === 'function') callback(); }, function (e) {
           if (typeof callback === 'function') { lastError.v = { message: e && e.message }; try { callback(); } finally { lastError.v = undefined; } }
         });
         return id;
       },
       update: promised(function (id, properties) { return rpc('contextMenus.update', [id, properties || {}]); }),
-      remove: promised(function (id) { return rpc('contextMenus.remove', [id]); }),
-      removeAll: promised(function () { return rpc('contextMenus.removeAll', []); }),
+      remove: promised(function (id) { delete menuHandlers[id]; return rpc('contextMenus.remove', [id]); }),
+      removeAll: promised(function () { menuHandlers = {}; return rpc('contextMenus.removeAll', []); }),
       onClicked: ev('contextMenus.onClicked')
     };
   }
@@ -505,7 +605,18 @@ function (CFG, ENTRIES) {
     webRequest = {
       onBeforeRequest: makeWebRequestEvent('onBeforeRequest'),
       onCompleted: makeWebRequestEvent('onCompleted'),
-      onErrorOccurred: makeWebRequestEvent('onErrorOccurred')
+      onErrorOccurred: makeWebRequestEvent('onErrorOccurred'),
+      // 请求头 / 响应头 / 重定向 / 认证阶段 WebView 看不到（shouldInterceptRequest 只在发请求前给一次）：
+      // 事件对象必须存在，否则 uBO / 篡改猴 / 沉浸式翻译的后台页在 `webRequest.onHeadersReceived.addListener` 这一行就抛 TypeError，
+      // 后台页从此不响应任何消息。事件本身不会触发。
+      onBeforeSendHeaders: inertEvent('webRequest.onBeforeSendHeaders'),
+      onSendHeaders: inertEvent('webRequest.onSendHeaders'),
+      onHeadersReceived: inertEvent('webRequest.onHeadersReceived'),
+      onAuthRequired: inertEvent('webRequest.onAuthRequired'),
+      onResponseStarted: inertEvent('webRequest.onResponseStarted'),
+      onBeforeRedirect: inertEvent('webRequest.onBeforeRedirect'),
+      handlerBehaviorChanged: promised(function () { return P.resolve(); }),
+      MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES: 20
     };
   }
 
@@ -519,7 +630,11 @@ function (CFG, ENTRIES) {
       onCompleted: ev('webNavigation.onCompleted'),
       onErrorOccurred: ev('webNavigation.onErrorOccurred'),
       onHistoryStateUpdated: ev('webNavigation.onHistoryStateUpdated'),
-      onReferenceFragmentUpdated: ev('webNavigation.onReferenceFragmentUpdated')
+      onReferenceFragmentUpdated: ev('webNavigation.onReferenceFragmentUpdated'),
+      // uBO 等的后台页在顶层直接 addListener（弹窗拦截 / 标签替换）；宿主不产生这几个事件
+      onCreatedNavigationTarget: inertEvent('webNavigation.onCreatedNavigationTarget'),
+      onDOMContentLoaded: inertEvent('webNavigation.onDOMContentLoaded'),
+      onTabReplaced: inertEvent('webNavigation.onTabReplaced', true)
     };
   }
 
@@ -535,7 +650,9 @@ function (CFG, ENTRIES) {
       clear: promised(function (notificationId) { return rpc('notifications.clear', [String(notificationId)]); }),
       getAll: promised(function () { return rpc('notifications.getAll', []); }),
       onClicked: ev('notifications.onClicked'),
-      onClosed: ev('notifications.onClosed')
+      onClosed: ev('notifications.onClosed'),
+      onButtonClicked: inertEvent('notifications.onButtonClicked'),
+      onShown: inertEvent('notifications.onShown', true)
     };
   }
 
@@ -571,7 +688,13 @@ function (CFG, ENTRIES) {
       cancel: promised(function (id) { return rpc('downloads.cancel', [id]); }),
       erase: promised(function (query) { return rpc('downloads.erase', [query || {}]); }),
       onCreated: ev('downloads.onCreated'),
-      onErased: ev('downloads.onErased')
+      onErased: ev('downloads.onErased'),
+      // 进度 / 状态变化宿主不推送（TM 等启动时就注册）
+      onChanged: inertEvent('downloads.onChanged'),
+      open: unsupported('downloads.open'), show: unsupported('downloads.show'),
+      showDefaultFolder: promised(function () { return P.resolve(); }),
+      removeFile: unsupported('downloads.removeFile'), acceptDanger: unsupported('downloads.acceptDanger'),
+      setShelfEnabled: promised(function () { return P.resolve(); })
     };
   }
 
@@ -591,7 +714,9 @@ function (CFG, ENTRIES) {
     cookies = {
       get: promised(function (details) { return rpc('cookies.get', [details || {}]); }),
       set: promised(function (details) { return rpc('cookies.set', [details || {}]); }),
-      remove: promised(function (details) { return rpc('cookies.remove', [details || {}]); })
+      remove: promised(function (details) { return rpc('cookies.remove', [details || {}]); }),
+      // WebView 只有按 URL 的 CookieManager：没有全局枚举（getAll 故意不提供，让拓展特性检测后降级），也没有变更事件
+      onChanged: inertEvent('cookies.onChanged')
     };
   }
 
@@ -603,7 +728,53 @@ function (CFG, ENTRIES) {
     if (declares('clipboardWrite')) clipboard.writeText = promised(function (text) { return rpc('clipboard.writeText', [String(text == null ? '' : text)]); });
   }
 
+  // windows：Firefox 永远有这个命名空间（不需要权限），TM 等会直接调 windows.getCurrent。
+  // Mafari 是单窗口模型（与 tabs 的 windowId 一致），所以返回唯一那个窗口是真实情况，不是伪造。
+  var windows = null;
+  if (CFG.page) {
+    var WID = 1;
+    var mkWin = function (info) {
+      var w = { id: WID, focused: true, incognito: false, type: 'normal', state: 'normal', alwaysOnTop: false };
+      if (info && info.populate && tabs) return tabs.query({}).then(function (t) { w.tabs = t; return w; });
+      return P.resolve(w);
+    };
+    var checkWin = function (id) {
+      return (id === WID || id === -2 || id === undefined || id === null) ? null : new E('No window with id: ' + id + '.');
+    };
+    windows = {
+      WINDOW_ID_NONE: -1, WINDOW_ID_CURRENT: -2,
+      get: promised(function (id, info) { var e = checkWin(id); return e ? P.reject(e) : mkWin(info); }),
+      getCurrent: promised(function (info) { return mkWin(info); }),
+      getLastFocused: promised(function (info) { return mkWin(info); }),
+      getAll: promised(function (info) { return mkWin(info).then(function (w) { return [w]; }); }),
+      // focused / state 等无法改变；单窗口里「聚焦」本来就成立
+      update: promised(function (id) { var e = checkWin(id); return e ? P.reject(e) : mkWin(); }),
+      create: unsupported('windows.create'),
+      remove: unsupported('windows.remove'),
+      onCreated: inertEvent('windows.onCreated', true),
+      onRemoved: inertEvent('windows.onRemoved', true),
+      onFocusChanged: inertEvent('windows.onFocusChanged', true)
+    };
+  }
+
+  var idle = null;
+  if (CFG.page && declares('idle')) {
+    idle = {
+      queryState: unsupported('idle.queryState'),
+      setDetectionInterval: promised(function () { return P.resolve(); }),
+      onStateChanged: inertEvent('idle.onStateChanged')
+    };
+  }
+  if (contextMenus) {
+    contextMenus.onShown = inertEvent('menus.onShown', true);
+    contextMenus.onHidden = inertEvent('menus.onHidden', true);
+    contextMenus.refresh = promised(function () { return P.resolve(); });
+  }
+
+  // 内容脚本（非 page）里 browser 只有 runtime / storage / i18n / extension 这几个小命名空间，同样包一层
   var browser = { runtime: runtime, storage: storage, i18n: i18n, extension: ext, permissions: permissions };
+  if (windows) browser.windows = windows;
+  if (idle) browser.idle = idle;
   if (bookmarks) browser.bookmarks = bookmarks;
   if (downloads) browser.downloads = downloads;
   if (cookies) browser.cookies = cookies;
@@ -624,13 +795,15 @@ function (CFG, ENTRIES) {
   var chrome = {
     runtime: chromeRuntime,
     storage: {
-      local: cbObj(storage.local), sync: cbObj(storage.sync), session: cbObj(storage.session),
+      local: cbObj(storage.local), sync: cbObj(storage.sync), session: cbObj(storage.session), managed: cbObj(storage.managed),
       onChanged: storage.onChanged
     },
     i18n: cbObj(i18n),
     extension: ext,
     permissions: cbObj(permissions)
   };
+  if (windows) chrome.windows = cbObj(windows);
+  if (idle) chrome.idle = cbObj(idle);
   if (bookmarks) chrome.bookmarks = cbObj(bookmarks);
   if (downloads) chrome.downloads = cbObj(downloads);
   if (cookies) chrome.cookies = cbObj(cookies);
@@ -645,6 +818,15 @@ function (CFG, ENTRIES) {
   if (action) chrome.action = cbObj(action);
   if (browserAction) chrome.browserAction = cbObj(browserAction);
   if (contextMenus) { chrome.contextMenus = cbObj(contextMenus); chrome.contextMenus.create = contextMenus.create; chrome.menus = chrome.contextMenus; }
+
+  // 给每个命名空间套上「不存在的 onXxx 事件 → 惰性事件」兜底（storage.local 等子对象的 onChanged 本来就有，不用管）
+  [browser, chrome].forEach(function (root) {
+    OK(root).forEach(function (ns) { if (root[ns] && typeof root[ns] === 'object') root[ns] = withInertEvents(root[ns], ns); });
+  });
+  // 后台页起来后留一行启动摘要：诊断日志里看到它，说明新垫片已加载、后台页脚本开始执行；之后没有 Uncaught 错误才说明启动成功
+  if (CFG.background) {
+    try { win.console.info('[mafari] shim ready: ' + OK(browser).join(',')); } catch (e) { }
+  }
 
   // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上。
   // 所有上下文都握手：原生由此登记当前标签里的 content script，供 tabs.sendMessage 定向投递。

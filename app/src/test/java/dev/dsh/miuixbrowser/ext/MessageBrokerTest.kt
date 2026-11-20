@@ -60,6 +60,75 @@ class MessageBrokerTest {
         assertEquals("pong", r.await())
     }
 
+    // 回归：sender.url 缺失 / 只有 origin（少一个斜杠）时，uBO 的 `port.sender.url.startsWith(getURL(''))` 判定失败，
+    // popup 的所有请求被当作无特权而静默忽略；篡改猴 / 沉浸式翻译读 sender.url / sender.tab.url 时也会抛 TypeError。
+    @Test fun senderCarriesFullUrlAndTabDetails() = runBlocking {
+        val b = MessageBroker(timeoutMs = 5000, newCid = { "c1" })
+        val bg = Ep("bg")
+        b.register(bg)
+        val cs = Sender(SenderKind.CONTENT_SCRIPT, "https://a.com", true, 7, null, "https://a.com/p?q=1")
+        val r = async { b.sendMessage(ctx(cs), null, "x") }
+        yield()
+        val sender = bg.got[0].third
+        assertEquals("https://a.com/p?q=1", sender.getString("url"))
+        assertEquals("https://a.com/p?q=1", sender.getJSONObject("tab").getString("url"))
+        assertEquals(TabBridge.WINDOW_ID, sender.getJSONObject("tab").getInt("windowId"))
+        b.reply(TestExt.ID, "c1", "ok", false)
+        r.await()
+
+        // 子框架：没有可信的完整网址，退化为 origin/，且不带 tab.url
+        val b2 = MessageBroker(timeoutMs = 5000, newCid = { "c2" })
+        val bg2 = Ep("bg")
+        b2.register(bg2)
+        val frame = Sender(SenderKind.CONTENT_SCRIPT, "https://a.com", false, 7)
+        val r2 = async { b2.sendMessage(ctx(frame), null, "x") }
+        yield()
+        val s2 = bg2.got[0].third
+        assertEquals("https://a.com/", s2.getString("url"))
+        assertFalse(s2.getJSONObject("tab").has("url"))
+        b2.reply(TestExt.ID, "c2", "ok", false)
+        r2.await()
+    }
+
+    @Test fun extensionPageSenderUrlStartsWithGetUrlRoot() = runBlocking {
+        val b = MessageBroker(timeoutMs = 5000, newCid = { "c1" })
+        val bg = Ep("bg")
+        b.register(bg)
+        val popup = Sender(SenderKind.EXTENSION_PAGE, ExtensionOrigins.originFor(TestExt.ID), true, null, "popup")
+        val r = async { b.sendMessage(ctx(popup), null, "x") }
+        yield()
+        val url = bg.got[0].third.getString("url")
+        assertTrue(url.startsWith(ExtensionOrigins.urlFor(TestExt.ID, "")))
+        b.reply(TestExt.ID, "c1", "ok", false)
+        r.await()
+    }
+
+    // 后台页正在启动（已 expectBackground、还没握手）：content script 的第一条消息要等后台页，而不是立刻 NO_RECEIVER
+    @Test fun sendMessageWaitsForBackgroundThatIsStillStarting() = runBlocking {
+        val b = MessageBroker(timeoutMs = 5000, newCid = { "c1" }, backgroundGraceMs = 2000)
+        b.expectBackground(TestExt.ID)
+        val r = async { b.sendMessage(ctx(csSender()), null, "early") }
+        kotlinx.coroutines.delay(150)
+        val bg = Ep("bg")
+        b.register(bg)
+        b.backgroundReady(TestExt.ID)
+        kotlinx.coroutines.delay(150)
+        assertEquals(1, bg.got.size)
+        b.reply(TestExt.ID, "c1", "late-but-ok", false)
+        assertEquals("late-but-ok", r.await())
+    }
+
+    @Test fun sendMessageDoesNotWaitWhenNoBackgroundIsExpectedOrGraceExpired() = runBlocking {
+        val none = MessageBroker(timeoutMs = 5000)
+        assertEquals("NO_RECEIVER", code { runBlocking { none.sendMessage(ctx(csSender()), null, "x") } })
+
+        var now = 1_000L
+        val expired = MessageBroker(timeoutMs = 5000, backgroundGraceMs = 100, clock = { now })
+        expired.expectBackground(TestExt.ID)
+        now += 101
+        assertEquals("NO_RECEIVER", code { runBlocking { expired.sendMessage(ctx(csSender()), null, "x") } })
+    }
+
     @Test fun contentScriptsAreNotTargetsAndSenderPageIsExcluded() = runBlocking {
         val b = MessageBroker(timeoutMs = 200)
         val cs = Ep("cs", kind = SenderKind.CONTENT_SCRIPT)

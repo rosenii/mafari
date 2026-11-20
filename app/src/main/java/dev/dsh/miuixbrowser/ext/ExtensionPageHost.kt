@@ -123,7 +123,7 @@ class ExtensionPageHost(
     fun createPage(ext: InstalledExtension, pageKind: PageKind, path: String): ExtensionPage? {
         if (!isSupported()) return null
         val id = ext.spec.id
-        val plan = ExtensionInjection.buildPage(ext, shim())
+        val plan = ExtensionInjection.buildPage(ext, shim(), background = pageKind == PageKind.BACKGROUND)
         plan.warnings.forEach { warning -> log("ext $id injection warning: $warning") }
         val webView = WebView(appContext)
         val page = ExtensionPage(UUID.randomUUID().toString(), id, pageKind, webView)
@@ -261,6 +261,7 @@ class ExtensionPageHost(
         val entry = ExtensionPages.backgroundEntry(ext) ?: return null
         val page = createPage(ext, PageKind.BACKGROUND, entry.path) ?: return null
         backgrounds[id] = page
+        broker.expectBackground(id)
         // 未挂窗口的 WebView 默认可能被暂停：显式恢复。是否仍被节流需要真机验证
         page.webView.onResume()
         page.webView.resumeTimers()
@@ -379,6 +380,7 @@ class ExtensionPageHost(
                 log("ext ${page.extId} ${page.pageKind.name.lowercase()} bridge-ready origin=$origin")
                 page.registered = true
                 broker.register(page)
+                if (page.pageKind == PageKind.BACKGROUND) broker.backgroundReady(page.extId)
             }
             maybeNotifyReady(page)
         }
@@ -393,7 +395,9 @@ class ExtensionPageHost(
             post(reply, ApiProtocol.error(req.id, ErrorCodes.BAD_REQUEST, "extId 与连接不符"))
             return
         }
-        val sender = Sender(SenderKind.EXTENSION_PAGE, origin, isMainFrame, null, page.contextId)
+        // 回调在主线程：主框架直接取 WebView 当前网址（popup / options / 后台页都是 origin 下的真实路径）；子框架只能给 origin/
+        val url = (if (isMainFrame) page.webView.url?.takeIf { it.startsWith("$origin/") } else null) ?: (origin.trimEnd('/') + "/")
+        val sender = Sender(SenderKind.EXTENSION_PAGE, origin, isMainFrame, null, page.contextId, url)
         log("ext ${page.extId} ${page.pageKind.name.lowercase()} api-> ${req.api} id=${req.id}")
         scope.launch {
             val response = runtime.handle(text, sender)

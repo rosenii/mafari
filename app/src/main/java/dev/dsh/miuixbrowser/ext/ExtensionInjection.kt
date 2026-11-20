@@ -106,7 +106,7 @@ object ExtensionInjection {
      * 拓展自己的页面（后台页 / popup / options）的注入计划：没有 content script，只有 browser / chrome 全局与握手。
      * origin 规则就是这个拓展的虚拟 origin，所以别的页面里不会出现桥。
      */
-    fun buildPage(ext: InstalledExtension, shim: String): InjectionPlan {
+    fun buildPage(ext: InstalledExtension, shim: String, background: Boolean = false): InjectionPlan {
         val id = ext.spec.id
         val bridge = bridgeNameFor(id)
         val origin = ExtensionOrigins.originFor(id)
@@ -124,6 +124,7 @@ object ExtensionInjection {
             .put("origin", origin)
             .put("manifest", loc.localizedManifest())
             .put("page", true)
+        if (background) cfg.put("background", true) // extension.getBackgroundPage() 只有后台页自己能返回 window
         loc.injectable(warnings)?.let { cfg.put("i18n", it) }
         return InjectionPlan(id, bridge, setOf(origin), assemble(shim, cfg, "[]"), warnings)
     }
