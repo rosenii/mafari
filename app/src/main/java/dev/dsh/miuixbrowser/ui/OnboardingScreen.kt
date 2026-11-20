@@ -690,8 +690,8 @@ private fun HomeStep(settings: AppSettings, bd: Backdrop?) {
             backdrop = bd,
             title = tr("导航栏位置"),
             summary = tr("顶部 / 底部：随页面滚动自动隐藏；固定：始终显示"),
-            items = listOf(tr("顶部"), tr("底部"), tr("始终最小化"), tr("固定在底部"), tr("固定在顶部")),
-            selectedIndex = settings.barPosition.coerceIn(0, 4),
+            items = listOf(tr("顶部"), tr("底部"), tr("始终最小化"), tr("固定在底部"), tr("固定在顶部"), tr("Safari 样式")),
+            selectedIndex = settings.barPosition.coerceIn(0, 5),
             onSelectedIndexChange = { settings.updateBarPosition(it) },
         )
         AppDropdownPreference(

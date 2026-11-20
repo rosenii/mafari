@@ -295,6 +295,8 @@ internal fun Modifier.flatBarSurface(
     blurEnabled: Boolean = true,
     textureBlurEnabled: Boolean = true,
     liquid: com.kyant.backdrop.Backdrop? = null,
+    /** true：没有取样（如 Gecko 网页态）/ 关闭模糊时的纯色底沿用默认悬浮底栏（[glassBar]）的颜色，而不是更不透明的停靠平铺色 */
+    matchCapsuleTint: Boolean = false,
 ): Modifier {
     val dark = isAppDarkTheme()
     val surfaceColor = MiuixTheme.colorScheme.surface
@@ -319,7 +321,14 @@ internal fun Modifier.flatBarSurface(
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
     // 平铺的栏不再是「浮在内容上的小件」，而是页面的一部分：底板比胶囊更不透明，网页文字不会透出来干扰
     val tint = when {
-        !blurEnabled -> Brush.verticalGradient(listOf(surfaceColor.copy(alpha = 0.98f), surfaceColor.copy(alpha = 0.98f)))
+        !blurEnabled -> Brush.verticalGradient(
+            listOf(
+                surfaceColor.copy(alpha = if (matchCapsuleTint) 0.97f else 0.98f),
+                surfaceColor.copy(alpha = if (matchCapsuleTint) 0.97f else 0.98f),
+            ),
+        )
+        matchCapsuleTint && dark -> Brush.verticalGradient(listOf(Color(0xF02B2B31), Color(0xE81A1A20)))
+        matchCapsuleTint -> Brush.verticalGradient(listOf(Color(0xF0FFFFFF), Color(0xE8E7EAF0)))
         dark -> Brush.verticalGradient(listOf(Color(0xF52B2B31), Color(0xF51A1A20)))
         else -> Brush.verticalGradient(listOf(Color(0xF5FFFFFF), Color(0xF5EEF0F5)))
     }

@@ -7,6 +7,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_TOP
+import dev.dsh.miuixbrowser.data.BAR_POS_SAFARI_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_TOP
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 
@@ -69,6 +70,12 @@ internal interface BarStyle {
 
     val metrics: BarMetrics
 
+    /**
+     * true = 三段式（Safari）：后退 / 地址栏 / 更多各自一块玻璃，由 [SafariSplitBar] 画内容，
+     * 不用 [BottomBar]（没有前进 / 主页 / 标签数按钮）。
+     */
+    val splitPills: Boolean get() = false
+
     /** 栏与屏幕左右边缘的间距（停靠样式为 0） */
     val horizontalMargin: Dp
 
@@ -110,11 +117,15 @@ internal object BarStyles {
     /** 平铺停靠：贴着屏幕边缘的整宽栏，更矮，网页从栏的另一侧展开 */
     val DockedFlat: BarStyle = DockedFlatStyle
 
+    /** Safari 三段式：左后退 / 中地址栏 / 右更多，三块分开的玻璃件，固定在底部（网页在栏上面结束，滚到底时深入栏下） */
+    val SafariSplit: BarStyle = SafariSplitStyle
+
     /** 把设置里的「导航栏位置」(BAR_POS_*) 翻译成「边 + 样式」。位置与样式的对应关系只在这里决定。 */
     fun resolve(position: Int): BarLayout = when (position) {
         BAR_POS_TOP -> BarLayout(BarEdge.Top, FloatingCapsule)
         BAR_POS_FIXED_TOP -> BarLayout(BarEdge.Top, DockedFlat)
         BAR_POS_FIXED_BOTTOM -> BarLayout(BarEdge.Bottom, DockedFlat)
+        BAR_POS_SAFARI_BOTTOM -> BarLayout(BarEdge.Bottom, SafariSplit)
         // BAR_POS_BOTTOM / BAR_POS_MINIMIZED（始终最小化的圆钮在底部）
         else -> BarLayout(BarEdge.Bottom, FloatingCapsule)
     }
@@ -191,5 +202,48 @@ private object DockedFlatStyle : BarStyle {
         blurEnabled = blurEnabled,
         textureBlurEnabled = textureBlurEnabled,
         liquid = liquid,
+    )
+}
+
+/**
+ * Safari 三段式：停靠在底部（网页让出栏的高度）。底板用高级材质（[flatBarSurface]），后退 / 地址栏 / 更多三块玻璃盖在上面；
+ * 栏的左右留白、块与块的间距都由 [SafariSplitBar] 处理。向下滑动页面时底板淡出，三段式缩成只剩标题的小胶囊，网页铺满屏幕。
+ */
+private object SafariSplitStyle : BarStyle {
+    override val id = "safari_split"
+    override val docked = true
+    override val splitPills = true
+    override val metrics = BarMetrics(
+        // 玻璃件 52dp，上下各留 6dp
+        height = 64.dp,
+        corner = 26.dp,
+        // 后退 / 更多 圆钮直径
+        buttonSize = 52.dp,
+        // 栏左右与屏幕边缘的间距
+        contentPadding = 12.dp,
+        addressHeight = 52.dp,
+        addressCorner = 26.dp,
+    )
+    override val horizontalMargin = 0.dp
+    override fun edgeGap(edge: BarEdge): Dp = 0.dp
+
+    override fun homePadding(edge: BarEdge): BarHomePadding = BarHomePadding(top = 44.dp, bottom = 24.dp)
+
+    @Composable
+    override fun surface(
+        modifier: Modifier,
+        edge: BarEdge,
+        backdrop: LayerBackdrop?,
+        blurEnabled: Boolean,
+        textureBlurEnabled: Boolean,
+        liquid: com.kyant.backdrop.Backdrop?,
+    ): Modifier = modifier.flatBarSurface(
+        edge = edge,
+        backdrop = backdrop,
+        blurEnabled = blurEnabled,
+        textureBlurEnabled = textureBlurEnabled,
+        liquid = liquid,
+        // 高级材质（柔光 / 磨砂 / 液态）可用时照常取样；Gecko 网页态等没有取样时，底色和默认底栏一致
+        matchCapsuleTint = true,
     )
 }

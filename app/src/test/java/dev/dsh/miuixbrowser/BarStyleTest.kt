@@ -5,6 +5,7 @@ import dev.dsh.miuixbrowser.data.BAR_POS_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_TOP
 import dev.dsh.miuixbrowser.data.BAR_POS_MINIMIZED
+import dev.dsh.miuixbrowser.data.BAR_POS_SAFARI_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_TOP
 import dev.dsh.miuixbrowser.ui.BarEdge
 import dev.dsh.miuixbrowser.ui.BarStyles
@@ -42,6 +43,18 @@ class BarStyleTest {
         assertEquals(BarEdge.Bottom, bottom.edge)
         assertTrue(bottom.reservesBottom)
         assertFalse(bottom.reservesTop)
+    }
+
+    @Test fun safariPositionIsDockedSplitPillsAtBottom() {
+        val l = BarStyles.resolve(BAR_POS_SAFARI_BOTTOM)
+        assertEquals(BarEdge.Bottom, l.edge)
+        assertEquals("safari_split", l.style.id)
+        assertTrue(l.style.splitPills)
+        assertTrue(l.reservesBottom)
+        assertFalse(l.reservesTop)
+        // 其他样式都不是三段式
+        assertFalse(BarStyles.FloatingCapsule.splitPills)
+        assertFalse(BarStyles.DockedFlat.splitPills)
     }
 
     @Test fun floatingBarNeverReservesPageSpace() {

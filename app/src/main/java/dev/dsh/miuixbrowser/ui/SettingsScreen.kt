@@ -332,9 +332,9 @@ fun SettingsScreen(
                         backdrop = if (glass) backdrop else null,
                         title = tr("导航栏位置"),
                         // 顶部 / 底部：随页面滚动自动隐藏；固定在底部 / 顶部：始终显示，不再自动隐藏
-                        items = listOf(tr("顶部"), tr("底部"), tr("始终最小化"), tr("固定在底部"), tr("固定在顶部")),
-                        // 选项顺序与 BAR_POS_* 数值一致（0..4）
-                        selectedIndex = settings.barPosition.coerceIn(0, 4),
+                        items = listOf(tr("顶部"), tr("底部"), tr("始终最小化"), tr("固定在底部"), tr("固定在顶部"), tr("Safari 样式")),
+                        // 选项顺序与 BAR_POS_* 数值一致（0..5）
+                        selectedIndex = settings.barPosition.coerceIn(0, 5),
                         onSelectedIndexChange = { settings.updateBarPosition(it) },
                     )
                     SettingsRow(

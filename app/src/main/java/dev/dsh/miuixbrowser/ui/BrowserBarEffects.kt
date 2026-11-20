@@ -16,6 +16,8 @@ internal fun BrowserUiState.BarAutoHideEffects(
     dockedEdge: BarEdge?,
     /** 停靠栏占掉网页区域的高度（像素；底栏含导航栏）。读取函数：取值依赖当前窗口 insets */
     dockedBarPx: () -> Int,
+    /** Safari 样式：滑动页面时栏缩成小胶囊（[barCompact]），而不是隐藏；此时页面深入栏下（[barOverlap] 跟随 [barCompact]） */
+    compactOnScroll: Boolean = false,
 ) {
     // Gecko 视频全屏：应用自己的顶栏 / 底栏一并收起，退出全屏后恢复
     LaunchedEffect(tab.id, tab.geckoFullscreen) {
@@ -42,7 +44,13 @@ internal fun BrowserUiState.BarAutoHideEffects(
         }
     }
 
-    LaunchedEffect(tab.id, barFixed, dockedEdge) {
+    // 离开 Safari 样式：缩小状态复位
+    LaunchedEffect(compactOnScroll) {
+        if (!compactOnScroll) barCompact = false
+    }
+
+    LaunchedEffect(tab.id, barFixed, dockedEdge, compactOnScroll) {
+        if (compactOnScroll) barCompact = false // 换标签：先展开，再按新标签的滚动重新判定
         var last = 0
         var lastShow = 0
         var scrollDownAccum = 0f
@@ -51,6 +59,53 @@ internal fun BrowserUiState.BarAutoHideEffects(
             runCatching {
                 if (tab.geckoFullscreen) {
                     barHidden = true
+                    return@runCatching
+                }
+                // Safari 样式：栏固定显示，但随滚动方向在「完整三段式」和「标题小胶囊」之间切换；
+                // 缩小时页面深入栏下（网页铺满屏幕），展开时让出栏的位置。阈值与自动隐藏一致
+                if (barFixed && compactOnScroll) {
+                    barHidden = false
+                    if (tab.url.isEmpty()) {
+                        barCompact = false
+                        barOverlap = false
+                        last = 0
+                        lastShow = 0
+                        scrollDownAccum = 0f
+                        scrollUpAccum = 0f
+                        return@runCatching
+                    }
+                    val offset = tab.scrollOffsetY.coerceAtLeast(0)
+                    val dy = offset - last
+                    when {
+                        offset <= 12 -> {
+                            barCompact = false
+                            lastShow = offset
+                            scrollDownAccum = 0f
+                            scrollUpAccum = 0f
+                        }
+                        dy > 0 -> {
+                            scrollUpAccum = 0f
+                            scrollDownAccum += dy
+                            if (scrollDownAccum >= 100f && offset - lastShow >= 96f) {
+                                barCompact = true
+                                scrollDownAccum = 0f
+                                scrollUpAccum = 0f
+                            }
+                        }
+                        dy < 0 -> {
+                            scrollDownAccum = 0f
+                            scrollUpAccum += -dy
+                            if (barCompact && scrollUpAccum >= 120f) {
+                                barCompact = false
+                                lastShow = offset
+                                scrollUpAccum = 0f
+                            } else if (!barCompact) {
+                                lastShow = offset
+                            }
+                        }
+                    }
+                    last = offset
+                    barOverlap = barCompact
                     return@runCatching
                 }
                 // 固定模式：不做滚动隐藏；但页面要随滚动位置深入 / 退出栏下（判定见 BarOverlap）。

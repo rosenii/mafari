@@ -194,6 +194,13 @@ internal fun BoxScope.BrowserFloatingBar(
             animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
             label = "dynamicBottomBarWidth",
         )
+        // Safari 样式：页面向下滑动后缩成标题小胶囊（输入网址 / 主页不缩）。进度只在绘制阶段读取，不让弹簧逐帧重组
+        val compact = style.splitPills && ui.barCompact && !editing && tab.url.isNotEmpty()
+        val compactProgress = animateFloatAsState(
+            targetValue = if (compact) 1f else 0f,
+            animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
+            label = "safariCompact",
+        )
         var dragDistance by remember(tab.id) { mutableFloatStateOf(0f) }
         var hDragDistance by remember(tab.id) { mutableFloatStateOf(0f) }
 
@@ -341,6 +348,8 @@ internal fun BoxScope.BrowserFloatingBar(
         Box(
             modifier = Modifier
                 .matchParentSize()
+                // 缩小成小胶囊时整条底板淡出（网页铺满屏幕，只剩标题胶囊盖在上面）
+                .graphicsLayer { alpha = if (style.splitPills) 1f - compactProgress.value else 1f }
                 .then(
                     style.surface(
                         modifier = Modifier,
@@ -364,7 +373,76 @@ internal fun BoxScope.BrowserFloatingBar(
                     },
                 ),
         ) {
-        BottomBar(
+        if (style.splitPills) {
+            // Safari 三段式：左后退 / 中地址栏 / 右更多（地址栏：长按新建、左右滑切换标签、上滑开标签列表）
+            SafariSplitBar(
+                metrics = metrics,
+                backdrop = glassBackdrop,
+                liquid = if (settings.liquidGlass) barLiquidBackdrop else null,
+                blurEnabled = settings.blurEnabled,
+                textureBlurEnabled = glassAvailable,
+                address = displayAddress,
+                loading = tab.loading,
+                // 首页（url 为空）后退不可点；阅读模式中「后退」= 退出阅读模式，所以即使没有历史也可点
+                atHome = tab.url.isEmpty(),
+                canGoBack = tab.canGoBack || tab.readerActive,
+                editing = editing,
+                compact = compact,
+                // 点小胶囊：恢复三段式，网页让出栏的位置
+                onExpand = {
+                    ui.barCompact = false
+                    ui.barOverlap = false
+                },
+                onChange = {
+                    address = it
+                    addressDirty = true
+                    editing = true
+                },
+                onGo = {
+                    if (address.isNotBlank()) {
+                        editing = false
+                        focus.clearFocus()
+                        tab.load(address)
+                    }
+                },
+                onFocusLost = { if (editing) editing = false },
+                onAddressTap = {
+                    if (!editing) {
+                        editing = true
+                        address = tab.url
+                    }
+                },
+                readerVisible = readerShown,
+                readerActive = tab.readerActive,
+                onReader = { tab.toggleReader(readerDark) },
+                scriptsRunning = addressScriptCount > 0,
+                onScripts = { quickRunner.run(MenuAction.ScriptMenu) },
+                download = addressDownload,
+                onDownload = {
+                    addressDownload.acknowledge()
+                    pushPage(AppRoute.Downloads)
+                },
+                translateVisible = tab.translate.iconVisible,
+                translateOriginal = tab.translate.showingOriginal,
+                onTranslateToggle = { tab.translate.toggleOriginal() },
+                onBack = { tab.goBack() },
+                onMore = { sheet = Sheet.Menu },
+                onRefresh = { tab.reload() },
+                onNewTab = { state.newTab(incognito = tab.incognito) },
+                onSwitchTab = { dir ->
+                    // 只在同一类标签（普通 / 无痕）里切换，不绕回，也不在两端新建
+                    val same = state.tabs.withIndex().filter { it.value.incognito == tab.incognito }.map { it.index }
+                    val target = same.getOrNull(same.indexOf(state.activeIndex) + dir)
+                    if (target != null) state.select(target)
+                },
+                onOpenTabs = {
+                    tabsPage = if (tab.incognito) 1 else 0
+                    // 打开标签页面板前刷新当前标签的缩略图
+                    tab.captureThumbnailNow()
+                    sheet = Sheet.Tabs
+                },
+            )
+        } else BottomBar(
             drawSurface = false,
             metrics = metrics,
             blurEnabled = settings.blurEnabled,

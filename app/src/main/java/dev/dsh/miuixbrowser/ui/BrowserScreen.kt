@@ -19,6 +19,7 @@ import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_TOP
 import dev.dsh.miuixbrowser.data.BAR_POS_MINIMIZED
+import dev.dsh.miuixbrowser.data.BAR_POS_SAFARI_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_TOP
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.engine.gecko.GeckoDebug
@@ -262,8 +263,9 @@ fun BrowserScreen(
     // 位置选项 → 「边 + 样式」（悬浮胶囊 / 停靠平铺…，见 BarStyle.kt）：下面所有与栏有关的布局都向它查询
     val barLayout = BarStyles.resolve(settings.barPosition)
     val alwaysMin = settings.barPosition == BAR_POS_MINIMIZED
-    // 固定在顶部 / 底部：不随滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边；栏停靠在屏幕边缘，网页从栏的另一侧展开
-    val barFixed = settings.barPosition == BAR_POS_FIXED_TOP || settings.barPosition == BAR_POS_FIXED_BOTTOM
+    // 固定在顶部 / 底部 / Safari 样式：不随滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边；栏停靠在屏幕边缘，网页从栏的另一侧展开
+    val barFixed = settings.barPosition == BAR_POS_FIXED_TOP || settings.barPosition == BAR_POS_FIXED_BOTTOM ||
+        settings.barPosition == BAR_POS_SAFARI_BOTTOM
     var showQuickPicker by ui::showQuickPicker
     var showGroupPicker by ui::showGroupPicker
     // 书签分组弹窗：显示开关与路径 / 锚点分开存，关闭动画期间内容不会突然消失
@@ -480,6 +482,7 @@ fun BrowserScreen(
         barFixed = barFixed,
         dockedEdge = if (barFixed) barLayout.edge else null,
         dockedBarPx = dockedBarPx,
+        compactOnScroll = settings.barPosition == BAR_POS_SAFARI_BOTTOM,
     )
 
     val statusBarHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
