@@ -24,6 +24,10 @@ import dev.dsh.miuixbrowser.sync.fxa.FxaSync
 import dev.dsh.miuixbrowser.sync.fxa.FxaUi
 import dev.dsh.miuixbrowser.util.hostOf
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
+import top.yukonga.miuix.kmp.glass.glassPanel
+import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
+import top.yukonga.miuix.kmp.material.GlassShape
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.glass.Back
@@ -72,6 +76,8 @@ internal fun SyncedTabsBanner(
     onOpen: (SyncedTabItem) -> Unit,
     onOpenSyncCenter: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 标签卡片标题行同款模糊材质的采样源；为 null（关闭模糊 / 无采样）时退回半透明纯色底，和卡片标题行一致 */
+    blurBackdrop: LayerBackdrop? = null,
 ) {
     val shown = tabs.take(SYNCED_TABS_PREVIEW_LIMIT)
     val rest = tabs.size - shown.size
@@ -81,7 +87,21 @@ internal fun SyncedTabsBanner(
         modifier = modifier
             .fillMaxWidth()
             .squircleClip(16.dp)
-            .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+            // 与标签卡片的标题行同一套材质（见 TabCard）：玻璃模糊底，没有采样源时退回半透明纯色
+            .then(
+                if (blurBackdrop != null) {
+                    Modifier.glassPanel(
+                        backdrop = blurBackdrop,
+                        shape = GlassShape(0.dp),
+                        style = GlassLook.style(isAppDarkTheme()),
+                        material = GlassLook.material(isAppDarkTheme()),
+                        stroke = GlassEdgeStrokes.forTheme(isAppDarkTheme()),
+                        shading = GlassLook.shading(),
+                    )
+                } else {
+                    Modifier.background(MiuixTheme.colorScheme.surface.copy(alpha = 0.55f))
+                },
+            )
             .animateContentSize(),
     ) {
         Row(

@@ -215,6 +215,7 @@ internal fun TabsSheetBody(
                         onClose()
                     },
                     onOpenSyncCenter = onOpenSyncCenter,
+                    blurBackdrop = blurBackdrop,
                     modifier = Modifier
                         // 卡片样式的列表左右没有内边距，框自己和头部一样离开屏幕边缘；列表样式列表自己已留白
                         .padding(horizontal = if (cardStyle) top.yukonga.miuix.kmp.layout.BottomSheetDefaults.insideMargin.width else 0.dp)

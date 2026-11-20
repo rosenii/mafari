@@ -227,7 +227,8 @@ private object SafariSplitStyle : BarStyle {
     override val horizontalMargin = 0.dp
     override fun edgeGap(edge: BarEdge): Dp = 0.dp
 
-    override fun homePadding(edge: BarEdge): BarHomePadding = BarHomePadding(top = 44.dp, bottom = 24.dp)
+    // 首页内容一直铺到屏幕底，栏悬浮在它上面：底部要让出 栏高度 + 呼吸空间（导航栏那一段由首页层另外加上）
+    override fun homePadding(edge: BarEdge): BarHomePadding = BarHomePadding(top = 44.dp, bottom = 74.dp)
 
     @Composable
     override fun surface(

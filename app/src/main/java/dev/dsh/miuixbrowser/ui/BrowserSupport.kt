@@ -1,6 +1,7 @@
 package dev.dsh.miuixbrowser.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,7 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,7 @@ import dev.dsh.miuixbrowser.RefreshSpinnerView
 import dev.dsh.miuixbrowser.browser.BrowserTab
 import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.net.HttpFetcher
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /* BrowserScreen 的零散支撑：远程脚本抓取、BrowserChunk、IME insets、下拉刷新、菜单动作转发 */
@@ -53,7 +55,14 @@ internal fun BrowserChunk(content: @Composable () -> Unit) {
 internal fun rememberImeTargetInsets(): WindowInsets = WindowInsets.imeAnimationTarget
 
 @Composable
-internal fun BoxScope.PullSpinnerHost(tab: BrowserTab) {
+internal fun BoxScope.PullSpinnerHost(
+    tab: BrowserTab,
+    /** 玻璃采样源（页面内容采集层）：本控件必须放在采集层之外，否则会采样到自己 */
+    backdrop: LayerBackdrop?,
+    liquid: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    textureBlurEnabled: Boolean,
+) {
     val p = tab.pullProgress
     if (p > 0.05f) {
         // 宿主铺满全屏（盖住状态栏）：从状态栏 / 居中摄像头挖孔的下沿再往下留 18dp，避免与摄像头重叠
@@ -62,6 +71,10 @@ internal fun BoxScope.PullSpinnerHost(tab: BrowserTab) {
         }
         RefreshSpinner(
             progress = p,
+            backdrop = backdrop,
+            liquid = liquid,
+            blurEnabled = blurEnabled,
+            textureBlurEnabled = textureBlurEnabled,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = topInset + 18.dp),
@@ -69,31 +82,48 @@ internal fun BoxScope.PullSpinnerHost(tab: BrowserTab) {
     }
 }
 
-/** 顶部下拉刷新指示器：直接复用轻应用（WebAppActivity）的 RefreshSpinnerView，观感与动效完全一致 */
+/**
+ * 顶部下拉刷新指示器：旋转箭头直接复用轻应用（WebAppActivity）的 RefreshSpinnerView，
+ * 圆形底板改用和导航栏同款的「高级材质」（[glassBar]：柔光 / 磨砂 / 液态玻璃，关闭模糊时退回纯色）。
+ * 底板与箭头分层，避免采样层递归包含自身。
+ */
 @Composable
-internal fun RefreshSpinner(progress: Float, modifier: Modifier = Modifier) {
-    val bg = MiuixTheme.colorScheme.surface.copy(alpha = 0.92f).toArgb()
-    AndroidView(
+internal fun RefreshSpinner(
+    progress: Float,
+    backdrop: LayerBackdrop?,
+    liquid: com.kyant.backdrop.Backdrop?,
+    blurEnabled: Boolean,
+    textureBlurEnabled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(
         modifier = modifier
             .size(34.dp)
-            .shadow(6.dp, CircleShape),
-        factory = { ctx ->
-            RefreshSpinnerView(ctx).apply {
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(bg)
-                }
-            }
-        },
-        update = { v ->
-            (v.background as? android.graphics.drawable.GradientDrawable)?.setColor(bg)
-            v.progress = progress
-            v.alpha = 0.4f + 0.6f * progress
-            val scale = 0.7f + 0.3f * progress
-            v.scaleX = scale
-            v.scaleY = scale
-        },
-    )
+            .graphicsLayer {
+                alpha = 0.4f + 0.6f * progress
+                val scale = 0.7f + 0.3f * progress
+                scaleX = scale
+                scaleY = scale
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .glassBar(
+                    backdrop = backdrop,
+                    corner = 17.dp,
+                    blurEnabled = blurEnabled,
+                    textureBlurEnabled = textureBlurEnabled,
+                    liquid = liquid,
+                ),
+        )
+        AndroidView(
+            modifier = Modifier.matchParentSize(),
+            factory = { ctx -> RefreshSpinnerView(ctx) },
+            update = { v -> v.progress = progress },
+        )
+    }
 }
 
 /** 把「执行菜单功能」转发给稍后才定义的函数（首页快捷菜单要在它声明之前就引用到） */

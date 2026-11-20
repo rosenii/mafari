@@ -68,6 +68,12 @@ internal fun BrowserUiState.BrowserContentLayer(
 ) {
     val homePadding = barLayout.style.homePadding(barLayout.edge)
     val navBars = WindowInsets.navigationBars
+    // 悬浮三段式：首页的区域也铺到屏幕底（导航栏那一段不再被预留），首页自己把导航栏高度补进底部内边距
+    val homeBottomPadding = if (barLayout.style.splitPills && barLayout.reservesBottom) {
+        homePadding.bottom + with(androidx.compose.ui.platform.LocalDensity.current) { navBars.getBottom(this).toDp() }
+    } else {
+        homePadding.bottom
+    }
     val statusBars = WindowInsets.statusBars
     // 加载进度条贴着停靠顶栏的下沿；页面深入栏下时 contentTopPx 归零，进度条不能跟着钻到栏后面去
     val progressTopPx: Density.() -> Int = if (barLayout.reservesTop) {
@@ -175,7 +181,7 @@ internal fun BrowserUiState.BrowserContentLayer(
                     favorites = homeFavEntries.map { it.second },
                     showLogo = settings.homeShowLogo,
                     contentTopPadding = homePadding.top,
-                    contentBottomPadding = homePadding.bottom,
+                    contentBottomPadding = homeBottomPadding,
                     showFavorites = settings.homeShowFavorites,
                     favRows = settings.homeFavRows,
                     favGrid = settings.homeFavGrid,
@@ -261,7 +267,6 @@ internal fun BrowserUiState.BrowserContentLayer(
                 )
             }
         }
-        PullSpinnerHost(tab)
         if (tab.loading) {
             ProgressLine(
                 progress = { tab.progress },

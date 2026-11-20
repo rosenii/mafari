@@ -534,9 +534,9 @@ fun BrowserScreen(
     val dockedBottomBody = if (barLayout.reservesBottom) barLayout.style.metrics.height else 0.dp
     // 底栏停靠且页面已深入栏下：网页区域伸到屏幕底（栏 + 导航栏那一段都交给网页）。
     // WebView 随弹簧逐帧伸缩；Gecko 调整视口代价大（见上面 fixedContentTop 的说明），只在翻转时一次到位。
-    // 悬浮三段式没有整条底板：有页面时网页一直铺到栏后面（首页仍让位）
+    // 悬浮三段式没有整条底板：内容（网页 / 首页）一直铺到屏幕底，栏悬浮在它们上面
     val bottomOverlapTarget = barLayout.reservesBottom &&
-        (ui.barOverlap || (barLayout.style.splitPills && tab.url.isNotEmpty()))
+        (ui.barOverlap || barLayout.style.splitPills)
     val bottomOverlapAnim by animateFloatAsState(
         targetValue = if (bottomOverlapTarget) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
@@ -713,6 +713,16 @@ fun BrowserScreen(
         // ---- 地址栏输入中：底栏以外的区域是「收键盘」热区 ----
         // 透明遮罩盖在网页之上、底栏之下：点击只退出编辑并收起键盘，不会落到网页上
         // （避免误触链接 / 按钮）；同时吞掉拖动，输入时不让网页跟着滚动。
+        // 下拉刷新指示器：放在采集层之外，圆形底板才能用高级材质采样页面内容
+        Box(modifier = Modifier.fillMaxSize()) {
+            PullSpinnerHost(
+                tab = tab,
+                backdrop = glassBackdrop,
+                liquid = if (settings.liquidGlass) barLiquidBackdrop else null,
+                blurEnabled = settings.blurEnabled,
+                textureBlurEnabled = glassAvailable,
+            )
+        }
         BrowserFloatingBar(
             ui = ui,
             settings = settings,
