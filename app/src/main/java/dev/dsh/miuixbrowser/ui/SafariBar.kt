@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
@@ -111,11 +112,16 @@ internal fun SafariSplitBar(
     //   p: 0 = 三段式，1 = 小胶囊。后退 / 更多 两个圆钮宽度收到 0、淡出并缩小，
     //   地址栏同时变矮、两侧留白变大，最后收成居中的标题胶囊；反向则是原路展开。
     // 进度 p 只在布局 / 绘制阶段读取，动画期间不会逐帧重组整个栏。
-    val morph = animateFloatAsState(
+    val morphRaw = animateFloatAsState(
         targetValue = if (compact) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
         label = "safariMorph",
     )
+    // 弹簧会过冲（<0 或 >1）：槽宽 (1 - p) * w 一旦变负，layout() 会抛
+    // "Size(-1 x ..) is out of range" 导致闪退，所以所有读取方统一拿钳制后的进度。
+    val morph = remember {
+        derivedStateOf { morphRaw.value.coerceIn(0f, 1f) }
+    }
     // 地址栏当前的横向位移（像素）：地址栏写，两侧圆钮读（只在绘制阶段读取）
     val pillShift = remember { mutableFloatStateOf(0f) }
     BoxWithConstraints(
@@ -238,7 +244,7 @@ private fun CollapseSlot(
             .layout { measurable, constraints ->
                 val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
                 val gapPx = gap.roundToPx()
-                val w = ((placeable.width + gapPx) * (1f - progress.value)).roundToInt()
+                val w = ((placeable.width + gapPx) * (1f - progress.value.coerceIn(0f, 1f))).roundToInt().coerceAtLeast(0)
                 layout(w, placeable.height) { placeable.placeRelative(if (gapAtStart) gapPx else 0, 0) }
             }
             .graphicsLayer {

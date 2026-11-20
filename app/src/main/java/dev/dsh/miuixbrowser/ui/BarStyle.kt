@@ -219,8 +219,8 @@ private object SafariSplitStyle : BarStyle {
         corner = 22.dp,
         // 后退 / 更多 圆钮直径
         buttonSize = 44.dp,
-        // 栏左右与屏幕边缘的间距
-        contentPadding = 10.dp,
+        // 栏左右与屏幕边缘的间距（调大后两侧圆钮离边缘更远，中间地址栏相应变短）
+        contentPadding = 18.dp,
         addressHeight = 44.dp,
         addressCorner = 22.dp,
     )
