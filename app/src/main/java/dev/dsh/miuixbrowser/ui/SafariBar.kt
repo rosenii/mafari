@@ -41,6 +41,11 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Constraints
@@ -124,25 +129,47 @@ internal fun SafariSplitBar(
     }
     // 地址栏当前的横向位移（像素）：地址栏写，两侧圆钮读（只在绘制阶段读取）
     val pillShift = remember { mutableFloatStateOf(0f) }
+    // 地址栏宽度随内容变化（同默认悬浮底栏），最短 = 「搜索或输入网址」占位文字对应的宽度；
+    // 两侧圆钮紧贴地址栏（间距恒定 SafariGap），整组居中，地址栏变短时圆钮随之向内移动。
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val titleStyle = TextStyle(fontSize = 14.sp)
+    val placeholderText = tr("搜索或输入网址")
+    val placeholderPx = remember(placeholderText) {
+        textMeasurer.measure(AnnotatedString(placeholderText), titleStyle, maxLines = 1).size.width
+    }
+    val titlePx = remember(address, placeholderText) {
+        val t = if (address.isBlank()) placeholderText else address
+        textMeasurer.measure(AnnotatedString(t), titleStyle, maxLines = 1).size.width
+    }
     BoxWithConstraints(
         modifier = Modifier.fillMaxWidth().height(metrics.height),
         contentAlignment = Alignment.Center,
     ) {
-        val compactWidth = if (SafariCompactWidth < maxWidth - metrics.contentPadding * 2) SafariCompactWidth else maxWidth - metrics.contentPadding * 2
+        val rowWidth = maxWidth - metrics.contentPadding * 2
+        // 地址栏内部：左右各 12dp 内边距 + 左槽（翻译 / 下载 / 阅读 / 脚本图标）+ 右槽（刷新 / 加载点）+ 一点余量
+        val pillChrome = 12.dp * 2 + 8.dp
+        val maxPill = if (editing) rowWidth else rowWidth - (metrics.buttonSize + SafariGap) * 2
+        val normalDesired = with(density) { maxOf(placeholderPx, titlePx).toDp() } +
+            AddressReaderWidth + AddressRefreshWidth + pillChrome
+        val normalPick = if (editing || normalDesired >= maxPill) maxPill else normalDesired
+        val normalTarget = if (normalPick > 0.dp) normalPick else 0.dp
+        val normalWidth = animateDpAsState(
+            targetValue = normalTarget,
+            animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+            label = "safariPillWidth",
+        )
+        // 小胶囊：只放标题，宽度按标题文字算（有上下限）
+        val compactDesired = with(density) { titlePx.toDp() } + pillChrome
+        val compactCap = if (SafariCompactWidth < rowWidth) SafariCompactWidth else rowWidth
+        val compactWidth = (if (compactDesired > SafariCompactMinWidth) compactDesired else SafariCompactMinWidth)
+            .let { if (it < compactCap) it else compactCap }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(metrics.height)
-                // 行左右留白：三段式 = contentPadding，小胶囊 = 把行收窄到 compactWidth 并居中
-                .layout { measurable, constraints ->
-                    val full = constraints.maxWidth
-                    val padFull = metrics.contentPadding.roundToPx()
-                    val padCompact = ((full - compactWidth.roundToPx()) / 2).coerceAtLeast(padFull)
-                    val pad = (padFull + (padCompact - padFull) * morph.value).roundToInt()
-                    val inner = (full - pad * 2).coerceAtLeast(0)
-                    val placeable = measurable.measure(Constraints.fixed(inner, constraints.maxHeight))
-                    layout(full, placeable.height) { placeable.placeRelative(pad, 0) }
-                },
+                .padding(horizontal = metrics.contentPadding),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!editing) {
@@ -164,9 +191,11 @@ internal fun SafariSplitBar(
                 }
             }
             SafariAddressPill(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier,
                 metrics = metrics,
                 morph = morph,
+                normalWidth = normalWidth,
+                compactWidth = compactWidth,
                 shiftOut = pillShift,
                 compact = compact,
                 onExpand = onExpand,
@@ -222,6 +251,9 @@ private val SafariGap = 7.dp
 /** 小胶囊的宽度（屏幕更窄时取屏宽减去两侧留白） */
 private val SafariCompactWidth = 240.dp
 
+/** 小胶囊的最小宽度（标题很短时也不再缩小） */
+private val SafariCompactMinWidth = 100.dp
+
 /** 小胶囊的高度 */
 private val SafariCompactHeight = 32.dp
 
@@ -256,6 +288,14 @@ private fun CollapseSlot(
                 scaleY = sc
             },
     ) { content() }
+}
+
+/** 固定宽度 [full] 的槽，占位宽度随 [progress] 收到 0（内容按原宽度排版，收起时已淡出）。 */
+private fun Modifier.collapseWidth(full: Dp, progress: State<Float>): Modifier = this.layout { measurable, constraints ->
+    val fullPx = full.roundToPx()
+    val p = measurable.measure(Constraints(minWidth = fullPx, maxWidth = fullPx, minHeight = 0, maxHeight = constraints.maxHeight))
+    val w = (fullPx * (1f - progress.value.coerceIn(0f, 1f))).roundToInt().coerceAtLeast(0)
+    layout(w, p.height) { p.placeRelative(0, 0) }
 }
 
 /** 随变形进度改变圆角的玻璃底板：只有这一层在动画期间重组。 */
@@ -372,6 +412,10 @@ private fun SafariAddressPill(
     metrics: BarMetrics,
     /** 三段式 → 小胶囊的变形进度（0..1），只在布局 / 绘制阶段读取 */
     morph: State<Float>,
+    /** 三段式状态下地址栏的宽度（已带弹簧动画），只在布局阶段读取 */
+    normalWidth: State<Dp>,
+    /** 小胶囊状态下的宽度 */
+    compactWidth: Dp,
     /** 把地址栏当前的横向位移（像素）同步给两侧圆钮，做磁力互动 */
     shiftOut: MutableFloatState,
     /** 目标状态是小胶囊：不挂手势，整块点击 = 恢复三段式 */
@@ -450,7 +494,11 @@ private fun SafariAddressPill(
                 val from = metrics.addressHeight.roundToPx()
                 val to = SafariCompactHeight.roundToPx()
                 val h = (from + (to - from) * morph.value).roundToInt()
-                val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                val wFrom = normalWidth.value.roundToPx()
+                val wTo = compactWidth.roundToPx()
+                val w = (wFrom + (wTo - wFrom) * morph.value).roundToInt()
+                    .coerceIn(0, constraints.maxWidth)
+                val placeable = measurable.measure(Constraints.fixed(w, h))
                 layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
             }
             .graphicsLayer {
@@ -528,7 +576,7 @@ private fun SafariAddressPill(
                 // 左槽：固定宽度，没有图标时也占位，标题才能保持居中
                 Box(
                     modifier = Modifier
-                        .width(AddressReaderWidth)
+                        .collapseWidth(AddressReaderWidth, morph)
                         .graphicsLayer { alpha = (1f - morph.value * 1.8f).coerceIn(0f, 1f) },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -584,7 +632,7 @@ private fun SafariAddressPill(
                 // 右槽：加载中是小圆点，加载完是刷新
                 Box(
                     modifier = Modifier
-                        .width(AddressRefreshWidth)
+                        .collapseWidth(AddressRefreshWidth, morph)
                         .graphicsLayer { alpha = (1f - morph.value * 1.8f).coerceIn(0f, 1f) },
                     contentAlignment = Alignment.Center,
                 ) {
