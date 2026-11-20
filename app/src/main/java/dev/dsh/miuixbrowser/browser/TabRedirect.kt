@@ -93,14 +93,21 @@ internal fun BrowserTab.interceptRedirect(request: WebResourceRequest, external:
     // 有用户手势：真实链接点击（触点下是 <a>）照常放行；
     // 点击后由脚本发起的跨站跳转（div onclick / location.href 等）也按重定向处理
     if (request.hasGesture()) {
-        val hit = webView.hitTestResult
-        val onAnchor = hit != null && !hit.extra.isNullOrEmpty() &&
-            (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE || hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)
-        if (external || onAnchor || request.method != "GET") return false
+        if (external) {
+            // 外部应用：用户点击后页面直接发起的唤起才算用户操作。
+            // 服务器 3xx 链最终落到 weixin:// / intent://（短链 → 小程序）会继承点击手势，但用户点的是网页链接而不是「打开应用」，仍要走权限
+            if (!request.isRedirect) return false
+        } else {
+            val hit = webView.hitTestResult
+            val onAnchor = hit != null && !hit.extra.isNullOrEmpty() &&
+                (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE || hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)
+            if (onAnchor || request.method != "GET") return false
+        }
     }
-    // 首次加载 / 空白页上的跳转不算重定向
-    val from = pageHost
-    if (from.isEmpty()) return false
+    // 首次加载 / 空白页上的「跳转」不算重定向；但唤起其他应用不能因为页面还没有 host 就放行
+    // （新开标签 / 首次加载时服务器 302 到 weixin:// 正是这样绕过权限的）
+    val from = pageHost.ifEmpty { runCatching { Uri.parse(url).host }.getOrNull().orEmpty() }
+    if (from.isEmpty() && !external) return false
     val targetHost = request.url.host.orEmpty()
     // 同站（含子网站，如 m. / login. / www.）跳转视为页面内部导航，不拦截
     if (!external && targetHost.isNotEmpty() && isSameSite(targetHost, from)) return false
@@ -119,7 +126,9 @@ internal fun BrowserTab.interceptRedirect(request: WebResourceRequest, external:
     if (promptBusy()) return true
     // 拒绝只是不执行这次跳转 / 唤起：这次导航在 shouldOverrideUrlLoading 里就已被截下，
     // 当前页面一直没有离开，所以这里什么都不用回退 —— 停留在网页，不能再 goBack 把页面「关掉」
-    askRedirect(from, label, if (external) GeckoSitePerms.EXTERNAL_APP else GeckoSitePerms.REDIRECT) { allow ->
+    // 没有 host（空白页）时没法「记住此网站的选择」，不带 permKey
+    val permKey = (if (external) GeckoSitePerms.EXTERNAL_APP else GeckoSitePerms.REDIRECT).takeIf { from.isNotEmpty() }
+    askRedirect(from.ifEmpty { "about:blank" }, label, permKey) { allow ->
         if (allow) onAllowed() else notifyRedirectBlocked(external, targetHost)
     }
     return true
@@ -269,12 +278,13 @@ internal fun BrowserTab.isExternalAppScheme(scheme: String?): Boolean =
 
 /**
  * 新窗口（window.open / target=_blank）或 Gecko 子框架里要唤起其他应用：
- * 有用户手势 / 总是允许 / 空白页 → 直接唤起；总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起。
+ * 有用户手势 / 总是允许 → 直接唤起；总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起。
  */
 internal fun BrowserTab.openExternalFromWindow(uri: Uri, userGesture: Boolean) {
-    val from = pageHost
+    // 空白页（还没有 host）也要走权限：新开标签一加载就 window.open("weixin://…") 不能当成用户操作
+    val from = pageHost.ifEmpty { runCatching { Uri.parse(url).host }.getOrNull().orEmpty() }
     val mode = effExternalAppMode()
-    if (userGesture || from.isEmpty() || mode == 1) {
+    if (userGesture || mode == 1) {
         launchExternalApp(uri)
         return
     }
@@ -283,7 +293,7 @@ internal fun BrowserTab.openExternalFromWindow(uri: Uri, userGesture: Boolean) {
         return
     }
     if (promptBusy()) return
-    askRedirect(from, tr("打开其他应用"), GeckoSitePerms.EXTERNAL_APP) { allow ->
+    askRedirect(from.ifEmpty { "about:blank" }, tr("打开其他应用"), GeckoSitePerms.EXTERNAL_APP.takeIf { from.isNotEmpty() }) { allow ->
         if (allow) launchExternalApp(uri) else notifyRedirectBlocked(true, "")
     }
 }

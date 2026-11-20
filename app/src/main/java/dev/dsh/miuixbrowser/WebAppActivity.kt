@@ -563,12 +563,10 @@ class WebAppActivity : ComponentActivity() {
                         }
                     }
                     "file", "about", "data", "javascript", "blob" -> false
-                    "intent" -> {
-                        launchIntentUri(uri.toString())
-                        true
-                    }
+                    // intent:// weixin:// alipays:// 等：与浏览器一致，走「打开其他应用」权限。
+                    // 只有用户亲手点击直接发起的才直接唤起；页面自动唤起（含 iframe / 服务器 3xx 跳转）按 询问 / 总是允许 / 总是拒绝 处理
                     else -> {
-                        runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                        requestExternalApp(uri, request.hasGesture() && !request.isRedirect)
                         true
                     }
                 }
@@ -1008,6 +1006,53 @@ class WebAppActivity : ComponentActivity() {
         }.onFailure {
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
         }
+    }
+
+    private var externalPromptShowing = false
+    private var lastExternalToast = 0L
+
+    /** 唤起其他应用的统一入口（权限：例外网站优先，其次全局「打开其他应用」） */
+    private fun requestExternalApp(uri: Uri, userInitiated: Boolean) {
+        val host = (webView.url?.let { runCatching { Uri.parse(it).host }.getOrNull() } ?: pageHost).orEmpty()
+        val mode = GeckoSitePerms.override(host, GeckoSitePerms.EXTERNAL_APP) ?: settings.externalAppPermission
+        val launch = {
+            if (uri.scheme.equals("intent", ignoreCase = true)) {
+                launchIntentUri(uri.toString())
+            } else {
+                runCatching {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW, uri)
+                            .addCategory(Intent.CATEGORY_BROWSABLE)
+                            .setComponent(null)
+                            .setSelector(null),
+                    )
+                }
+            }
+        }
+        val blocked = {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastExternalToast >= 2000) {
+                lastExternalToast = now
+                Toast.makeText(this, tr("已拦截网页打开其他应用"), Toast.LENGTH_SHORT).show()
+            }
+        }
+        if (userInitiated || mode == 1) {
+            launch()
+            return
+        }
+        if (mode == 2) {
+            blocked()
+            return
+        }
+        if (externalPromptShowing || isFinishing || isDestroyed) return
+        externalPromptShowing = true
+        android.app.AlertDialog.Builder(this)
+            .setTitle(host.ifEmpty { appTitle })
+            .setMessage(tr("打开其他应用"))
+            .setCancelable(false)
+            .setPositiveButton(tr("允许")) { _, _ -> externalPromptShowing = false; launch() }
+            .setNegativeButton(tr("拒绝")) { _, _ -> externalPromptShowing = false; blocked() }
+            .show()
     }
 
     private fun launchIntentUri(raw: String) {

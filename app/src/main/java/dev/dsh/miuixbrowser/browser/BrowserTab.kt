@@ -887,14 +887,15 @@ class BrowserTab(
 
     /**
      * Gecko 版：页面无手势自动唤起其他应用（intent:// weixin:// 等），套用独立的「打开其他应用」权限，
-     * 规则与 [interceptRedirect]（external = true）一致：空白页 / 首次加载上的唤起不算；总是允许 → 直接唤起；
+     * 规则与 [interceptRedirect]（external = true）一致：空白页 / 首次加载上的唤起同样要走权限；总是允许 → 直接唤起；
      * 总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起。当前页面始终原地不动。
      */
     internal fun geckoExternalRequest(uri: Uri) {
-        val from = pageHost
+        // 空白页 / 首次加载（还没有 host）也要走权限，否则新标签里首个请求 302 到 weixin:// 就能绕过
+        val from = pageHost.ifEmpty { runCatching { Uri.parse(url).host }.getOrNull().orEmpty() }
         // 例外网站优先（与 WebView 一致）；带 permKey 才能在弹窗里「记住此网站的选择」
         val mode = effExternalAppMode()
-        if (from.isEmpty() || mode == 1) {
+        if (mode == 1) {
             launchExternalApp(uri)
             return
         }
@@ -903,7 +904,7 @@ class BrowserTab(
             return
         }
         if (promptBusy()) return
-        askRedirect(from, tr("打开其他应用"), GeckoSitePerms.EXTERNAL_APP) { allow ->
+        askRedirect(from.ifEmpty { "about:blank" }, tr("打开其他应用"), GeckoSitePerms.EXTERNAL_APP.takeIf { from.isNotEmpty() }) { allow ->
             if (allow) launchExternalApp(uri) else notifyRedirectBlocked(true, "")
         }
     }

@@ -685,6 +685,8 @@ class GeckoTabEngine(
                     ) {
                         return GeckoResult.fromValue(AllowOrDeny.DENY)
                     }
+                    // 主框架开始进入新文档：之前的触摸不能再给新页面的 window.open / 应用唤起当「用户点击」
+                    lastTouchAt = 0L
                     // 网页重定向权限：页面自己发起（无手势、非地址栏、非服务器 3xx）的跨站跳转
                     val direct = request.isDirectNavigation || SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
                     if ((scheme == "http" || scheme == "https") &&
@@ -694,10 +696,13 @@ class GeckoTabEngine(
                     }
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW)
                 }
-                // weixin:// alipays:// intent:// 等：交给系统。有用户手势 / 地址栏输入直接唤起；
-                // 页面自己无手势地唤起其他应用，按「网页重定向」权限处理（询问 / 总是允许 / 总是拒绝，与 WebView 一致）
-                val direct = request.isDirectNavigation || SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
-                if (request.hasUserGesture || direct) {
+                // weixin:// alipays:// intent:// 等：交给系统。只有「用户亲手触发」才直接唤起：
+                // 有用户手势的点击、或地址栏 / 程序直接输入的地址（isDirectNavigation）；
+                // 服务器 3xx 链落到应用协议不算，页面自己无手势地唤起其他应用，按「打开其他应用」权限处理（询问 / 总是允许 / 总是拒绝，与 WebView 一致）。
+                // 注意这里不能沿用上面 http(s) 用的「加载后 1 秒内都算直接导航」的时间窗：
+                // 页面一加载就用 JS / 302 拉起微信小程序恰好落在这个窗口里，会绕过权限。
+                val userInitiated = !request.isRedirect && (request.hasUserGesture || request.isDirectNavigation)
+                if (userInitiated) {
                     tab.geckoLaunchExternal(Uri.parse(target))
                 } else {
                     tab.geckoExternalRequest(Uri.parse(target))
@@ -714,8 +719,8 @@ class GeckoTabEngine(
                 val target = request.uri
                 val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
                 if (scheme == null || scheme in INTERNAL_SCHEMES) return null
-                val direct = request.isDirectNavigation || SystemClock.uptimeMillis() - lastDirectLoadAt < 1_000
-                if (request.hasUserGesture || direct) {
+                // 子框架里的应用协议不可能是地址栏输入，更不能套「加载后 1 秒」时间窗：只认真实的用户手势
+                if (request.hasUserGesture && !request.isRedirect) {
                     tab.geckoLaunchExternal(Uri.parse(target))
                 } else {
                     tab.geckoExternalRequest(Uri.parse(target))
@@ -726,6 +731,7 @@ class GeckoTabEngine(
             // window.open / target=_blank：不真正创建新会话，只截获地址，由标签页逻辑开新标签
             override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
                 val linkClick = SystemClock.uptimeMillis() - lastTouchAt < 2_000
+                lastTouchAt = 0L // 一次触摸只算一个新窗口：页面不能靠同一次点击连续弹出 / 唤起
                 if (uri.isNotBlank() && uri != "about:blank") tab.geckoNewWindow(uri, linkClick)
                 return null
             }
