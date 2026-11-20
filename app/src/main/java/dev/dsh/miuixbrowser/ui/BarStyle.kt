@@ -173,12 +173,12 @@ private object DockedFlatStyle : BarStyle {
     override val id = "docked_flat"
     override val docked = true
     override val metrics = BarMetrics(
-        height = 44.dp,
+        height = 50.dp,
         corner = 0.dp,
-        buttonSize = 40.dp,
+        buttonSize = 42.dp,
         contentPadding = 4.dp,
-        addressHeight = 32.dp,
-        addressCorner = 16.dp,
+        addressHeight = 36.dp,
+        addressCorner = 18.dp,
     )
     override val horizontalMargin = 0.dp
     override fun edgeGap(edge: BarEdge): Dp = 0.dp

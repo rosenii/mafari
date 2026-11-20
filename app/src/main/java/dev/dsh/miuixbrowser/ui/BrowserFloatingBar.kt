@@ -14,6 +14,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -201,6 +202,13 @@ internal fun BoxScope.BrowserFloatingBar(
             animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
             label = "safariCompact",
         )
+        // 固定在顶部 / 底部（平铺停靠）在首页时底板透明：栏的内容直接叠在首页壁纸上，与壁纸融为一体。
+        // 进度只在绘制阶段读取。
+        val homeClearProgress = animateFloatAsState(
+            targetValue = if (style.docked && !style.splitPills && tab.url.isEmpty()) 1f else 0f,
+            animationSpec = tween(durationMillis = 220),
+            label = "dockedHomeClear",
+        )
         var dragDistance by remember(tab.id) { mutableFloatStateOf(0f) }
         var hDragDistance by remember(tab.id) { mutableFloatStateOf(0f) }
 
@@ -349,7 +357,7 @@ internal fun BoxScope.BrowserFloatingBar(
             modifier = Modifier
                 .matchParentSize()
                 // 缩小成小胶囊时整条底板淡出（网页铺满屏幕，只剩标题胶囊盖在上面）
-                .graphicsLayer { alpha = if (style.splitPills) 1f - compactProgress.value else 1f }
+                .graphicsLayer { alpha = if (style.splitPills) 1f - compactProgress.value else 1f - homeClearProgress.value }
                 .then(
                     style.surface(
                         modifier = Modifier,
