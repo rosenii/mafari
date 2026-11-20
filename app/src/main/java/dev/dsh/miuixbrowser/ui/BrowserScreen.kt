@@ -109,6 +109,8 @@ fun BrowserScreen(
     LaunchedEffect(state) {
         androidx.compose.runtime.snapshotFlow { state.tabRows() }.collect { rows ->
             state.saveTabs(rows)
+            // 火狐同步：标签开 / 关 / 换页后，把标签页同步到云端（内部会防抖、去重，没登录时直接返回）
+            if (EngineSupport.SYNC_BUNDLED) FxaSync.onLocalTabsChanged()
             kotlinx.coroutines.delay(800)
         }
     }

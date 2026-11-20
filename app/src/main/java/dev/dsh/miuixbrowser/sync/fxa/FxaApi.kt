@@ -258,6 +258,9 @@ internal object FxaApi {
     }
 
     suspend fun syncNow() { manager.syncNow(SyncReason.User) }
+
+    /** 只同步「标签页」引擎：上传本机标签并拉取其他设备的标签，不碰书签 / 历史 / 密码。 */
+    suspend fun syncTabsOnly() { manager.syncNow(SyncReason.User, customEngineSubset = listOf(SyncEngine.Tabs)) }
     suspend fun logout() { manager.logout() }
 
     // ---------------------------------------------------------------- 书签（Places）
@@ -345,9 +348,14 @@ internal object FxaApi {
     suspend fun loginWipeLocal() { unwrap<Any?>(logins.wipeLocal()) }
 
     // ---------------------------------------------------------------- 标签页 / 发送标签
+    /**
+     * 用本机当前的标签列表**整体替换**云端那份「此设备的标签」。只上传 http(s) 页面：主页 / about:blank / 内部页不属于
+     * 「打开的标签页」，否则关光所有网页后云端还会留着一个空白标签。列表为空也要存（= 清空此设备在云端的标签）。
+     */
     suspend fun storeLocalTabs(list: List<Pair<String, String>>) {
         val now = System.currentTimeMillis()
-        tabs.store(list.map { (title, url) -> Tab(listOf(TabEntry(title, url, null)), 0, now, false) })
+        val web = list.filter { (_, url) -> url.startsWith("http://", true) || url.startsWith("https://", true) }
+        tabs.store(web.map { (title, url) -> Tab(listOf(TabEntry(title, url, null)), 0, now, false) })
     }
 
     suspend fun remoteTabs(): List<RemoteDevice> =

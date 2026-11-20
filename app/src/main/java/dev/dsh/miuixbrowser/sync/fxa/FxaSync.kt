@@ -89,6 +89,69 @@ internal object FxaSync {
         FxaHistoryBridge.resetBaseline(appContext)
     }
 
+    // ---------------------------------------------------------------- 标签页同步（只同步标签页引擎）
+    private const val TABS_POLL_MS = 3 * 60_000L
+    private const val TABS_PUSH_DEBOUNCE_MS = 3_000L
+    private const val TABS_MIN_GAP_MS = 15_000L
+    @Volatile private var lastTabsSync = 0L
+    /** 本轮同步只含标签页引擎：[onSyncIdle] / [onSyncError] 据此跳过书签 / 历史 / 密码的合并与「上次同步」时间 */
+    @Volatile private var tabsOnly = false
+    /** 完整同步进行中又有标签变化：同步结束后补一次 */
+    @Volatile private var tabsDirty = false
+    private var tabsPushJob: Job? = null
+    @Volatile private var lastTabsSig: Int? = null
+
+    private suspend fun isForeground(): Boolean = withContext(Dispatchers.Main) {
+        runCatching {
+            androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.currentState
+                .isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        }.getOrDefault(false)
+    }
+
+    /**
+     * 本机标签列表变了（开 / 关 / 换页 / 清空）：稍等一下（合并连续操作）就把标签页同步到云端，
+     * 这样本地关掉的标签页会从云端「此设备」的列表里消失。没登录时什么都不做，也不会触发初始化。
+     */
+    fun onLocalTabsChanged() {
+        if (ui !is FxaUi.SignedIn) return
+        val sig = runCatching { localTabs?.invoke()?.filter { it.second.startsWith("http", true) }.hashCode() }.getOrNull() ?: return
+        if (sig == lastTabsSig) return
+        lastTabsSig = sig
+        tabsPushJob?.cancel()
+        tabsPushJob = scope.launch {
+            val gap = TABS_MIN_GAP_MS - (System.currentTimeMillis() - lastTabsSync)
+            kotlinx.coroutines.delay(maxOf(TABS_PUSH_DEBOUNCE_MS, gap))
+            syncTabs()
+        }
+    }
+
+    /** 上传本机标签并拉取其他设备的标签（只同步标签页引擎）；完成后刷新「其他设备的标签页」。 */
+    fun syncTabs() {
+        scope.launch {
+            if (ui !is FxaUi.SignedIn) return@launch
+            if (syncing) { tabsDirty = true; return@launch } // 完整同步还在跑：结束后再补一次
+            withTimeoutOrNull(8_000) { initJob?.join() }
+            lastTabsSync = System.currentTimeMillis()
+            runCatching { localTabs?.invoke()?.let { FxaApi.storeLocalTabs(it) } }
+            tabsOnly = true
+            runCatching { FxaApi.syncTabsOnly() }.onFailure { tabsOnly = false }
+        }
+    }
+
+    /** 只重新读取本地同步库里其他设备的标签页（不联网、不触发同步）；标签列表展开「其他设备的标签页」时用。 */
+    fun reloadRemoteTabs() {
+        scope.launch {
+            if (ui !is FxaUi.SignedIn) return@launch
+            withTimeoutOrNull(8_000) { initJob?.join() }
+            refreshRemoteTabs()
+        }
+    }
+
+    private suspend fun refreshRemoteTabs() {
+        runCatching { remoteDevices = FxaApi.remoteTabs() }
+        runCatching { putCount(Category.Tabs, remoteDevices.sumOf { it.tabs.size }) }
+    }
+
     private fun autoDue(): Boolean {
         val hours = AUTO_HOURS.getOrElse(autoMode) { 0 }
         if (hours <= 0 || ui !is FxaUi.SignedIn || syncing) return false
@@ -144,6 +207,9 @@ internal object FxaSync {
                 if (autoDue()) {
                     lastAutoAttempt = System.currentTimeMillis()
                     syncNow()
+                } else if (ui is FxaUi.SignedIn && System.currentTimeMillis() - lastTabsSync >= TABS_POLL_MS && isForeground()) {
+                    // 其他设备关掉的标签页要在这里消失：前台时每隔几分钟只同步一次「标签页」（与自动同步间隔无关，手动模式也生效）
+                    syncTabs()
                 }
                 kotlinx.coroutines.delay(60_000)
             }
@@ -263,6 +329,7 @@ internal object FxaSync {
     }
 
     private fun syncOnce() {
+        tabsOnly = false // 完整同步优先：别让上一轮「只同步标签页」的标记把这轮的书签 / 历史 / 密码合并跳过
         scope.launch {
             runCatching { localTabs?.invoke()?.let { FxaApi.storeLocalTabs(it) } }
             runCatching { FxaApi.syncNow() }
@@ -377,8 +444,14 @@ internal object FxaSync {
             scope.launch { runCatching { FxaPasswordBridge.onLoggedOut(appContext) } }
         }
         override fun onProblem() { ui = FxaUi.NeedsReauth((ui as? FxaUi.SignedIn)?.email) }
-        override fun onSyncStarted() { syncing = true }
+        override fun onSyncStarted() { if (!tabsOnly) syncing = true }
         override fun onSyncIdle() {
+            if (tabsOnly) {
+                // 只同步了标签页：刷新列表即可，不动「上次同步」时间 / 提示语，也不跑书签 / 历史 / 密码的合并
+                tabsOnly = false
+                scope.launch { refreshRemoteTabs() }
+                return
+            }
             syncing = false
             lastMessage = tr("同步完成")
             lastSuccess = System.currentTimeMillis()
@@ -410,9 +483,11 @@ internal object FxaSync {
                 waiter = null
                 refreshDevices()
                 refreshSynced()
+                if (tabsDirty) { tabsDirty = false; syncTabs() }
             }
         }
         override fun onSyncError(message: String?) {
+            if (tabsOnly) { tabsOnly = false; return } // 标签页的后台同步失败不打扰：下次变化 / 定时再试
             syncing = false
             lastMessage = tr("同步失败：{0}", message)
             waiter?.complete(tr("同步失败：{0}", message ?: tr("未知错误")))

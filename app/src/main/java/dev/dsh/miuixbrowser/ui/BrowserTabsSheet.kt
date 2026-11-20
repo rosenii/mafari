@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -59,6 +60,9 @@ internal fun TabsAutoScroll(
     listState: LazyListState,
 ) {
     var tabsOpenScrolled by remember { mutableStateOf(false) }
+    // 列表第一项可能是「其他设备的标签页」框（lite / 没有时没有这一项）：标签行的下标整体后移一位。
+    // 用 rememberUpdatedState 而不是放进 LaunchedEffect 的 key：同步完成后框才出现时，不会重新滚动打断用户
+    val bannerOffset by rememberUpdatedState(if (syncedTabsFromOtherDevices().isEmpty()) 0 else 1)
     LaunchedEffect(sheetOpen, tabsPage, state.activeIndex, tabsStyle) {
         if (!sheetOpen) {
             tabsOpenScrolled = false
@@ -68,7 +72,7 @@ internal fun TabsAutoScroll(
         val visible = state.tabs.withIndex().filter { it.value.incognito == pageIncognito }
         val pos = visible.indexOfFirst { it.index == state.activeIndex }
         if (pos >= 0) {
-            val row = if (tabsStyle == 1) pos / 2 else pos
+            val row = (if (tabsStyle == 1) pos / 2 else pos) + bannerOffset
             if (!tabsOpenScrolled) {
                 // 刚打开：弹层还在滑入，直接定位，不在动画期间再跑一段滚动动画。
                 // 先回到顶部（列表状态跨次打开保留），当前标签所在行已经完整可见就不动，
@@ -153,6 +157,8 @@ internal fun TabsSheetBody(
     listState: LazyListState,
     blurBackdrop: LayerBackdrop?,
     onClose: () -> Unit,
+    /** 去 Firefox 账户同步中心（关闭 sheet 并跳转） */
+    onOpenSyncCenter: () -> Unit = {},
 ) {
     val sheetInsets = LocalBottomSheetInsets.current
     val haptic = LocalHapticFeedback.current
@@ -164,6 +170,20 @@ internal fun TabsSheetBody(
     // 懒加载：只组合/绘制可见行（最多 99 个标签时不再一次性全部组合）
     // 程序化滚动（打开时定位当前标签）不走 NestedScroll：把列表真实位置同步给顶部渐进模糊带
     SyncSheetBandScroll(listState)
+    // 其他设备的标签页：没有同步 / 没有其他设备的标签页时为空，整个框不出现
+    val syncedTabs = syncedTabsFromOtherDevices()
+    val hasBanner = syncedTabs.isNotEmpty()
+    var bannerExpanded by remember { mutableStateOf(false) }
+    // 框是同步完成后才出现的话，列表会为了保持当前位置把它挤到可视区上方：原本在顶部就回到顶部，让它露出来
+    var bannerSeen by remember { mutableStateOf(hasBanner) }
+    LaunchedEffect(hasBanner) {
+        if (hasBanner && !bannerSeen) {
+            withFrameNanos { } // 等列表按新的条目重新布局完，再判断位置
+            if (listState.firstVisibleItemIndex == 1 && listState.firstVisibleItemScrollOffset == 0) listState.scrollToItem(0)
+        }
+        bannerSeen = hasBanner
+        if (!hasBanner) bannerExpanded = false
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -178,6 +198,31 @@ internal fun TabsSheetBody(
         ),
         verticalArrangement = if (cardStyle) Arrangement.spacedBy(15.dp) else Arrangement.Top,
     ) {
+        if (hasBanner) {
+            item(key = "syncedTabsBanner", contentType = "syncedTabsBanner") {
+                SyncedTabsBanner(
+                    tabs = syncedTabs,
+                    expanded = bannerExpanded,
+                    onToggle = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        // 展开时顺便从本地同步库重新读一次，保证看到的是最新的
+                        if (!bannerExpanded) syncedTabsReload()
+                        bannerExpanded = !bannerExpanded
+                    },
+                    onOpen = { item ->
+                        // 在当前栏的模式下打开：标签页栏 → 普通标签，无痕栏 → 无痕标签
+                        state.newTab(item.url, incognito = pageIncognito)
+                        onClose()
+                    },
+                    onOpenSyncCenter = onOpenSyncCenter,
+                    modifier = Modifier
+                        // 卡片样式的列表左右没有内边距，框自己和头部一样离开屏幕边缘；列表样式列表自己已留白
+                        .padding(horizontal = if (cardStyle) top.yukonga.miuix.kmp.layout.BottomSheetDefaults.insideMargin.width else 0.dp)
+                        // 卡片样式靠 spacedBy(15)，列表样式（Arrangement.Top）补一点和第一行的间距
+                        .padding(bottom = if (cardStyle) 0.dp else 8.dp),
+                )
+            }
+        }
         if (cardStyle) {
             items(
                 items = visibleTabs.chunked(2),

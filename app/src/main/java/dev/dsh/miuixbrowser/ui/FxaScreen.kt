@@ -115,7 +115,7 @@ fun FxaScreen(
     LaunchedEffect(Unit) {
         if (FxaSync.ui is FxaUi.SignedOut || FxaSync.ui is FxaUi.NeedsReauth) startLogin()
     }
-    LaunchedEffect(FxaSync.ui) { if (FxaSync.ui is FxaUi.SignedIn) { FxaSync.refreshDevices(); FxaSync.refreshSynced() } }
+    LaunchedEffect(FxaSync.ui) { if (FxaSync.ui is FxaUi.SignedIn) { FxaSync.refreshDevices(); FxaSync.refreshSynced(); FxaSync.syncTabs() } }
     // 列表 sheet 是否打开、打开的是哪一类「已同步内容」；搜索词 / 已加载行数放在页面层，切分类时重置
     var sheetOpen by remember { mutableStateOf(false) }
     var sheetCat by remember { mutableStateOf(FxaSync.Category.Bookmarks) }

@@ -127,6 +127,10 @@ BrowserChunk {
                     listState = tabsListState,
                     blurBackdrop = if (settings.blurEnabled && glassAvailable) glassBackdrop else null,
                     onClose = { sheet = Sheet.None },
+                    onOpenSyncCenter = {
+                        sheet = Sheet.None
+                        pushPage(AppRoute.FxaPage)
+                    },
                 )
 
                 Sheet.Menu -> {
