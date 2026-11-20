@@ -564,9 +564,9 @@ class WebAppActivity : ComponentActivity() {
                     }
                     "file", "about", "data", "javascript", "blob" -> false
                     // intent:// weixin:// alipays:// 等：与浏览器一致，走「打开其他应用」权限。
-                    // 只有用户亲手点击直接发起的才直接唤起；页面自动唤起（含 iframe / 服务器 3xx 跳转）按 询问 / 总是允许 / 总是拒绝 处理
+                    // 点击与自动唤起一律按 询问 / 总是允许 / 总是拒绝 处理
                     else -> {
-                        requestExternalApp(uri, request.hasGesture() && !request.isRedirect)
+                        requestExternalApp(uri)
                         true
                     }
                 }
@@ -1012,7 +1012,7 @@ class WebAppActivity : ComponentActivity() {
     private var lastExternalToast = 0L
 
     /** 唤起其他应用的统一入口（权限：例外网站优先，其次全局「打开其他应用」） */
-    private fun requestExternalApp(uri: Uri, userInitiated: Boolean) {
+    private fun requestExternalApp(uri: Uri) {
         val host = (webView.url?.let { runCatching { Uri.parse(it).host }.getOrNull() } ?: pageHost).orEmpty()
         val mode = GeckoSitePerms.override(host, GeckoSitePerms.EXTERNAL_APP) ?: settings.externalAppPermission
         val launch = {
@@ -1037,7 +1037,7 @@ class WebAppActivity : ComponentActivity() {
                 Toast.makeText(this, tr("已拦截网页打开其他应用"), Toast.LENGTH_SHORT).show()
             }
         }
-        if (userInitiated || mode == 1) {
+        if (mode == 1) {
             launch()
             return
         }
@@ -1047,12 +1047,30 @@ class WebAppActivity : ComponentActivity() {
         }
         if (externalPromptShowing || isFinishing || isDestroyed) return
         externalPromptShowing = true
+        val remember = android.widget.CheckBox(this).apply {
+            text = tr("记住此网站的选择")
+            visibility = if (host.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+        }
+        val box = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(remember)
+        }
         android.app.AlertDialog.Builder(this)
             .setTitle(host.ifEmpty { appTitle })
             .setMessage(tr("打开其他应用"))
+            .setView(box)
             .setCancelable(false)
-            .setPositiveButton(tr("允许")) { _, _ -> externalPromptShowing = false; launch() }
-            .setNegativeButton(tr("拒绝")) { _, _ -> externalPromptShowing = false; blocked() }
+            .setPositiveButton(tr("允许")) { _, _ ->
+                externalPromptShowing = false
+                if (remember.isChecked && host.isNotEmpty()) GeckoSitePerms.remember(host, GeckoSitePerms.EXTERNAL_APP, true)
+                launch()
+            }
+            .setNegativeButton(tr("拒绝")) { _, _ ->
+                externalPromptShowing = false
+                if (remember.isChecked && host.isNotEmpty()) GeckoSitePerms.remember(host, GeckoSitePerms.EXTERNAL_APP, false)
+                blocked()
+            }
             .show()
     }
 

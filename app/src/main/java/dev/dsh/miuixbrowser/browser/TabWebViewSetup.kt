@@ -412,7 +412,7 @@ internal fun BrowserTab.setupWebView() {
             return when (scheme) {
                 "http", "https", "file", "about", "data", "javascript" -> false
                 else -> {
-                    // 支付宝 / 微信 / 淘宝等外部协议交给系统处理（无用户手势的自动唤起受「网页重定向」权限控制）
+                    // 支付宝 / 微信 / 淘宝等外部协议交给系统处理（点击与自动唤起一律受「打开其他应用」权限控制）
                     val open = { launchExternalApp(request.url) }
                     if (!interceptRedirect(request, external = true, onAllowed = open)) open()
                     // 无论放行还是拒绝，当前页面都原地不动（拒绝后停留在网页）

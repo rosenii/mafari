@@ -82,7 +82,7 @@ internal fun BrowserTab.promptBusy(): Boolean =
  * 网页重定向权限：只管「页面自己发起、没有用户手势」的主框架跳转——
  * JS（location / window.open）、meta refresh。
  * 自动唤起其他应用（intent:// 等）由独立的「打开其他应用」权限控制（[externalAppMode]），两者互不影响。
- * 用户点击、地址栏输入、前进后退，以及用户发起导航后的服务器 3xx 链都不受影响。
+ * 用户点击、地址栏输入、前进后退，以及用户发起导航后的服务器 3xx 链都不受影响（唤起其他应用除外：它不看手势，一律走权限）。
  * 同站跳转（host 去掉 www. 后相同）视为页面内部导航，不拦截。
  * @return true 表示本次导航已被接管（拦截，用户同意后由 [onAllowed] 放行）
  */
@@ -92,17 +92,13 @@ internal fun BrowserTab.interceptRedirect(request: WebResourceRequest, external:
     if (!external && (!request.isForMainFrame || request.isRedirect)) return false
     // 有用户手势：真实链接点击（触点下是 <a>）照常放行；
     // 点击后由脚本发起的跨站跳转（div onclick / location.href 等）也按重定向处理
-    if (request.hasGesture()) {
-        if (external) {
-            // 外部应用：用户点击后页面直接发起的唤起才算用户操作。
-            // 服务器 3xx 链最终落到 weixin:// / intent://（短链 → 小程序）会继承点击手势，但用户点的是网页链接而不是「打开应用」，仍要走权限
-            if (!request.isRedirect) return false
-        } else {
-            val hit = webView.hitTestResult
-            val onAnchor = hit != null && !hit.extra.isNullOrEmpty() &&
-                (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE || hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)
-            if (onAnchor || request.method != "GET") return false
-        }
+    // 外部应用（external = true）不看手势：无论点击还是自动唤起，一律走「打开其他应用」权限
+    // （页面上的「用微信打开」按钮也是页面自己发起的唤起，不等于用户确认要打开应用）
+    if (request.hasGesture() && !external) {
+        val hit = webView.hitTestResult
+        val onAnchor = hit != null && !hit.extra.isNullOrEmpty() &&
+            (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE || hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)
+        if (onAnchor || request.method != "GET") return false
     }
     // 首次加载 / 空白页上的「跳转」不算重定向；但唤起其他应用不能因为页面还没有 host 就放行
     // （新开标签 / 首次加载时服务器 302 到 weixin:// 正是这样绕过权限的）
@@ -278,13 +274,13 @@ internal fun BrowserTab.isExternalAppScheme(scheme: String?): Boolean =
 
 /**
  * 新窗口（window.open / target=_blank）或 Gecko 子框架里要唤起其他应用：
- * 有用户手势 / 总是允许 → 直接唤起；总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起。
+ * 总是允许 → 直接唤起；总是拒绝 → 提示已拦截；询问 → 弹窗，同意才唤起（不看用户手势，点击也要问）。
  */
 internal fun BrowserTab.openExternalFromWindow(uri: Uri, userGesture: Boolean) {
     // 空白页（还没有 host）也要走权限：新开标签一加载就 window.open("weixin://…") 不能当成用户操作
     val from = pageHost.ifEmpty { runCatching { Uri.parse(url).host }.getOrNull().orEmpty() }
     val mode = effExternalAppMode()
-    if (userGesture || mode == 1) {
+    if (mode == 1) {
         launchExternalApp(uri)
         return
     }

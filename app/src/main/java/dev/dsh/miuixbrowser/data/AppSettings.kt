@@ -917,7 +917,7 @@ class AppSettings(context: Context) {
 
     /**
      * 网页权限：打开其他应用 0=每次使用时询问 1=总是允许 2=总是拒绝
-     * 指网页在没有用户操作的情况下自动唤起其他应用（intent:// weixin:// alipays:// 等外部协议）。
+     * 指网页唤起其他应用（intent:// weixin:// alipays:// 等外部协议），无论点击还是自动唤起都按此权限处理。
      * 原先与「网页重定向」共用一个开关，现在独立；旧版本升级上来时沿用当时的「网页重定向」取值，行为不变。
      */
     var externalAppPermission by mutableStateOf(

@@ -709,12 +709,8 @@ class GeckoTabEngine(
                 // 服务器 3xx 链落到应用协议不算，页面自己无手势地唤起其他应用，按「打开其他应用」权限处理（询问 / 总是允许 / 总是拒绝，与 WebView 一致）。
                 // 注意这里不能沿用上面 http(s) 用的「加载后 1 秒内都算直接导航」的时间窗：
                 // 页面一加载就用 JS / 302 拉起微信小程序恰好落在这个窗口里，会绕过权限。
-                val userInitiated = !request.isRedirect && (request.hasUserGesture || request.isDirectNavigation)
-                if (userInitiated) {
-                    tab.geckoLaunchExternal(Uri.parse(target))
-                } else {
-                    tab.geckoExternalRequest(Uri.parse(target))
-                }
+                // 现在不再区分：点击、地址栏输入、自动唤起一律走「打开其他应用」权限（询问 / 总是允许 / 总是拒绝）。
+                tab.geckoExternalRequest(Uri.parse(target))
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
@@ -728,11 +724,7 @@ class GeckoTabEngine(
                 val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
                 if (scheme == null || scheme in INTERNAL_SCHEMES) return null
                 // 子框架里的应用协议不可能是地址栏输入，更不能套「加载后 1 秒」时间窗：只认真实的用户手势
-                if (request.hasUserGesture && !request.isRedirect) {
-                    tab.geckoLaunchExternal(Uri.parse(target))
-                } else {
-                    tab.geckoExternalRequest(Uri.parse(target))
-                }
+                tab.geckoExternalRequest(Uri.parse(target))
                 return GeckoResult.fromValue(AllowOrDeny.DENY)
             }
 
