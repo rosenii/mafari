@@ -2,6 +2,9 @@
 
 
 发版时在对应版本下追加条目；GitHub Release 正文读取本文件该版本小节。
+## [2.1.62]
+- 调整：标签列表左右边距
+- 新增：webview拓展（开发中，请勿使用）
 ## [2.1.62-canary]
 **webview 拓展API适配情况**：
 - 已实现：runtime	PARTIAL	消息与 Port 已实现；Port 可向同一拓展多个已就绪页面上下文 fan-out；跨扩展与外部连接能力缺失

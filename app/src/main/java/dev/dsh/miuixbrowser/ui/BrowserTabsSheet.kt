@@ -185,7 +185,7 @@ internal fun TabsSheetBody(
                 contentType = { "tabCardRow" },
             ) { rowItems ->
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 15.dp),
                     horizontalArrangement = Arrangement.spacedBy(15.dp),
                 ) {
                     rowItems.forEach { indexed ->

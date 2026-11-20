@@ -2,6 +2,7 @@ package dev.dsh.miuixbrowser.ext
 
 import android.content.Context
 import android.webkit.WebResourceResponse
+import dev.dsh.miuixbrowser.data.HistoryStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
