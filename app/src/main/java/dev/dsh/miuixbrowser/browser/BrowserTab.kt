@@ -576,6 +576,17 @@ class BrowserTab(
     val scrollOffsetY: Int
         get() = ops.scrollY
 
+    /** 距页面底部还剩多少像素（0 = 已到底，-1 = 引擎给不出来）：固定在底部的导航栏据此决定何时让出位置 */
+    val scrollRemainingY: Int
+        get() = ops.scrollRemaining
+
+    /** Gecko：内容脚本回报距页面底部的剩余像素（主线程）。顺手补发一次滚动信号，底栏判定是事件驱动的 */
+    internal fun geckoScrollRemaining(px: Int) {
+        if (closed || destroyed) return
+        geckoEngine?.updateScrollRemaining(px)
+        scrollSignal.trySend(Unit)
+    }
+
     /** 引擎当前的页面标题（切换地址时用来清掉旧标题） */
     fun currentPageTitle(): String = ops.pageTitle()
 
@@ -687,6 +698,7 @@ class BrowserTab(
 
     internal fun geckoPageStart(u: String) {
         if (closed || destroyed) return
+        geckoEngine?.updateScrollRemaining(-1) // 新文档：旧页面的剩余距离作废，新页面的内容脚本连上后再回报
         if (ErrorPages.isProceedUrl(u)) return
         if (u == geckoErrorUri) { loading = true; return } // 错误页自身的加载：保留失败地址与错误信息
         geckoShowingError = false

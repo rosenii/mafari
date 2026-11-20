@@ -156,6 +156,14 @@ class GeckoTabEngine(
     var scrollY = 0
         private set
 
+    /** 距页面底部还剩多少像素：由内置扩展里的 scroll-metrics.js 回报（见 [GeckoReader]）；未连上 / 没有回报为 -1 */
+    var scrollRemaining = -1
+        private set
+
+    fun updateScrollRemaining(px: Int) {
+        scrollRemaining = px
+    }
+
     var pageTitle = ""
         private set
     var inFullScreen = false

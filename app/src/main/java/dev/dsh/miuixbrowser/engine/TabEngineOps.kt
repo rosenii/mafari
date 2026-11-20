@@ -26,6 +26,9 @@ internal interface TabEngineOps {
     /** 页面滚动位置（像素） */
     val scrollY: Int
 
+    /** 距页面底部还剩多少像素（0 = 已到底）；引擎给不出来时为 -1 */
+    val scrollRemaining: Int
+
     /** 引擎当前的页面标题；没有则空串 */
     fun pageTitle(): String
 
@@ -56,6 +59,14 @@ internal class WebViewTabOps(
         runCatching { webView.copyBackForwardList().currentIndex }.getOrDefault(-1)
 
     override val scrollY: Int get() = webView.scrollY
+
+    // contentHeight 是 CSS 像素，乘以页面缩放（含屏幕密度）才是设备像素；getScale 虽已弃用但仍是唯一可用的来源
+    @Suppress("DEPRECATION")
+    override val scrollRemaining: Int
+        get() = runCatching {
+            val total = (webView.contentHeight * webView.scale).toInt()
+            if (total <= 0) -1 else (total - webView.scrollY - webView.height).coerceAtLeast(0)
+        }.getOrDefault(-1)
 
     override fun pageTitle(): String = webView.title.orEmpty()
 
@@ -103,6 +114,8 @@ internal class GeckoTabOps(
     override fun historyIndex(): Int = current()?.historyIndex ?: -1
 
     override val scrollY: Int get() = current()?.scrollY ?: 0
+
+    override val scrollRemaining: Int get() = current()?.scrollRemaining ?: -1
 
     override fun pageTitle(): String = current()?.pageTitle.orEmpty()
 

@@ -13,10 +13,12 @@ import org.mozilla.geckoview.WebExtension
 /**
  * Gecko 内核的阅读模式适配：自带一个内置 WebExtension（assets/mafari-reader-ext），
  * 内容脚本就是与 WebView 共用的 mafari_reader.js（文末有 Gecko 胶水）。
+ * 同一个拓展里还有 scroll-metrics.js，沿用同一条原生通道回报「距页面底部还剩多少像素」。
  *
  * 通道（与 [GeckoGm] 的会话端口同一套做法）：每个标签的 GeckoSession 登记原生应用名 "mafariReader" 的消息委托，
  * 页面里的内容脚本 connectNative 过来，原生由此知道是哪个标签：
  *   内容脚本 → 原生：{ t:"state", readerable, active, url }
+ *   内容脚本 → 原生：{ t:"scroll", r }（scroll-metrics.js，r = 距页面底部的设备像素，已封顶）
  *   原生 → 内容脚本：{ t:"hi" }（握手）、{ t:"enter", dark }、{ t:"exit" }
  *
  * 注意：本文件依赖 GeckoView WebExtension 的消息 API，未在本环境编译；nightly 的签名若有变化只需改本文件。
@@ -84,10 +86,18 @@ internal object GeckoReader {
             port.setDelegate(object : WebExtension.PortDelegate {
                 override fun onPortMessage(message: Any, port: WebExtension.Port) {
                     val o = message as? JSONObject ?: return
-                    if (o.optString("t") != "state") return
-                    val readerable = o.optBoolean("readerable")
-                    val active = o.optBoolean("active")
-                    main.post { tab.geckoReaderState(port, readerable, active) }
+                    when (o.optString("t")) {
+                        "state" -> {
+                            val readerable = o.optBoolean("readerable")
+                            val active = o.optBoolean("active")
+                            main.post { tab.geckoReaderState(port, readerable, active) }
+                        }
+                        // scroll-metrics.js：距页面底部还剩多少设备像素（固定在底部的导航栏据此决定何时让出位置）
+                        "scroll" -> {
+                            val r = o.optInt("r", -1)
+                            main.post { tab.geckoScrollRemaining(r) }
+                        }
+                    }
                 }
 
                 override fun onDisconnect(port: WebExtension.Port) {

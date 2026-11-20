@@ -31,6 +31,8 @@ internal class BrowserUiState {
     var address by mutableStateOf("")
     var editing by mutableStateOf(false)
     var barHidden by mutableStateOf(false)
+    /** 固定（停靠）导航栏：页面是否已深入栏下（滑动中为 true；回到页面顶部 / 底部恢复为 false），判定见 [BarOverlap] */
+    var barOverlap by mutableStateOf(false)
     var favEditing by mutableStateOf(false)
     var groupEditing by mutableStateOf(false)
     var quickEditing by mutableStateOf(false)

@@ -38,6 +38,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -464,7 +465,20 @@ fun BrowserScreen(
         history = history,
     )
 
-    ui.BarAutoHideEffects(tab, barFixed)
+    // 固定（停靠）栏：滑动时页面深入栏下，滑回页面顶部 / 底部恢复（判定见 BarOverlap，状态在 ui.barOverlap）。
+    // dockedBarPx 是栏占掉网页区域的像素高度，底栏要把导航栏算进去：恢复瞬间网页区域按这个高度缩小，判定要据此留迟滞。
+    val barDensity = androidx.compose.ui.platform.LocalDensity.current
+    val navBarInsets = WindowInsets.navigationBars
+    val dockedBarPx: () -> Int = {
+        val body = with(barDensity) { barLayout.style.metrics.height.roundToPx() }
+        if (barLayout.reservesBottom) body + navBarInsets.getBottom(barDensity) else body
+    }
+    ui.BarAutoHideEffects(
+        tab = tab,
+        barFixed = barFixed,
+        dockedEdge = if (barFixed) barLayout.edge else null,
+        dockedBarPx = dockedBarPx,
+    )
 
     val statusBarHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
         WindowInsets.statusBars.getTop(this).toDp()
@@ -473,7 +487,8 @@ fun BrowserScreen(
     val dockedTopBody = if (barLayout.reservesTop) barLayout.style.metrics.height else 0.dp
     val topReserved = statusBarHeight + dockedTopBody
     val animatedTopPadding by animateDpAsState(
-        targetValue = if (barHidden) 0.dp else topReserved,
+        // 顶栏停靠且页面已深入栏下：留白归零，网页铺到屏幕顶（栏的玻璃盖在网页上）
+        targetValue = if (barHidden || (barLayout.reservesTop && ui.barOverlap)) 0.dp else topReserved,
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
         label = "statusInset",
     )
@@ -512,8 +527,21 @@ fun BrowserScreen(
     // 停靠在底部的栏占掉网页区域底部一段（不含导航栏，导航栏在内容层另算）；栏收起时随 hide 归零。
     // 只在布局阶段读取 hide，避免弹簧动画逐帧重组。
     val dockedBottomBody = if (barLayout.reservesBottom) barLayout.style.metrics.height else 0.dp
+    // 底栏停靠且页面已深入栏下：网页区域伸到屏幕底（栏 + 导航栏那一段都交给网页）。
+    // WebView 随弹簧逐帧伸缩；Gecko 调整视口代价大（见上面 fixedContentTop 的说明），只在翻转时一次到位。
+    val bottomOverlapTarget = barLayout.reservesBottom && ui.barOverlap
+    val bottomOverlapAnim by animateFloatAsState(
+        targetValue = if (bottomOverlapTarget) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
+        label = "barOverlap",
+    )
+    // 网页区域为底栏保留的比例：1 = 全部保留（页面在栏上面结束），0 = 完全深入栏下。只在布局阶段读取
+    val bottomReserveFactor: () -> Float = {
+        val overlap = if (tab.isGecko) (if (bottomOverlapTarget) 1f else 0f) else bottomOverlapAnim
+        1f - overlap.coerceIn(0f, 1f)
+    }
     val contentBottomPx: androidx.compose.ui.unit.Density.() -> Int = {
-        (dockedBottomBody.toPx() * (1f - hide)).toInt()
+        (dockedBottomBody.toPx() * (1f - hide) * bottomReserveFactor()).toInt()
     }
 
     // 二级页面的返回（含预见性返回）由 NavDisplay 接管；这里只处理浏览主界面自己的返回。
@@ -650,6 +678,7 @@ fun BrowserScreen(
             nativeInset = nativeInset,
             contentTopPx = contentTopPx,
             contentBottomPx = contentBottomPx,
+            bottomReserveFactor = bottomReserveFactor,
             animatedTopPadding = { animatedTopPadding },
             pushPage = ::pushPage,
         )

@@ -12,6 +12,10 @@ import androidx.compose.runtime.LaunchedEffect
 internal fun BrowserUiState.BarAutoHideEffects(
     tab: BrowserTab,
     barFixed: Boolean,
+    /** 固定（停靠）栏所在的边；悬浮样式为 null */
+    dockedEdge: BarEdge?,
+    /** 停靠栏占掉网页区域的高度（像素；底栏含导航栏）。读取函数：取值依赖当前窗口 insets */
+    dockedBarPx: () -> Int,
 ) {
     // Gecko 视频全屏：应用自己的顶栏 / 底栏一并收起，退出全屏后恢复
     LaunchedEffect(tab.id, tab.geckoFullscreen) {
@@ -29,12 +33,16 @@ internal fun BrowserUiState.BarAutoHideEffects(
         if (barHidden && tab.url.isEmpty() && !tab.geckoFullscreen) barHidden = false
     }
 
-    // 切到「固定」立即把已收起的底栏显示出来（视频全屏除外）
+    // 切到「固定」立即把已收起的底栏显示出来（视频全屏除外）；离开固定样式则页面不再深入栏下
     LaunchedEffect(barFixed) {
-        if (barFixed) barHidden = tab.geckoFullscreen
+        if (barFixed) {
+            barHidden = tab.geckoFullscreen
+        } else {
+            barOverlap = false
+        }
     }
 
-    LaunchedEffect(tab.id, barFixed) {
+    LaunchedEffect(tab.id, barFixed, dockedEdge) {
         var last = 0
         var lastShow = 0
         var scrollDownAccum = 0f
@@ -45,9 +53,21 @@ internal fun BrowserUiState.BarAutoHideEffects(
                     barHidden = true
                     return@runCatching
                 }
-                // 固定模式：不做滚动隐藏
+                // 固定模式：不做滚动隐藏；但页面要随滚动位置深入 / 退出栏下（判定见 BarOverlap）。
+                // 主页（没有滚动）、视频全屏以外才判定；换页后偏移被重置，回到顶部自然恢复
                 if (barFixed) {
                     barHidden = false
+                    barOverlap = if (dockedEdge == null || tab.url.isEmpty()) {
+                        false
+                    } else {
+                        BarOverlap.next(
+                            edge = dockedEdge,
+                            overlapped = barOverlap,
+                            scrollY = tab.scrollOffsetY,
+                            remaining = tab.scrollRemainingY,
+                            barPx = dockedBarPx(),
+                        )
+                    }
                     return@runCatching
                 }
                 // 主页（页面被盖住）上：引擎里的页面可能还在惯性滚动 / 回调滚动事件，

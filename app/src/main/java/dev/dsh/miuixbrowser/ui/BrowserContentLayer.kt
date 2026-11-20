@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,10 +61,20 @@ internal fun BrowserUiState.BrowserContentLayer(
     contentTopPx: Density.() -> Int,
     /** 停靠在底部的栏占掉的高度（像素，不含导航栏；栏收起时归零）。读取函数：每帧都可能变，只在布局阶段读 */
     contentBottomPx: Density.() -> Int,
+    /** 网页区域为停靠底栏保留的比例（1 = 页面在栏上面结束，0 = 页面深入栏下）；连导航栏那一段一起缩放。读取函数：只在布局阶段读 */
+    bottomReserveFactor: () -> Float,
     animatedTopPadding: () -> Dp,
     pushPage: (AppRoute) -> Unit,
 ) {
     val homePadding = barLayout.style.homePadding(barLayout.edge)
+    val navBars = WindowInsets.navigationBars
+    val statusBars = WindowInsets.statusBars
+    // 加载进度条贴着停靠顶栏的下沿；页面深入栏下时 contentTopPx 归零，进度条不能跟着钻到栏后面去
+    val progressTopPx: Density.() -> Int = if (barLayout.reservesTop) {
+        { if (barHidden) contentTopPx() else statusBars.getTop(this) + barLayout.style.metrics.height.roundToPx() }
+    } else {
+        contentTopPx
+    }
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -77,10 +88,11 @@ internal fun BrowserUiState.BrowserContentLayer(
                 .then(if (editing) Modifier else Modifier.windowInsetsPadding(rememberImeTargetInsets()))
                 // 停靠在底部的栏：网页在栏上面结束。导航栏那一段算进栏里（栏的底板铺到屏幕边缘），
                 // 键盘弹出时键盘高度已经包含导航栏，windowInsetsPadding 只补差额，不会重复留白。
+                // 页面深入栏下时导航栏那一段也还给网页，所以它的留白要跟着 bottomReserveFactor 缩放。
                 .then(
                     if (barLayout.reservesBottom) {
                         Modifier
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .windowInsetsPadding(ScaledBottomInsets(navBars, bottomReserveFactor))
                             .bottomInsetPx(contentBottomPx)
                     } else {
                         Modifier
@@ -255,7 +267,7 @@ internal fun BrowserUiState.BrowserContentLayer(
                 progress = { tab.progress },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .topInsetPx(contentTopPx),
+                    .topInsetPx(progressTopPx),
             )
         }
     }
