@@ -1021,10 +1021,11 @@ class WebAppActivity : ComponentActivity() {
             } else {
                 runCatching {
                     startActivity(
-                        Intent(Intent.ACTION_VIEW, uri)
-                            .addCategory(Intent.CATEGORY_BROWSABLE)
-                            .setComponent(null)
-                            .setSelector(null),
+                        Intent(Intent.ACTION_VIEW, uri).apply {
+                            addCategory(Intent.CATEGORY_BROWSABLE)
+                            component = null
+                            selector = null
+                        },
                     )
                 }
             }
