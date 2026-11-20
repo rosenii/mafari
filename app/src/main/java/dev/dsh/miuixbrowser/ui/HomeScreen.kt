@@ -431,8 +431,9 @@ internal fun StartPage(
     incognito: Boolean = false,
     /** 首页顶部的 LOGO 标识 */
     showLogo: Boolean = true,
-    /** 底部导航栏被设为靠上：首页内容顶部让出栏的位置，底部不再留栏的空间 */
-    barOnTop: Boolean = false,
+    /** 首页内容的上 / 下内边距：为导航栏让出的空间由当前栏样式决定（[BarStyle.homePadding]） */
+    contentTopPadding: Dp = 44.dp,
+    contentBottomPadding: Dp = 150.dp,
     /** 「书签分组」卡片 */
     showGroups: Boolean = false,
     groups: List<HomeGroup> = emptyList(),
@@ -546,8 +547,8 @@ internal fun StartPage(
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp)
-                // 底栏在上方时（浮在状态栏下 ≈ 70dp）顶部让位，底部不用再留底栏的空间
-                .padding(top = if (barOnTop) 114.dp else 44.dp, bottom = if (barOnTop) 40.dp else 150.dp),
+                // 悬浮栏浮在内容上，首页要自己给栏让位；停靠栏已经把网页区域缩小了，只留普通呼吸空间（见 BarStyle.homePadding）
+                .padding(top = contentTopPadding, bottom = contentBottomPadding),
             // 外层 Column 的最小高度 = 视口高度（fillMaxSize + verticalScroll），所以固定时用排列方式把卡片推到底部
             verticalArrangement = when {
                 !pinned -> Arrangement.Top

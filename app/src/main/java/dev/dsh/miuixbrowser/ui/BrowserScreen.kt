@@ -253,9 +253,10 @@ fun BrowserScreen(
     val barMinimizedState = remember { mutableStateOf(settings.barPosition == BAR_POS_MINIMIZED) }
     var barMinimized by barMinimizedState
     // 「布局 → 导航栏位置」：顶部 / 底部 / 始终最小化（圆钮是常态，展开后一段时间无操作自动缩回）
-    val barOnTop = settings.barPosition == BAR_POS_TOP || settings.barPosition == BAR_POS_FIXED_TOP
+    // 位置选项 → 「边 + 样式」（悬浮胶囊 / 停靠平铺…，见 BarStyle.kt）：下面所有与栏有关的布局都向它查询
+    val barLayout = BarStyles.resolve(settings.barPosition)
     val alwaysMin = settings.barPosition == BAR_POS_MINIMIZED
-    // 固定在顶部 / 底部：不随滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边
+    // 固定在顶部 / 底部：不随滚动自动隐藏，也不响应滑动收起 / 缩成圆钮 / 换边；栏停靠在屏幕边缘，网页从栏的另一侧展开
     val barFixed = settings.barPosition == BAR_POS_FIXED_TOP || settings.barPosition == BAR_POS_FIXED_BOTTOM
     var showQuickPicker by ui::showQuickPicker
     var showGroupPicker by ui::showGroupPicker
@@ -465,8 +466,11 @@ fun BrowserScreen(
     val statusBarHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
         WindowInsets.statusBars.getTop(this).toDp()
     }
+    // 停靠在顶部的栏占掉网页区域顶部一段：网页从「状态栏 + 栏」下面开始，而不是被悬浮的栏盖住
+    val dockedTopBody = if (barLayout.reservesTop) barLayout.style.metrics.height else 0.dp
+    val topReserved = statusBarHeight + dockedTopBody
     val animatedTopPadding by animateDpAsState(
-        targetValue = if (barHidden) 0.dp else statusBarHeight,
+        targetValue = if (barHidden) 0.dp else topReserved,
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
         label = "statusInset",
     )
@@ -476,13 +480,14 @@ fun BrowserScreen(
     val fixedContentTop = tab.isGecko && !GeckoDebug.nativeImmersive
     // 只在布局阶段读取动画值（见 TopInset.kt）：滚动收起 / 回落的每一帧不再触发整个 BrowserScreen 重组
     val contentTopPx: androidx.compose.ui.unit.Density.() -> Int = {
-        if (fixedContentTop) statusBarHeight.roundToPx() else animatedTopPadding.coerceAtLeast(0.dp).roundToPx()
+        if (fixedContentTop) topReserved.roundToPx() else animatedTopPadding.coerceAtLeast(0.dp).roundToPx()
     }
     // Gecko 原生沉浸（仅网页状态；主页仍按普通留白排版）：GeckoView 占满内容区、尺寸恒定，
     // 状态栏留白用 offset 平移出来（只改位置、不触发 Gecko 重新布局），并把被推出屏幕的高度告诉 Gecko。
     val nativeInset = tab.isGecko && GeckoDebug.nativeImmersive && tab.url.isNotEmpty()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val statusBarPx = with(density) { statusBarHeight.roundToPx() }
+    // Gecko 原生沉浸的「最大可收起高度」：状态栏 + 停靠在顶部的栏
+    val statusBarPx = with(density) { topReserved.roundToPx() }
     LaunchedEffect(tab.id, nativeInset, statusBarPx) {
         if (!nativeInset) {
             tab.geckoApplyImmersive(0, 0)
@@ -501,6 +506,12 @@ fun BrowserScreen(
     // 弹簧动画每帧都会改 hide；直接在组合里比较 hide < 0.995f 会让整个 BrowserScreen 逐帧重组。
     // 包进 derivedStateOf 后只有「显示 / 不显示」这个结果翻转时才重组，位移 / 透明度仍在绘制阶段读取。
     val barVisible by remember { androidx.compose.runtime.derivedStateOf { !barHidden || hide < 0.995f } }
+    // 停靠在底部的栏占掉网页区域底部一段（不含导航栏，导航栏在内容层另算）；栏收起时随 hide 归零。
+    // 只在布局阶段读取 hide，避免弹簧动画逐帧重组。
+    val dockedBottomBody = if (barLayout.reservesBottom) barLayout.style.metrics.height else 0.dp
+    val contentBottomPx: androidx.compose.ui.unit.Density.() -> Int = {
+        (dockedBottomBody.toPx() * (1f - hide)).toInt()
+    }
 
     // 二级页面的返回（含预见性返回）由 NavDisplay 接管；这里只处理浏览主界面自己的返回。
     BackHandler(enabled = backStack.size <= 1 && !settings.onboardingPending && !onboardingReplay) {
@@ -631,10 +642,11 @@ fun BrowserScreen(
             wallpaperBackdrop = wallpaperBackdrop,
             wallpaperLiquidBackdrop = wallpaperLiquidBackdrop,
             startScroll = startScroll,
-            barOnTop = barOnTop,
+            barLayout = barLayout,
             quickRunner = quickRunner,
             nativeInset = nativeInset,
             contentTopPx = contentTopPx,
+            contentBottomPx = contentBottomPx,
             animatedTopPadding = { animatedTopPadding },
             pushPage = ::pushPage,
         )
@@ -671,7 +683,7 @@ fun BrowserScreen(
             clipboard = clipboard,
             focus = focus,
             haptic = haptic,
-            barOnTop = barOnTop,
+            barLayout = barLayout,
             alwaysMin = alwaysMin,
             barFixed = barFixed,
             displayAddress = displayAddress,

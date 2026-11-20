@@ -9,6 +9,8 @@ import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.Favorite
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,13 +54,16 @@ internal fun BrowserUiState.BrowserContentLayer(
     wallpaperBackdrop: MiuixLayerBackdrop,
     wallpaperLiquidBackdrop: com.kyant.backdrop.Backdrop,
     startScroll: ScrollState,
-    barOnTop: Boolean,
+    barLayout: BarLayout,
     quickRunner: MenuActionRunner,
     nativeInset: Boolean,
     contentTopPx: Density.() -> Int,
+    /** 停靠在底部的栏占掉的高度（像素，不含导航栏；栏收起时归零）。读取函数：每帧都可能变，只在布局阶段读 */
+    contentBottomPx: Density.() -> Int,
     animatedTopPadding: () -> Dp,
     pushPage: (AppRoute) -> Unit,
 ) {
+    val homePadding = barLayout.style.homePadding(barLayout.edge)
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -70,6 +75,17 @@ internal fun BrowserUiState.BrowserContentLayer(
                 // 注意：不能用 imePadding()——它每帧跟着键盘动画变化，Gecko 的 Surface 会在
                 // 动画期间被连续重排（窗口抖动）。这里用动画「目标」高度，只在动画开始时变一次。
                 .then(if (editing) Modifier else Modifier.windowInsetsPadding(rememberImeTargetInsets()))
+                // 停靠在底部的栏：网页在栏上面结束。导航栏那一段算进栏里（栏的底板铺到屏幕边缘），
+                // 键盘弹出时键盘高度已经包含导航栏，windowInsetsPadding 只补差额，不会重复留白。
+                .then(
+                    if (barLayout.reservesBottom) {
+                        Modifier
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .bottomInsetPx(contentBottomPx)
+                    } else {
+                        Modifier
+                    },
+                )
                 .topInsetPx { if (nativeInset) 0 else contentTopPx() },
         ) {
             key(tab.id) {
@@ -146,7 +162,8 @@ internal fun BrowserUiState.BrowserContentLayer(
                     blurEnabled = settings.blurEnabled,
                     favorites = homeFavEntries.map { it.second },
                     showLogo = settings.homeShowLogo,
-                    barOnTop = barOnTop,
+                    contentTopPadding = homePadding.top,
+                    contentBottomPadding = homePadding.bottom,
                     showFavorites = settings.homeShowFavorites,
                     favRows = settings.homeFavRows,
                     favGrid = settings.homeFavGrid,

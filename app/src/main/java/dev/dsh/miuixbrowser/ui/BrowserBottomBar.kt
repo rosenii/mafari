@@ -100,6 +100,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -279,6 +280,58 @@ internal fun Modifier.glassBar(
     )
 }
 
+/**
+ * 停靠样式的底板：平铺到屏幕边缘的整宽玻璃条，直角、无外框，只在与网页相接的那一侧画一条发丝线。
+ * 与 [glassBar] 同一套取样 / 回退逻辑（液态玻璃 → MIUIX 玻璃 → 纯色），只是形状和描边不同。
+ * 液态玻璃模式下不用透镜折射（整宽直条的边缘折射会很怪），只做模糊 + 轻微着色。
+ * [edge] 是栏所在的屏幕边：发丝线画在靠网页的一侧（栏在顶部 → 底边；栏在底部 → 顶边）。
+ */
+@Composable
+internal fun Modifier.flatBarSurface(
+    edge: BarEdge,
+    backdrop: LayerBackdrop?,
+    blurEnabled: Boolean = true,
+    textureBlurEnabled: Boolean = true,
+    liquid: com.kyant.backdrop.Backdrop? = null,
+): Modifier {
+    val dark = isAppDarkTheme()
+    val surfaceColor = MiuixTheme.colorScheme.surface
+    val lineColor = MiuixTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.14f else 0.10f)
+    val divider = Modifier.drawBehind {
+        val h = 1.dp.toPx()
+        val y = if (edge == BarEdge.Top) size.height - h / 2f else h / 2f
+        drawLine(color = lineColor, start = Offset(0f, y), end = Offset(size.width, y), strokeWidth = h)
+    }
+    if (liquid != null && blurEnabled && textureBlurEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        return this.drawBackdrop(
+            backdrop = liquid,
+            shape = { RectangleShape },
+            effects = {
+                vibrancy()
+                backdropBlur(10f.dp.toPx())
+            },
+            onDrawSurface = { drawRect(surfaceColor.copy(alpha = if (dark) 0.62f else 0.72f)) },
+        ).then(divider)
+    }
+    val canUseGlass = blurEnabled && textureBlurEnabled && backdrop != null &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    // 平铺的栏不再是「浮在内容上的小件」，而是页面的一部分：底板比胶囊更不透明，网页文字不会透出来干扰
+    val tint = when {
+        !blurEnabled -> Brush.verticalGradient(listOf(surfaceColor.copy(alpha = 0.98f), surfaceColor.copy(alpha = 0.98f)))
+        dark -> Brush.verticalGradient(listOf(Color(0xF52B2B31), Color(0xF51A1A20)))
+        else -> Brush.verticalGradient(listOf(Color(0xF5FFFFFF), Color(0xF5EEF0F5)))
+    }
+    return this.glassPanel(
+        backdrop = if (canUseGlass) backdrop else null,
+        shape = GlassShape(0.dp),
+        style = GlassLook.style(dark),
+        material = if (canUseGlass) GlassLook.material(dark) else null,
+        stroke = null,
+        shading = GlassLook.shading(),
+        fallback = Modifier.background(tint, RectangleShape),
+    ).then(divider)
+}
+
 @Composable
 internal fun BottomBar(
     liquid: com.kyant.backdrop.Backdrop? = null,
@@ -320,6 +373,10 @@ internal fun BottomBar(
     /** 正显示原文：图标变灰；译文时是主题色 */
     translateOriginal: Boolean = false,
     onTranslateToggle: () -> Unit = {},
+    /** 导航栏样式的尺寸参数（高度 / 圆角 / 按钮大小…）；默认是悬浮胶囊的尺寸 */
+    metrics: BarMetrics = BarStyles.FloatingCapsule.metrics,
+    /** false = 底板由外层通过 [BarStyle.surface] 画（停靠样式的底板要铺到状态栏 / 导航栏下面），这里只放按钮 */
+    drawSurface: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(29.dp)
@@ -343,34 +400,37 @@ internal fun BottomBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp),
+            .height(metrics.height),
     ) {
         // 空玻璃底板与按钮内容分层，避免 backdrop 采集层递归包含自身。
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .glassBar(
-                    backdrop = backdrop,
-                    corner = 29.dp,
-                    blurEnabled = blurEnabled,
-                    textureBlurEnabled = textureBlurEnabled,
-                    liquid = liquid,
-                ),
-        )
+        if (drawSurface) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .glassBar(
+                        backdrop = backdrop,
+                        corner = metrics.corner,
+                        blurEnabled = blurEnabled,
+                        textureBlurEnabled = textureBlurEnabled,
+                        liquid = liquid,
+                    ),
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxSize()
                 // 不裁剪内容层：按钮的柔光投影需要向按钮边缘外自然扩散。
-                .padding(horizontal = 6.dp),
+                .padding(horizontal = metrics.contentPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PressIcon(icon = MiuixIcons.Glass.Back, description = tr("后退"), enabled = canGoBack, onClick = onBack)
+            PressIcon(icon = MiuixIcons.Glass.Back, description = tr("后退"), enabled = canGoBack, buttonSize = metrics.buttonSize, onClick = onBack)
             if (canGoForward) {
                 PressIcon(
                     icon = MiuixIcons.Glass.Back,
                     description = tr("前进"),
                     enabled = true,
                     flip = true,
+                    buttonSize = metrics.buttonSize,
                     onClick = onForward,
                 )
             } else {
@@ -378,6 +438,7 @@ internal fun BottomBar(
                     icon = MiuixIcons.Home,
                     description = tr("主页"),
                     enabled = true,
+                    buttonSize = metrics.buttonSize,
                     onClick = onHome,
                 )
             }
@@ -385,8 +446,8 @@ internal fun BottomBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
-                    .squircleClip(20.dp)
+                    .height(metrics.addressHeight)
+                    .squircleClip(metrics.addressCorner)
                     .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f))
                     // 编辑中不挂点击 / 长按复制：长按要留给输入框（放大镜、选词、拖动光标），而不是复制网址
                     .then(
@@ -448,8 +509,8 @@ internal fun BottomBar(
                 }
             }
 
-            TabIcon(count = tabCount, onClick = onTabs, onLongClick = onNewTab)
-            PressIcon(icon = MiuixIcons.Glass.More, description = tr("更多"), onClick = onMore)
+            TabIcon(count = tabCount, buttonSize = metrics.buttonSize, onClick = onTabs, onLongClick = onNewTab)
+            PressIcon(icon = MiuixIcons.Glass.More, description = tr("更多"), buttonSize = metrics.buttonSize, onClick = onMore)
         }
     }
 }
@@ -537,7 +598,7 @@ internal fun CountBadge(count: Int, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun TabIcon(count: Int, onClick: () -> Unit, onLongClick: () -> Unit) {
+internal fun TabIcon(count: Int, onClick: () -> Unit, onLongClick: () -> Unit, buttonSize: Dp = 44.dp) {
     val haptic = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -549,7 +610,7 @@ internal fun TabIcon(count: Int, onClick: () -> Unit, onLongClick: () -> Unit) {
     val color = MiuixTheme.colorScheme.onSurface
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(buttonSize)
             .clip(CircleShape)
             .combinedClickable(
                 interactionSource = interaction,
@@ -602,6 +663,7 @@ internal fun PressIcon(
     description: String,
     enabled: Boolean = true,
     flip: Boolean = false,
+    buttonSize: Dp = 44.dp,
     onClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -619,7 +681,7 @@ internal fun PressIcon(
     }
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(buttonSize)
             .clip(CircleShape)
             .clickable(
                 interactionSource = interaction,
