@@ -179,6 +179,30 @@ class MessageBrokerTest {
         assertEquals("answer", r.await())
     }
 
+    @Test fun declinedContextDoesNotBeatTheContextThatActuallyAnswers() = runBlocking {
+        val ids = ArrayDeque(listOf("c1", "c2"))
+        val b = MessageBroker(timeoutMs = 5000, newCid = { ids.removeFirst() })
+        b.register(Ep("bg"))
+        b.register(Ep("options"))
+        val r = async { b.sendMessage(ctx(csSender()), null, "q") }
+        yield()
+        // options 页有监听器但不处理这条消息：不能当成「回复了 undefined」抢答
+        b.reply(TestExt.ID, "c1", null, noReceiver = false, declined = true)
+        yield()
+        assertFalse(r.isCompleted)
+        b.reply(TestExt.ID, "c2", "real", false)
+        assertEquals("real", r.await())
+    }
+
+    @Test fun allContextsDecliningResolvesUndefinedLikeBrowsers() = runBlocking {
+        val b = MessageBroker(timeoutMs = 5000, newCid = { "c1" })
+        b.register(Ep("bg"))
+        val r = async { b.sendMessage(ctx(csSender()), null, "q") }
+        yield()
+        b.reply(TestExt.ID, "c1", null, noReceiver = false, declined = true)
+        assertNull(r.await())
+    }
+
     @Test fun anExtensionCannotAnswerAnotherExtensionsMessage() = runBlocking {
         val b = MessageBroker(timeoutMs = 300, newCid = { "c1" })
         b.register(Ep("bg"))

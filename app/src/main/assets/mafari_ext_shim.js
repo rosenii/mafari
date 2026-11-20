@@ -21,7 +21,7 @@ function (CFG, ENTRIES) {
   function rpc(api, args) {
     return new P(function (resolve, reject) {
       var id = String(nextId++);
-      pending[id] = { resolve: resolve, reject: reject };
+      pending[id] = { resolve: resolve, reject: reject, api: api, t: DN() };
       try {
         post(jstr({ extId: CFG.extId, id: id, api: api, args: args || [] }));
       } catch (e) {
@@ -30,6 +30,21 @@ function (CFG, ENTRIES) {
       }
     });
   }
+
+  // 诊断：某个原生调用 8 秒还没回来，往控制台警告一次（会进拓展诊断日志），用来定位把后台页卡住的 API。
+  (function watchPending() {
+    ST(function () {
+      var now = DN();
+      OK(pending).forEach(function (k) {
+        var p = pending[k];
+        if (p && !p.warned && p.api !== 'runtime.reply' && now - p.t > 8000) {
+          p.warned = 1;
+          try { win.console.warn('[mafari] 调用 ' + p.api + ' 已等待超过 8 秒仍未返回'); } catch (e) { }
+        }
+      });
+      watchPending();
+    }, 4000);
+  })();
 
   // ───────────── 事件 ─────────────
   var L = {};
@@ -43,6 +58,10 @@ function (CFG, ENTRIES) {
         var a = L[name] = L[name] || [];
         if (typeof f !== 'function' || a.indexOf(f) >= 0) return;
         a.push(f);
+        if (name === 'runtime.onMessage' && MSGQ.length) {
+          var mq = MSGQ; MSGQ = [];
+          ST(function () { mq.forEach(deliverMessage); }, 0);
+        }
         var q = BUF[name];
         if (q && q.length) {
           delete BUF[name];
@@ -138,16 +157,47 @@ function (CFG, ENTRIES) {
   }
   bridge.onmessage = function (e) { onNative(e && e.data); };
 
-  // runtime.onMessage 的投递与回复：监听器返回 true / Promise 表示异步回复
+  // runtime.onMessage 的投递与回复：监听器返回 true / Promise 表示异步回复。
+  // 两点与浏览器一致：
+  // 1) 监听器还没注册（后台页脚本异步初始化）时，消息先排队等一等，而不是立刻回「没有接收端」；
+  // 2) 监听器都没有处理这条消息（既没 return true / Promise，也没同步 sendResponse）时，不能当成「回复了 undefined」，
+  //    否则会抢在真正处理它的上下文之前把空回复送回去（popup 里表现为 undefined is not iterable）。
+  var MSGQ = [], MSG_WAIT_MS = 8000, msgTimer = false;
+  function msgTag(msg) {
+    try {
+      if (msg && typeof msg === 'object') {
+        var v = msg.cmd || msg.type || msg.method || msg.action || msg.name;
+        return typeof v === 'string' ? v.slice(0, 40) : OK(msg).slice(0, 4).join(',');
+      }
+    } catch (e) { }
+    return typeof msg;
+  }
+  function sendReply(cid, v, opts) {
+    rpc('runtime.reply', [cid, v === undefined ? null : v, opts || null]).catch(function () { });
+  }
+  function expireQueued() {
+    msgTimer = false;
+    var q = MSGQ; MSGQ = [];
+    q.forEach(function (m) { sendReply(m.cid, undefined, { noReceiver: true }); });
+  }
   function deliverMessage(m) {
     var listeners = (L['runtime.onMessage'] || []).slice();
     var done = false;
-    function reply(v, noReceiver) {
+    function reply(v, opts) {
       if (done) return;
       done = true;
-      rpc('runtime.reply', [m.cid, v === undefined ? null : v, noReceiver ? { noReceiver: true } : null]).catch(function () { });
+      sendReply(m.cid, v, opts);
     }
-    if (!listeners.length) { reply(undefined, true); return; }
+    if (!listeners.length) {
+      var left = MSG_WAIT_MS - (DN() - T0);
+      if (left > 0) {
+        MSGQ.push(m);
+        if (!msgTimer) { msgTimer = true; ST(expireQueued, left + 50); }
+        return;
+      }
+      reply(undefined, { noReceiver: true });
+      return;
+    }
     var async = false;
     listeners.forEach(function (f) {
       var r;
@@ -155,7 +205,10 @@ function (CFG, ENTRIES) {
       if (r === true) async = true;
       else if (r && typeof r.then === 'function') { async = true; r.then(function (v) { reply(v); }, function () { reply(undefined); }); }
     });
-    if (!async) reply(undefined);
+    if (!async) reply(undefined, { declined: true });
+    else ST(function () {
+      if (!done) { try { win.console.warn('[mafari] runtime.onMessage 异步监听器 8 秒未回复: ' + msgTag(m.message)); } catch (e) { } }
+    }, 8000);
   }
 
   // runtime.connect / Port。Port 在 JS 侧同步返回；底层连接异步建立，建立前 postMessage 会排队。

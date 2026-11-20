@@ -53,6 +53,8 @@ class MessageBroker(
         val cids = HashSet<String>()
         var outstanding = 0
         var sealed = false
+        /** 有上下文有监听器但选择不处理这条消息（浏览器里等同于「没人回复」，不是回复 undefined） */
+        var declined = false
     }
 
     /** One caller-side Port can be observed by every live extension page context. */
@@ -218,7 +220,17 @@ class MessageBroker(
         if (targets.isEmpty()) {
             log("ext $extId runtime.sendMessage from ${ctx.sender.kind.name.lowercase()}: no extension page online — 后台页没启动 / 启动时抛错 / 还没握手完成")
         }
+        if (targets.isNotEmpty()) {
+            log("ext $extId runtime.sendMessage from ${ctx.sender.kind.name.lowercase()} → ${targets.joinToString { it.contextId.take(6) + ":" + pageLabel(it) }}")
+        }
         return deliverAndAwait(extId, targets, message, senderJson(ctx))
+    }
+
+    private fun pageLabel(ep: MessageEndpoint): String = when (ep.portPriority) {
+        100 -> "background"
+        50 -> "popup"
+        10 -> "options"
+        else -> "page"
     }
 
     /** tabs.sendMessage：只投递到指定标签里已经注册的 content script，不广播到其它标签。 */
@@ -261,11 +273,15 @@ class MessageBroker(
         }
         synchronized(state) {
             state.sealed = true
-            if (state.outstanding == 0 && !state.result.isCompleted) state.result.completeExceptionally(noReceiver())
+            completeIfNoneLeft(state)
         }
         try {
             return withTimeoutOrNull(timeoutMs) { state.result.await() }?.value
-                ?: if (state.result.isCompleted) state.result.await().value else throw ApiException(ErrorCodes.TIMEOUT, "没有收到回复")
+                ?: if (state.result.isCompleted) state.result.await().value else {
+                    val waiting = synchronized(state) { state.cids.size }
+                    log("ext $extId runtime.sendMessage timeout: ${targets.joinToString { pageLabel(it) }} 都没有回复（$waiting 个目标还没表态）—— 看对应页面的 console 警告")
+                    throw ApiException(ErrorCodes.TIMEOUT, "没有收到回复")
+                }
         } catch (e: ApiException) {
             throw e
         } finally {
@@ -275,11 +291,11 @@ class MessageBroker(
     }
 
     /** `runtime.reply`：页面把 onMessage 的结果送回来。[noReceiver] 表示该上下文没有监听器 */
-    fun reply(extId: String, cid: String, value: Any?, noReceiver: Boolean) {
+    fun reply(extId: String, cid: String, value: Any?, noReceiver: Boolean, declined: Boolean = false) {
         val state = pending[cid] ?: return
         if (state.extId != extId) return
-        if (noReceiver) {
-            settleWithoutReply(cid)
+        if (noReceiver || declined) {
+            settleWithoutReply(cid, declined = declined && !noReceiver)
             return
         }
         if (pending.remove(cid) == null) return
@@ -287,14 +303,19 @@ class MessageBroker(
         state.result.complete(Reply(value))
     }
 
-    private fun settleWithoutReply(cid: String) {
+    private fun settleWithoutReply(cid: String, declined: Boolean = false) {
         val state = pending.remove(cid) ?: return
         synchronized(state) {
+            if (declined) state.declined = true
             if (state.cids.remove(cid)) state.outstanding--
-            if (state.sealed && state.outstanding == 0 && !state.result.isCompleted) {
-                state.result.completeExceptionally(noReceiver())
-            }
+            if (state.sealed) completeIfNoneLeft(state)
         }
+    }
+
+    /** 所有目标都已表态且没有真正的回复：有人「选择不处理」→ 与浏览器一样 resolve undefined；否则 NO_RECEIVER。调用方需持有 state 锁 */
+    private fun completeIfNoneLeft(state: Pending) {
+        if (state.outstanding != 0 || state.result.isCompleted) return
+        if (state.declined) state.result.complete(Reply(null)) else state.result.completeExceptionally(noReceiver())
     }
 
     fun register(router: ApiRouter) {
@@ -303,7 +324,11 @@ class MessageBroker(
         router.register("runtime.reply") { ctx, a ->
             val cid = a.argOrNull(0) as? String ?: throw ApiException(ErrorCodes.BAD_REQUEST, "reply 需要 cid")
             val opts = a.argOrNull(2) as? JSONObject
-            reply(ctx.ext.spec.id, cid, a.argOrNull(1), opts?.optBoolean("noReceiver", false) == true)
+            reply(
+                ctx.ext.spec.id, cid, a.argOrNull(1),
+                noReceiver = opts?.optBoolean("noReceiver", false) == true,
+                declined = opts?.optBoolean("declined", false) == true,
+            )
             null
         }
     }
