@@ -16,7 +16,7 @@ object ManifestParser {
     /** 当前运行时完全没有的 manifest 顶层字段 */
     private val UNSUPPORTED_KEYS = listOf(
         "chrome_url_overrides", "commands", "devtools_page", "sidebar_action", "side_panel",
-        "omnibox", "externally_connectable", "declarative_net_request", "theme", "chrome_settings_overrides",
+        "omnibox", "externally_connectable", "theme", "chrome_settings_overrides",
     )
 
     fun parse(json: String, id: String, root: File? = null): ExtensionSpec {
@@ -130,6 +130,7 @@ object ManifestParser {
         }
 
         for (k in UNSUPPORTED_KEYS) if (m.has(k)) compat.add(CompatIssue("manifest:$k", SupportLevel.NONE))
+        if (m.has("declarative_net_request")) compat.add(CompatIssue("manifest:declarative_net_request", SupportLevel.PARTIAL, "动态规则 API 已支持；静态规则集暂未加载"))
 
         val gecko = (m.optJSONObject("browser_specific_settings") ?: m.optJSONObject("applications"))
             ?.optJSONObject("gecko")?.optString("id")?.ifEmpty { null }

@@ -62,9 +62,24 @@ interface TabBridge {
      * 在标签的主框架里执行一段 JS（供 scripting.executeScript / insertCSS 等使用）。
      * 返回 `evaluateJavascript` 给的 JSON 文本（页面返回 undefined / null 时是字符串 "null"）；
      * 标签不存在、页面不可执行（主页、错误页）时返回 null。
-     * 限制：只能进主框架、只能在页面世界执行（WebView 没有隔离世界），子框架注入要走 document-start 脚本，不走这里。
+     * 限制：只能进主框架、只能在页面世界执行，子框架注入要走 document-start 脚本，不走这里。
+     * 需要隔离世界请用 [evaluateInIsolatedWorld]。
      */
     suspend fun evaluate(tabId: Int, js: String): String?
+
+    /**
+     * 在拓展 [extId] 自己的隔离世界里对标签主框架执行一段 JS：该世界的全局（含 browser / chrome）页面脚本看不到，
+     * 也不会和页面的全局变量互相覆盖。语义同 [evaluate]，结果也是 `evaluateJavascript` 风格的 JSON 文本。
+     *
+     * 不是所有页面都有这个世界：只有该拓展的 ISOLATED content script 已经在这个标签的主框架里跑起来时才有入口。
+     * 没有入口返回 [WorldEval.Unavailable]（**什么也没执行**），由调用方决定是否降级到页面世界的 [evaluate]。
+     * 默认实现恒为 Unavailable（不支持隔离世界的桥接 / 测试替身）。
+     */
+    suspend fun evaluateInIsolatedWorld(extId: String, tabId: Int, js: String): WorldEval = WorldEval.Unavailable
+
+    /** Capture the currently visible WebView viewport as a PNG/JPEG data URL. */
+    suspend fun captureVisibleTab(format: String = "png", quality: Int = 90): String =
+        throw ApiException(ErrorCodes.UNSUPPORTED, "captureVisibleTab 暂不可用")
 
     /** 同一个监听器重复添加只生效一次 */
     fun addListener(listener: TabEventListener)
@@ -148,4 +163,13 @@ interface TabEventListener {
 
     /** [previousTabId] 为 null 表示之前没有前台标签（或它已被关闭） */
     fun onActivated(tabId: Int, previousTabId: Int?) {}
+}
+
+/** [TabBridge.evaluateInIsolatedWorld] 的结果 */
+sealed interface WorldEval {
+    /** 此刻没有可用的隔离世界入口，脚本没有被执行 */
+    data object Unavailable : WorldEval
+
+    /** 脚本已发往隔离世界；[raw] 同 [TabBridge.evaluate]（出错 / 帧已销毁 / 超时为 null） */
+    class Done(val raw: String?) : WorldEval
 }

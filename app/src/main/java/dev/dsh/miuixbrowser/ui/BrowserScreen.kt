@@ -119,8 +119,11 @@ fun BrowserScreen(
     // WebView 拓展的 tabs / scripting 要操作真实标签：界面建好后把标签桥接接到拓展系统上，界面销毁时摘掉。
     // 摘桥接时按身份比对：界面重建时旧界面晚到的 onDispose 不会把新界面刚接上的桥接摘掉
     DisposableEffect(state, context) {
-        val bridge = BrowserStateTabBridge(state)
         val extSystem = context.appContainer.webExtensions
+        // scripting.executeScript 的 ISOLATED 世界：借标签页宿主里该拓展的隔离世界桥执行（见 WebViewExtensionHost.executeInIsolatedWorld）
+        val bridge = BrowserStateTabBridge(state) { extId, tabId, js, done ->
+            extSystem.tabHost.executeInIsolatedWorld(extId, tabId, js, done)
+        }
         extSystem.attachTabs(bridge)
         val permissionPrompt = ExtensionPermissionPrompt { ext, permissions, origins ->
             withContext(Dispatchers.Main.immediate) {

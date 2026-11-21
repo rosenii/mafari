@@ -31,7 +31,18 @@ class FakeTabBridge(private val maxTabs: Int = 100) : TabBridge {
     /** 设置后 [evaluate] 交给它处理（参数：tabId、脚本），返回 evaluateJavascript 的原始结果文本 */
     var evalHandler: ((Int, String) -> String?)? = null
 
+    /** [evaluateInIsolatedWorld] 收到的 (extId, tabId, js)；未设置 [isolatedHandler] 时恒回 Unavailable */
+    val isolatedEvaluated = ArrayList<Triple<String, Int, String>>()
+    var isolatedHandler: ((String, Int, String) -> WorldEval)? = null
+
+    override suspend fun evaluateInIsolatedWorld(extId: String, tabId: Int, js: String): WorldEval {
+        isolatedEvaluated.add(Triple(extId, tabId, js))
+        return isolatedHandler?.invoke(extId, tabId, js) ?: WorldEval.Unavailable
+    }
+
     val reloads = ArrayList<Pair<Int, Boolean>>()
+    var capturedDataUrl: String = "data:image/png;base64,dGVzdA=="
+    var lastCapture: Pair<String, Int>? = null
 
     private fun snapshot(e: Entry) = TabInfo(
         id = e.id,
@@ -154,6 +165,11 @@ class FakeTabBridge(private val maxTabs: Int = 100) : TabBridge {
         evaluated.add(tabId to js)
         evalHandler?.let { return it(tabId, js) }
         return evalResults[tabId] ?: "null"
+    }
+
+    override suspend fun captureVisibleTab(format: String, quality: Int): String {
+        lastCapture = format to quality
+        return capturedDataUrl.replace("image/png", if (format == "jpeg") "image/jpeg" else "image/png")
     }
 
     override fun addListener(listener: TabEventListener) {

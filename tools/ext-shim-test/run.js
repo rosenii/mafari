@@ -80,6 +80,47 @@ test('bridge global is deleted from the page after capture', () => {
   assert.strictEqual(env.sandbox[BRIDGE], undefined);
 });
 
+test('mainWorld: runs without a bridge, never talks to native, gets the page\'s own chrome/browser', () => {
+  const env = makeEnv();
+  delete env.sandbox[BRIDGE];
+  env.sandbox.chrome = { pageOwn: 1 };
+  env.run(assemble({ mainWorld: true }, entry(['window.seen = typeof browser + \':\' + (chrome && chrome.pageOwn)'])));
+  assert.strictEqual(env.sandbox.seen, 'undefined:1');
+  assert.strictEqual(env.posted.length, 0);
+  assert.strictEqual(env.sandbox.browser, undefined);
+});
+
+test('mainWorld: match / exclude / run_at / css still apply', () => {
+  let env = makeEnv({ href: 'https://b.com/' });
+  const only = { s: ['https'], h: 'a.com', sub: false, p: null, r: null };
+  delete env.sandbox[BRIDGE];
+  env.run(assemble({ mainWorld: true }, entry(['window.hit = 1'], { m: [only] })));
+  assert.strictEqual(env.sandbox.hit, undefined);
+
+  env = makeEnv();
+  delete env.sandbox[BRIDGE];
+  env.run(assemble({ mainWorld: true }, entry(['window.hit = 1'], { at: 'document_end', css: ['a{}'] })));
+  assert.strictEqual(env.sandbox.hit, undefined);
+  env.fireDoc('DOMContentLoaded');
+  assert.strictEqual(env.sandbox.hit, 1);
+  assert.strictEqual(env.appended.length, 1);
+});
+
+test('isolatedWorld: browser/chrome become globals of that world (so scripting.executeScript code can use them)', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ isolatedWorld: true, tabId: 7 }), entry([''])));
+  assert.strictEqual(typeof env.sandbox.chrome.runtime.sendMessage, 'function');
+  assert.strictEqual(typeof env.sandbox.browser.storage.local.get, 'function');
+  assert.strictEqual(env.sandbox[BRIDGE], undefined);
+});
+
+test('legacy page-world mode still keeps browser/chrome out of the page globals', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ tabId: 7 }), entry([''])));
+  assert.strictEqual(env.sandbox.chrome, undefined);
+  assert.strictEqual(env.sandbox.browser, undefined);
+});
+
 test('does nothing when the bridge is missing', () => {
   const env = makeEnv();
   delete env.sandbox[BRIDGE];
@@ -241,6 +282,21 @@ test('tabs.sendMessage forwards tabId, message and options to the native router'
   assert.strictEqual(await p, 'pong');
 });
 
+test('tabs.captureVisibleTab supports options and window overloads', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true }), '[]'));
+  const p1 = env.sandbox.browser.tabs.captureVisibleTab({ format: 'jpeg', quality: 65 });
+  const c1 = env.posted.find((x) => x.api === 'tabs.captureVisibleTab');
+  assert.deepStrictEqual(c1.args, [{ format: 'jpeg', quality: 65 }]);
+  env.native({ id: c1.id, ok: true, result: 'data:image/jpeg;base64,AA==' });
+  assert.strictEqual(await p1, 'data:image/jpeg;base64,AA==');
+  const p2 = env.sandbox.chrome.tabs.captureVisibleTab(1, { format: 'png' });
+  const c2 = env.posted.filter((x) => x.api === 'tabs.captureVisibleTab')[1];
+  assert.deepStrictEqual(c2.args, [1, { format: 'png' }]);
+  env.native({ id: c2.id, ok: true, result: 'data:image/png;base64,AA==' });
+  assert.strictEqual(await p2, 'data:image/png;base64,AA==');
+});
+
 test('tabs duplicate and move forward to native handlers', async () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true }), entry([
@@ -261,6 +317,13 @@ test('content-script mode handshakes only when installed for a browser tab', () 
   assert.ok(env.posted.some((x) => x.api === 'runtime.hello'));
 });
 
+test('tabs.onHighlighted dispatches Chrome highlightInfo payload', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true }), entry(['browser.tabs.onHighlighted.addListener(function (info) { window.highlighted = info; });'])));
+  env.native({ event: 'tabs.onHighlighted', payload: { highlightInfo: { tabIds: [7], windowId: 1 } } });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.highlighted)), { tabIds: [7], windowId: 1 });
+});
+
 test('runtime.onMessage: sync, return true + sendResponse, promise, and no listener', async () => {
   // 没有监听器
   let env = makeEnv();
@@ -268,11 +331,17 @@ test('runtime.onMessage: sync, return true + sendResponse, promise, and no liste
   env.native({ type: 'message', cid: 'c0', message: 'x' });
   assert.deepStrictEqual(env.posted[0].args, ['c0', null, { noReceiver: true }]);
 
-  // 同步监听器没有返回 true：立即回 undefined
+  // 监听器收到消息但没有回复：按 NO_RECEIVER 处理，不伪造成功的 undefined
   env = makeEnv();
   env.run(assemble(cfg(), entry(['browser.runtime.onMessage.addListener(function () { });'])));
   env.native({ type: 'message', cid: 'c1', message: 'x' });
-  assert.deepStrictEqual(env.posted[0].args, ['c1', null, null]);
+  assert.deepStrictEqual(env.posted[0].args, ['c1', null, { noReceiver: true }]);
+
+  // 同步 sendResponse：即使监听器没有 return true，也立即完成回复
+  env = makeEnv();
+  env.run(assemble(cfg(), entry(['browser.runtime.onMessage.addListener(function (m, s, send) { send("sync-answer"); });'])));
+  env.native({ type: 'message', cid: 'cSync', message: 'x' });
+  assert.deepStrictEqual(env.posted[0].args, ['cSync', 'sync-answer', null]);
 
   // return true + 稍后 sendResponse
   env = makeEnv();
@@ -294,6 +363,20 @@ test('runtime.onMessage: sync, return true + sendResponse, promise, and no liste
   env.native({ type: 'message', cid: 'c3', message: 'hi' });
   await tick();
   assert.deepStrictEqual(env.posted[0].args, ['c3', { echo: 'hi' }, null]);
+});
+
+test('MV3 offscreen namespace is permission gated and exposes lifecycle methods', async () => {
+  let env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1' } }), entry([''])));
+  assert.strictEqual(env.sandbox.browser.offscreen, undefined);
+
+  env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['offscreen'] } }), entry([''])));
+  assert.strictEqual(typeof env.sandbox.browser.offscreen.createDocument, 'function');
+  assert.strictEqual(typeof env.sandbox.chrome.offscreen.closeDocument, 'function');
+  env.sandbox.browser.offscreen.hasDocument();
+  await tick();
+  assert.ok(env.posted.some((p) => p.api === 'offscreen.hasDocument'));
 });
 
 test('getManifest is synchronous and returns a fresh copy; getURL and platform', async () => {
@@ -371,6 +454,29 @@ test('webRequest exposes filtered onBeforeRequest and registers/removes listener
   assert.ok(remove);
   assert.strictEqual(remove.args[0], add.args[1]);
   await tick();
+});
+
+test('webRequest blocking listener returns cancel / redirect decisions to native', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 2, name: 'Demo', version: '1', permissions: ['webRequest', 'webRequestBlocking', 'https://*.example.com/*'] } }), entry([
+    'window.listener = function () { return { cancel: true }; };' +
+    'browser.webRequest.onBeforeRequest.addListener(window.listener, { urls: ["https://*.example.com/*"] }, ["blocking"]);'
+  ])));
+  const add = env.posted.find(x => x.api === 'webRequest.addListener');
+  assert.ok(add);
+  assert.deepStrictEqual(Array.from(add.args[3]), ['blocking']);
+  env.native({ event: 'webRequest.onBeforeRequest', payload: { url: 'https://cdn.example.com/a.js', listenerTokens: [add.args[1]], blockingToken: 'wrb-test' } });
+  const resolve = env.posted.find(x => x.api === 'webRequest.resolveBlocking');
+  assert.ok(resolve);
+  assert.strictEqual(resolve.args[0], 'wrb-test');
+  assert.strictEqual(resolve.args[1].cancel, true);
+  await tick();
+});
+
+test('Mafari native userscripts API is exposed only to pages declaring mafariScripts', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'Demo', version: '1', permissions: ['mafariScripts'] } }), entry([''])));
+  assert.ok(env.sandbox.browser['mafari'].userscripts.getAll);
 });
 
 test('webRequest main-frame terminal events register and dispatch independently', async () => {
@@ -752,7 +858,7 @@ test('scripting.insertCSS / removeCSS: css / files / target only', () => {
   s.removeCSS({ target: { tabId: 3 }, files: ['x.css'] });
   const calls = env.posted.filter((p) => p.api && p.api.startsWith('scripting.')).map((p) => [p.api, p.args]);
   assert.deepStrictEqual(calls, [
-    ['scripting.insertCSS', [{ target: { tabId: 3 }, css: 'a{}' }]],
+    ['scripting.insertCSS', [{ target: { tabId: 3 }, css: 'a{}', origin: 'USER' }]],
     ['scripting.removeCSS', [{ target: { tabId: 3 }, files: ['x.css'] }]],
   ]);
 });
@@ -961,7 +1067,7 @@ for (const [label, perms] of [['uBlock Origin', UBO_PERMS], ['Tampermonkey', TM_
         browser.browserAction.onClicked.addListener(f);
         browser.browserAction.setIcon({ path: 'x.png' }); browser.browserAction.setBadgeTextColor({ color: 'white' });
         browser.runtime.onSuspend.addListener(f); browser.runtime.onMessageExternal.addListener(f);
-        browser.runtime.setUninstallURL('https://x');
+        browser.runtime.setUninstallURL('https://x').catch(f);
         browser.tabs.onReplaced.addListener(f); browser.tabs.onAttached.addListener(f);
         browser.windows.onFocusChanged.addListener(f); browser.windows.getCurrent(); chrome.windows.getAll({ populate: true }, f);
         browser.storage.managed.get().catch(f);
@@ -994,11 +1100,11 @@ test('methods the host cannot do reject with UNSUPPORTED instead of throwing syn
   env.run(assemble(cfg({ page: true, manifest: { manifest_version: 2, name: 'x', version: '1', permissions: ['idle'] } }), entry([`
     window.__codes = [];
     [function () { return browser.tabs.executeScript(1, { code: '1' }); }, function () { return browser.idle.queryState(60); },
-     function () { return browser.windows.create({}); }, function () { return browser.runtime.getBackgroundPage(); }]
+     function () { return browser.windows.create({}); }]
       .forEach(function (fn) { fn().then(function () { window.__codes.push('resolved'); }, function (e) { window.__codes.push(e.code); }); });
   `])));
   await tick(); await tick();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.__codes)), ['UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED']);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.__codes)), ['UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED']);
 });
 
 test('windows: single-window model, ids agree with tabs.windowId', async () => {

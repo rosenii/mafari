@@ -19,6 +19,7 @@ import androidx.webkit.WebMessageCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,17 +47,21 @@ class ExtensionPageHost(
     private val log: (String) -> Unit = {},
 ) : EventSink {
 
-    enum class PageKind { BACKGROUND, POPUP, OPTIONS }
+    enum class PageKind { BACKGROUND, POPUP, OPTIONS, OFFSCREEN }
 
     private val main = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val loaders = HashMap<String, WebViewAssetLoader>()
     private val pages = HashMap<String, ExtensionPage>() // contextId → page（主线程访问）
     private val backgrounds = HashMap<String, ExtensionPage>() // extId → 后台页（主线程访问）
+    private val offscreenPages = HashMap<String, ExtensionPage>() // extId → 单个 offscreen document（主线程访问）
     private val pagesSnapshot = java.util.concurrent.CopyOnWriteArrayList<ExtensionPage>() // emit 用，任意线程读
 
     /** 后台页就绪 / 消失的通知（主线程回调）。就绪 = onPageFinished 且握手完成，缺一不可：只有握手后才有回复通道可投递 */
     @Volatile var backgroundListener: BackgroundListener? = null
+
+    /** 页面上下文销毁时通知 API 子系统清理按 context 注册的监听器。 */
+    @Volatile var onPageDestroyed: ((extId: String, contextId: String) -> Unit)? = null
 
     /**
      * 拓展页面里点了外链（http / https，且带用户手势）时回调 (extId, url)，由 UI 层用普通标签打开。
@@ -81,7 +86,17 @@ class ExtensionPageHost(
             PageKind.BACKGROUND -> 100
             PageKind.POPUP -> 50
             PageKind.OPTIONS -> 10
+            PageKind.OFFSCREEN -> 90
         }
+        override val contextType: String = when (pageKind) {
+            PageKind.BACKGROUND -> "BACKGROUND"
+            PageKind.POPUP -> "POPUP"
+            PageKind.OPTIONS -> "TAB"
+            PageKind.OFFSCREEN -> "OFFSCREEN_DOCUMENT"
+        }
+        @Volatile internal var currentUrl: String? = null
+        override val documentUrl: String? get() = currentUrl
+        override val documentOrigin: String get() = ExtensionOrigins.originFor(extId)
 
         @Volatile internal var reply: JavaScriptReplyProxy? = null
 
@@ -89,6 +104,7 @@ class ExtensionPageHost(
         @Volatile var onCloseRequested: (() -> Unit)? = null
         internal var registered = false
         internal var finished = false // 主框架 onPageFinished 过（主线程访问）
+        internal val readySignal = CompletableDeferred<Unit>()
         internal var readyNotified = false // 已通知过 backgroundListener（主线程访问）
 
         override fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean {
@@ -123,7 +139,9 @@ class ExtensionPageHost(
     fun createPage(ext: InstalledExtension, pageKind: PageKind, path: String): ExtensionPage? {
         if (!isSupported()) return null
         val id = ext.spec.id
-        val plan = ExtensionInjection.buildPage(ext, shim(), background = pageKind == PageKind.BACKGROUND)
+        val plan = ExtensionInjection.buildPage(
+            ext, shim(), background = pageKind == PageKind.BACKGROUND, offscreen = pageKind == PageKind.OFFSCREEN,
+        )
         plan.warnings.forEach { warning -> log("ext $id injection warning: $warning") }
         val webView = WebView(appContext)
         val page = ExtensionPage(UUID.randomUUID().toString(), id, pageKind, webView)
@@ -152,6 +170,9 @@ class ExtensionPageHost(
 
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     log("ext $id ${pageKind.name.lowercase()} load error ${error.errorCode} ${error.description}: ${request.url}")
+                    if (request.isForMainFrame && !page.readySignal.isCompleted) {
+                        page.readySignal.completeExceptionally(ApiException(ErrorCodes.INTERNAL, "扩展页面加载失败：${error.description}"))
+                    }
                 }
 
                 override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
@@ -172,6 +193,7 @@ class ExtensionPageHost(
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     if (url != null && url.startsWith("$origin/")) {
+                        page.currentUrl = url
                         page.finished = true
                         log("ext $id ${pageKind.name.lowercase()} page-finished url=$url viewport=${view.width}x${view.height}")
                         // 记录 DOM 与 Resource Timing 摘要，帮助区分资源加载失败和拓展自身初始化卡住。
@@ -213,7 +235,10 @@ class ExtensionPageHost(
         pages[page.contextId] = page
         pagesSnapshot.add(page)
         val url = ExtensionOrigins.urlFor(id, path)
-        if (pageKind == PageKind.BACKGROUND) {
+        if (pageKind == PageKind.BACKGROUND || pageKind == PageKind.OFFSCREEN) {
+            // 后台页和 offscreen document 都是隐藏的扩展运行上下文，不依赖 UI 挂载。
+            webView.onResume()
+            webView.resumeTimers()
             webView.loadUrl(url)
         } else {
             // popup / options 是给人看的：必须等 WebView 挂上窗口再开始加载。
@@ -272,6 +297,22 @@ class ExtensionPageHost(
         backgrounds.remove(extId)?.let { destroyNow(it) }
     }
 
+    /** MV3 offscreen document：每个扩展最多一个；调用方必须在主线程。 */
+    fun createOffscreen(ext: InstalledExtension, path: String): ExtensionPage? {
+        if (offscreenPages.containsKey(ext.spec.id)) return null
+        val page = createPage(ext, PageKind.OFFSCREEN, path) ?: return null
+        offscreenPages[ext.spec.id] = page
+        return page
+    }
+
+    fun hasOffscreen(extId: String): Boolean = offscreenPages[extId]?.let { pages[it.contextId] === it } == true
+
+    fun closeOffscreen(extId: String): Boolean {
+        val page = offscreenPages.remove(extId) ?: return false
+        destroyNow(page)
+        return true
+    }
+
     /** 启动所有已启用、引擎含 WEBVIEW、有后台的拓展 */
     fun startAllBackgrounds() {
         for (ext in repo.list()) {
@@ -282,6 +323,7 @@ class ExtensionPageHost(
     /** 拓展停用 / 卸载 / 更新前：销毁它所有页面并清掉投递目标与连接 */
     fun shutdown(extId: String) {
         backgrounds.remove(extId)
+        offscreenPages.remove(extId)
         pages.values.filter { it.extId == extId }.forEach { destroyNow(it) }
         broker.unregisterExtension(extId)
         loaders.remove(ExtensionOrigins.hostFor(extId))
@@ -289,8 +331,9 @@ class ExtensionPageHost(
 
     /** 后台页同时满足「加载完」和「已握手」才算就绪；通知只发一次（页面自己 reload 不重发） */
     private fun maybeNotifyReady(page: ExtensionPage) {
-        if (page.pageKind != PageKind.BACKGROUND || page.readyNotified) return
         if (!page.finished || page.reply == null || pages[page.contextId] !== page) return
+        page.readySignal.complete(Unit)
+        if (page.pageKind != PageKind.BACKGROUND || page.readyNotified) return
         page.readyNotified = true
         backgroundListener?.let { runCatching { it.onBackgroundReady(page.extId) } }
     }
@@ -302,8 +345,13 @@ class ExtensionPageHost(
         }
         pages.remove(page.contextId)
         pagesSnapshot.remove(page)
+        if (!page.readySignal.isCompleted) {
+            page.readySignal.completeExceptionally(ApiException(ErrorCodes.UNSUPPORTED, "扩展页面上下文已关闭"))
+        }
         if (backgrounds[page.extId] === page) backgrounds.remove(page.extId)
+        if (offscreenPages[page.extId] === page) offscreenPages.remove(page.extId)
         broker.unregister(page.contextId)
+        runCatching { onPageDestroyed?.invoke(page.extId, page.contextId) }
         page.reply = null
         page.onCloseRequested = null
         runCatching {

@@ -52,6 +52,9 @@ object PermissionChecker {
         "webNavigation." to setOf("webNavigation"),
         "webRequest." to setOf("webRequest"),
         "declarativeNetRequest." to setOf("declarativeNetRequest", "declarativeNetRequestWithHostAccess"),
+        "mafari.userscripts." to setOf("mafariScripts"),
+        "userScripts." to setOf("userScripts"),
+        "offscreen." to setOf("offscreen"),
     )
 
     /** content script 能直接调的 API 前缀；其余只有拓展自己的页面能调 */

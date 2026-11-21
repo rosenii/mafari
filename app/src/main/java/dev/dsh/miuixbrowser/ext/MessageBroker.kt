@@ -22,6 +22,17 @@ interface MessageEndpoint {
     val frameId: Int get() = 0
     /** runtime.connect 目标优先级：后台页最高。 */
     val portPriority: Int get() = 0
+    /** Chrome runtime.ContextType；未知的扩展页面按 BACKGROUND 处理。 */
+    val contextType: String get() = if (kind == SenderKind.CONTENT_SCRIPT) "TAB" else "BACKGROUND"
+    /** 当前文档 URL；只由宿主从 WebView 状态提供，不能由页面消息体自报。 */
+    val documentUrl: String? get() = null
+    /** 当前文档 origin；只由宿主提供。 */
+    val documentOrigin: String? get() = null
+    /** 当前上下文关联的窗口；Mafari 当前只有一个浏览器窗口。 */
+    val windowId: Int? get() = if (kind == SenderKind.CONTENT_SCRIPT) TabBridge.WINDOW_ID else null
+    /** 当前实现以宿主 contextId 作为 documentId；导航后上下文会由宿主重建或更新。 */
+    val documentId: String get() = contextId
+    val incognito: Boolean get() = false
 
     /** 把 runtime.sendMessage 消息交给页面。 */
     fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean
@@ -39,7 +50,7 @@ interface MessageEndpoint {
  * 回复里的 cid 必须属于回复者自己的拓展，防止一个拓展替另一个拓展的消息作答。
  */
 class MessageBroker(
-    private val timeoutMs: Long = 30_000L,
+    private val timeoutMs: Long = 10_000L,
     private val newCid: () -> String = { UUID.randomUUID().toString() },
     /** 后台页刚被拉起、还没握手时，runtime.sendMessage 最多等它这么久（Firefox 的后台页是按需拉起并让消息排队的） */
     private val backgroundGraceMs: Long = 5_000L,
@@ -53,8 +64,6 @@ class MessageBroker(
         val cids = HashSet<String>()
         var outstanding = 0
         var sealed = false
-        /** 有上下文有监听器但选择不处理这条消息（浏览器里等同于「没人回复」，不是回复 undefined） */
-        var declined = false
     }
 
     /** One caller-side Port can be observed by every live extension page context. */
@@ -75,6 +84,8 @@ class MessageBroker(
 
     private val endpoints = ConcurrentHashMap<String, MessageEndpoint>()
     private val pending = ConcurrentHashMap<String, Pending>()
+    /** cid -> endpoint context, so page teardown can release calls immediately instead of waiting for timeout. */
+    private val pendingOwner = ConcurrentHashMap<String, String>()
     private val ports = ConcurrentHashMap<String, PortConnection>()
 
     fun register(ep: MessageEndpoint) {
@@ -93,6 +104,7 @@ class MessageBroker(
 
     fun unregister(contextId: String) {
         endpoints.remove(contextId)
+        pendingOwner.entries.filter { it.value == contextId }.map { it.key }.forEach(::settleWithoutReply)
         ports.values.filter { it.leftContext == contextId || contextId in it.rightContexts }
             .forEach { connection ->
                 val survivors = (setOf(connection.leftContext) + connection.rightContexts)
@@ -106,6 +118,8 @@ class MessageBroker(
         expectedBackground.remove(extId)
         // Remove every endpoint first so extension shutdown cannot deliver disconnect events
         // into another context that is itself being torn down in the same operation.
+        val contexts = endpoints.values.filter { it.extId == extId }.map { it.contextId }.toSet()
+        pendingOwner.entries.filter { it.value in contexts }.map { it.key }.forEach(::settleWithoutReply)
         endpoints.values.filter { it.extId == extId }.map { it.contextId }.forEach(endpoints::remove)
         ports.values.filter { it.extId == extId }.forEach { closePort(it.id, notifyContexts = emptySet()) }
     }
@@ -220,17 +234,7 @@ class MessageBroker(
         if (targets.isEmpty()) {
             log("ext $extId runtime.sendMessage from ${ctx.sender.kind.name.lowercase()}: no extension page online — 后台页没启动 / 启动时抛错 / 还没握手完成")
         }
-        if (targets.isNotEmpty()) {
-            log("ext $extId runtime.sendMessage from ${ctx.sender.kind.name.lowercase()} → ${targets.joinToString { it.contextId.take(6) + ":" + pageLabel(it) }}")
-        }
         return deliverAndAwait(extId, targets, message, senderJson(ctx))
-    }
-
-    private fun pageLabel(ep: MessageEndpoint): String = when (ep.portPriority) {
-        100 -> "background"
-        50 -> "popup"
-        10 -> "options"
-        else -> "page"
     }
 
     /** tabs.sendMessage：只投递到指定标签里已经注册的 content script，不广播到其它标签。 */
@@ -250,6 +254,11 @@ class MessageBroker(
             .put("id", extId)
             .put("url", ExtensionOrigins.urlFor(extId, ""))
             .put("origin", ExtensionOrigins.originFor(extId))
+            .put("frameId", 0)
+            .put("tab", JSONObject()
+                .put("id", tabId)
+                .put("windowId", TabBridge.WINDOW_ID)
+                .put("incognito", false))
         return deliverAndAwait(extId, targets, message, sender)
     }
 
@@ -268,54 +277,51 @@ class MessageBroker(
                 state.cids.add(cid)
             }
             pending[cid] = state
+            pendingOwner[cid] = t.contextId
             val delivered = try { t.deliver(cid, message, sender) } catch (_: Exception) { false }
             if (!delivered) settleWithoutReply(cid)
         }
         synchronized(state) {
             state.sealed = true
-            completeIfNoneLeft(state)
+            if (state.outstanding == 0 && !state.result.isCompleted) state.result.completeExceptionally(noReceiver())
         }
         try {
-            return withTimeoutOrNull(timeoutMs) { state.result.await() }?.value
-                ?: if (state.result.isCompleted) state.result.await().value else {
-                    val waiting = synchronized(state) { state.cids.size }
-                    log("ext $extId runtime.sendMessage timeout: ${targets.joinToString { pageLabel(it) }} 都没有回复（$waiting 个目标还没表态）—— 看对应页面的 console 警告")
-                    throw ApiException(ErrorCodes.TIMEOUT, "没有收到回复")
-                }
+            val reply = withTimeoutOrNull(timeoutMs) { state.result.await() }
+            if (reply != null) return reply.value
+            if (state.result.isCompleted) return state.result.await().value
+            log("ext $extId runtime.sendMessage: timeout after ${timeoutMs}ms; targets=${targets.joinToString { it.kind.name.lowercase() + ":" + it.contextId }}")
+            throw ApiException(ErrorCodes.TIMEOUT, "等待拓展页面 runtime.onMessage 回复超时（${timeoutMs}ms）")
         } catch (e: ApiException) {
             throw e
         } finally {
             val left = synchronized(state) { state.cids.toList() }
-            left.forEach { pending.remove(it) }
+            left.forEach { pending.remove(it); pendingOwner.remove(it) }
         }
     }
 
     /** `runtime.reply`：页面把 onMessage 的结果送回来。[noReceiver] 表示该上下文没有监听器 */
-    fun reply(extId: String, cid: String, value: Any?, noReceiver: Boolean, declined: Boolean = false) {
+    fun reply(extId: String, cid: String, value: Any?, noReceiver: Boolean) {
         val state = pending[cid] ?: return
         if (state.extId != extId) return
-        if (noReceiver || declined) {
-            settleWithoutReply(cid, declined = declined && !noReceiver)
+        if (noReceiver) {
+            settleWithoutReply(cid)
             return
         }
         if (pending.remove(cid) == null) return
+        pendingOwner.remove(cid)
         synchronized(state) { state.cids.remove(cid) }
         state.result.complete(Reply(value))
     }
 
-    private fun settleWithoutReply(cid: String, declined: Boolean = false) {
+    private fun settleWithoutReply(cid: String) {
         val state = pending.remove(cid) ?: return
+        pendingOwner.remove(cid)
         synchronized(state) {
-            if (declined) state.declined = true
             if (state.cids.remove(cid)) state.outstanding--
-            if (state.sealed) completeIfNoneLeft(state)
+            if (state.sealed && state.outstanding == 0 && !state.result.isCompleted) {
+                state.result.completeExceptionally(noReceiver())
+            }
         }
-    }
-
-    /** 所有目标都已表态且没有真正的回复：有人「选择不处理」→ 与浏览器一样 resolve undefined；否则 NO_RECEIVER。调用方需持有 state 锁 */
-    private fun completeIfNoneLeft(state: Pending) {
-        if (state.outstanding != 0 || state.result.isCompleted) return
-        if (state.declined) state.result.complete(Reply(null)) else state.result.completeExceptionally(noReceiver())
     }
 
     fun register(router: ApiRouter) {
@@ -324,11 +330,7 @@ class MessageBroker(
         router.register("runtime.reply") { ctx, a ->
             val cid = a.argOrNull(0) as? String ?: throw ApiException(ErrorCodes.BAD_REQUEST, "reply 需要 cid")
             val opts = a.argOrNull(2) as? JSONObject
-            reply(
-                ctx.ext.spec.id, cid, a.argOrNull(1),
-                noReceiver = opts?.optBoolean("noReceiver", false) == true,
-                declined = opts?.optBoolean("declined", false) == true,
-            )
+            reply(ctx.ext.spec.id, cid, a.argOrNull(1), opts?.optBoolean("noReceiver", false) == true)
             null
         }
     }
@@ -338,6 +340,77 @@ class MessageBroker(
     override fun postPortMessage(ctx: CallContext, portId: String, message: Any?) = sendPortMessage(ctx, portId, message)
 
     override fun disconnectPort(ctx: CallContext, portId: String) = closePortFromContext(ctx, portId)
+
+    override fun getContexts(ctx: CallContext, filter: JSONObject): Any? = getContexts(ctx.ext.spec.id, filter)
+
+    override fun getBackgroundPage(ctx: CallContext): Any? {
+        val background = endpoints.values.firstOrNull {
+            it.extId == ctx.ext.spec.id && it.kind == SenderKind.EXTENSION_PAGE && it.contextType == "BACKGROUND"
+        } ?: return null
+        return org.json.JSONObject().put("contextId", background.contextId)
+    }
+
+    /** Chrome MV3 runtime.getContexts 的可用子集；不暴露其它拓展的上下文。 */
+    fun getContexts(extId: String, filter: JSONObject = JSONObject()): org.json.JSONArray {
+        fun strings(key: String): Set<String>? {
+            if (!filter.has(key) || filter.isNull(key)) return null
+            val a = filter.optJSONArray(key) ?: throw ApiException(ErrorCodes.BAD_REQUEST, "$key 必须是数组")
+            return (0 until a.length()).map { a.optString(it).takeIf(String::isNotBlank)
+                ?: throw ApiException(ErrorCodes.BAD_REQUEST, "$key 不能包含空值") }.toSet()
+        }
+        fun ints(key: String): Set<Int>? {
+            if (!filter.has(key) || filter.isNull(key)) return null
+            val a = filter.optJSONArray(key) ?: throw ApiException(ErrorCodes.BAD_REQUEST, "$key 必须是数组")
+            return (0 until a.length()).map { i ->
+                val n = a.opt(i) as? Number
+                    ?: throw ApiException(ErrorCodes.BAD_REQUEST, "$key 必须只包含整数")
+                n.toInt().takeIf { n.toDouble() == it.toDouble() }
+                    ?: throw ApiException(ErrorCodes.BAD_REQUEST, "$key 必须只包含整数")
+            }.toSet()
+        }
+        val contextTypes = strings("contextTypes")?.also { allowed ->
+            val known = setOf("BACKGROUND", "POPUP", "TAB", "OFFSCREEN_DOCUMENT", "DEVELOPER_TOOLS", "SIDE_PANEL")
+            if (allowed.any { it !in known }) throw ApiException(ErrorCodes.BAD_REQUEST, "contextTypes 包含未知类型")
+        }
+        val contextIds = strings("contextIds")
+        val documentIds = strings("documentIds")
+        val documentOrigins = strings("documentOrigins")
+        // Chrome ContextFilter.documentUrls 是 URL 字符串列表，不是 MatchPattern。
+        val documentUrls = strings("documentUrls")
+        val tabIds = ints("tabIds")
+        val windowIds = ints("windowIds")
+        val frameIds = ints("frameIds")
+        val incognito = if (filter.has("incognito") && !filter.isNull("incognito")) {
+            filter.opt("incognito") as? Boolean ?: throw ApiException(ErrorCodes.BAD_REQUEST, "incognito 必须是布尔值")
+        } else null
+        val out = org.json.JSONArray()
+        endpoints.values.asSequence()
+            .filter { it.extId == extId }
+            .filter { contextTypes == null || it.contextType in contextTypes }
+            .filter { contextIds == null || it.contextId in contextIds }
+            .filter { documentIds == null || it.documentId in documentIds }
+            .filter { documentOrigins == null || (it.documentOrigin != null && it.documentOrigin in documentOrigins) }
+            .filter { documentUrls == null || (it.documentUrl != null && it.documentUrl in documentUrls) }
+            .filter { tabIds == null || (it.tabId != null && it.tabId in tabIds) }
+            .filter { windowIds == null || (it.windowId != null && it.windowId in windowIds) }
+            .filter { frameIds == null || it.frameId in frameIds }
+            .filter { incognito == null || it.incognito == incognito }
+            .sortedBy { it.contextId }
+            .forEach { ep ->
+                val item = JSONObject()
+                    .put("contextId", ep.contextId)
+                    .put("contextType", ep.contextType)
+                    .put("documentId", ep.documentId)
+                    .put("frameId", ep.frameId)
+                    .put("incognito", ep.incognito)
+                    .put("tabId", ep.tabId ?: -1)
+                    .put("windowId", ep.windowId ?: -1)
+                ep.documentUrl?.let { item.put("documentUrl", it) }
+                ep.documentOrigin?.let { item.put("documentOrigin", it) }
+                out.put(item)
+            }
+        return out
+    }
 
     private fun noReceiver() =
         ApiException(ErrorCodes.NO_RECEIVER, "Could not establish connection. Receiving end does not exist.")

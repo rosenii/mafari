@@ -92,3 +92,48 @@ browser.notifications.onClosed.addListener((id, byUser) => console.log('closed',
 `get` 需要 `{ url, name }`；`set` 支持 `url`、`name`、`value`、`domain`、`path`、`secure`、`httpOnly`、`sameSite`、`expirationDate`；`remove` 需要 `url`、`name`，可选 `domain`、`path`。`get` 只能返回 WebView CookieManager 可确认的 name/value/storeId，不会伪造 Cookie 属性。
 
 限制：Android WebView 没有公开的全局 Cookie 枚举接口，因此不支持 `getAll` / `getAllCookieStores`；也没有 Cookie 变更监听 API，因此不支持 `onChanged`。删除 Cookie 需要匹配正确的 URL、domain 和 path；WebView 不提供枚举同名 Cookie 的路径信息。此 API 为 PARTIAL。
+
+
+## WebRequest blocking（WebView，部分支持）
+
+`webRequest.onBeforeRequest` 可在 `extraInfoSpec` 中声明 `blocking`，需要同时声明 `webRequest`、`webRequestBlocking` 和目标 URL 的 host permission：
+
+```json
+{
+  "manifest_version": 2,
+  "permissions": ["webRequest", "webRequestBlocking", "https://example.com/*"]
+}
+```
+
+```javascript
+browser.webRequest.onBeforeRequest.addListener(
+  details => details.url.includes('/blocked') ? { cancel: true } : undefined,
+  { urls: ["https://example.com/*"] },
+  ["blocking"]
+);
+```
+
+当前支持 `onBeforeRequest` 的 `{ cancel: true }` 与 `{ redirectUrl }`。原生网络回调在 IO 线程最多等待 350ms；拓展未回复、页面不可用或超时则放行原请求。`cancel` 通过合成 204 空响应阻止原请求，`redirectUrl` 通过合成 302 响应实现，具体重定向行为需在目标 WebView 版本真机验证。
+
+不支持 `requestBody`、`requestHeaders` / `responseHeaders` 修改、`onBeforeSendHeaders`、`onHeadersReceived`、认证阶段和完整子资源终态。它不是 Firefox `webRequestBlocking` 的完整等价实现；超时默认放行是为了避免拓展卡死拖住网页加载。监听器在所属拓展页面销毁时由原生清理。
+
+## Mafari 原生 Userscript 管理 API（非标准扩展 API）
+
+WebExtension 可通过 `browser.mafari.userscripts` 管理 Mafari 自带的原生 Userscript 库。它不是 Firefox 标准 `userScripts` API；只在 background / popup / options 等拓展页面暴露，content script 不可用。必须在 manifest 显式声明 `mafariScripts`：
+
+```json
+{ "manifest_version": 3, "permissions": ["mafariScripts"] }
+```
+
+```javascript
+const scripts = await browser.mafari.userscripts.getAll(); // 仅元数据
+const full = await browser.mafari.userscripts.get(scripts[0].id); // 含 code
+const created = await browser.mafari.userscripts.create('Example', source, 'https://example.com/*');
+await browser.mafari.userscripts.setEnabled(created.id, false);
+await browser.mafari.userscripts.update(created.id, 'Example v2', sourceV2, true, 'https://example.com/*');
+await browser.mafari.userscripts.remove(created.id);
+```
+
+方法：`getAll()`、`get(id)`、`create(name, code, match?)`、`update(id, name, code, enabled?, match?)`、`setEnabled(id, enabled)`、`remove(id)`。脚本内容上限 1 MB；`getAll()` 不返回脚本源码，只有 `get(id)` 返回源码。变更复用 Mafari 现有脚本存储与 Compose 状态；主浏览器界面观察到脚本列表变化后会按既有同步机制更新注入集合，独立 WebApp 标签在下一次脚本同步 / 页面加载时生效。
+
+这是高权限的 Mafari 专有接口：声明该权限的拓展可以读取、创建、修改和删除用户原生脚本，请只授予可信拓展。

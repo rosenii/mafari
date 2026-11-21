@@ -1,5 +1,8 @@
 package dev.dsh.miuixbrowser.browser
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.util.Base64
 import androidx.compose.runtime.snapshotFlow
 import dev.dsh.miuixbrowser.ext.ApiException
 import dev.dsh.miuixbrowser.ext.ErrorCodes
@@ -10,6 +13,7 @@ import dev.dsh.miuixbrowser.ext.TabCreateOptions
 import dev.dsh.miuixbrowser.ext.TabEventListener
 import dev.dsh.miuixbrowser.ext.TabInfo
 import dev.dsh.miuixbrowser.ext.TabUpdateOptions
+import dev.dsh.miuixbrowser.ext.WorldEval
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.resume
 
@@ -41,7 +46,14 @@ import kotlin.coroutines.resume
  *
  * 必须在主线程构造；不用时调用 [close] 停止观察。
  */
-class BrowserStateTabBridge(private val state: BrowserState) : TabBridge {
+class BrowserStateTabBridge(
+    private val state: BrowserState,
+    /**
+     * 隔离世界执行入口（接 `WebViewExtensionHost.executeInIsolatedWorld`）：参数 (extId, tabId, js, done)，
+     * 返回 false = 没有可用入口、什么也没执行；null = 不支持隔离世界。
+     */
+    private val isolatedEval: ((String, Int, String, (String?) -> Unit) -> Boolean)? = null,
+) : TabBridge {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val listeners = CopyOnWriteArrayList<TabEventListener>()
@@ -195,6 +207,48 @@ class BrowserStateTabBridge(private val state: BrowserState) : TabBridge {
         }
     }
 
+    override suspend fun evaluateInIsolatedWorld(extId: String, tabId: Int, js: String): WorldEval =
+        withContext(Dispatchers.Main.immediate) {
+            val run = isolatedEval ?: return@withContext WorldEval.Unavailable
+            find(tabId)?.takeIf { it.url.isNotEmpty() && it.errorText == null } ?: return@withContext WorldEval.Unavailable
+            var accepted = false
+            val raw = withTimeoutOrNull(EVAL_TIMEOUT_MS) {
+                suspendCancellableCoroutine<String?> { cont ->
+                    accepted = try {
+                        run(extId, tabId, js) { r -> if (cont.isActive) cont.resume(r) }
+                    } catch (_: Exception) {
+                        false
+                    }
+                    if (!accepted && cont.isActive) cont.resume(null)
+                }
+            }
+            if (accepted) WorldEval.Done(raw) else WorldEval.Unavailable
+        }
+
+    override suspend fun captureVisibleTab(format: String, quality: Int): String = withContext(Dispatchers.Main.immediate) {
+        val tab = state.tabs.getOrNull(state.activeIndex)?.takeIf { it.visibleToExtensions() && it.url.isNotEmpty() }
+            ?: throw ApiException(ErrorCodes.UNSUPPORTED, "当前没有可截图的 WebView 标签")
+        val view = tab.webViewOrNull ?: throw ApiException(ErrorCodes.UNSUPPORTED, "当前标签没有 WebView")
+        val width = view.width
+        val height = view.height
+        if (width <= 0 || height <= 0 || width.toLong() * height.toLong() > MAX_CAPTURE_PIXELS) {
+            throw ApiException(ErrorCodes.UNSUPPORTED, "当前 WebView 视口不可截图或尺寸过大")
+        }
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        try {
+            view.draw(Canvas(bitmap))
+            val output = ByteArrayOutputStream()
+            val mime = if (format == "jpeg") "image/jpeg" else "image/png"
+            val encoded = if (format == "jpeg") Bitmap.CompressFormat.JPEG else Bitmap.CompressFormat.PNG
+            if (!bitmap.compress(encoded, quality.coerceIn(0, 100), output)) {
+                throw ApiException(ErrorCodes.INTERNAL, "WebView 截图编码失败")
+            }
+            "data:$mime;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
     override fun addListener(listener: TabEventListener) {
         listeners.addIfAbsent(listener)
     }
@@ -205,5 +259,6 @@ class BrowserStateTabBridge(private val state: BrowserState) : TabBridge {
 
     private companion object {
         const val EVAL_TIMEOUT_MS = 10_000L
+        const val MAX_CAPTURE_PIXELS = 4_000_000L
     }
 }

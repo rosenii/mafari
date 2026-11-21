@@ -165,4 +165,39 @@ class ExtensionInjectionTest {
         assertTrue(plan.script.contains("\"page\":true"))
         assertTrue(plan.script.endsWith(",[]);"))
     }
+
+    @Test fun splitsContentScriptsByWorld() {
+        val e = ext(
+            mf("""[{"matches":["https://a.com/*"],"js":["iso.js"]},{"matches":["https://b.com/*"],"js":["main.js"],"world":"MAIN"}]"""),
+            "iso.js" to "window.isoMarker=1;",
+            "main.js" to "window.mainMarker=1;",
+        )
+        val plan = ExtensionInjection.build(e, shim, ExtensionInjection.fileReader(e.rootDir))!!
+        assertTrue(Regex("^mw_[0-9a-f]{12}$").matches(plan.worldName))
+        assertEquals(ExtensionInjection.worldNameFor(TestExt.ID), plan.worldName)
+
+        val iso = plan.isolatedScript!!
+        assertTrue(iso.contains("isoMarker") && !iso.contains("mainMarker"))
+        assertTrue(iso.contains("\"isolatedWorld\":true") && iso.contains("\"extId\""))
+        assertEquals(setOf("https://a.com"), plan.isolatedOriginRules)
+
+        val main = plan.mainScript!!
+        assertTrue(main.contains("mainMarker") && !main.contains("isoMarker"))
+        assertTrue(main.contains("\"mainWorld\":true"))
+        assertFalse(main.contains(plan.bridgeName) || main.contains("\"extId\"") || main.contains("\"manifest\""))
+        assertEquals(setOf("https://b.com"), plan.mainOriginRules)
+
+        // 旧路径脚本仍含全部条目
+        assertTrue(plan.script.contains("isoMarker") && plan.script.contains("mainMarker"))
+    }
+
+    @Test fun mainOnlyExtensionHasNoIsolatedScript() {
+        val e = ext(
+            mf("""[{"matches":["https://a.com/*"],"js":["m.js"],"world":"MAIN"}]"""),
+            "m.js" to "1;",
+        )
+        val plan = ExtensionInjection.build(e, shim, ExtensionInjection.fileReader(e.rootDir))!!
+        assertNull(plan.isolatedScript)
+        assertNotNull(plan.mainScript)
+    }
 }

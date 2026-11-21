@@ -9,7 +9,7 @@ import kotlin.math.abs
  *
  * 已实现：query / get / getCurrent / create / update / duplicate / move / remove / reload / goBack / goForward / sendMessage（按 frameId 路由；当前宿主仅主框架），
  * 以及 onCreated / onUpdated / onMoved / onRemoved / onActivated 事件。
- * 仍不支持：多窗口、captureVisibleTab、group、zoom、完整 frame 路由等宿主能力。
+ * 仍不支持：多窗口、group、zoom、完整 frame 路由等宿主能力；captureVisibleTab 仅支持当前活动 WebView 的有界视口截图。
  *
  * 安全约束：
  * - 只有拓展自己的页面能调（[PermissionChecker] 已限制 content script），所以不存在「网页借拓展读别的标签」；
@@ -76,6 +76,44 @@ class TabsApi(
         }
         // 拓展页面不是标签页，Chrome 里同样返回 undefined
         router.register("tabs.getCurrent") { _, _ -> null }
+        router.register("tabs.captureVisibleTab") { ctx, a ->
+            val first = a.argOrNull(0)
+            val windowId: Int?
+            val options: JSONObject?
+            when (first) {
+                null -> {
+                    windowId = null
+                    val rawOptions = a.argOrNull(1)
+                    options = when (rawOptions) {
+                        null -> null
+                        is JSONObject -> rawOptions
+                        else -> throw ApiException(ErrorCodes.BAD_REQUEST, "captureVisibleTab options 必须是对象")
+                    }
+                }
+                is Number -> {
+                    windowId = toInt(first, "windowId")
+                    val rawOptions = a.argOrNull(1)
+                    options = when (rawOptions) {
+                        null -> null
+                        is JSONObject -> rawOptions
+                        else -> throw ApiException(ErrorCodes.BAD_REQUEST, "captureVisibleTab options 必须是对象")
+                    }
+                }
+                is JSONObject -> { windowId = null; options = first }
+                else -> throw ApiException(ErrorCodes.BAD_REQUEST, "captureVisibleTab 参数格式错误")
+            }
+            checkWindow(windowId)
+            val active = bridge().list().firstOrNull { it.active }
+                ?: throw ApiException(ErrorCodes.UNSUPPORTED, "当前没有活动标签页")
+            if (!PermissionChecker.hasHostAccess(ctx.ext, active.url) && !activeGranted(ctx.ext, active)) {
+                throw ApiException(ErrorCodes.DENIED_PERMISSION, "captureVisibleTab 需要 activeTab 或当前页面 host 权限")
+            }
+            val format = options?.stringOrNull("format") ?: "png"
+            if (format != "png" && format != "jpeg") throw ApiException(ErrorCodes.BAD_REQUEST, "format 只能是 png 或 jpeg")
+            val quality = options?.intOrNull("quality") ?: 90
+            if (quality !in 0..100) throw ApiException(ErrorCodes.BAD_REQUEST, "quality 必须在 0 到 100 之间")
+            bridge().captureVisibleTab(format, quality)
+        }
         router.register("tabs.sendMessage") { ctx, a ->
             val tabId = toInt(a.argOrNull(0), "tabId")
             // tabId 必须是当前 WebView 普通标签；无痕 / Gecko / 已关闭标签不可被探测。
@@ -85,6 +123,9 @@ class TabsApi(
                 null, JSONObject.NULL -> null
                 is JSONObject -> rawOptions
                 else -> throw ApiException(ErrorCodes.BAD_REQUEST, "sendMessage options 必须是对象")
+            }
+            if (options?.has("documentId") == true || options?.has("documentIds") == true) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "WebView 尚不支持按 documentId 路由消息")
             }
             val frameId = options?.intOrNull("frameId")
             if (frameId != null && frameId < 0) {
@@ -196,8 +237,16 @@ class TabsApi(
             .put("removeInfo", JSONObject().put("windowId", TabBridge.WINDOW_ID).put("isWindowClosing", false))
     }
 
-    override fun onActivated(tabId: Int, previousTabId: Int?) = fanOut("tabs.onActivated") { _ ->
-        JSONObject().put("activeInfo", JSONObject().put("tabId", tabId).put("windowId", TabBridge.WINDOW_ID))
+    override fun onActivated(tabId: Int, previousTabId: Int?) {
+        fanOut("tabs.onActivated") { _ ->
+            JSONObject().put("activeInfo", JSONObject().put("tabId", tabId).put("windowId", TabBridge.WINDOW_ID))
+        }
+        // Mafari 只有一个窗口且不支持多选标签：高亮集合始终只有当前活动标签。
+        fanOut("tabs.onHighlighted") { _ ->
+            JSONObject().put("highlightInfo", JSONObject()
+                .put("tabIds", JSONArray().put(tabId))
+                .put("windowId", TabBridge.WINDOW_ID))
+        }
     }
 
     /** 对每个拓展分别生成载荷（各自权限不同）；返回 null 表示这个拓展不推送 */

@@ -238,8 +238,10 @@ internal fun BrowserTab.setupWebView() {
         }
 
         override fun onPageCommitVisible(view: WebView, pageUrl: String?) {
-            if (!incognito && !pageUrl.isNullOrBlank()) appContext.appContainer.webExtensions
-                .onWebNavigationCommitted(id, pageUrl)
+            if (!incognito && !pageUrl.isNullOrBlank()) {
+                appContext.appContainer.webExtensions.onWebRequestMainFrameResponseStarted(id, pageUrl)
+                appContext.appContainer.webExtensions.onWebNavigationCommitted(id, pageUrl)
+            }
         }
 
         override fun onPageFinished(view: WebView, pageUrl: String?) {
@@ -296,8 +298,8 @@ internal fun BrowserTab.setupWebView() {
         }
 
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-            if (!incognito) appContext.appContainer.webExtensions.onWebRequestBefore(id, request)
-            return webExtensionResource(request) ?:
+            val extensionBlocking = if (!incognito) appContext.appContainer.webExtensions.onWebRequestBefore(id, request) else null
+            return extensionBlocking ?: webExtensionResource(request) ?:
             if (incognito && !adblockInIncognito) null
             else AdBlock.intercept(request, pageHost, blockTrackers, if (incognito || !AdBlock.requestLogOn) null else requestLog)
                 ?.also { pageAdBlocked.incrementAndGet() }

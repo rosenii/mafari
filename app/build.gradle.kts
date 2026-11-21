@@ -13,7 +13,7 @@ val miuixVersion: String = rootProject.file("third_party/miuix/build-logic/src/m
 val backdropVersion = "2.0.1"
 val activityComposeVersion = "1.13.0"
 val coreKtxVersion = "1.19.1"
-val webkitVersion = "1.18.0"
+val webkitVersion = "1.19.0-alpha02"
 val credentialsVersion = "1.6.0"
 val browserVersion = "1.10.0"
 // 扫一扫：CameraX 取景 + ML Kit 内置版条码识别（模型打进 APK，不依赖 Google Play 服务）
@@ -59,8 +59,8 @@ val geckoViewVersion = (project.findProperty("geckoViewVersion") as String?) ?: 
 // 构建工具链：Kotlin / Compose Multiplatform / AGP 的版本声明在根 build.gradle.kts（miuix 的在 third_party/miuix/gradle/libs.versions.toml），
 // Gradle 版本在 gradle/wrapper/gradle-wrapper.properties；升级时请同步这里，仅用于「关于」页展示
 val kotlinVersion = "2.4.21"
-val composeMultiplatformVersion = "1.13.0-rc01"
-val agpVersion = "9.5.2"
+val composeMultiplatformVersion = "1.12.2"
+val agpVersion = "9.5.1"
 
 // 格式：分组|名称|版本;分组|名称|版本…（分组用 ASCII 标识，界面文案由 AboutScreen 映射）
 // withGecko：无内核版（lite）不带 GeckoView，不在「依赖版本」里展示它
@@ -116,8 +116,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20067
-        versionName = "v2.1.67.1-canary"
+        versionCode = 20065
+        versionName = "v2.1.65"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0

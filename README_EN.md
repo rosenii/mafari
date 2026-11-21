@@ -145,7 +145,7 @@ bash tools/miuix-sync.sh   # clones miuix into third_party/miuix and applies too
 It follows miuix `main` by default. To pin a version, set `commit=` in `miuix.ref` (or run `bash tools/miuix-sync.sh --pin` to write the current commit).
 
 For full build instructions, build variants, the release pipeline, and code structure, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in Chinese).
-
+l
 ## Donate
 
 Mafari is developed and maintained in the author's spare time. It is completely free and ad-free. If it helps you, consider buying the developer a coffee ☕ — it helps the project last longer.

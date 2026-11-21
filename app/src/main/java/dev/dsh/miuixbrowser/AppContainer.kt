@@ -30,11 +30,11 @@ class AppContainer(app: Application) {
 
     /**
      * WebView 内核的 WebExtension 运行时（拓展仓库 / 安装器 / 后台页 / 标签页注入）。
-     * 与上面的 [extensions]（油猴脚本）互不相干；Gecko 内核的拓展由 GeckoView 自己管理，不走这里。
+     * WebExtension 与原生 Userscript 使用独立运行时和权限；可信拓展可通过 mafariScripts 权限调用原生脚本管理 API。Gecko 内核的 WebExtension 由 GeckoView 自己管理，不走这里。
      * 懒创建：构造只建对象，不读盘；仓库在第一次 list() 时才读状态文件。
      */
     val webExtensions: ExtensionSystem by lazy {
-        ExtensionSystem(appContext, File(appContext.filesDir, "webext")) { Diag.log(it) }
+        ExtensionSystem(appContext, File(appContext.filesDir, "webext"), nativeScripts = { extensions }) { Diag.log(it) }
     }
 }
 

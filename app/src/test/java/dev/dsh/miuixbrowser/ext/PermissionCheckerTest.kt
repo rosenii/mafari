@@ -144,4 +144,47 @@ class PermissionCheckerTest {
         assertTrue(Regex("^https://[0-9a-f]{32}\\.ext\\.mafari\\.internal$").matches(a))
         assertEquals("$a/p/q.html", ExtensionOrigins.urlFor("a@x.org", "/p/q.html"))
     }
+    @Test fun mafariNativeScriptsApiRequiresExplicitCustomPermissionAndExtensionPage() {
+        val manifest = """{"manifest_version":3,"name":"Native scripts","version":"1","permissions":["mafariScripts"],"host_permissions":["https://granted.com/*"]}"""
+        val granted = TestExt.make(File(tmp.root, "native-scripts-granted"), manifest = manifest, granted = setOf("mafariScripts"))
+        assertNull(codeOf(granted, "mafari.userscripts.getAll", page()))
+        assertNull(codeOf(granted, "mafari.userscripts.install", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "mafari.userscripts.getAll", cs("https://a.com")))
+
+        val missing = TestExt.make(File(tmp.root, "native-scripts-missing"), manifest = manifest, granted = emptySet())
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "mafari.userscripts.getAll", page()))
+    }
+
+    @Test fun offscreenApiRequiresMv3PermissionAndExtensionPage() {
+        val manifest = """{"manifest_version":3,"name":"Offscreen","version":"1","permissions":["offscreen"]}"""
+        val granted = TestExt.make(File(tmp.root, "offscreen-granted"), manifest = manifest, granted = setOf("offscreen"))
+        assertNull(codeOf(granted, "offscreen.createDocument", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "offscreen.createDocument", cs("https://a.com")))
+        val missing = TestExt.make(File(tmp.root, "offscreen-missing"), manifest = manifest, granted = emptySet())
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "offscreen.createDocument", page()))
+    }
+
+    @Test fun webRequestRequiresPermissionAndBlockingIsSeparatelyGranted() {
+        val manifest = """{"manifest_version":3,"name":"Request","version":"1","permissions":["webRequest","webRequestBlocking"],"host_permissions":["https://granted.com/*"]}"""
+        val granted = TestExt.make(File(tmp.root, "web-request-granted"), manifest = manifest, granted = setOf("webRequest", "webRequestBlocking"))
+        assertNull(codeOf(granted, "webRequest.addListener", page()))
+        assertTrue(PermissionChecker.effectivePermissions(granted).contains("webRequestBlocking"))
+
+        val observeOnly = TestExt.make(File(tmp.root, "web-request-observe"), manifest = manifest, granted = setOf("webRequest"))
+        assertNull(codeOf(observeOnly, "webRequest.addListener", page()))
+        assertFalse(PermissionChecker.effectivePermissions(observeOnly).contains("webRequestBlocking"))
+    }
+
+    @Test fun declarativeNetRequestAndUserScriptsRequireTheirDeclaredPermissions() {
+        val manifest = """{"manifest_version":3,"name":"DNR and userScripts","version":"1","permissions":["declarativeNetRequest","userScripts"],"host_permissions":["https://granted.com/*"]}"""
+        val granted = TestExt.make(File(tmp.root, "dnr-userscripts-granted"), manifest = manifest, granted = setOf("declarativeNetRequest", "userScripts"))
+        assertNull(codeOf(granted, "declarativeNetRequest.getDynamicRules", page()))
+        assertNull(codeOf(granted, "userScripts.register", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(granted, "userScripts.register", cs("https://a.com")))
+
+        val missing = TestExt.make(File(tmp.root, "dnr-userscripts-missing"), manifest = manifest, granted = emptySet())
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "declarativeNetRequest.getDynamicRules", page()))
+        assertEquals(ErrorCodes.DENIED_PERMISSION, codeOf(missing, "userScripts.getScripts", page()))
+    }
+
 }

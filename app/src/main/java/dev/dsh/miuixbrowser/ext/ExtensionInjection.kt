@@ -8,9 +8,13 @@ import java.util.Locale
 
 /**
  * 一个拓展要装到 WebView 上的东西：
- * - [bridgeName]：addWebMessageListener 的 JS 对象名，每个拓展一个，注入脚本捕获后会把它从页面全局里删掉；
+ * - [bridgeName]：addWebMessageListener 的 JS 对象名，每个拓展一个；
  * - [originRules]：listener 与脚本共用的 origin 规则（只到 scheme://host[:port]，路径匹配在脚本里做）；
- * - [script]：addDocumentStartJavaScript 的脚本全文。
+ * - [script]：**旧路径**（页面世界）的脚本全文，WebView 不支持隔离世界时用 addDocumentStartJavaScript 注入，
+ *   桥对象在页面世界里短暂存在、由脚本捕获后删除；
+ * - [worldName]：隔离世界名（`WebViewCompat.getExecutionWorld`）。桥与 ISOLATED content script 都在这个世界里，页面世界看不到；
+ * - [isolatedScript] / [isolatedOriginRules]：只含 `world` 为 ISOLATED（默认）的条目，带桥与 browser / chrome；没有这类条目时为 null；
+ * - [mainScript] / [mainOriginRules]：只含 `world: "MAIN"` 的条目，在页面世界里跑，没有桥（与 Chrome 一致，MAIN 世界拿不到拓展 API）。
  */
 class InjectionPlan(
     val extId: String,
@@ -19,10 +23,18 @@ class InjectionPlan(
     val script: String,
     /** 读不到、被拒绝的文件等，供兼容性报告 / 日志 */
     val warnings: List<String>,
+    val worldName: String = "",
+    val isolatedScript: String? = null,
+    val isolatedOriginRules: Set<String> = emptySet(),
+    val mainScript: String? = null,
+    val mainOriginRules: Set<String> = emptySet(),
 )
 
 object ExtensionInjection {
     private const val MAX_FILE_BYTES = 8L * 1024 * 1024
+
+    /** 每个拓展一个隔离世界；名字由 extId 哈希得出（只含字母数字下划线），与桥名同源，不暴露 extId */
+    fun worldNameFor(extId: String): String = "mw_" + bridgeNameFor(extId).removePrefix("__mext_")
 
     fun bridgeNameFor(extId: String): String {
         val h = MessageDigest.getInstance("SHA-256").digest(extId.toByteArray(Charsets.UTF_8))
@@ -49,8 +61,14 @@ object ExtensionInjection {
         }
         val loc = Localization.of(ext, manifest, readText, warnings)
         val entries = StringBuilder("[")
+        val isoEntries = StringBuilder("[")
+        val mainEntries = StringBuilder("[")
         val rules = linkedSetOf<String>()
+        val isoRules = linkedSetOf<String>()
+        val mainRules = linkedSetOf<String>()
         var count = 0
+        var isoCount = 0
+        var mainCount = 0
 
         // Dynamic registrations are durable configuration, not durable permission grants.
         // Re-evaluate their host access every time a WebView injection plan is built.
@@ -75,22 +93,40 @@ object ExtensionInjection {
             if (css.isEmpty() && js.isEmpty()) continue
             rules.addAll(origin)
 
-            if (count++ > 0) entries.append(',')
-            entries.append("{\"m\":").append(descriptors(cs.matches))
-            entries.append(",\"x\":").append(descriptors(cs.excludeMatches))
-            entries.append(",\"all\":").append(cs.allFrames)
-            entries.append(",\"at\":").append(JSONObject.quote(runAtName(cs.runAt)))
-            entries.append(",\"css\":[").append(css.joinToString(",") { JSONObject.quote(it) }).append(']')
+            val entry = StringBuilder()
+            entry.append("{\"m\":").append(descriptors(cs.matches))
+            entry.append(",\"x\":").append(descriptors(cs.excludeMatches))
+            entry.append(",\"all\":").append(cs.allFrames)
+            entry.append(",\"at\":").append(JSONObject.quote(runAtName(cs.runAt)))
+            entry.append(",\"css\":[").append(css.joinToString(",") { JSONObject.quote(it) }).append(']')
             // 同一条 content_scripts 的多个 js 文件拼进同一个函数（用 `;` 隔开）：Chrome 里它们共享同一个全局，
             // 常见写法是 ["utils.js","main.js"]，main.js 直接用 utils.js 顶层声明的函数 / 变量，分开包会让后面的文件找不到。
             // 代价：前一个文件抛错会连累后面的；变量只在这条 content script 内可见，不会泄漏到页面全局。
             val body = if (js.isEmpty()) "" else "function(browser,chrome){\n" + js.joinToString("\n;\n") + "\n}"
-            entries.append(",\"js\":[").append(body).append("]}")
+            entry.append(",\"js\":[").append(body).append("]}")
+            val entryJson = entry.toString()
+
+            // 旧路径：所有条目一起进同一个页面世界脚本
+            if (count++ > 0) entries.append(',')
+            entries.append(entryJson)
+            // 新路径：按 manifest 的 world 分流
+            if (cs.world == ScriptWorld.MAIN) {
+                if (mainCount++ > 0) mainEntries.append(',')
+                mainEntries.append(entryJson)
+                mainRules.addAll(origin)
+            } else {
+                if (isoCount++ > 0) isoEntries.append(',')
+                isoEntries.append(entryJson)
+                isoRules.addAll(origin)
+            }
         }
         entries.append(']')
+        isoEntries.append(']')
+        mainEntries.append(']')
         if (count == 0) return null
 
-        val effective = if ("*" in rules) setOf("*") else rules
+        fun effectiveOf(r: Set<String>): Set<String> = if ("*" in r) setOf("*") else r
+        val effective = effectiveOf(rules)
         val bridge = bridgeNameFor(spec.id)
         val cfg = JSONObject()
             .put("extId", spec.id)
@@ -99,14 +135,34 @@ object ExtensionInjection {
             .put("manifest", loc.localizedManifest())
         tabId?.let { cfg.put("tabId", it) }
         loc.injectable(warnings)?.let { cfg.put("i18n", it) }
-        return InjectionPlan(spec.id, bridge, effective, assemble(shim, cfg, entries.toString()), warnings)
+        // 隔离世界：桥只注册在该世界里，页面世界既看不到桥也发不出消息；browser / chrome 也只挂在这个世界的全局上
+        val isolatedScript = if (isoCount > 0) {
+            val isoCfg = JSONObject(cfg.toString()).put("isolatedWorld", true)
+            assemble(shim, isoCfg, isoEntries.toString())
+        } else {
+            null
+        }
+        // MAIN 世界：脚本全文对页面可见，所以 cfg 里只放一个开关，不带 extId / manifest / i18n
+        val mainScript = if (mainCount > 0) {
+            assemble(shim, JSONObject().put("mainWorld", true), mainEntries.toString())
+        } else {
+            null
+        }
+        return InjectionPlan(
+            spec.id, bridge, effective, assemble(shim, cfg, entries.toString()), warnings,
+            worldName = worldNameFor(spec.id),
+            isolatedScript = isolatedScript,
+            isolatedOriginRules = effectiveOf(isoRules),
+            mainScript = mainScript,
+            mainOriginRules = effectiveOf(mainRules),
+        )
     }
 
     /**
      * 拓展自己的页面（后台页 / popup / options）的注入计划：没有 content script，只有 browser / chrome 全局与握手。
      * origin 规则就是这个拓展的虚拟 origin，所以别的页面里不会出现桥。
      */
-    fun buildPage(ext: InstalledExtension, shim: String, background: Boolean = false): InjectionPlan {
+    fun buildPage(ext: InstalledExtension, shim: String, background: Boolean = false, offscreen: Boolean = false): InjectionPlan {
         val id = ext.spec.id
         val bridge = bridgeNameFor(id)
         val origin = ExtensionOrigins.originFor(id)
@@ -125,6 +181,7 @@ object ExtensionInjection {
             .put("manifest", loc.localizedManifest())
             .put("page", true)
         if (background) cfg.put("background", true) // extension.getBackgroundPage() 只有后台页自己能返回 window
+        if (offscreen) cfg.put("offscreen", true)
         loc.injectable(warnings)?.let { cfg.put("i18n", it) }
         return InjectionPlan(id, bridge, setOf(origin), assemble(shim, cfg, "[]"), warnings)
     }

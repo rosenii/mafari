@@ -21,12 +21,13 @@
 
 | 模块 | 当前评估 | 主要缺口 |
 |---|---|---|
-| `runtime` | PARTIAL | 消息与 Port 已实现；Port 可向同一拓展多个已就绪页面上下文 fan-out；跨扩展与外部连接能力缺失 |
+| `offscreen` | PARTIAL | MV3 createDocument/closeDocument/hasDocument，使用隐藏 WebView；reason 生命周期语义不等同 Chrome |
+| `runtime` | PARTIAL | 消息与 Port 已实现；MV3 getContexts 提供当前在线上下文查询；页面销毁会释放等待中的消息；跨扩展与外部连接、真正的 MV3 Service Worker 休眠/唤醒缺失 |
 | `storage` | PARTIAL | local/session CRUD 与事件已实现；sync 是独立本地持久化，不是真正跨设备同步 |
 | `alarms` | PARTIAL（本轮不修改） | 有 create/get/getAll/clear/clearAll；进程被杀期间不能准点执行，启动后补发 |
 | `permissions` | PARTIAL | getAll/contains/request/remove、用户确认、持久化与权限事件已实现；复杂 host pattern 子集边界仍有限 |
-| `tabs` | PARTIAL | query/create/update/remove/reload/history/sendMessage/move/duplicate 与 onMoved 已实现；单窗口、主框架限制及截图等能力缺失 |
-| `scripting` | PARTIAL | executeScript/insertCSS/removeCSS 与动态注册系列已实现；无真正 isolated world，frameId 仅支持 0 |
+| `tabs` | PARTIAL | query/get/create/update/remove/reload/history/sendMessage/move/duplicate/captureVisibleTab 与基础事件已实现；单窗口、主框架限制及 WebView 截图精度限制 |
+| `scripting` | PARTIAL | executeScript/insertCSS/removeCSS 与动态注册系列已实现；无真正 isolated world，frameId 仅支持 0；拒绝 allFrames/documentIds 与 USER CSS origin |
 | `i18n` | FULL（需边界测试） | 已有本地化消息表和 manifest 本地化 |
 | 其余 Firefox API | NONE 或 MANIFEST | 尚未接入原生 API handler / 浏览器宿主 |
 
@@ -48,7 +49,7 @@
 | `contentScripts` | MANIFEST | 静态 `content_scripts` 可由注入器处理；动态 API `register/unregister/update/getRegisteredContentScripts` 在 shim 有入口，但原生 router 没有 handler | P1 |
 | `contextualIdentities` | NONE | 无容器身份 API；Android 标签隐私模式不等同 Firefox Containers | P4 |
 | `cookies` | PARTIAL | URL 范围 get/set/remove；需要 cookies + 对应 host permission；WebView 不提供全局枚举和变更事件，get 只能返回 name/value 等可确认字段 | P1 |
-| `declarativeNetRequest` | NONE | 无 DNR 规则集/动态规则/会话规则执行引擎 | P1 |
+| `declarativeNetRequest` | PARTIAL | 动态 block/redirect/allow 规则已接入；静态 ruleset、session rules、高级条件与调试 API 缺失 | P1 |
 | `devtools` | NONE | 无扩展 DevTools 页面及面板宿主 | P4 |
 | `dns` | NONE | 无扩展 DNS resolve API | P2 |
 | `dom` | NONE | 无 Firefox 扩展专用 DOM 扩展接口 | P4 |
@@ -62,6 +63,7 @@
 | `identity` | NONE | 无 OAuth 身份授权 API | P4 |
 | `idle` | NONE | 无系统空闲/锁屏状态 API | P4 |
 | `management` | NONE | 无安装拓展枚举、启停和管理 API | P3 |
+| `mafari`（Mafari 专有） | PARTIAL | `browser.mafari.userscripts` / `chrome.mafari.userscripts` 管理原生 Userscript 库；需 `mafariScripts` 权限，仅拓展页面可用；不等同 Firefox 标准 `userScripts` | P2 |
 | `menus` | PARTIAL | contextMenus.create/update/remove/removeAll、onClicked 与常用 URL/context 过滤已接入；WebView 菜单宿主入口与 Firefox 全部上下文仍有边界 | P1 |
 | `notifications` | PARTIAL | basic 文本通知 create/update/clear/getAll 与点击/关闭事件；Android 系统授权和渠道由用户控制 | P2 |
 | `omnibox` | NONE | Android 地址栏没有扩展建议提供者接口 | P4 |
@@ -71,21 +73,21 @@
 | `privacy` | NONE | 无扩展隐私设置读取/修改 API | P1 |
 | `proxy` | NONE | 无扩展代理配置和按请求代理事件 API | P2 |
 | `publicSuffix` | NONE | 无 Public Suffix List 查询 API | P2 |
-| `runtime` | PARTIAL | getManifest/getURL/getPlatformInfo/openOptionsPage/sendMessage/connect/Port 已实现；Port 支持同一拓展内多个已就绪页面上下文；跨扩展与外部连接不支持 | P1 |
+| `runtime` | PARTIAL | getManifest/getURL/getPlatformInfo/getBackgroundPage（MV2 descriptor）/openOptionsPage/sendMessage/connect/Port 已实现；MV3 getContexts 支持 context/document/url/tab/frame/window/incognito 过滤；documentId 为宿主标识近似；跨扩展与外部连接不支持 | P1 |
 | `scripting` | PARTIAL | executeScript/insertCSS/removeCSS 与动态 content scripts 注册/查询/更新/注销已接入；仅主框架、无真正 isolated world | P1 |
 | `search` | NONE | 无扩展搜索引擎枚举/执行 API | P3 |
 | `sessions` | NONE | 无最近关闭标签/窗口恢复 API | P3 |
 | `sidebarAction` | NONE | 无侧边栏宿主 | P4 |
 | `storage` | PARTIAL | local/sync/session CRUD、配额与 onChanged 已接入；`sync` 仅本地持久化，不是 Firefox Sync；session 默认只对受信上下文开放 | P1 |
 | `tabGroups` | NONE | 无扩展标签组 API | P3 |
-| `tabs` | PARTIAL | query/get/getCurrent/create/update/duplicate/move/remove/reload/goBack/goForward/sendMessage 与 onMoved 已接入；sendMessage 仅主框架；captureVisibleTab、缩放和多窗口等缺失 | P1 |
+| `tabs` | PARTIAL | query/get/getCurrent/create/update/duplicate/move/remove/reload/goBack/goForward/sendMessage/captureVisibleTab 与 onActivated/onHighlighted/onUpdated/onRemoved/onMoved 等基础事件已接入；截图仅活动 WebView viewport，单窗口且 sendMessage 仅主框架 | P1 |
 | `theme` | NONE | 无扩展主题读取/应用 API | P4 |
 | `topSites` | NONE | 无常访站点 API | P3 |
 | `types` | N/A | 公共类型命名空间，不是独立运行时服务 | — |
-| `userScripts` | NONE | Mafari 自身 Userscript/GM 系统不等同 Firefox `browser.userScripts` API | P2 |
+| `userScripts` | PARTIAL | 标准 register/getScripts/update/unregister 已接入动态脚本注入器；MAIN/ISOLATED 仍受 WebView 世界隔离限制，frame 支持不完整 | P2 |
 | `userScripts (Legacy)` | NONE | MV2 legacy userScripts API 未实现 | P4 |
 | `webNavigation` | PARTIAL | 主框架 before/commit/complete/error 与 SPA History/Fragment 近似事件；子框架、DOMContentLoaded、documentId 语义不完整 | P1 |
-| `webRequest` | PARTIAL | 已接入 WebView `shouldInterceptRequest` 的 `onBeforeRequest` 观察事件；blocking / response 生命周期未实现 | P0 |
+| `webRequest` | PARTIAL | `onBeforeRequest` blocking cancel/redirect、拓展重定向 `onBeforeRedirect`、主框架 `onResponseStarted`（onPageCommitVisible 近似）、completed/error；请求头/响应头和子资源阶段缺失 | P0 |
 | `windows` | NONE | 当前标签桥接按单窗口模型设计，无扩展窗口管理 API | P3 |
 
 `FULL*` 表示源码已有完整主路径，但仍需更广泛的 Firefox 行为兼容测试；不代表已经证明 100% 一致。
@@ -121,12 +123,65 @@
 | i18n | `ext/I18nMessages.kt` |
 | 安装与仓库 | `ext/PackageInstaller.kt`、`ext/PackageUnpacker.kt`、`ext/FileExtensionRepository.kt` |
 
+## 5.1 本轮补充：webRequestBlocking 与 Mafari 原生脚本 API
+
+### webRequest / webRequestBlocking
+
+- `webRequest.onBeforeRequest.addListener(listener, filter, ["blocking"])` 已接入原生 `WebViewClient.shouldInterceptRequest()`。
+- `onResponseStarted` 只对主文档触发，以 `onPageCommitVisible` 作为近似时点；WebView 不提供可信的状态码和响应头。
+- `filter.urls` 必须提供至少一个有效 Match Pattern；支持 `types`、`tabId`、`excludedUrls`。
+- `blocking` 必须同时声明并获授 `webRequest`、`webRequestBlocking`，且原始 URL 必须具有 host access。
+- listener 必须同步返回 `{ cancel: true }` 或 `{ redirectUrl: "https://…" }`；Promise / 异步回调不用于 blocking 决策。
+- IO 线程最多等待 350ms；无响应、宿主销毁或超时均 fail-open（放行）。取消通过空 204 响应近似实现；重定向通过 302 + Location 近似实现。
+- 重定向目标还要通过响应拓展的已授予 host permission 检查。
+- `onBeforeSendHeaders`、`onSendHeaders`、`onHeadersReceived`、`onAuthRequired` 仍为惰性事件；`requestBody`、`extraHeaders`、请求/响应头修改及子资源响应阶段暂不支持，不能标记为 Firefox 完整兼容。
+
+### Mafari 原生 Userscript API
+
+在拓展 manifest 的 `permissions` 中显式声明 `mafariScripts` 后，拓展自己的 background / popup / options 页面可以调用：
+
+```js
+const scripts = await browser.mafari.userscripts.getAll();
+const fullScript = await browser.mafari.userscripts.get(scripts[0].id);
+const installed = await browser.mafari.userscripts.install("https://example.com/script.user.js");
+await browser.mafari.userscripts.setEnabled(installed.id, true);
+const result = await browser.mafari.userscripts.refresh(installed.id);
+const summary = await browser.mafari.userscripts.refreshAll(true);
+await browser.mafari.userscripts.remove(installed.id);
+```
+
+可用方法：`getAll`、`get`、`create`、`update`、`setEnabled`、`remove`、`install`、`refresh`、`refreshAll`、`getAutoUpdate`、`setAutoUpdate`。`getAll` 返回元数据，不返回代码；`get` / `install` 返回的对象包含 `code`。自动更新模式为 `0` 手动、`1` 每天、`2` 每 3 天、`3` 每周。脚本安装来源仅允许无凭据的 HTTP(S) URL。
+
+该入口管理的是 Mafari 现有加密 Userscript 库，并非 Firefox 标准 `browser.userScripts` API，也不授予拓展任意执行原生代码的能力。脚本的实际注入仍由 Mafari 的 UserscriptEngine / TabScripts 完成；对现有标签的注入刷新由 Compose 观察共享脚本列表变化，通常需要页面重新加载才能完整应用 document-start 变更。
+
+## 5.2 本轮增量：DNR、标准 userScripts 与消息生命周期
+
+### declarativeNetRequest（动态规则子集）
+
+- 已接入 `getDynamicRules`、`updateDynamicRules`、`getEnabledRulesets`、`updateEnabledRulesets`。
+- 动态规则持久化在每个拓展的数据目录；最多 5000 条；更新先整体校验再提交。
+- 支持 `block`、`redirect.url`、`allow`，以及 `urlFilter`、`resourceTypes`、`excludedResourceTypes`、`tabIds`、`excludedTabIds`、`requestMethods` 条件。
+- 不支持的条件会返回 `UNSUPPORTED`，不会被忽略；静态 ruleset、session rules、header 条件、allowAllRequests、upgradeScheme、transform、regexSubstitution、getMatchedRules 和调试事件尚未实现。
+- 规则执行发生在 `shouldInterceptRequest`；block 以空 204 近似，redirect 以 302 + Location 近似。WebView 重定向和缓存语义与 Chromium 网络服务不完全一致。
+
+### Firefox 标准 userScripts（部分）
+
+- 已接入 `browser.userScripts` / `chrome.userScripts` 的 `register`、`getScripts`、`update`、`unregister`。
+- 支持 `js: [{code}]`（写入拓展私有目录）和 `js: [{file}]`，并支持 matches、excludeMatches、runAt、allFrames、world、persistAcrossSessions。
+- 注册结果复用 `DynamicContentScriptStore`，更新后通知标签宿主刷新动态注入脚本；已加载文档不回溯执行。
+- `onBeforeScript` / `onAfterScript` 目前只提供惰性事件；没有真正隔离世界，WebView 当前只可靠支持主框架。
+
+### runtime 消息清理
+
+- `runtime.sendMessage` 默认回复等待上限调整为 10 秒，并记录超时目标上下文，不再静默等满 30 秒。
+- popup/background/options 页面销毁或拓展关闭时，会立即清理其未完成消息投递；调用方收到 `NO_RECEIVER` 或 `TIMEOUT`，不再被已销毁 endpoint 长时间拖住。
+
 ## 6. 兼容性边界（不是简单补 API 名称就能解决）
 
 1. **没有真正的 isolated world。** 当前 WebView content script 运行在页面 JS 世界，闭包和桥对象隐藏只能降低冲突，不能提供 Firefox 的安全隔离保证。
 2. **MV3 service worker 是隐藏页面模拟。** 生命周期、休眠/唤醒、事件持久化、启动时序与 Firefox 不等价。
 3. **frame 模型不完整。** WebView 不能直接提供 Firefox 的完整 frame/documentId 语义；当前 frameId 对子框架只能粗略表示。
-4. **网络拦截需要原生网络层。** `webRequest`、`webRequestBlocking`、`declarativeNetRequest` 不能仅靠 JS shim 实现。
+4. **网络拦截需要原生网络层。** 当前 `webRequestBlocking` 仅借助 WebView `shouldInterceptRequest` 对请求发出前做有限决策；无法修改请求头 / 响应头，也不能完全替代 Chromium / Firefox 网络栈。DNR 仅支持动态 block/redirect/allow 子集，静态规则集与高级条件仍未实现。
 5. **浏览器专属 UI API 需要宿主。** action、menus、sidebar、omnibox、devtools 等必须接入 Mafari 原生 UI，不是返回空对象即可兼容。
 6. **权限声明不等于权限能力。** 安装器可以识别权限名，但只有 API handler、host 权限校验、授权生命周期和真实底层能力都存在，才能标记为支持。
 
@@ -134,13 +189,13 @@
 
 | 顺序 | 模块 | 理由 |
 |---|---|---|
-| P0 | `webRequest` 基础事件 + `webRequestBlocking` 过滤决策 | 广告过滤、隐私保护和请求改写类拓展的关键能力；必须先设计原生同步拦截链 |
+| P0 | `webRequest` / `webRequestBlocking` 完整化 | 当前已实现有限的请求前 cancel / redirect；下一步补齐请求阶段、更多资源类型与真实网络栈能力 |
 | P1 | `tabs.sendMessage`、`runtime.connect/Port`、`scripting.registerContentScripts` | 补齐扩展上下文之间和动态脚本生命周期的基础通信能力 |
 | P1 | `action` / `browserAction`、`menus`、`commands` | 大量扩展依赖按钮、popup、右键菜单和快捷键 |
 | P1 | `webNavigation` | 让扩展可靠感知导航、frame 和页面状态 |
 | P1 | `permissions.contains` 复杂匹配边界 | 继续核对通配符路径及 Firefox 权限语义 |
 | P2 | `cookies`、`history`、`bookmarks` | 常见浏览器集成能力 |
-| P2 | `declarativeNetRequest` | 为声明式过滤拓展提供独立规则执行引擎；与 webRequest 分别评估 |
+| P2 | `declarativeNetRequest` | 动态 block/redirect/allow 已接入；继续补齐静态 ruleset、session rules、更多条件与规则优先级兼容 |
 | P2 | `dns`、`publicSuffix`、`privacy`、`proxy` | 对 uBlock 等复杂拓展及隐私工具有较高价值 |
 | P3 | `sessions`、`windows`、`tabGroups`、`topSites`、`search` | 完善浏览器管理类拓展 |
 | P4 | `devtools`、`pkcs11`、`contextualIdentities`、`sidebarAction`、`omnibox` | Android WebView 宿主成本高或不适用，可明确标注平台限制 |
@@ -316,3 +371,23 @@
 - 保持 PARTIAL：当前 Mafari 历史表按 URL 聚合，不保存每次访问记录，不能准确提供 Firefox/Chrome 的 `getVisits`、真实 `visitCount` 与 `onVisited` 语义；搜索结果不返回伪造的访问次数；本轮不伪造这些数据。
 
 验证：`node tools/ext-shim-test/run.js` 与 `node tools/webext-test/run.js` 通过。Android Kotlin 编译 / 真机测试仍需 Gradle 环境验证。
+
+
+### MV3 runtime.getContexts
+
+- 新增 `runtime.getContexts(filter)`，只枚举当前拓展自己的在线上下文。
+- 支持 `contextTypes`、`contextIds`、`documentIds`、`documentOrigins`、`documentUrls`、`frameIds`、`tabIds`、`windowIds`、`incognito` 过滤。
+- `documentUrls` 按完整 URL 精确匹配；`contextTypes` 接受 Chrome 的 `TAB`、`POPUP`、`BACKGROUND`、`OFFSCREEN_DOCUMENT`、`SIDE_PANEL`、`DEVELOPER_TOOLS` 类型。
+- `documentId` 使用 Mafari 宿主文档标识，不承诺与 Chromium 原生 document token 相同；主框架优先，子框架 / incognito 仍不完整。
+
+- MV2 `runtime.getBackgroundPage()` 在 Mafari 不同 WebView 上不能跨实例返回真实 Window；非后台页面取得 `{contextId}` 描述对象，MV3 按 Chrome 语义拒绝该 API。
+
+
+### 本轮 API 能力补充（Offscreen / Tabs / Messaging / Scripting）
+
+- `offscreen.createDocument()` 仅接受扩展包内相对 HTML 路径，创建后等待页面加载及 Mafari bridge 握手；每个扩展同一时刻最多一个隐藏 offscreen WebView。offscreen 页面只暴露 runtime namespace。
+- Offscreen `reasons` 按 Chrome 枚举校验，但 Mafari 不按 reason 实施 Chrome 的专属生命周期策略（尤其 AUDIO_PLAYBACK 静音 30 秒自动关闭）。
+- `tabs.captureVisibleTab()` 返回活动 WebView 视口的 PNG/JPEG data URL，要求活动页 host access 或当前 activeTab 授权；通过 View.draw 截图，限制 4MP，不保证捕获硬件覆盖层、DRM 视频或系统合成效果。
+- `tabs.sendMessage` sender 补充目标 tab/frame/window 信息；按 documentId 路由仍不支持。
+- `scripting.executeScript` 对 allFrames、非 0 frameIds、documentIds 显式返回 UNSUPPORTED；`insertCSS/removeCSS` 的 USER cascade origin 显式返回 UNSUPPORTED。当前 WebView 注入仍不提供真正的 Chrome isolated world。
+- `runtime.onMessage` 只有同步 sendResponse、return true 或 Promise 才视为响应；仅接收但不回复的监听器不会伪造成功 undefined。

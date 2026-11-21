@@ -5,8 +5,8 @@ import java.io.File
 
 /**
  * runtime.sendMessage 的投递：把消息送到拓展的其它上下文（后台页、popup、其它标签里的 content script）并等回复。
- * 需要后台宿主与注入层，下一步实现；这里只定接口。参数约定见 [ApiRequest]：JS 垫片已把重载归一化，
- * 到这里 [extensionId] 为 null 表示发给自己。
+ * 由后台宿主与注入层提供消息 / Port 路由，并通过同一接口查询当前拓展的运行上下文。
+ * 参数约定见 [ApiRequest]：JS 垫片已把重载归一化，到这里 [extensionId] 为 null 表示发给自己。
  */
 fun interface RuntimeMessenger {
     suspend fun sendMessage(ctx: CallContext, extensionId: String?, message: Any?): Any?
@@ -17,6 +17,10 @@ fun interface RuntimeMessenger {
     fun disconnectPort(ctx: CallContext, portId: String): Unit {
         throw ApiException(ErrorCodes.UNSUPPORTED, "Port 尚未实现")
     }
+    fun getContexts(ctx: CallContext, filter: JSONObject): Any? =
+        throw ApiException(ErrorCodes.UNSUPPORTED, "runtime.getContexts 尚未实现")
+    fun getBackgroundPage(ctx: CallContext): Any? =
+        throw ApiException(ErrorCodes.UNSUPPORTED, "MV2 background page reference is unavailable")
 }
 
 class RuntimeApi(
@@ -37,6 +41,27 @@ class RuntimeApi(
         }
         router.register("runtime.getPlatformInfo") { _, _ ->
             JSONObject().put("os", "android").put("arch", arch()).put("nacl_arch", arch())
+        }
+        router.register("runtime.getContexts") { ctx, a ->
+            if (ctx.ext.spec.manifestVersion != ManifestVersion.MV3) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "runtime.getContexts 仅对 Manifest V3 开放")
+            }
+            val rawFilter = a.argOrNull(0)
+            if (rawFilter != null && rawFilter !is JSONObject) {
+                throw ApiException(ErrorCodes.BAD_REQUEST, "getContexts filter 必须是对象")
+            }
+            val filter = rawFilter as? JSONObject ?: JSONObject()
+            validateContextFilter(filter)
+            messenger.getContexts(ctx, filter)
+        }
+        router.register("runtime.getBackgroundPage") { ctx, _ ->
+            if (ctx.ext.spec.manifestVersion == ManifestVersion.MV3) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "Manifest V3 不存在 background page")
+            }
+            if (ctx.sender.kind != SenderKind.EXTENSION_PAGE) {
+                throw ApiException(ErrorCodes.DENIED_PERMISSION, "runtime.getBackgroundPage 只能从拓展页面调用")
+            }
+            messenger.getBackgroundPage(ctx)
         }
         router.register("runtime.openOptionsPage") { ctx, _ ->
             // content script 不应直接控制浏览器标签；由拓展自己的后台页 / popup / options 调用。
@@ -79,6 +104,15 @@ class RuntimeApi(
             messenger.disconnectPort(ctx, id)
             null
         }
+    }
+
+    private fun validateContextFilter(filter: JSONObject) {
+        val allowed = setOf(
+            "contextTypes", "contextIds", "documentIds", "documentOrigins", "documentUrls",
+            "frameIds", "incognito", "tabIds", "windowIds",
+        )
+        val unknown = filter.keys().asSequence().filter { it !in allowed }.sorted().toList()
+        if (unknown.isNotEmpty()) throw ApiException(ErrorCodes.BAD_REQUEST, "getContexts 包含未知过滤字段：${unknown.joinToString()}")
     }
 
     private fun arch(): String = when (System.getProperty("os.arch")?.lowercase()) {

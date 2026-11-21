@@ -123,6 +123,19 @@ class TabsApiTest {
         assertEquals(ErrorCodes.BAD_REQUEST, call("tabs.query", JSONObject().put("active", "yes")).getJSONObject("error").getString("code"))
     }
 
+
+    @Test fun captureVisibleTabRequiresHostAccessAndSupportsFormatOptions() {
+        install()
+        val png = call("tabs.captureVisibleTab", null, JSONObject().put("format", "png")).result() as String
+        assertTrue(png.startsWith("data:image/png;base64,"))
+        assertEquals("png" to 90, bridge.lastCapture)
+        val jpeg = call("tabs.captureVisibleTab", JSONObject().put("format", "jpeg").put("quality", 72)).result() as String
+        assertTrue(jpeg.startsWith("data:image/jpeg;base64,"))
+        assertEquals("jpeg" to 72, bridge.lastCapture)
+        assertEquals(ErrorCodes.BAD_REQUEST, call("tabs.captureVisibleTab", JSONObject().put("format", "webp")).let { it.getJSONObject("error").getString("code") })
+        assertEquals(ErrorCodes.BAD_REQUEST, call("tabs.captureVisibleTab", null, "bad-options").getJSONObject("error").getString("code"))
+    }
+
     @Test fun contentScriptsCannotCallTabs() {
         install(setOf("tabs"))
         val cs = Sender(SenderKind.CONTENT_SCRIPT, "https://a.com", true, tabA)
@@ -143,6 +156,9 @@ class TabsApiTest {
             override fun deliver(cid: String, message: Any?, sender: JSONObject): Boolean {
                 assertEquals("hello", message as String)
                 assertEquals(TestExt.ID, sender.getString("id"))
+                assertEquals(tabA, sender.getJSONObject("tab").getInt("id"))
+                assertEquals(TabBridge.WINDOW_ID, sender.getJSONObject("tab").getInt("windowId"))
+                assertEquals(0, sender.getInt("frameId"))
                 broker.reply(extId, cid, "world", false)
                 return true
             }
@@ -286,6 +302,9 @@ class TabsApiTest {
         assertEquals("https://example.com/", sink.named("tabs.onCreated").single().getJSONObject("tab").getString("url"))
         runBlocking { bridge.update(id, TabUpdateOptions(active = true)) }
         assertEquals(id, sink.named("tabs.onActivated").last().getJSONObject("activeInfo").getInt("tabId"))
+        val highlighted = sink.named("tabs.onHighlighted").last().getJSONObject("highlightInfo")
+        assertEquals(id, highlighted.getJSONArray("tabIds").getInt(0))
+        assertEquals(TabBridge.WINDOW_ID, highlighted.getInt("windowId"))
         runBlocking { bridge.remove(listOf(id)) }
         val removed = sink.named("tabs.onRemoved").single()
         assertEquals(id, removed.getInt("tabId"))

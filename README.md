@@ -146,6 +146,7 @@ bash tools/miuix-sync.sh   # 拉取 miuix 到 third_party/miuix 并应用 tools/
 
 完整的构建说明、版本变体、自动发布流程与代码结构，请见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+
 ## 捐赠
 
 Mafari 由个人业余时间开发维护，完全免费、无广告。如果它对你有帮助，欢迎请开发者喝杯咖啡 ☕，这会让项目走得更久。
@@ -169,3 +170,7 @@ Mafari 由个人业余时间开发维护，完全免费、无广告。如果它�
 - 繁體中文：`zh-TW-phrases.tsv`（台湾用语）+ `s2t.txt`（简→繁逐字表）运行时转换；个别用词不理想时在 phrases 里加一行即可。
 - 找不到译文时回退为简体中文原文，不会崩溃。新增文案只需在代码里写 `tr("…")`，再往 en.tsv 补一行。
 - 系统级字符串（应用名、自动填充服务名）在 `res/values*/strings.xml`，跟随系统语言。
+
+## WebExtension adapter additions
+
+The WebView adapter's partial `webRequestBlocking` support and Mafari-native Userscript bridge are documented in [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md). Dynamic DNR rules and the standard `userScripts` subset are documented in [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md). The compatibility matrix is in [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md).

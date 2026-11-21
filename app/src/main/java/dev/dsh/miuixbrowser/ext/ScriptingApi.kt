@@ -17,7 +17,10 @@ import java.util.UUID
  *
  * WebView 上的限制（会写进兼容性提示）：
  * - 只能注入主框架：`frameIds` 只接受 0，`allFrames` 被忽略（只回主框架的结果）；
- * - 没有隔离世界：`world: "ISOLATED"` 也在页面世界里跑，注入的代码拿不到 `chrome` / `browser`，页面脚本能看到它的全局与源码；
+ * - 隔离世界只在「该拓展的 ISOLATED content script 已在这个标签主框架里跑起来」时才有（见 [TabBridge.evaluateInIsolatedWorld]）：
+ *   此时 `world: "ISOLATED"`（默认）的 func / files 真的在拓展自己的隔离世界里执行，能直接用 `chrome` / `browser`，页面看不到它的全局与源码。
+ *   没有这个世界（该页面没有匹配的 content script、系统 WebView 太旧）时**降级到页面世界**，行为与以前一致：拿不到 `chrome` / `browser`，页面脚本能看到它；
+ *   `world: "MAIN"` 始终在页面世界执行；
  * - `files` 里的脚本抛异常时无法得知（`evaluateJavascript` 对异常与 undefined 都回 null），`func` 的异常会被捕获并报错；
  * - `activeTab`：没有 host 权限时，用户点击过该拓展（快捷菜单）的标签当前 origin 也可以注入，导航到别的 origin 即作废。
  *
@@ -155,6 +158,7 @@ class ScriptingApi(
         val files = d.files("files")
         if ((func == null) == (files == null)) throw bad("func 与 files 必须且只能提供一个")
         checkWorld(d)
+        val isolated = (d.str("world") ?: "ISOLATED") == "ISOLATED"
 
         if (func != null) {
             if (func.length > MAX_SOURCE) throw bad("func 过大")
@@ -165,19 +169,21 @@ class ScriptingApi(
             val argsJson = args.toString()
             if (argsJson.length > MAX_SOURCE) throw bad("args 过大")
             val (b, origin) = access(ctx, tabId)
+            val ev = Evaluator(b, ctx.ext.spec.id, tabId, isolated)
             val token = newToken()
-            val raw = b.evaluate(tabId, funcScript(func, argsJson, origin, token)) ?: throw unavailable()
+            val raw = ev.eval(funcScript(func, argsJson, origin, token))?.let { asJsonString(it) } ?: throw unavailable()
             var resp = decodeString(raw)?.let { parseObject(it) } ?: throw unavailable()
-            if (resp.optInt("pending") == 1) resp = awaitPending(b, tabId, token)
+            if (resp.optInt("pending") == 1) resp = awaitPending(ev, token)
             return toResult(resp)
         }
 
         val sources = readFiles(ctx, files!!)
         val (b, origin) = access(ctx, tabId)
+        val ev = Evaluator(b, ctx.ext.spec.id, tabId, isolated)
         val marker = "__mx_" + newToken()
         var last: Any? = JSONObject.NULL
         for (src in sources) {
-            val raw = b.evaluate(tabId, fileScript(src, origin, marker)) ?: throw unavailable()
+            val raw = ev.eval(fileScript(src, origin, marker)) ?: throw unavailable()
             last = try {
                 JSONTokener(raw).nextValue()
             } catch (_: Exception) {
@@ -191,12 +197,12 @@ class ScriptingApi(
     }
 
     /** 异步函数：结果由页面写进一次性槽位，这里轮询取回 */
-    private suspend fun awaitPending(b: TabBridge, tabId: Int, token: String): JSONObject {
+    private suspend fun awaitPending(ev: Evaluator, token: String): JSONObject {
         val out = withTimeoutOrNull(timeoutMs) {
             var found: JSONObject? = null
             while (found == null) {
                 delay(pollIntervalMs)
-                val raw = b.evaluate(tabId, pollScript(token)) ?: throw unavailable()
+                val raw = ev.eval(pollScript(token))?.let { asJsonString(it) } ?: throw unavailable()
                 found = decodeString(raw)?.let { parseObject(it) }
             }
             found
@@ -204,7 +210,7 @@ class ScriptingApi(
         if (out == null) {
             // 超时：尽力把槽位清掉
             try {
-                b.evaluate(tabId, pollScript(token))
+                ev.eval(pollScript(token))
             } catch (_: Exception) {
             }
             throw ApiException(ErrorCodes.TIMEOUT, "脚本没有在 ${timeoutMs / 1000} 秒内完成")
@@ -226,6 +232,7 @@ class ScriptingApi(
 
     private suspend fun insertCss(ctx: CallContext, d: JSONObject) {
         val tabId = parseTarget(d)
+        validateCssOrigin(d)
         val css = cssOf(ctx, d)
         val (b, origin) = access(ctx, tabId)
         val key = cssKey(ctx.ext.spec.id, css)
@@ -239,6 +246,7 @@ class ScriptingApi(
     /** 只删本拓展插入过的、内容完全相同的那一份（用 id + 内容算出的键找） */
     private suspend fun removeCss(ctx: CallContext, d: JSONObject) {
         val tabId = parseTarget(d)
+        validateCssOrigin(d)
         val css = cssOf(ctx, d)
         val (b, origin) = access(ctx, tabId)
         val key = cssKey(ctx.ext.spec.id, css)
@@ -251,6 +259,12 @@ class ScriptingApi(
     private fun expectOne(raw: String?) {
         val s = raw?.let { decodeString(it) } ?: throw unavailable()
         if (s != "1") throw ApiException(ErrorCodes.DENIED_ORIGIN, PAGE_CHANGED)
+    }
+
+    private fun validateCssOrigin(d: JSONObject) {
+        val origin = d.str("origin") ?: "AUTHOR"
+        if (origin != "AUTHOR" && origin != "USER") throw bad("origin 只能是 AUTHOR 或 USER")
+        if (origin == "USER") throw ApiException(ErrorCodes.UNSUPPORTED, "WebView 适配层暂不支持 USER CSS cascade origin")
     }
 
     private fun cssOf(ctx: CallContext, d: JSONObject): String {
@@ -305,9 +319,18 @@ class ScriptingApi(
     private fun parseTarget(d: JSONObject): Int {
         val t = d.opt("target") as? JSONObject ?: throw bad("缺少 target")
         val id = TabsApi.toInt(t.opt("tabId"), "target.tabId")
+        if (t.optBoolean("allFrames", false)) {
+            throw ApiException(ErrorCodes.UNSUPPORTED, "scripting.executeScript 当前只支持主框架；allFrames 不可用")
+        }
+        if (t.has("documentIds") && !t.isNull("documentIds")) {
+            throw ApiException(ErrorCodes.UNSUPPORTED, "WebView 尚不支持按 documentIds 注入")
+        }
         val frames = t.optJSONArray("frameIds")
-        if (frames != null && (0 until frames.length()).any { TabsApi.toInt(frames.opt(it), "frameIds") != 0 }) {
-            throw bad("只支持主框架（frameId 0）")
+        if (frames != null) {
+            if (frames.length() == 0) throw bad("frameIds 不能为空")
+            if ((0 until frames.length()).any { TabsApi.toInt(frames.opt(it), "frameIds") != 0 }) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "只支持主框架（frameId 0）")
+            }
         }
         return id
     }
@@ -357,6 +380,35 @@ class ScriptingApi(
         if (a.length() == 0 || a.length() > MAX_FILES) throw bad("$key 的数量必须在 1 到 $MAX_FILES 之间")
         return (0 until a.length()).map { a.opt(it) as? String ?: throw bad("$key 必须是字符串数组") }
     }
+
+    /**
+     * 一次 executeScript 调用里所有脚本（本体 + 轮询）共用的执行器：要隔离世界就先试隔离世界；
+     * 第一次发现没有入口就降级到页面世界，并且**本次调用之后一直留在页面世界**，保证 func 与它的异步结果槽位在同一个世界里。
+     */
+    private class Evaluator(
+        private val b: TabBridge,
+        private val extId: String,
+        private val tabId: Int,
+        wantIsolated: Boolean,
+    ) {
+        private var isolated = wantIsolated
+
+        suspend fun eval(js: String): String? {
+            if (isolated) {
+                when (val r = b.evaluateInIsolatedWorld(extId, tabId, js)) {
+                    is WorldEval.Done -> return r.raw
+                    WorldEval.Unavailable -> isolated = false
+                }
+            }
+            return b.evaluate(tabId, js)
+        }
+    }
+
+    /**
+     * func / 轮询脚本的返回值是 JSON 字符串，`evaluateJavascript` 会把它再包成带引号的字符串字面量；
+     * 隔离世界的 `executeJavaScript` 若直接回内层文本（以 `{` 开头），这里补成同样的字符串字面量，后面统一走 [decodeString]。
+     */
+    private fun asJsonString(raw: String): String = if (raw.startsWith("{")) JSONObject.quote(raw) else raw
 
     /** `evaluateJavascript` 回的是「JSON 文本」：脚本返回字符串时是带引号的字符串字面量，这里还原；不是字符串返回 null */
     private fun decodeString(raw: String): String? = try {

@@ -148,9 +148,9 @@ class ScriptingApiTest {
         assertEquals(ErrorCodes.BAD_REQUEST, code(exec("func" to f, "world" to "WORLD")))
         assertEquals(ErrorCodes.BAD_REQUEST, code(exec("func" to f, "args" to "x")))
         val frame1 = JSONObject().put("tabId", tabG).put("frameIds", JSONArray(listOf(1)))
-        assertEquals(ErrorCodes.BAD_REQUEST, code(call("scripting.executeScript", JSONObject().put("target", frame1).put("func", f))))
+        assertEquals(ErrorCodes.UNSUPPORTED, code(call("scripting.executeScript", JSONObject().put("target", frame1).put("func", f))))
         val frame0 = JSONObject().put("tabId", tabG).put("frameIds", JSONArray(listOf(0))).put("allFrames", true)
-        assertTrue(call("scripting.executeScript", JSONObject().put("target", frame0).put("func", f)).getBoolean("ok"))
+        assertEquals(ErrorCodes.UNSUPPORTED, code(call("scripting.executeScript", JSONObject().put("target", frame0).put("func", f))))
         assertEquals(ErrorCodes.BAD_REQUEST, code(call("scripting.executeScript", JSONObject().put("func", f)))) // 缺 target
         assertEquals(ErrorCodes.BAD_REQUEST, code(call("scripting.executeScript", null)))
     }
@@ -243,6 +243,7 @@ class ScriptingApiTest {
         assertTrue(bridge.evaluated.single().second.contains("a{b:c}"))
         assertEquals(ErrorCodes.BAD_REQUEST, code(cssCall("scripting.insertCSS", "css" to "x", "files" to JSONArray(listOf("a.css")))))
         assertEquals(ErrorCodes.BAD_REQUEST, code(cssCall("scripting.insertCSS")))
+        assertEquals(ErrorCodes.UNSUPPORTED, code(cssCall("scripting.insertCSS", "css" to "x", "origin" to "USER")))
         bridge.evalHandler = { _, _ -> lit("0") }
         assertEquals(ErrorCodes.DENIED_ORIGIN, code(cssCall("scripting.insertCSS", "css" to "x")))
     }
@@ -257,5 +258,33 @@ class ScriptingApiTest {
         assertNull(api.originOf("file:///x"))
         assertNull(api.originOf("about:blank"))
         assertNull(api.originOf("https:///x"))
+    }
+
+    // ───── 隔离世界 ─────
+
+    @Test fun isolatedWorldIsUsedWhenAvailable() {
+        bridge.isolatedHandler = { _, _, _ -> WorldEval.Done(lit("""{"ok":1,"v":5}""")) }
+        val r = results(exec("func" to "function(){return 5}"))
+        assertEquals(5, r.getJSONObject(0).getInt("result"))
+        assertEquals(TestExt.ID, bridge.isolatedEvaluated.single().first)
+        assertTrue(bridge.evaluated.isEmpty())
+    }
+
+    @Test fun isolatedRawWithoutOuterQuotesIsAccepted() {
+        bridge.isolatedHandler = { _, _, _ -> WorldEval.Done("""{"ok":1,"v":7}""") }
+        assertEquals(7, results(exec("func" to "function(){return 7}")).getJSONObject(0).getInt("result"))
+    }
+
+    @Test fun fallsBackToPageWorldWhenNoIsolatedEntry() {
+        bridge.evalHandler = { _, _ -> lit("""{"ok":1,"v":1}""") }
+        assertEquals(1, results(exec("func" to "function(){return 1}")).getJSONObject(0).getInt("result"))
+        assertEquals(1, bridge.evaluated.size)
+    }
+
+    @Test fun mainWorldNeverUsesIsolatedEntry() {
+        bridge.isolatedHandler = { _, _, _ -> error("MAIN must not use the isolated world") }
+        bridge.evalHandler = { _, _ -> lit("""{"ok":1,"v":2}""") }
+        results(exec("func" to "function(){return 2}", "world" to "MAIN"))
+        assertTrue(bridge.isolatedEvaluated.isEmpty())
     }
 }

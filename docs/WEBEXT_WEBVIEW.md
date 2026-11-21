@@ -66,7 +66,7 @@ manifest.json
 
 ## 必须明确的 WebView 限制
 
-1. **没有公开的真正 isolated world**。当前 content script 的局部变量和 API 通过闭包隐藏，桥对象在启动时捕获后从 `window` 删除，但脚本仍运行在页面 JavaScript 世界。`world: "ISOLATED"` 与 `"MAIN"` 目前不能保证浏览器级隔离。
+1. **隔离世界（已部分解决）**：系统 WebView 支持 `JS_INJECTION_IN_FRAME_AND_WORLD`（androidx.webkit ≥ 1.16）时，每个拓展有独立 `JavaScriptExecutionWorld`，桥与 ISOLATED content script 只在该世界内，`world:"MAIN"` 注入页面世界且无拓展 API；`scripting.executeScript` 在该标签已有该拓展 content script 时进入隔离世界，否则降级页面世界。不支持时回到下述旧行为：当前 content script 的局部变量和 API 通过闭包隐藏，桥对象在启动时捕获后从 `window` 删除，但脚本仍运行在页面 JavaScript 世界。`world: "ISOLATED"` 与 `"MAIN"` 目前不能保证浏览器级隔离。
 2. **`all_frames` 是尽力实现**。WebView document-start 脚本按 origin 注入，再由脚本自身判断 frame；`frameId` 也不能像 Chromium 一样提供真实、稳定的子框架编号。
 3. **MV3 service worker 是隐藏扩展页模拟**，不是 Android WebView 原生 Service Worker 扩展宿主。休眠、唤醒、事件持久化和 Chrome 行为不能完全等同。
 4. **页面世界执行的 `scripting` 有安全边界**：只能在获得 host 权限的页面主框架执行；页面导航期间会二次校验 origin，避免把脚本发到已变化的站点。

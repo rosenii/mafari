@@ -179,30 +179,6 @@ class MessageBrokerTest {
         assertEquals("answer", r.await())
     }
 
-    @Test fun declinedContextDoesNotBeatTheContextThatActuallyAnswers() = runBlocking {
-        val ids = ArrayDeque(listOf("c1", "c2"))
-        val b = MessageBroker(timeoutMs = 5000, newCid = { ids.removeFirst() })
-        b.register(Ep("bg"))
-        b.register(Ep("options"))
-        val r = async { b.sendMessage(ctx(csSender()), null, "q") }
-        yield()
-        // options 页有监听器但不处理这条消息：不能当成「回复了 undefined」抢答
-        b.reply(TestExt.ID, "c1", null, noReceiver = false, declined = true)
-        yield()
-        assertFalse(r.isCompleted)
-        b.reply(TestExt.ID, "c2", "real", false)
-        assertEquals("real", r.await())
-    }
-
-    @Test fun allContextsDecliningResolvesUndefinedLikeBrowsers() = runBlocking {
-        val b = MessageBroker(timeoutMs = 5000, newCid = { "c1" })
-        b.register(Ep("bg"))
-        val r = async { b.sendMessage(ctx(csSender()), null, "q") }
-        yield()
-        b.reply(TestExt.ID, "c1", null, noReceiver = false, declined = true)
-        assertNull(r.await())
-    }
-
     @Test fun anExtensionCannotAnswerAnotherExtensionsMessage() = runBlocking {
         val b = MessageBroker(timeoutMs = 300, newCid = { "c1" })
         b.register(Ep("bg"))
@@ -291,6 +267,20 @@ class MessageBrokerTest {
         val ext = TestExt.make(File(tmp.root, "tabs-message-none"))
         val ctx = CallContext(ext, pageSender("popup"), "tabs.sendMessage")
         assertEquals(ErrorCodes.NO_RECEIVER, code { runBlocking { b.sendToTab(ctx, 123, "x") } })
+    }
+
+    @Test fun unregisteringPendingReceiverReleasesSendMessageImmediately() = runBlocking {
+        val b = MessageBroker(timeoutMs = 10_000)
+        val bg = Ep("bg")
+        b.register(bg)
+        val result = async {
+            try { b.sendMessage(ctx(csSender()), null, "waiting"); null }
+            catch (e: ApiException) { e.code }
+        }
+        yield()
+        assertEquals(1, bg.got.size)
+        b.unregister("bg")
+        assertEquals(ErrorCodes.NO_RECEIVER, result.await())
     }
 
     @Test fun unregisterRemovesContexts() {
@@ -401,4 +391,49 @@ class MessageBrokerTest {
         c.emit("x", "storage.onChanged", JSONObject())
         assertEquals(listOf("x:storage.onChanged"), seen)
     }
+    @Test fun runtimeGetContextsReturnsOnlyOwnExtensionContextsAndAppliesFilters() {
+        val b = MessageBroker()
+        val background = object : Ep("bg") {
+            override val contextType = "BACKGROUND"
+            override val documentUrl = "https://extension.invalid/background.html"
+            override val documentOrigin = "https://extension.invalid"
+        }
+        val popup = object : Ep("popup") {
+            override val contextType = "POPUP"
+            override val documentUrl = "https://extension.invalid/popup.html"
+            override val documentOrigin = "https://extension.invalid"
+        }
+        val content = object : Ep("content:${TestExt.ID}:7", kind = SenderKind.CONTENT_SCRIPT, tabId = 7) {
+            override val contextType = "TAB"
+            override val documentUrl = "https://site.example/page"
+            override val documentOrigin = "https://site.example"
+        }
+        b.register(background); b.register(popup); b.register(content)
+        b.register(Ep("other", extId = "other@x.org"))
+
+        val all = b.getContexts(TestExt.ID)
+        assertEquals(3, all.length())
+        val popupOnly = b.getContexts(TestExt.ID, JSONObject("""{"contextTypes":["POPUP"]}"""))
+        assertEquals(1, popupOnly.length())
+        assertEquals("popup", popupOnly.getJSONObject(0).getString("contextId"))
+        val tabOnly = b.getContexts(TestExt.ID, JSONObject("""{"tabIds":[7],"documentOrigins":["https://site.example"],"documentUrls":["https://site.example/page"]}"""))
+        assertEquals(1, tabOnly.length())
+        assertEquals("https://site.example/page", tabOnly.getJSONObject(0).getString("documentUrl"))
+        assertEquals("https://site.example", tabOnly.getJSONObject(0).getString("documentOrigin"))
+        assertEquals(7, tabOnly.getJSONObject(0).getInt("tabId"))
+        assertEquals(TabBridge.WINDOW_ID, tabOnly.getJSONObject(0).getInt("windowId"))
+        assertEquals(0, b.getContexts(TestExt.ID, JSONObject("""{"documentUrls":["https://other.example/page"]}""")).length())
+        assertEquals(0, b.getContexts(TestExt.ID, JSONObject("""{"contextTypes":["DEVELOPER_TOOLS"]}""")).length())
+    }
+
+    @Test fun runtimeGetContextsRejectsMalformedFilters() {
+        val b = MessageBroker()
+        try {
+            b.getContexts(TestExt.ID, JSONObject("""{"tabIds":"7"}"""))
+            fail("expected BAD_REQUEST")
+        } catch (e: ApiException) {
+            assertEquals(ErrorCodes.BAD_REQUEST, e.code)
+        }
+    }
+
 }
