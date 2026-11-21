@@ -146,12 +146,6 @@ It follows miuix `main` by default. To pin a version, set `commit=` in `miuix.re
 
 For full build instructions, build variants, the release pipeline, and code structure, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in Chinese).
 
-## License
-
-Released under the [Apache License 2.0](LICENSE). The miuix upstream fetched at build time is also Apache-2.0 (see its LICENSE); local changes live as patches in `tools/miuix-patches/`.
-
-Project page: <https://github.com/rosenii/mafari>
-
 ## Donate
 
 Mafari is developed and maintained in the author's spare time. It is completely free and ad-free. If it helps you, consider buying the developer a coffee ☕ — it helps the project last longer.

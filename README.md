@@ -146,12 +146,6 @@ bash tools/miuix-sync.sh   # 拉取 miuix 到 third_party/miuix 并应用 tools/
 
 完整的构建说明、版本变体、自动发布流程与代码结构，请见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-## 许可证
-
-本项目以 [Apache License 2.0](LICENSE) 发布；构建时拉取的 miuix 上游同为 Apache-2.0（见其仓库 LICENSE），本地改造以补丁形式放在 `tools/miuix-patches/`。
-
-项目地址：<https://github.com/rosenii/mafari>
-
 ## 捐赠
 
 Mafari 由个人业余时间开发维护，完全免费、无广告。如果它对你有帮助，欢迎请开发者喝杯咖啡 ☕，这会让项目走得更久。
