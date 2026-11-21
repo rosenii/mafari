@@ -60,7 +60,7 @@ val geckoViewVersion = (project.findProperty("geckoViewVersion") as String?) ?: 
 // Gradle 版本在 gradle/wrapper/gradle-wrapper.properties；升级时请同步这里，仅用于「关于」页展示
 val kotlinVersion = "2.4.21"
 val composeMultiplatformVersion = "1.12.2"
-val agpVersion = "9.5.1"
+val agpVersion = "9.5.2"
 
 // 格式：分组|名称|版本;分组|名称|版本…（分组用 ASCII 标识，界面文案由 AboutScreen 映射）
 // withGecko：无内核版（lite）不带 GeckoView，不在「依赖版本」里展示它
@@ -116,8 +116,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20065
-        versionName = "v2.1.65"
+        versionCode = 20067
+        versionName = "v2.1.67"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
