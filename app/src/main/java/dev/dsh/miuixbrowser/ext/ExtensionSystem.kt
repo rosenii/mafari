@@ -61,7 +61,7 @@ class ExtensionSystem(
     private val webNavigation = WebNavigationApi(pages, { webViewExtensions() }) { tabs.bridgeOrNull() }
     val contextMenus = ContextMenusApi(pages)
     val actionApi = ActionApi()
-    private val webRequest = WebRequestApi(pages) { webViewExtensions() }
+    private val webRequest = WebRequestApi(pages, { webViewExtensions() })
     private val declarativeNetRequest = DeclarativeNetRequestApi({ id -> repo.dataDir(id) }) { webViewExtensions() }
 
     /** scripting.*：与 tabs 共用同一个标签桥接（[TabsApi.bridgeOrNull]），attach 之前同样回 UNSUPPORTED */

@@ -158,7 +158,7 @@ class WebViewExtensionHost(
         private fun releaseResources() {
             handlers.forEach { runCatching { it.remove() } }
             bridgeNames.forEach { runCatching { WebViewCompat.removeWebMessageListener(webView, it) } }
-            worldListeners.forEach { runCatching { WebViewCompat.removeWebMessageListener(webView, it.name, it.world) } }
+            worldListeners.forEach { runCatching { WebViewCompat.removeWebMessageListener(webView, it.world, it.name) } }
             handlers.clear()
             bridgeNames.clear()
             worldListeners.clear()
