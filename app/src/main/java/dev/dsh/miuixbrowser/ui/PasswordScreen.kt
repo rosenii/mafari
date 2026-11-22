@@ -239,7 +239,7 @@ fun PasswordScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: 
                         .kyantLayerBackdrop(liquidBackdrop)
                         .scrollEndHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
-                        .background(MiuixTheme.colorScheme.surface),
+                        .pageBackground(),
                     contentPadding = PaddingValues(
                         top = innerPadding.calculateTopPadding(),
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),

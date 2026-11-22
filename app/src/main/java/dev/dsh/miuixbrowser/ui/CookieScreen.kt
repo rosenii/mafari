@@ -131,7 +131,7 @@ fun CookieScreen(settings: AppSettings, currentUrl: String, onBack: () -> Unit, 
                         .kyantLayerBackdrop(liquidBackdrop)
                         .scrollEndHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
-                        .background(MiuixTheme.colorScheme.surface)
+                        .pageBackground()
                         .verticalScroll(rememberScrollState())
                         .padding(top = innerPadding.calculateTopPadding())
                         .padding(bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),

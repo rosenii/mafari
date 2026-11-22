@@ -170,7 +170,7 @@ fun AboutScreen(
         Box(modifier = Modifier.fillMaxSize().background(surface).layerBackdrop(contentBackdrop).kyantLayerBackdrop(contentLiquidBackdrop)) {
             // ---- 整页背景：铺满全屏的主题色渐变，供玻璃图标与顶栏采样（顶栏在录制层之外）----
             Box(modifier = Modifier.fillMaxSize().layerBackdrop(pageBackdrop).kyantLayerBackdrop(liquidBackdrop)) {
-                Box(modifier = Modifier.fillMaxSize().background(surface))
+                Box(modifier = Modifier.fillMaxSize().pageBackground())
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.download
 
+import dev.dsh.miuixbrowser.ui.pageBackground
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.R
@@ -264,7 +265,7 @@ fun DownloadsScreen(
                     .kyantLayerBackdrop(liquidBackdrop)
                     .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .background(MiuixTheme.colorScheme.surface),
+                    .pageBackground(),
             ) {
                 LazyColumn(
                     state = listState,

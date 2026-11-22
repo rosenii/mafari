@@ -238,7 +238,7 @@ fun SettingsScreen(
                     .kyantLayerBackdrop(liquidBackdrop)
                     .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .background(MiuixTheme.colorScheme.surface)
+                    .pageBackground()
                     .verticalScroll(rememberScrollState())
                     .padding(top = topInset)
                     // 沉浸：内容可滚到手势小白条下方，仅在末尾留出小白条高度
@@ -277,7 +277,7 @@ fun SettingsScreen(
                         onSelectedIndexChange = { settings.updateThemeMode(it) },
                     )
                     SettingsRow(
-                        title = tr("主页壁纸"),
+                        title = tr("壁纸"),
                         summary = if (settings.wallpaper.isBlank()) tr("未设置") else tr("已设置"),
                         onClick = { showWallpaper = true },
                     )
@@ -663,7 +663,7 @@ fun SettingsScreen(
 
             AppGlassDialog(
                 show = showWallpaper,
-                title = tr("主页壁纸"),
+                title = tr("壁纸"),
                 backdrop = if (glass) backdrop else null,
                 onDismissRequest = { showWallpaper = false },
             ) {
@@ -691,6 +691,16 @@ fun SettingsScreen(
                         AppSwitch(
                             checked = settings.wallpaperBlur,
                             onCheckedChange = { settings.updateWallpaperBlur(it) },
+                        )
+                    }
+                    WallpaperDialogRow(
+                        title = tr("全局应用"),
+                        summary = tr("壁纸同时作为设置等二级页面的背景"),
+                        onClick = { settings.updateWallpaperGlobal(!settings.wallpaperGlobal) },
+                    ) {
+                        AppSwitch(
+                            checked = settings.wallpaperGlobal,
+                            onCheckedChange = { settings.updateWallpaperGlobal(it) },
                         )
                     }
                     Spacer(Modifier.height(10.dp))

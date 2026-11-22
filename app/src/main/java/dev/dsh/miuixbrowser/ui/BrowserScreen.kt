@@ -623,7 +623,12 @@ fun BrowserScreen(
             onboardingReplay = true
         },
     )
+    // 「全局应用」：二级页面用壁纸当背景（见 GlobalWallpaper.kt）；没壁纸 / 开关关闭时为 null
+    val globalWallpaper = remember(settings.wallpaperGlobal, wallpaperBitmap, wallpaperFromCache) {
+        if (settings.wallpaperGlobal && wallpaperBitmap != null) GlobalWallpaper(wallpaperBitmap, scrim = !wallpaperFromCache) else null
+    }
     Box(modifier = Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalGlobalWallpaper provides globalWallpaper) {
     NavDisplay(
         backStack = backStack,
         modifier = Modifier.fillMaxSize(),
@@ -875,6 +880,7 @@ fun BrowserScreen(
     entry<AppRoute.GeckoExtensions> { nav.SubPage(AppRoute.GeckoExtensions) }
     entry<AppRoute.WebViewExtensions> { nav.SubPage(AppRoute.WebViewExtensions) }
     entry<AppRoute.Library> { route -> nav.SubPage(route) }
+    }
     }
     // 用户引导：盖在最上层。进入二级页面（备份 / Firefox 同步）时只是「不摆放」（visible = false），并不撤出组合：
     // 当前步骤、滚动位置和背景动画都留着，返回时第一帧就是完整的引导页，不会再闪出下面的浏览器首页

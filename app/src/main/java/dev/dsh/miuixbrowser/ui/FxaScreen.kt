@@ -200,7 +200,7 @@ fun FxaScreen(
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .background(MiuixTheme.colorScheme.surface),
+                    .pageBackground(),
                 contentPadding = PaddingValues(
                     top = innerPadding.calculateTopPadding() + 8.dp,
                     bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),

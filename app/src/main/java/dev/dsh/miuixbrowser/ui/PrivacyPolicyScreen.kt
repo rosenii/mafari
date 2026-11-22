@@ -158,7 +158,7 @@ fun PrivacyPolicyScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(surface)
+                .pageBackground()
                 .layerBackdrop(contentBackdrop),
         ) {
             Column(

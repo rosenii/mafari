@@ -147,7 +147,7 @@ fun PrivacyEnhanceScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled:
                     .kyantLayerBackdrop(liquidBackdrop)
                     .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .background(MiuixTheme.colorScheme.surface)
+                    .pageBackground()
                     .verticalScroll(rememberScrollState())
                     .padding(top = topInset)
                     .padding(bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),

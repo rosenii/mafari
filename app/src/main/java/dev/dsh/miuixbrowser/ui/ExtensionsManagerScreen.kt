@@ -285,7 +285,7 @@ fun ExtensionsManagerScreen(
                         .kyantLayerBackdrop(liquidBackdrop)
                         .scrollEndHaptic()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
-                        .background(MiuixTheme.colorScheme.surface),
+                        .pageBackground(),
                 ) {
                     LazyColumn(
                         contentPadding = PaddingValues(

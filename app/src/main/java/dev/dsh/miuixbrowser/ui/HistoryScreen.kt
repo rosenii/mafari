@@ -282,7 +282,7 @@ fun LibraryScreen(
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
                     .kyantLayerBackdrop(liquidBackdrop)
-                    .background(MiuixTheme.colorScheme.surface),
+                    .pageBackground(),
             ) {
                 HorizontalPager(
                     state = pagerState,

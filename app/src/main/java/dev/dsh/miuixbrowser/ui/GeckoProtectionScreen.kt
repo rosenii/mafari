@@ -84,7 +84,7 @@ fun GeckoProtectionScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     .kyantLayerBackdrop(liquidBackdrop)
                     .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .background(MiuixTheme.colorScheme.surface),
+                    .pageBackground(),
             ) {
                 LazyColumn(
                     contentPadding = PaddingValues(

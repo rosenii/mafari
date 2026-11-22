@@ -199,7 +199,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     .kyantLayerBackdrop(liquidBackdrop)
                     .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .background(MiuixTheme.colorScheme.surface),
+                    .pageBackground(),
             ) {
                 val subs = AdBlock.subs.toList()
                 val presets = AD_PRESETS.filter { p -> subs.none { it.url.equals(p.url, ignoreCase = true) } }

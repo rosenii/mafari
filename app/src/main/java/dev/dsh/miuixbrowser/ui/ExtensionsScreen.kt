@@ -228,7 +228,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     .kyantLayerBackdrop(liquidBackdrop)
                     .scrollEndHaptic()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
-                    .background(MiuixTheme.colorScheme.surface),
+                    .pageBackground(),
             ) {
                 val scripts = store.items.toList()
                 val missingBuiltins = BUILTIN_SCRIPTS.filter { builtin ->

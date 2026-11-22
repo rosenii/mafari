@@ -563,8 +563,12 @@ class AppSettings(context: Context) {
     var wallpaper by mutableStateOf(prefs.getString(KEY_WALL, "").orEmpty())
         private set
 
-    /** 主页壁纸模糊 */
+    /** 壁纸模糊 */
     var wallpaperBlur by mutableStateOf(prefs.getBoolean(KEY_WALL_BLUR, false))
+        private set
+
+    /** 全局应用：壁纸同时作为设置 / 下载 / 书签历史等二级页面的背景（玻璃控件也从它取样） */
+    var wallpaperGlobal by mutableStateOf(prefs.getBoolean(KEY_WALL_GLOBAL, false))
         private set
 
     /** 「设为默认浏览器」的首次询问是否已经处理过（选了设置 / 取消 / 点外面关掉都算）；之后不再自动弹，只能从 设置 → 高级 进入 */
@@ -603,6 +607,11 @@ class AppSettings(context: Context) {
     fun updateWallpaperBlur(enabled: Boolean) {
         wallpaperBlur = enabled
         prefs.edit().putBoolean(KEY_WALL_BLUR, enabled).apply()
+    }
+
+    fun updateWallpaperGlobal(enabled: Boolean) {
+        wallpaperGlobal = enabled
+        prefs.edit().putBoolean(KEY_WALL_GLOBAL, enabled).apply()
     }
 
     /** 空串表示跟随系统 WebView 默认 UA */
@@ -1049,6 +1058,7 @@ class AppSettings(context: Context) {
         const val KEY_SEARCH_CUSTOM = "search_custom"
         const val KEY_WALL = "wallpaper"
         const val KEY_WALL_BLUR = "wallpaper_blur"
+        const val KEY_WALL_GLOBAL = "wallpaper_global"
         const val KEY_DEFAULT_BROWSER_PROMPTED = "default_browser_prompted"
         const val KEY_ONBOARDING = "onboarding_version"
         const val KEY_ENHANCE = "page_enhancements"
