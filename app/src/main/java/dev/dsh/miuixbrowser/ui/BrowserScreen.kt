@@ -347,39 +347,15 @@ fun BrowserScreen(
     }
 
     LaunchedEffect(tab.id) {
+        // 拓展 contextMenus 的菜单项不再另弹对话框顶替原生菜单：始终打开原生长按菜单，
+        // 拓展项由 BrowserSheetHost 追加在原生项后面（见 ExtContextMenuRows）
         tab.onLongPressLink = { link ->
-            val extSystem = context.appContainer.webExtensionsOrNull
-            val matches = runCatching { extSystem?.contextMenuItems("link", tab.url, link) ?: emptyList() }.getOrDefault(emptyList())
-            if (matches.isNotEmpty()) {
-                val flat = matches.flatMap { (ext, items) -> items.map { ext to it } }
-                AlertDialog.Builder(context)
-                    .setItems(flat.map { (_, item) -> item.title }.toTypedArray()) { _, which ->
-                        val (ext, item) = flat[which]
-                        extSystem?.onContextMenuClicked(ext.spec.id, item.id,
-                            org.json.JSONObject().put("linkUrl", link).put("pageUrl", tab.url).put("frameUrl", tab.url),
-                            org.json.JSONObject().put("id", tab.id).put("url", tab.url))
-                    }.show()
-            } else {
-                linkUrl = link
-                sheet = Sheet.Link
-            }
+            linkUrl = link
+            sheet = Sheet.Link
         }
         tab.onLongPressImage = { url ->
-            val extSystem = context.appContainer.webExtensionsOrNull
-            val matches = runCatching { extSystem?.contextMenuItems("image", tab.url, url) ?: emptyList() }.getOrDefault(emptyList())
-            if (matches.isNotEmpty()) {
-                val flat = matches.flatMap { (ext, items) -> items.map { ext to it } }
-                AlertDialog.Builder(context)
-                    .setItems(flat.map { (_, item) -> item.title }.toTypedArray()) { _, which ->
-                        val (ext, item) = flat[which]
-                        extSystem?.onContextMenuClicked(ext.spec.id, item.id,
-                            org.json.JSONObject().put("srcUrl", url).put("pageUrl", tab.url).put("frameUrl", tab.url),
-                            org.json.JSONObject().put("id", tab.id).put("url", tab.url))
-                    }.show()
-            } else {
-                imageUrl = url
-                sheet = Sheet.Image
-            }
+            imageUrl = url
+            sheet = Sheet.Image
         }
         tab.onElementLongPress = { hit ->
             elementHit = hit
