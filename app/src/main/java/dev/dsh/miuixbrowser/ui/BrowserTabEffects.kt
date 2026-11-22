@@ -127,8 +127,10 @@ internal fun BrowserUiState.BindTabCallbacks(
         settings.proxyType,
         settings.proxyHost,
         settings.proxyPort,
+        settings.browserEngine, // 从 Gecko 切到 WebView 后要把代理补应用到 WebView
     ) {
-        WebViewProxy.applyFrom(settings)
+        // Gecko 默认且没建过 WebView：只把规则推给 Gecko，不去拿 WebView 的 ProxyController（会加载 Chromium）
+        WebViewProxy.applyFrom(settings, webView = !settings.geckoMode || EngineSupport.webViewTouched)
     }
 
     // WebView 不会把滚动事件抛给 Compose，这里轻量轮询页面滚动位置：

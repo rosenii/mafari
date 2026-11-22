@@ -112,7 +112,14 @@ fun AboutScreen(
     val scope = rememberCoroutineScope()
     val kernel = webViewVersion() ?: tr("未知")
     val geckoKernel = remember { geckoViewVersion() }
-    val ua = remember { runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault(tr("未知")) }
+    // getDefaultUserAgent 会加载 WebView 提供方：Gecko 默认且没建过 WebView 时不去取，免得打开「关于」就拉起 Chromium
+    val ua = remember {
+        if (dev.dsh.miuixbrowser.engine.EngineSupport.webViewNeeded(context)) {
+            runCatching { WebSettings.getDefaultUserAgent(context) }.getOrDefault(tr("未知"))
+        } else {
+            tr("未启用（当前为 Gecko 内核）")
+        }
+    }
     val dependencyGroups = remember { parseDependencyVersions(BuildConfig.DEP_VERSIONS) }
     val cryptoGroups = remember { parseDependencyVersions(BuildConfig.CRYPTO_ALGORITHMS) }
     var checkingUpdate by remember { mutableStateOf(false) }

@@ -1,4 +1,9 @@
 # Changelog
+
+## [2.1.74]
+- 调整：gecko双内核版加载内容
+- 优化：gecko版启动速度和内存占用
+- 调整：更多菜单编辑页面
 ## [2.1.73]
 
 - **The bar-detection also recognises bottom input boxes and submit buttons** (chat composers, comment boxes, checkout "submit order" bars): a visible input / textarea / contenteditable or a submit button inside a fixed (or bottom-sticky) container that is >= 60% wide and sits at the bottom of the viewport now counts as a page bottom bar, so the split bar yields the row instead of covering it. Same logic in `PageBottomBar.kt` (WebView) and `scroll-metrics.js` (Gecko).

@@ -79,9 +79,11 @@ object WebViewProxy {
         auth: Boolean = false,
         user: String = "",
         pass: String = "",
+        /** false = 只算规则、只推给 Gecko，不去拿 WebView 的 [ProxyController]（那会加载 WebView 提供方）。默认内核是 Gecko 时用 */
+        webView: Boolean = true,
     ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { apply(enabled, type, host, port, auth, user, pass) }
+            mainHandler.post { apply(enabled, type, host, port, auth, user, pass, webView) }
             return
         }
         val gen = ++generation
@@ -91,20 +93,23 @@ object WebViewProxy {
         this.authUser = user
         this.authPass = pass
 
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
-            if (enabled) fail(tr("当前 WebView 不支持代理，请更新 Android System WebView"))
-            return
-        }
-        val controller = runCatching { ProxyController.getInstance() }.getOrNull()
-        if (controller == null) {
-            if (enabled) fail(tr("无法获取 WebView 代理控制器"))
-            return
+        val controller: ProxyController? = if (webView) {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+                if (enabled) fail(tr("当前 WebView 不支持代理，请更新 Android System WebView"))
+                return
+            }
+            runCatching { ProxyController.getInstance() }.getOrNull() ?: run {
+                if (enabled) fail(tr("无法获取 WebView 代理控制器"))
+                return
+            }
+        } else {
+            null
         }
 
         if (!enabled || h.isEmpty() || port !in 1..65535) {
             if (EngineSupport.GECKO_BUNDLED) GeckoProxy.applyRule(null)
             closeRelay()
-            if (applied != null) {
+            if (applied != null && controller != null) {
                 runCatching { controller.clearProxyOverride(directExecutor, Runnable { }) }
                 applied = null
             }
@@ -147,9 +152,13 @@ object WebViewProxy {
         install(controller, if (type == 1) "socks5://$hostPart:$port" else "http://$hostPart:$port")
     }
 
-    private fun install(controller: ProxyController, rule: String) {
+    private fun install(controller: ProxyController?, rule: String) {
         // Gecko 标签用同一条规则（含 SOCKS5 认证用的本机中转），写进 network.proxy.*
         if (EngineSupport.GECKO_BUNDLED) GeckoProxy.applyRule(rule)
+        if (controller == null) { // 没有 WebView 在用：规则只给 Gecko，之后切到 WebView 时会带 webView = true 重新应用
+            lastError = null
+            return
+        }
         if (rule == applied) {
             lastError = null
             return
@@ -171,7 +180,7 @@ object WebViewProxy {
         relayKey = null
     }
 
-    fun applyFrom(settings: AppSettings) {
+    fun applyFrom(settings: AppSettings, webView: Boolean = true) {
         apply(
             enabled = settings.proxyEnabled,
             type = settings.proxyType,
@@ -180,6 +189,7 @@ object WebViewProxy {
             auth = settings.proxyAuth,
             user = settings.proxyUser,
             pass = settings.proxyPass,
+            webView = webView,
         )
     }
 }

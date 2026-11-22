@@ -316,6 +316,7 @@ class BrowserTab(
 
     /** 只有 WebView 内核的标签才有 WebView；Gecko 标签不创建（省内存） */
     internal val webViewOrNull: WebView? = if (engineKind == EngineKind.WEBVIEW) {
+        dev.dsh.miuixbrowser.engine.EngineSupport.markWebViewUsed(appContext)
         // 无痕标签：创建后立刻绑到独立 Profile（必须在 WebView 首次使用前）。不支持多 Profile 时沿用进程级 Cookie 开关
         WebView(appContext).also { if (startIncognito) dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.bind(it) }
     } else {

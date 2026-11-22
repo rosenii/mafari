@@ -496,8 +496,12 @@ fun SettingsScreen(
                                     // 切 Gecko：记住当前状态并关闭去广告 / 隐私增强保护（脚本两种内核通用，保持不变）；切回 WebView：恢复切换前状态
                                     if (index == ENGINE_GECKO) {
                                         settings.suspendForGecko()
+                                        // 关掉 WebView 拓展的后台页（隐藏 WebView），WebView 侧不再常驻
+                                        dev.dsh.miuixbrowser.StartupCoordinator.onEngineSwitchedToGecko(context)
                                     } else {
                                         settings.resumeFromGecko()
+                                        // 补做 Gecko 默认时跳过的 WebView 侧工作（去广告编译、拓展后台页）
+                                        dev.dsh.miuixbrowser.StartupCoordinator.onEngineSwitchedToWebView(context)
                                     }
                                     Toast.makeText(
                                         context,

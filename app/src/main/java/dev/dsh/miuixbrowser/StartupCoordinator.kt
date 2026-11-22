@@ -92,6 +92,9 @@ internal object StartupCoordinator {
      * 和 [StartupWarmup] 互不依赖（不碰加密库）。
      */
     private fun prewarmExtensions(app: Application) {
+        // Gecko 默认：WebView 拓展系统一个都用不上（Gecko 拓展走 GeckoExtensionStore），连对象都不建、线程都不起。
+        // 用户中途切到 WebView 时由 [onEngineSwitchedToWebView] 补上（建系统是懒的，首个 WebView 标签装配时同步做也行）
+        if (EngineSupport.defaultIsGecko(app)) return
         Thread({
             val t0 = SystemClock.elapsedRealtime()
             runCatching {
@@ -122,8 +125,12 @@ internal object StartupCoordinator {
             GeckoExtensionStore.activityProvider = { self.get() }
         }
         Diag.log("MainActivity.onCreate")
-        WebViewDebug.load(activity) // 远程调试是进程级静态开关，须在创建任何 WebView 之前设置
-        dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.load(activity)
+        // 远程调试是进程级静态开关，须在创建任何 WebView 之前设置。Gecko 默认时不加载（远程调试开着会立刻拉起 WebView 提供方）；
+        // 之后真要建 WebView 时由 [EngineSupport.markWebViewUsed] 在建之前补加载
+        if (!EngineSupport.defaultIsGecko(activity)) {
+            WebViewDebug.load(activity)
+            dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.load(activity)
+        }
         AdBlock.init(activity)
         // Firefox 同步不占冷启动：这里什么都不做，界面出来后由 [onContentShown] 延迟预热（仅「上次已知已登录」才初始化，
         // 没登录过的用户零开销）；打开「Firefox帐户同步」页（FxaScreen）/ 系统分享面板发标签页（SendTabActivity）时仍会按需 init
@@ -154,6 +161,36 @@ internal object StartupCoordinator {
         }
     }
 
+    /** 已经拉起过 WebView 拓展后台页（切到 Gecko 时据此决定要不要关）。 */
+    @Volatile private var extBackgroundsStarted = false
+
+    private fun startExtensionBackgrounds(app: Context) {
+        extBackgroundsStarted = true
+        runCatching { app.appContainer.webExtensions.startAll(EXT_BACKGROUND_STAGGER_MS) }
+            .onFailure { Diag.log("web extensions: start backgrounds failed ${it.message}") }
+    }
+
+    /**
+     * 用户在设置里把默认内核切到 WebView（主线程）：补做 Gecko 默认时跳过的 WebView 侧工作——去广告规则编译、拓展后台页。
+     * Gecko 运行时进程内无法单独卸载（shutdown 会连进程一起退出），所以它只是不再被新建标签使用，内存要到下次启动才完全释放。
+     */
+    fun onEngineSwitchedToWebView(context: Context) {
+        val app = context.applicationContext
+        AdBlock.startCompile() // 幂等
+        if (!extBackgroundsStarted) startExtensionBackgrounds(app)
+    }
+
+    /**
+     * 用户在设置里把默认内核切到 Gecko（主线程）：关掉 WebView 拓展的后台页（隐藏 WebView），WebView 侧不再有常驻开销。
+     * 已打开的 WebView 标签保持可用，但它们的拓展后台页要到下次启动后才会回来；去广告规则已编译的部分留在内存里，没有新的编译 / 订阅更新。
+     */
+    fun onEngineSwitchedToGecko(context: Context) {
+        if (!extBackgroundsStarted) return
+        extBackgroundsStarted = false
+        runCatching { context.applicationContext.appContainer.webExtensions.stopAll() }
+            .onFailure { Diag.log("web extensions: stop backgrounds failed ${it.message}") }
+    }
+
     /**
      * 阶段 4：界面真正出来之后，在后台线程预热 Firefox 同步（登录状态、自动同步、发送标签页都依赖它就绪）。
      * decorView.post 保证排在首次布局 / 绘制之后；init 幂等，Activity 重建不会重复初始化。
@@ -162,7 +199,10 @@ internal object StartupCoordinator {
         val app = activity.applicationContext
         // 去广告规则：界面出来后再编译（init 只读设置，不编译），不和冷启动抢 CPU
         activity.window.decorView.post {
-            Handler(Looper.getMainLooper()).postDelayed({ AdBlock.startCompile() }, ADBLOCK_COMPILE_DELAY_MS)
+            // 去广告只对 WebView 标签生效：Gecko 默认时不编译（省 CPU 与内存）；切到 WebView 时由 [onEngineSwitchedToWebView] 补
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (EngineSupport.webViewNeeded(app)) AdBlock.startCompile()
+            }, ADBLOCK_COMPILE_DELAY_MS)
         }
         // WebView 拓展的后台页：没有已启用的拓展就什么都不建；幂等（Activity 重建时已在运行的会跳过）。
         // 首帧后再等一会儿，然后等主线程空闲（首屏渲染 / 标签恢复期间不插队）才拉；多个拓展依次错开
@@ -171,9 +211,9 @@ internal object StartupCoordinator {
             handler.postDelayed({
                 val fired = java.util.concurrent.atomic.AtomicBoolean(false)
                 val startBackgrounds = {
-                    if (fired.compareAndSet(false, true)) {
-                        runCatching { app.appContainer.webExtensions.startAll(EXT_BACKGROUND_STAGGER_MS) }
-                            .onFailure { Diag.log("web extensions: start backgrounds failed ${it.message}") }
+                    // Gecko 默认：不拉 WebView 拓展的后台页（每个都是隐藏 WebView）
+                    if (EngineSupport.webViewNeeded(app) && fired.compareAndSet(false, true)) {
+                        startExtensionBackgrounds(app)
                     }
                 }
                 Looper.myQueue().addIdleHandler { startBackgrounds(); false }
@@ -182,7 +222,11 @@ internal object StartupCoordinator {
         }
         // 上次进程被杀留在磁盘上的无痕 Profile 数据：界面出来、WebView 预热结束之后再扫（本进程已用过无痕就跳过）
         activity.window.decorView.post {
-            Handler(Looper.getMainLooper()).postDelayed({ IncognitoProfile.sweepStale() }, SWEEP_INCOGNITO_DELAY_MS)
+            // sweepStale 要问系统 WebView 支不支持多 Profile，会加载 WebView 提供方：Gecko 默认时不扫
+            // （旧数据留在磁盘上，下次真用到无痕 WebView 时 bind() 会先清掉）
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (EngineSupport.webViewNeeded(app)) IncognitoProfile.sweepStale()
+            }, SWEEP_INCOGNITO_DELAY_MS)
         }
         // 长按应用图标的快捷方式：界面出来后再发布，不占冷启动
         activity.window.decorView.post {

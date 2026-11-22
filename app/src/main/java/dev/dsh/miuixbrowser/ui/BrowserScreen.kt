@@ -118,7 +118,9 @@ fun BrowserScreen(
     }
     // WebView 拓展的 tabs / scripting 要操作真实标签：界面建好后把标签桥接接到拓展系统上，界面销毁时摘掉。
     // 摘桥接时按身份比对：界面重建时旧界面晚到的 onDispose 不会把新界面刚接上的桥接摘掉
-    DisposableEffect(state, context) {
+    DisposableEffect(state, context, settings.browserEngine) {
+        // Gecko 默认且没建过 WebView：不创建 WebView 拓展系统（注册二十多个 API + 一个后台线程）。切到 WebView 后 key 变化会重新进来
+        if (settings.geckoMode && !EngineSupport.webViewTouched) return@DisposableEffect onDispose { }
         val extSystem = context.appContainer.webExtensions
         // scripting.executeScript 的 ISOLATED 世界：借标签页宿主里该拓展的隔离世界桥执行（见 WebViewExtensionHost.executeInIsolatedWorld）
         val bridge = BrowserStateTabBridge(state) { extId, tabId, js, done ->

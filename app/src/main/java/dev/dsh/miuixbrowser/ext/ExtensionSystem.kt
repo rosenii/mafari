@@ -313,6 +313,15 @@ class ExtensionSystem(
         }
     }
 
+    /** 关掉所有 WebView 拓展的后台页（主线程）：默认内核切到 Gecko 时用，释放隐藏 WebView。不改拓展的启用状态，下次启动照常拉起。 */
+    fun stopAll() {
+        for (ext in webViewExtensions()) {
+            val id = ext.spec.id
+            lifecycle.cancel(id)
+            pages.shutdown(id)
+        }
+    }
+
     /**
      * 拉起一个拓展的后台页。延后执行的启动要重新确认：期间拓展可能已被停用 / 卸载，
      * 或已被 [onInstalled] / [onEnabled] 拉起（[ExtensionPageHost.startBackground] 对已在运行的返回 null，不会重复拉）。

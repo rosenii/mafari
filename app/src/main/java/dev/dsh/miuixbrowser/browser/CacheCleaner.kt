@@ -56,7 +56,10 @@ object CacheCleaner {
     /** 与「设置 → 清理缓存」完全一致的一键清理（菜单里的「清理缓存」也走这里）：返回释放的字节数 */
     suspend fun cleanAll(context: Context): Long {
         val clearWeb: () -> Unit = {
-            runCatching { WebView(context.applicationContext).apply { clearCache(true); destroy() } }
+            // 没用过 WebView（Gecko 默认）就不为了清缓存去创建一个：那会加载整个 Chromium
+            if (dev.dsh.miuixbrowser.engine.EngineSupport.webViewNeeded(context)) {
+                runCatching { WebView(context.applicationContext).apply { clearCache(true); destroy() } }
+            }
             if (dev.dsh.miuixbrowser.engine.EngineSupport.GECKO_BUNDLED) dev.dsh.miuixbrowser.engine.gecko.GeckoRuntimeHolder.clearCaches()
         }
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {

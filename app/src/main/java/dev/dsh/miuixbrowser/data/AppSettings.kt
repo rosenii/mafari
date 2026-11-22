@@ -1000,7 +1000,7 @@ class AppSettings(context: Context) {
             .putString(KEY_PROXY_USER, proxyUser)
             .putString(KEY_PROXY_PASS, proxyPass)
             .apply()
-        WebViewProxy.applyFrom(this)
+        WebViewProxy.applyFrom(this, webView = !geckoMode || EngineSupport.webViewTouched)
     }
 
     private companion object {

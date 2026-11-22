@@ -41,7 +41,8 @@ internal fun BrowserStartupJobs(
         extensions.commitLegacyMigration()
         true
     }
-    LaunchedEffect(Unit) { AdBlock.autoUpdateIfDue() }
+    // Gecko 模式下去广告用不上：不下载订阅（省流量 / CPU / 内存）；切回 WebView 时 settings.geckoMode 变化会重新触发
+    LaunchedEffect(settings.geckoMode) { if (!settings.geckoMode) AdBlock.autoUpdateIfDue() }
 
     // 首次打开 app：自动拉取并安装推荐脚本（每个只自动装一次，失败的下次启动重试）；之后按设置的间隔后台自动更新脚本
     LaunchedEffect(Unit) {
