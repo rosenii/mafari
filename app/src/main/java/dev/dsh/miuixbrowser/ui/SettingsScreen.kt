@@ -512,17 +512,11 @@ fun SettingsScreen(
                             },
                         )
                     }
-                    // 拓展两种内核都有入口（Gecko：Firefox 扩展；WebView：自研运行时，实验性）；网页增强 / 去广告依赖 WebView 专有 API；脚本管理两种内核通用
-                    SettingsRow(
-                        title = tr("拓展"),
-                        summary = if (settings.geckoMode) tr("管理 Firefox 扩展") else tr("管理 WebView 拓展（实验性）"),
-                        onClick = onOpenExtensions,
-                    )
-                    // 网页增强是 WebView 的总开关（脚本 + 去广告）；Gecko 下脚本只受脚本菜单里的开关控制
+                    // 网页增强是 WebView 的总开关（脚本 + 去广告 + 拓展）；Gecko 下脚本只受脚本菜单里的开关控制
                     EngineRow(visible = !settings.geckoMode) {
                         AppSwitchPreference(
                             title = tr("网页增强"),
-                            summary = tr("总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告"),
+                            summary = tr("总开关：一键启停全部油猴脚本、去广告和拓展；关闭后全部停止加载，不占内存和资源，冷启动也不再加载"),
                             checked = settings.pageEnhancements,
                             onCheckedChange = {
                                 settings.updatePageEnhancements(it)
@@ -531,6 +525,12 @@ fun SettingsScreen(
                             },
                         )
                     }
+                    // 拓展两种内核都有入口（Gecko：Firefox 扩展；WebView：自研运行时，实验性）；网页增强 / 去广告依赖 WebView 专有 API；脚本管理两种内核通用
+                    SettingsRow(
+                        title = tr("拓展"),
+                        summary = if (settings.geckoMode) tr("管理 Firefox 扩展") else if (!settings.pageEnhancements) tr("网页增强已关闭 · 拓展未运行") else tr("管理 WebView 拓展（实验性）"),
+                        onClick = onOpenExtensions,
+                    )
                     EngineRow(visible = !settings.geckoMode) {
                         SettingsRow(
                             title = tr("去广告"),

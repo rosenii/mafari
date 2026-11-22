@@ -118,8 +118,10 @@ fun BrowserScreen(
     }
     // WebView 拓展的 tabs / scripting 要操作真实标签：界面建好后把标签桥接接到拓展系统上，界面销毁时摘掉。
     // 摘桥接时按身份比对：界面重建时旧界面晚到的 onDispose 不会把新界面刚接上的桥接摘掉
-    DisposableEffect(state, context, settings.browserEngine) {
+    DisposableEffect(state, context, settings.browserEngine, settings.pageEnhancements) {
         // Gecko 默认且没建过 WebView：不创建 WebView 拓展系统（注册二十多个 API + 一个后台线程）。切到 WebView 后 key 变化会重新进来
+        // 网页增强关着：拓展整体不运行，不创建拓展系统；重新打开时 key 变化会重新进来
+        if (!settings.pageEnhancements) return@DisposableEffect onDispose { }
         if (settings.geckoMode && !EngineSupport.webViewTouched) return@DisposableEffect onDispose { }
         val extSystem = context.appContainer.webExtensions
         // scripting.executeScript 的 ISOLATED 世界：借标签页宿主里该拓展的隔离世界桥执行（见 WebViewExtensionHost.executeInIsolatedWorld）
@@ -343,14 +345,14 @@ fun BrowserScreen(
 
     LaunchedEffect(tab.id) {
         tab.onLongPressLink = { link ->
-            val extSystem = context.appContainer.webExtensions
-            val matches = runCatching { extSystem.contextMenuItems("link", tab.url, link) }.getOrDefault(emptyList())
+            val extSystem = context.appContainer.webExtensionsOrNull
+            val matches = runCatching { extSystem?.contextMenuItems("link", tab.url, link) ?: emptyList() }.getOrDefault(emptyList())
             if (matches.isNotEmpty()) {
                 val flat = matches.flatMap { (ext, items) -> items.map { ext to it } }
                 AlertDialog.Builder(context)
                     .setItems(flat.map { (_, item) -> item.title }.toTypedArray()) { _, which ->
                         val (ext, item) = flat[which]
-                        extSystem.onContextMenuClicked(ext.spec.id, item.id,
+                        extSystem?.onContextMenuClicked(ext.spec.id, item.id,
                             org.json.JSONObject().put("linkUrl", link).put("pageUrl", tab.url).put("frameUrl", tab.url),
                             org.json.JSONObject().put("id", tab.id).put("url", tab.url))
                     }.show()
@@ -360,14 +362,14 @@ fun BrowserScreen(
             }
         }
         tab.onLongPressImage = { url ->
-            val extSystem = context.appContainer.webExtensions
-            val matches = runCatching { extSystem.contextMenuItems("image", tab.url, url) }.getOrDefault(emptyList())
+            val extSystem = context.appContainer.webExtensionsOrNull
+            val matches = runCatching { extSystem?.contextMenuItems("image", tab.url, url) ?: emptyList() }.getOrDefault(emptyList())
             if (matches.isNotEmpty()) {
                 val flat = matches.flatMap { (ext, items) -> items.map { ext to it } }
                 AlertDialog.Builder(context)
                     .setItems(flat.map { (_, item) -> item.title }.toTypedArray()) { _, which ->
                         val (ext, item) = flat[which]
-                        extSystem.onContextMenuClicked(ext.spec.id, item.id,
+                        extSystem?.onContextMenuClicked(ext.spec.id, item.id,
                             org.json.JSONObject().put("srcUrl", url).put("pageUrl", tab.url).put("frameUrl", tab.url),
                             org.json.JSONObject().put("id", tab.id).put("url", tab.url))
                     }.show()

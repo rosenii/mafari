@@ -95,6 +95,8 @@ internal object StartupCoordinator {
         // Gecko 默认：WebView 拓展系统一个都用不上（Gecko 拓展走 GeckoExtensionStore），连对象都不建、线程都不起。
         // 用户中途切到 WebView 时由 [onEngineSwitchedToWebView] 补上（建系统是懒的，首个 WebView 标签装配时同步做也行）
         if (EngineSupport.defaultIsGecko(app)) return
+        // 网页增强关着：拓展系统整个不预热（也不创建）；重新打开时按需创建
+        if (!EngineSupport.pageEnhancementsOn(app)) return
         Thread({
             val t0 = SystemClock.elapsedRealtime()
             runCatching {
@@ -176,8 +178,28 @@ internal object StartupCoordinator {
      */
     fun onEngineSwitchedToWebView(context: Context) {
         val app = context.applicationContext
-        AdBlock.startCompile() // 幂等
+        if (!EngineSupport.pageEnhancementsOn(app)) return // 网页增强关着：什么都不补
+        AdBlock.ensureEngine()
         if (!extBackgroundsStarted) startExtensionBackgrounds(app)
+    }
+
+    /**
+     * 「网页增强」总开关变化（主线程）。关：关掉全部 WebView 拓展（后台页 / 标签注入 / 连接），并释放去广告的已编译规则；
+     * 开：拉起已启用的拓展、重新编译去广告规则。脚本由各标签的 pageEnhancements 联动，不在这里处理。
+     * 已创建的拓展系统对象本身（几十个小对象 + 一个空闲线程）进程内无法回收，下次冷启动才完全不存在。
+     */
+    fun onPageEnhancementsChanged(context: Context, on: Boolean) {
+        val app = context.applicationContext
+        if (!on) {
+            extBackgroundsStarted = false
+            app.appContainer.webExtensionsIfCreated?.setActive(false)
+            AdBlock.releaseEngine()
+            return
+        }
+        if (!EngineSupport.webViewNeeded(app)) return // Gecko 默认且没建过 WebView：和 WebView 有关的都不碰
+        app.appContainer.webExtensions.setActive(true)
+        if (!extBackgroundsStarted) startExtensionBackgrounds(app)
+        AdBlock.ensureEngine()
     }
 
     /**
@@ -187,7 +209,7 @@ internal object StartupCoordinator {
     fun onEngineSwitchedToGecko(context: Context) {
         if (!extBackgroundsStarted) return
         extBackgroundsStarted = false
-        runCatching { context.applicationContext.appContainer.webExtensions.stopAll() }
+        runCatching { context.applicationContext.appContainer.webExtensionsIfCreated?.stopAll() }
             .onFailure { Diag.log("web extensions: stop backgrounds failed ${it.message}") }
     }
 
@@ -201,7 +223,7 @@ internal object StartupCoordinator {
         activity.window.decorView.post {
             // 去广告只对 WebView 标签生效：Gecko 默认时不编译（省 CPU 与内存）；切到 WebView 时由 [onEngineSwitchedToWebView] 补
             Handler(Looper.getMainLooper()).postDelayed({
-                if (EngineSupport.webViewNeeded(app)) AdBlock.startCompile()
+                if (EngineSupport.webViewNeeded(app) && EngineSupport.pageEnhancementsOn(app)) AdBlock.startCompile()
             }, ADBLOCK_COMPILE_DELAY_MS)
         }
         // WebView 拓展的后台页：没有已启用的拓展就什么都不建；幂等（Activity 重建时已在运行的会跳过）。
@@ -212,7 +234,7 @@ internal object StartupCoordinator {
                 val fired = java.util.concurrent.atomic.AtomicBoolean(false)
                 val startBackgrounds = {
                     // Gecko 默认：不拉 WebView 拓展的后台页（每个都是隐藏 WebView）
-                    if (EngineSupport.webViewNeeded(app) && fired.compareAndSet(false, true)) {
+                    if (EngineSupport.webViewNeeded(app) && EngineSupport.pageEnhancementsOn(app) && fired.compareAndSet(false, true)) {
                         startExtensionBackgrounds(app)
                     }
                 }

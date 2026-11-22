@@ -39,6 +39,7 @@ internal class BrowserNav(
 internal fun BrowserNav.SubPage(route: AppRoute) {
     when (route) {
         AppRoute.Settings -> {
+            val appCtx = LocalContext.current.applicationContext
             SettingsScreen(
                 settings = settings,
                 onBack = { popPage() },
@@ -58,7 +59,12 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
                 onOpenBackup = { pushPage(AppRoute.BackupPage) },
                 onOpenAbout = { pushPage(AppRoute.About) },
                 onOpenGuide = onOpenGuide,
-                onPageEnhancementsChange = { extensions.setAllEnabled(it) },
+                onPageEnhancementsChange = {
+                    extensions.setAllEnabled(it)
+                    // 拓展 / 去广告随总开关启停（不改每个拓展自己的启用状态）；已打开标签的拓展注入同步撤销 / 重装
+                    dev.dsh.miuixbrowser.StartupCoordinator.onPageEnhancementsChanged(appCtx, it)
+                    state.tabs.forEach { t -> t.applyWebExtensions() }
+                },
                 blurEnabled = settings.blurEnabled,
             )
         }

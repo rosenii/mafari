@@ -117,6 +117,11 @@ fun readBrowserEngine(context: Context): Int =
     context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
         .getInt("browser_engine", ENGINE_GECKO)
 
+/** 网页增强总开关（脚本 / 去广告 / WebView 拓展）：冷启动早期、没有 AppSettings 实例的地方直接读。默认开 */
+fun readPageEnhancements(context: Context): Boolean =
+    context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
+        .getBoolean("page_enhancements", true)
+
 /** 「重启恢复标签页」的三种方式（[AppSettings.restoreTabsMode]） */
 object RestoreMode {
     const val ALL = 0
@@ -676,6 +681,7 @@ class AppSettings(context: Context) {
     fun updatePageEnhancements(enabled: Boolean) {
         pageEnhancements = enabled
         prefs.edit().putBoolean(KEY_ENHANCE, enabled).apply()
+        EngineSupport.notePageEnhancements(enabled)
     }
 
     /** 手动标记广告：长按网页元素时是否出现「标记为广告」（需要网页增强开启，WebView 内核） */

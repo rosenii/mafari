@@ -261,6 +261,20 @@ object AdBlock {
     @Volatile private var compileAllowed = false
     @Volatile private var rebuildPending = false
 
+    /** 网页增强关闭：丢掉已编译的规则与解析缓存（释放内存）；重新打开时由 [ensureEngine] 重建。 */
+    fun releaseEngine() {
+        generation.incrementAndGet() // 作废排队中的重建
+        engine = null
+        parsedCache.clear()
+        main.post { loadedRules = 0 }
+    }
+
+    /** 网页增强打开：还没允许编译就开始首次编译；已允许但引擎被释放了就重建。 */
+    fun ensureEngine() {
+        if (!compileAllowed) { startCompile(); return }
+        if (engine == null) requestRebuild()
+    }
+
     /** 启动完成后调用：开始首次规则编译，并补上此前被推迟的重建请求。幂等。 */
     fun startCompile() {
         if (compileAllowed) return

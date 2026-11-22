@@ -1,10 +1,9 @@
 # Changelog
-
-## [2.1.74]
-- 调整：gecko双内核版加载内容
-- 优化：gecko版启动速度和内存占用
-- 调整：更多菜单编辑页面
-## [2.1.73]
+## [2.1.75]
+- 调整：页面增强现在控制范围涵盖拓展（webview实验性）
+- 优化：冷启动加载流程优化，禁用项目不再预热加载
+- 调整：无痕浏览开启后固化，直到手动取消
+##
 
 - **The bar-detection also recognises bottom input boxes and submit buttons** (chat composers, comment boxes, checkout "submit order" bars): a visible input / textarea / contenteditable or a submit button inside a fixed (or bottom-sticky) container that is >= 60% wide and sits at the bottom of the viewport now counts as a page bottom bar, so the split bar yields the row instead of covering it. Same logic in `PageBottomBar.kt` (WebView) and `scroll-metrics.js` (Gecko).
 - **Long-press on the address pill opens the start page** (follows Settings → Customize home → Custom start page, same as the home button) instead of opening a new tab. The pill plays an elastic shrink-then-overshoot pop while it opens.

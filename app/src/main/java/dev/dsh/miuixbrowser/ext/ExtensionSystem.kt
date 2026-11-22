@@ -289,6 +289,7 @@ class ExtensionSystem(
      * 失败无妨：主线程用到时照旧同步做一遍。
      */
     fun prewarm(injection: Boolean = true) {
+        if (!active) return
         val exts = webViewExtensions()
         if (!injection || exts.isEmpty()) return
         shim()
@@ -305,6 +306,7 @@ class ExtensionSystem(
      * 避免多个拓展在主线程上挤成一次长卡顿；默认 0 = 全部立即拉起（与旧行为一致）。
      */
     fun startAll(staggerMs: Long = 0L) {
+        if (!active) return
         var delay = 0L
         for (ext in webViewExtensions()) {
             val id = ext.spec.id
@@ -313,13 +315,22 @@ class ExtensionSystem(
         }
     }
 
+    /**
+     * 总闸（网页增强开关）：false 时不预热、不拉后台页、安装 / 启用也不启动，并立刻关掉所有已在运行的后台页与标签注入；
+     * 不改任何拓展自己的「启用」状态，所以再打开时原来启用的那些照常回来。
+     */
+    @Volatile var active: Boolean = true
+        private set
+
+    fun setActive(on: Boolean) {
+        if (active == on) return
+        active = on
+        if (!on) stopAll()
+    }
+
     /** 关掉所有 WebView 拓展的后台页（主线程）：默认内核切到 Gecko 时用，释放隐藏 WebView。不改拓展的启用状态，下次启动照常拉起。 */
     fun stopAll() {
-        for (ext in webViewExtensions()) {
-            val id = ext.spec.id
-            lifecycle.cancel(id)
-            pages.shutdown(id)
-        }
+        for (ext in webViewExtensions()) onDisabled(ext.spec.id) // 页面 / 连接 / 标签注入 / webRequest / 闹钟计时一并收掉（不改仓库状态）
     }
 
     /**
@@ -327,6 +338,7 @@ class ExtensionSystem(
      * 或已被 [onInstalled] / [onEnabled] 拉起（[ExtensionPageHost.startBackground] 对已在运行的返回 null，不会重复拉）。
      */
     private fun startOne(id: String) {
+        if (!active) return
         val ext = repo.get(id)?.takeIf { it.enabled && EngineKind.WEBVIEW in it.engines } ?: return
         if (pages.startBackground(ext) != null) lifecycle.expectStartup(id)
     }
@@ -345,7 +357,7 @@ class ExtensionSystem(
         webRequest.forget(id)
         storage.forget(id)
         bgExecutor.execute { alarms.reset(id) } // 与就绪 / 消失事件同一个线程，保证顺序
-        if (ext.enabled && EngineKind.WEBVIEW in ext.engines) {
+        if (active && ext.enabled && EngineKind.WEBVIEW in ext.engines) {
             if (pages.startBackground(ext) != null) lifecycle.expectInstalled(id, previous?.spec?.version)
         }
     }
@@ -356,7 +368,7 @@ class ExtensionSystem(
         lifecycle.cancel(id)
         pages.shutdown(id)
         tabHost.forget(id)
-        if (ext.enabled && EngineKind.WEBVIEW in ext.engines) pages.startBackground(ext)
+        if (active && ext.enabled && EngineKind.WEBVIEW in ext.engines) pages.startBackground(ext)
     }
 
     /** 停用（主线程）：关掉页面与连接；已打开标签里的 content script 要等页面重新加载才会消失。闹钟留在磁盘上 */

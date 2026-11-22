@@ -3,6 +3,7 @@ package dev.dsh.miuixbrowser.engine
 import dev.dsh.miuixbrowser.BuildConfig
 import dev.dsh.miuixbrowser.data.ENGINE_GECKO
 import dev.dsh.miuixbrowser.data.readBrowserEngine
+import dev.dsh.miuixbrowser.data.readPageEnhancements
 import android.content.Context
 import android.os.Build
 
@@ -53,6 +54,22 @@ object EngineSupport {
         dev.dsh.miuixbrowser.engine.webview.WebViewDebug.load(app)
         dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.load(app)
     }
+
+    @Volatile private var enhanceCache = -1 // -1 = 还没读过，0 / 1 = 缓存值
+
+    /**
+     * 网页增强总开关（WebView 的脚本 / 去广告 / 拓展）。会在请求拦截这类热路径里被问，所以缓存；
+     * 设置里改动时由 [notePageEnhancements] 更新。关闭时一切增强相关的对象都不创建、不预热、不加载。
+     */
+    fun pageEnhancementsOn(context: Context): Boolean {
+        val c = enhanceCache
+        if (c >= 0) return c == 1
+        val v = readPageEnhancements(context.applicationContext)
+        enhanceCache = if (v) 1 else 0
+        return v
+    }
+
+    fun notePageEnhancements(on: Boolean) { enhanceCache = if (on) 1 else 0 }
 
     /** 现在是否需要为 WebView 付出开销：默认内核是 WebView，或本进程已经建过 WebView（中途从 Gecko 切过来）。 */
     fun webViewNeeded(context: Context): Boolean = webViewTouched || !defaultIsGecko(context)

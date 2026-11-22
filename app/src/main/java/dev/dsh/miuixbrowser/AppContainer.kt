@@ -33,9 +33,26 @@ class AppContainer(app: Application) {
      * WebExtension 与原生 Userscript 使用独立运行时和权限；可信拓展可通过 mafariScripts 权限调用原生脚本管理 API。Gecko 内核的 WebExtension 由 GeckoView 自己管理，不走这里。
      * 懒创建：构造只建对象，不读盘；仓库在第一次 list() 时才读状态文件。
      */
-    val webExtensions: ExtensionSystem by lazy {
-        ExtensionSystem(appContext, File(appContext.filesDir, "webext"), nativeScripts = { extensions }) { Diag.log(it) }
-    }
+    @Volatile private var webExt: ExtensionSystem? = null
+
+    val webExtensions: ExtensionSystem
+        get() = webExt ?: synchronized(this) {
+            webExt ?: ExtensionSystem(appContext, File(appContext.filesDir, "webext"), nativeScripts = { extensions }) { Diag.log(it) }
+                .also {
+                    // 网页增强关着时创建出来（比如打开拓展管理页）也不运行任何拓展
+                    it.setActive(dev.dsh.miuixbrowser.engine.EngineSupport.pageEnhancementsOn(appContext))
+                    webExt = it
+                }
+        }
+
+    /** 已经创建才返回，不会为了「看一眼」而创建拓展系统 */
+    val webExtensionsIfCreated: ExtensionSystem? get() = webExt
+
+    /**
+     * 标签页 / 请求拦截 / 菜单这些热路径用它：网页增强关闭时为 null 且不会创建拓展系统（零内存、零线程），调用方用 `?.` 跳过。
+     */
+    val webExtensionsOrNull: ExtensionSystem?
+        get() = if (dev.dsh.miuixbrowser.engine.EngineSupport.pageEnhancementsOn(appContext)) webExtensions else null
 }
 
 /** 取进程级容器。任何 Context（Activity / Service / Application）都可以调用。 */

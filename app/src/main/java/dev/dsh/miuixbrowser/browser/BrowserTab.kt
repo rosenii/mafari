@@ -221,7 +221,7 @@ class BrowserTab(
     @Volatile var adMarkLongPress: Boolean = true
 
     /** 网页增强总开关：关闭后不再注入任何脚本 / 长按逻辑，用于排查（去广告有自己的开关，见 AdBlock） */
-    var pageEnhancements: Boolean = true
+    var pageEnhancements: Boolean = dev.dsh.miuixbrowser.engine.EngineSupport.pageEnhancementsOn(appContext)
         set(value) {
             if (field == value) return
             field = value
@@ -517,7 +517,7 @@ class BrowserTab(
             extInstallation?.close()
             extInstallation = null
             if (incognito || destroyed) return
-            val system = appContext.appContainer.webExtensions
+            val system = appContext.appContainer.webExtensionsOrNull ?: return // 网页增强关着：不装、也不创建拓展系统
             val exts = system.webViewExtensions()
             if (exts.isEmpty()) return
             extInstallation = system.tabHost.install(wv, exts, system.shim(), id)
@@ -1569,7 +1569,7 @@ class BrowserTab(
     fun destroyNow() {
         if (destroyed) return
         destroyed = true
-        if (!isGecko) runCatching { appContext.appContainer.webExtensions.onWebNavigationForgetTab(id) }
+        if (!isGecko) runCatching { appContext.appContainer.webExtensionsIfCreated?.onWebNavigationForgetTab(id) }
         // 这几步任何一步抛异常都不能挡住后面的引擎销毁，否则会话没关，媒体停不下来
         runCatching { cancelFileChooser() }
         runCatching { exitCustomView() }

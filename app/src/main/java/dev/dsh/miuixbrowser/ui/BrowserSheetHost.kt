@@ -175,7 +175,7 @@ BrowserChunk {
                                 } else if (tab.incognito) {
                                     0 // 无痕标签不装 WebView 拓展
                                 } else {
-                                    webViewEnabledExtCount(context.appContainer.webExtensions)
+                                    context.appContainer.webExtensionsOrNull?.let { webViewEnabledExtCount(it) } ?: 0
                                 }
                                 else -> 0
                             }
@@ -232,7 +232,7 @@ BrowserChunk {
                         extensionsActive = if (settings.geckoMode) {
                             GeckoExtensionStore.items.any { it.enabled && (!tab.incognito || it.allowedInPrivate) }
                         } else {
-                            !tab.incognito && webViewEnabledExtCount(context.appContainer.webExtensions) > 0
+                            !tab.incognito && (context.appContainer.webExtensionsOrNull?.let { webViewEnabledExtCount(it) } ?: 0) > 0
                         },
                     )
                     }
