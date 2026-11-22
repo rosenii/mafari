@@ -1,6 +1,6 @@
-From e8c04e92b3b7c2fb7a59480031d6a10f1ebdc906 Mon Sep 17 00:00:00 2001
+From b2c2b2036da6683787c0266f80f40011434e6528 Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
-Date: Tue, 17 Nov 2026 19:43:06 +0000
+Date: Sun, 22 Nov 2026 20:50:43 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20=E5=BC=B9=E7=AA=97=20surface/alignStar?=
  =?UTF-8?q?t=E3=80=81=E4=B8=8B=E6=8B=89=E5=81=8F=E5=A5=BD=20surface/marque?=
  =?UTF-8?q?eItems=E3=80=81GlassPopupItem=20marquee?=
@@ -96,21 +96,21 @@ index 4404487..0367720 100644
                              hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                              setExpanded(false)
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
-index 71ff77b..30fefde 100644
+index 26d9607..91ec20a 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
-@@ -6,6 +6,10 @@ package top.yukonga.miuix.kmp.glass
- import androidx.compose.animation.animateColorAsState
+@@ -4,6 +4,10 @@
+ package top.yukonga.miuix.kmp.glass
+ 
  import androidx.compose.animation.core.animateFloatAsState
- import androidx.compose.animation.core.snap
 +import androidx.compose.foundation.ExperimentalFoundationApi
 +import androidx.compose.foundation.basicMarquee
 +import androidx.compose.foundation.gestures.awaitEachGesture
 +import androidx.compose.foundation.gestures.awaitFirstDown
  import androidx.compose.foundation.interaction.MutableInteractionSource
- import androidx.compose.foundation.interaction.collectIsPressedAsState
  import androidx.compose.foundation.layout.BoxScope
-@@ -22,7 +26,11 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.foundation.layout.Column
+@@ -20,7 +24,11 @@ import androidx.compose.runtime.Composable
  import androidx.compose.runtime.ReadOnlyComposable
  import androidx.compose.runtime.computedStateOf
  import androidx.compose.runtime.getValue
@@ -121,8 +121,8 @@ index 71ff77b..30fefde 100644
 +import androidx.compose.runtime.setValue
  import androidx.compose.ui.Alignment
  import androidx.compose.ui.Modifier
- import androidx.compose.ui.draw.drawBehind
-@@ -35,6 +43,8 @@ import androidx.compose.ui.graphics.TileMode
+ import androidx.compose.ui.draw.clip
+@@ -32,6 +40,8 @@ import androidx.compose.ui.graphics.TileMode
  import androidx.compose.ui.graphics.graphicsLayer
  import androidx.compose.ui.graphics.luminance
  import androidx.compose.ui.graphics.vector.ImageVector
@@ -131,7 +131,7 @@ index 71ff77b..30fefde 100644
  import androidx.compose.ui.platform.LocalLayoutDirection
  import androidx.compose.ui.text.font.FontWeight
  import androidx.compose.ui.text.style.TextOverflow
-@@ -198,6 +208,8 @@ object GlassPopupDefaults {
+@@ -196,6 +206,8 @@ object GlassPopupDefaults {
   * @param sizing Panel size limits and window margin.
   * @param visuals Panel surface appearance.
   * @param cornerRadius Expanded panel corner radius.
@@ -140,7 +140,7 @@ index 71ff77b..30fefde 100644
   * @param secondary Whether to use [GlassSecondaryPopup] geometry. Use that component directly
   *   to share the primary popup's appearance through `materialAnchor`.
   * @param contentPadding Padding around the items.
-@@ -213,8 +225,10 @@ fun BoxScope.GlassPopup(
+@@ -211,8 +223,10 @@ fun BoxScope.GlassPopup(
      sizing: GlassPopupSizing = GlassPopupSizing(),
      visuals: GlassPopupVisuals = GlassPopupDefaults.visuals(),
      cornerRadius: Dp = GlassPopupDefaults.CornerRadius,
@@ -151,7 +151,7 @@ index 71ff77b..30fefde 100644
      content: @Composable ColumnScope.() -> Unit,
  ) {
      if (secondary) {
-@@ -271,8 +285,8 @@ fun BoxScope.GlassPopup(
+@@ -269,8 +283,8 @@ fun BoxScope.GlassPopup(
          panelLayer = {},
          overlay = {},
          frame = { end, windowBounds ->
@@ -162,7 +162,7 @@ index 71ff77b..30fefde 100644
          },
          contentLayer = { _, _ ->
              val t = progress.value.coerceAtLeast(0f)
-@@ -284,6 +298,7 @@ fun BoxScope.GlassPopup(
+@@ -282,6 +296,7 @@ fun BoxScope.GlassPopup(
              alpha = fade.value
          },
          modifier = modifier,
@@ -170,7 +170,7 @@ index 71ff77b..30fefde 100644
          scrollable = true,
          content = content,
      )
-@@ -297,6 +312,7 @@ private fun directionFrame(
+@@ -295,6 +310,7 @@ private fun directionFrame(
      startRadius: Dp,
      endRadius: Dp,
      layoutDirection: androidx.compose.ui.unit.LayoutDirection,
@@ -178,7 +178,7 @@ index 71ff77b..30fefde 100644
  ): GlassPopupFrame {
      // Keep the spring's overshoot so the silhouette and rows rebound together.
      val t = progress.coerceAtLeast(0f)
-@@ -304,7 +320,8 @@ private fun directionFrame(
+@@ -302,7 +318,8 @@ private fun directionFrame(
      val endRatio = if (end.width > 0f) end.height / end.width else 1f
      val ratio = GlassMotion.POPUP_START_RATIO + (endRatio - GlassMotion.POPUP_START_RATIO) * t
      val height = width * ratio
@@ -188,7 +188,7 @@ index 71ff77b..30fefde 100644
          placement.rect.right - width
      } else {
          placement.rect.left
-@@ -333,7 +350,9 @@ private fun directionFrame(
+@@ -331,7 +348,9 @@ private fun directionFrame(
   * @param summaryColor Colour of the second line.
   * @param selectedContentColor Colour of a selected row's label and its tick.
   * @param pressedColor Pressed background color.
@@ -198,7 +198,7 @@ index 71ff77b..30fefde 100644
  @Composable
  fun GlassPopupItem(
      text: String,
-@@ -349,7 +368,9 @@ fun GlassPopupItem(
+@@ -347,7 +366,9 @@ fun GlassPopupItem(
      summaryColor: Color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
      selectedContentColor: Color = MiuixTheme.colorScheme.primary,
      pressedColor: Color = GlassPopupDefaults.itemPressedColor(),
@@ -206,9 +206,9 @@ index 71ff77b..30fefde 100644
  ) {
 +    var marqueeRestart by remember { mutableIntStateOf(0) }
      val interactionSource = remember { MutableInteractionSource() }
-     val pressed by interactionSource.collectIsPressedAsState()
-     val pressFill = animateColorAsState(
-@@ -367,6 +388,18 @@ fun GlassPopupItem(
+     val itemShape = remember { RoundedCornerShape(GlassPopupDefaults.ItemPressRadius) }
+     val itemIndication = remember(pressedColor) {
+@@ -366,6 +387,18 @@ fun GlassPopupItem(
              .fillMaxWidth()
              .heightIn(min = GlassPopupDefaults.ItemMinHeight)
              .padding(horizontal = GlassPopupDefaults.ItemPressInset)
@@ -224,10 +224,10 @@ index 71ff77b..30fefde 100644
 +                    Modifier
 +                },
 +            )
-             .drawBehind {
-                 val fill = pressFill.value
-                 if (fill.alpha > 0f) {
-@@ -402,14 +435,33 @@ fun GlassPopupItem(
+             .clip(itemShape)
+             .selectable(
+                 selected = selected,
+@@ -393,14 +426,33 @@ fun GlassPopupItem(
              )
          }
          Column(modifier = Modifier.weight(1f)) {

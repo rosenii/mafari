@@ -1,8 +1,9 @@
-From e5b1565b66f42a87293c77850770e53f196ddd6b Mon Sep 17 00:00:00 2001
+From bc558950577e40cdaab15fb9ded8dd880d5975ea Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
-Date: Tue, 17 Nov 2026 19:43:37 +0000
+Date: Sun, 22 Nov 2026 20:51:07 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20=E6=A8=A1=E7=B3=8A=E5=8D=8A=E5=BE=84?=
  =?UTF-8?q?=E4=B8=BA=200=20=E6=97=B6=E8=B7=B3=E8=BF=87=E6=A8=A1=E7=B3=8A?=
+ =?UTF-8?q?=20pass?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -12,10 +13,10 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
-index 423cce5..c720553 100644
+index 8ed912d..c79c20b 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
-@@ -169,7 +169,9 @@ private class GlassPipeline(
+@@ -213,7 +213,9 @@ private class GlassPipeline(
          with(scope) {
              noiseDither(noiseCoefficient)
              val radius = material?.blurRadius?.value ?: (style.blur.small / GlassDefaults.SourceDensity)
@@ -24,8 +25,8 @@ index 423cce5..c720553 100644
 +            val radiusPx = radius.coerceIn(0f, BlurDefaults.MaxBlurRadius) * density
 +            if (radiusPx > 0f) blur(radiusPx)
              if (underlayMaterial != null) {
-                 colorBlendEffect(underlayMaterial, 1f, "${GLASS_COLOR_BLEND_SHADER_KEY}ActionBar")
-             }
+                 val underlay = cachedUnderlayBlendEffect ?: buildColorBlendEffect(
+                     underlayMaterial,
 -- 
 2.43.0
 
