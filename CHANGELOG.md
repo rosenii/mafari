@@ -1,7 +1,7 @@
 # Changelog
 ## [2.1.77] 
 - 新增： 引导页第一屏加语言选择（跟随系统 / English / 简体中文 / 繁體中文），选后自动重启
-- 新增： WebView 网页态状态栏背景改为高级材质，采样网页顶部，下滑淡出；Gecko 不变
+- 新增： WebView 网页态状态栏背景改为渐进模糊，采样网页顶部，下滑淡出；Gecko 不变
 - 新增： 历史页每条记录左侧加站点图标
 
 - 调整：悬浮三段式导航栏与默认样式一致：下滑缩成胶囊时状态栏留白随之收起，网页铺满屏幕顶
@@ -11,6 +11,15 @@
 
 - 修复：上游 miuix 不再导入 `asPaddingValues`，新补丁已在构建脚本里补上
 - 修复： 补全 19 条英文翻译，包括"网页增强"设置行的过期译文
+- 安全：网页 `intent://` 交给其他应用前统一清洗（`WebIntentSanitizer`）：去掉全部 URI 授权标志、拒绝 `content:` / `file:` data、清空 clipData / component / selector。浏览器标签和轻应用两处都走它。
+- 安全：移除从未使用的 FileProvider 及 `file_paths.xml`（原先把整个 files 目录都声明成可共享）。
+- 安全：`allowBackup` 改为 false，新增文件不再默认进云备份 / adb 备份。
+- 安全：运行日志和崩溃日志里的网址抹掉 query / fragment；无痕标签不再写运行日志（页面、错误、console）。
+- 安全：应用自己访问固定端点（发布信息、AMO 扩展商店、Floccus 包、GitHub 加速探测）一律只允许 https，重定向降级到 http 也拒绝（`HttpFetcher.Options.httpsOnly` / `HttpFetcher.requireHttps`）；更新安装包只从 https 地址下载，否则退回打开发布页。
+- 安全：从链接安装拓展包，公网地址必须 https，本机 / 局域网（localhost、回环、私网段、.local）仍可用 http。
+- 安全：WebView 和 Gecko 的「USB 远程调试」不再跨启动保存，冷启动时自动关闭；开关说明里已注明。
+- 安全：更新安装包下载完成后校验 SHA-256（`UpdateIntegrity`）。期望哈希单独**直连** api.github.com（https）取 release 资产的 digest——镜像和镜像给出的发布列表都不可信；对不上就删除安装包、报失败，不进入「可安装」状态。直连 GitHub 不通取不到期望值时照常下载，由系统安装器校验签名。
+- 安全：油猴 `GM_notification` 的点击经 exported 的 MainActivity 进入，现在每条通知带随机令牌，令牌对不上的 intent（其他应用伪造的点击）一律忽略。
 
 ## [2.1.76] 
 - 安全：网页 `intent://` 交给其他应用前统一清洗（`WebIntentSanitizer`）：去掉全部 URI 授权标志、拒绝 `content:` / `file:` data、清空 clipData / component / selector。浏览器标签和轻应用两处都走它。
