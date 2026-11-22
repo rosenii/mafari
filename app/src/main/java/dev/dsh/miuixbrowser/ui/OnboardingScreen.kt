@@ -274,7 +274,7 @@ internal fun OnboardingScreen(
                             big = s == STEP_WELCOME,
                         ) {
                             when (s) {
-                                STEP_WELCOME -> WelcomeStep()
+                                STEP_WELCOME -> WelcomeStep(bd)
                                 STEP_MATERIAL -> MaterialStep(settings, bd)
                                 STEP_WALLPAPER -> WallpaperStep(settings, bd)
                                 STEP_HOME -> HomeStep(settings, bd)
@@ -423,7 +423,18 @@ private fun StepFrame(
             )
         }
         if (big) {
-            Spacer(Modifier.weight(1.2f))
+            // 欢迎页：标题下方放内容（语言选择），上下留白按比例分配；内容多时可滚动
+            Spacer(Modifier.weight(0.4f))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scroll)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                content = content,
+            )
+            Spacer(Modifier.weight(1f))
         } else {
             Column(
                 modifier = Modifier
@@ -559,9 +570,71 @@ private fun CardButton(text: String, onClick: () -> Unit, primary: Boolean = tru
 
 /* ------------------------------ 0. 欢迎 / 1. 高级材质 ------------------------------ */
 
-/** 欢迎页：只有大标题和副标题（在 StepFrame 的 big 版式里），没有内容区。 */
+/**
+ * 欢迎页（StepFrame 的 big 版式）：大标题 + 副标题下面是界面语言四选一（跟随系统 / English / 简体中文 / 繁體中文）。
+ * 语言文案是静态初始化的（见 I18n），所以选了新语言就保存并重启应用；重启后仍停在引导第一屏，已是新语言。
+ * 各语言的名字固定用它自己的写法（[I18n.OPTION_NATIVE_NAMES]），不论当前是什么语言都认得出来。
+ */
 @Composable
-private fun ColumnScope.WelcomeStep() {}
+private fun ColumnScope.WelcomeStep(bd: Backdrop?) {
+    val context = LocalContext.current
+    var selected by remember { mutableStateOf(dev.dsh.miuixbrowser.i18n.I18n.selected) }
+    var restarting by remember { mutableStateOf(false) }
+    LaunchedEffect(restarting) {
+        if (restarting) {
+            delay(500)
+            dev.dsh.miuixbrowser.backup.BackupManager.restartApp(context)
+        }
+    }
+    val names = dev.dsh.miuixbrowser.i18n.I18n.OPTION_NATIVE_NAMES
+    SectionLabel("语言 / Language")
+    GuideCard(bd) {
+        names.indices.forEach { index ->
+            if (index > 0) RowDivider()
+            val isSelected = selected == index
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !restarting) {
+                        if (index != selected) {
+                            selected = index
+                            dev.dsh.miuixbrowser.i18n.I18n.save(context, index)
+                            Toast.makeText(context, tr("语言已切换，正在重启…"), Toast.LENGTH_SHORT).show()
+                            restarting = true
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (index == dev.dsh.miuixbrowser.i18n.I18n.SYSTEM) tr("跟随系统") else names[index],
+                    fontSize = 17.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (isSelected) {
+                                Modifier.background(MiuixTheme.colorScheme.primary)
+                            } else {
+                                Modifier.border(1.5.dp, MiuixTheme.colorScheme.onSurface.copy(alpha = 0.3f), CircleShape)
+                            },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSelected) {
+                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.White))
+                    }
+                }
+            }
+        }
+    }
+    HintText(tr("切换语言后应用会自动重启，之后可在 设置 → 外观 里更换"))
+}
 
 /** 高级材质四选一：点选立即生效（写入 settings.blurMode），后面所有步骤都按它显示。 */
 @Composable

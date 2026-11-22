@@ -2125,3 +2125,4 @@ URL 预取	URL prefetch
 不支持（当前系统 WebView 未提供 preconnect / enqueuePreconnect）	Not supported (this system WebView provides neither preconnect nor enqueuePreconnect)
 仅允许 HTTPS 连接	Only HTTPS connections are allowed
 安装包校验失败（SHA-256 与官方发布不一致），已删除，请重试	Package verification failed (SHA-256 does not match the official release). It was deleted; please try again.
+切换语言后应用会自动重启，之后可在 设置 → 外观 里更换	The app restarts automatically after you switch language. You can change it later in Settings → Appearance.
