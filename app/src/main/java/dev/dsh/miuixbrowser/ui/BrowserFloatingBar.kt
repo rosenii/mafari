@@ -287,58 +287,63 @@ internal fun BoxScope.BrowserFloatingBar(
                     // 朝屏幕中间快速一扫（靠下快速上扫 / 靠上快速下扫）把底栏换到另一侧并记进设置。
                     // 编辑地址时不挂这组手势：横向拖动要留给输入框（移动光标 / 滚动文字），
                     // 否则累计 72px 就会把底栏缩成圆钮，向下拖还会收起底栏
-                    .pointerInput(tab.id, barHidden, editing, barOnTop, alwaysMin, barFixed) {
-                        if (editing || barFixed) return@pointerInput
-                        val tracker = VelocityTracker()
-                        val flingPx = 1_200.dp.toPx()
-                        detectDragGestures(
-                            onDragStart = { tracker.resetTracking() },
-                            onDrag = { change, dragAmount ->
-                                tracker.addPosition(change.uptimeMillis, change.position)
-                                if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
-                                    hDragDistance += dragAmount.x
-                                    if (kotlin.math.abs(hDragDistance) > 72f) {
-                                        barMinimized = true
-                                        hDragDistance = 0f
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        change.consume()
+                    // 悬浮三段式不挂这组手势：它的 Column 是整宽的，三块玻璃件之间 / 周围的透明区域也会被当成底栏吃掉点击，
+                    // 盖住下面的网页。三段式里只有带材质的三块才算底栏（地址栏自己处理左右滑 / 上滑，页面下滑时整条会缩成小胶囊）
+                    .then(
+                        if (style.splitPills) Modifier else Modifier
+                        .pointerInput(tab.id, barHidden, editing, barOnTop, alwaysMin, barFixed) {
+                            if (editing || barFixed) return@pointerInput
+                            val tracker = VelocityTracker()
+                            val flingPx = 1_200.dp.toPx()
+                            detectDragGestures(
+                                onDragStart = { tracker.resetTracking() },
+                                onDrag = { change, dragAmount ->
+                                    tracker.addPosition(change.uptimeMillis, change.position)
+                                    if (kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                                        hDragDistance += dragAmount.x
+                                        if (kotlin.math.abs(hDragDistance) > 72f) {
+                                            barMinimized = true
+                                            hDragDistance = 0f
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            change.consume()
+                                        }
+                                    } else {
+                                        // 统一成「朝屏幕边缘为正」，靠上时方向取反
+                                        dragDistance += dragAmount.y * barEdgeSign
+                                        // 提高竖向隐藏阈值，降低误触
+                                        // 主页不允许收起底栏：收起后没有任何手势能唤回
+                                        if (dragDistance > 56f && !barHidden && tab.url.isNotEmpty()) {
+                                            barHidden = true
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            change.consume()
+                                        } else if (dragDistance < -56f && barHidden) {
+                                            barHidden = false
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            change.consume()
+                                        }
                                     }
-                                } else {
-                                    // 统一成「朝屏幕边缘为正」，靠上时方向取反
-                                    dragDistance += dragAmount.y * barEdgeSign
-                                    // 提高竖向隐藏阈值，降低误触
-                                    // 主页不允许收起底栏：收起后没有任何手势能唤回
-                                    if (dragDistance > 56f && !barHidden && tab.url.isNotEmpty()) {
-                                        barHidden = true
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        change.consume()
-                                    } else if (dragDistance < -56f && barHidden) {
-                                        barHidden = false
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        change.consume()
+                                },
+                                onDragEnd = {
+                                    // 快速朝屏幕中间一扫：换到另一侧（「始终最小化」下不换，位置由设置决定）
+                                    if (!alwaysMin) {
+                                        val v = tracker.calculateVelocity()
+                                        val towardCenter = v.y * barEdgeSign < -flingPx &&
+                                            kotlin.math.abs(v.y) > kotlin.math.abs(v.x) * 1.5f
+                                        if (towardCenter) {
+                                            settings.updateBarPosition(if (barOnTop) BAR_POS_BOTTOM else BAR_POS_TOP)
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
                                     }
-                                }
-                            },
-                            onDragEnd = {
-                                // 快速朝屏幕中间一扫：换到另一侧（「始终最小化」下不换，位置由设置决定）
-                                if (!alwaysMin) {
-                                    val v = tracker.calculateVelocity()
-                                    val towardCenter = v.y * barEdgeSign < -flingPx &&
-                                        kotlin.math.abs(v.y) > kotlin.math.abs(v.x) * 1.5f
-                                    if (towardCenter) {
-                                        settings.updateBarPosition(if (barOnTop) BAR_POS_BOTTOM else BAR_POS_TOP)
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                }
-                                dragDistance = 0f
-                                hDragDistance = 0f
-                            },
-                            onDragCancel = {
-                                dragDistance = 0f
-                                hDragDistance = 0f
-                            },
-                        )
-                    }
+                                    dragDistance = 0f
+                                    hDragDistance = 0f
+                                },
+                                onDragCancel = {
+                                    dragDistance = 0f
+                                    hDragDistance = 0f
+                                },
+                            )
+                        }
+                    )
                     .graphicsLayer {
                         translationY = barEdgeSign * hide() * 210.dp.toPx()
                         alpha = 1f - hide()
