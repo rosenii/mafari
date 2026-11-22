@@ -277,6 +277,10 @@ class ExtensionSystem(
     fun webViewExtensions(): List<InstalledExtension> =
         repo.list().filter { it.enabled && EngineKind.WEBVIEW in it.engines }
 
+    /** 已启用的 WebView 拓展里，有没有声明式 content script 会匹配 [url]（拓展晚加载后决定要不要重载当前页） */
+    fun hasContentScriptFor(url: String): Boolean =
+        active && webViewExtensions().any { ext -> ext.spec.contentScripts.any { it.appliesTo(url) } }
+
     /** assets/mafari_ext_shim.js 全文（读一次缓存） */
     fun shim(): String = shimText ?: context.assets.open("mafari_ext_shim.js").bufferedReader(Charsets.UTF_8)
         .use { it.readText() }.also { shimText = it }

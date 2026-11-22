@@ -251,9 +251,13 @@ internal class TabBlob(private val tab: BrowserTab) {
         fun cleanStaleFiles(context: Context) {
             if (staleFilesCleaned) return
             staleFilesCleaned = true
-            runCatching {
-                context.cacheDir.listFiles { f -> f.name.startsWith("mafari_blob_") }?.forEach { it.delete() }
-            }
+            // 扫缓存目录是磁盘 IO：放后台线程，别压在首个标签创建的主线程上
+            val dir = context.applicationContext.cacheDir
+            Thread({
+                runCatching {
+                    dir.listFiles { f -> f.name.startsWith("mafari_blob_") }?.forEach { it.delete() }
+                }
+            }, "mafari-blob-clean").apply { isDaemon = true }.start()
         }
     }
 }

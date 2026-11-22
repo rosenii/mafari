@@ -66,6 +66,18 @@ import dev.dsh.miuixbrowser.util.toUrl
  * 它用到的状态（页面主机名、SSL 例外、权限模式等）仍存放在 [BrowserTab] 里，已放宽为 internal。
  * 由 BrowserTab 的 init 在所有属性初始化完毕后调用（仅 WebView 内核）。
  */
+/**
+ * 给非无痕的 WebView 标签接上拓展的 NavigationListener（只接一次）。拓展就绪前（[dev.dsh.miuixbrowser.ext.ExtStartupGate]）
+ * 拓展系统不存在，什么都不做；就绪后由 [BrowserTab.applyWebExtensions] 补接。主线程调用。
+ */
+internal fun BrowserTab.attachWebNavigationIfNeeded() {
+    if (incognito || webNavAttached) return
+    val system = appContext.appContainer.webExtensionsOrNull ?: return
+    webNavAttached = true
+    runCatching { system.attachNavigationListener(webView, id) }
+        .onFailure { Diag.log("webnav: NavigationListener attach failed ${it.message}") }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 internal fun BrowserTab.setupWebView() {
     dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.noteWebViewCreated()
@@ -118,8 +130,8 @@ internal fun BrowserTab.setupWebView() {
         if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
             // 社区通用：缓存 createObjectURL 的 Blob，extractBlob 直接读，避免 fetch blob: 失败
             runCatching {
-                val cacheJs = appContext.assets.open("mafari_blob_cache.js")
-                    .bufferedReader(Charsets.UTF_8).use { it.readText() }
+                // 全文只读一次（启动预热线程已提前读好，见 StartupWarmup），每个标签不再在主线程上打开 asset
+                val cacheJs = InjectAssets.read(appContext, "mafari_blob_cache.js") ?: error("mafari_blob_cache.js missing")
                 androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, cacheJs, setOf("*"))
             }.onFailure { Diag.log("blob cache install failed: ${it.message}") }
             androidx.webkit.WebViewCompat.addDocumentStartJavaScript(webView, AdBlock.COSMETIC_JS, setOf("*"))
@@ -209,10 +221,8 @@ internal fun BrowserTab.setupWebView() {
 
     // 非无痕标签：主文档的 committed / completed / webRequest 响应交给 NavigationListener（系统 WebView 支持时）。
     // 必须在首次加载前注册；不支持就保持下面 WebViewClient 的近似路径。
-    if (!incognito) {
-        runCatching { appContext.appContainer.webExtensionsOrNull?.attachNavigationListener(webView, id) }
-            .onFailure { Diag.log("webnav: NavigationListener attach failed ${it.message}") }
-    }
+    // 拓展晚加载：冷启动期间拓展系统视为不存在（见 ExtStartupGate），这里不会创建它；就绪后由 applyWebExtensions 补接。
+    attachWebNavigationIfNeeded()
 
     var lastVisitedHistoryUrl: String? = url
     webView.webViewClient = object : WebViewClient() {
@@ -264,6 +274,14 @@ internal fun BrowserTab.setupWebView() {
 
         override fun onPageFinished(view: WebView, pageUrl: String?) {
             WebViewDebug.logPage("finish", pageUrl)
+            // 拓展晚加载：第一个网页加载完成后才开始（已开闸则是空操作）
+            if (!dev.dsh.miuixbrowser.ext.ExtStartupGate.ready && !pageUrl.isNullOrBlank() && !pageUrl.startsWith("about:")) {
+                dev.dsh.miuixbrowser.ext.ExtStartupGate.scheduleOpen(
+                    appContext,
+                    dev.dsh.miuixbrowser.StartupCoordinator.EXT_AFTER_PAGE_FINISHED_DELAY_MS,
+                    "first page finished",
+                )
+            }
             if (!incognito && !pageUrl.isNullOrBlank()) {
                 appContext.appContainer.webExtensionsOrNull?.onWebNavigationCompleted(id, pageUrl)
                 appContext.appContainer.webExtensionsOrNull?.onWebRequestMainFrameCompleted(id, pageUrl)

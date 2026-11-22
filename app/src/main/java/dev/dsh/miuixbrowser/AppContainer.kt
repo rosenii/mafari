@@ -50,9 +50,12 @@ class AppContainer(app: Application) {
 
     /**
      * 标签页 / 请求拦截 / 菜单这些热路径用它：网页增强关闭时为 null 且不会创建拓展系统（零内存、零线程），调用方用 `?.` 跳过。
+     * 冷启动期间（[dev.dsh.miuixbrowser.ext.ExtStartupGate] 开闸前）同样返回 null：首页加载不经过任何拓展逻辑，拓展晚加载。
      */
     val webExtensionsOrNull: ExtensionSystem?
-        get() = if (dev.dsh.miuixbrowser.engine.EngineSupport.pageEnhancementsOn(appContext)) webExtensions else null
+        get() = if (dev.dsh.miuixbrowser.ext.ExtStartupGate.ready &&
+            dev.dsh.miuixbrowser.engine.EngineSupport.pageEnhancementsOn(appContext)
+        ) webExtensions else null
 }
 
 /** 取进程级容器。任何 Context（Activity / Service / Application）都可以调用。 */

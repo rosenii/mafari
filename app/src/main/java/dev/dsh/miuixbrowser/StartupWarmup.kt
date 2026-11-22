@@ -40,6 +40,12 @@ internal object StartupWarmup {
             runCatching { CipherSuites.default }
         }, "mafari-prewarm-crypto").apply { isDaemon = true }.start()
 
+        // 每个 WebView 标签创建时都要用到的注入脚本全文：提前在后台读进缓存，首个标签在主线程创建时直接命中，不再打开 asset
+        Thread({
+            runCatching { dev.dsh.miuixbrowser.browser.InjectAssets.read(app, "mafari_blob_cache.js") }
+            runCatching { dev.dsh.miuixbrowser.browser.InjectAssets.read(app, "mafari_gm_relay_wv.js") }
+        }, "mafari-prewarm-assets").apply { isDaemon = true }.start()
+
         Thread({
             val t0 = SystemClock.elapsedRealtime()
             runCatching { AppDatabase.get(app) }

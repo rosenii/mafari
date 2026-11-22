@@ -64,7 +64,7 @@ import dev.dsh.miuixbrowser.download.Downloader
  * assets 里的注入脚本只读一次：applyPrivacy 在每次切换标签 / 改设置时都会跑，
  * 原来每次都在主线程重新打开 asset 并读全文。
  */
-private object InjectAssets {
+internal object InjectAssets {
     private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     fun read(context: Context, name: String): String? {
@@ -499,6 +499,12 @@ class BrowserTab(
     /** WebView 拓展在本标签上的装配结果（content script 注入 + 消息桥）；拓展集合变化 / 切无痕 / 销毁时先撤销再重装 */
     private var extInstallation: dev.dsh.miuixbrowser.ext.WebViewExtensionHost.Installation? = null
 
+    /** 已登记「拓展就绪后补装」；就绪前反复调用 [applyWebExtensions] 只登记一次 */
+    private var extDeferred = false
+
+    /** 本标签是否已接上 WebView 的 NavigationListener（拓展 webNavigation 用；晚加载时在 [applyWebExtensions] 里补接） */
+    internal var webNavAttached = false
+
     init {
         // 引擎初始化放在这里（而不是各自的构造处），保证上面所有属性初始化完毕
         if (webViewOrNull != null) {
@@ -517,11 +523,44 @@ class BrowserTab(
             extInstallation?.close()
             extInstallation = null
             if (incognito || destroyed) return
+            // 冷启动期间拓展晚加载（见 ExtStartupGate）：首页加载完之前不装、不读仓库、不阻塞主线程；就绪后会回调 [onExtensionsReady]
+            if (!dev.dsh.miuixbrowser.ext.ExtStartupGate.ready) {
+                deferWebExtensions()
+                return
+            }
+            attachWebNavigationIfNeeded()
             val system = appContext.appContainer.webExtensionsOrNull ?: return // 网页增强关着：不装、也不创建拓展系统
             val exts = system.webViewExtensions()
             if (exts.isEmpty()) return
             extInstallation = system.tabHost.install(wv, exts, system.shim(), id)
         }.onFailure { Diag.log("web extensions: apply failed ${it.message}") }
+    }
+
+    private fun deferWebExtensions() {
+        if (extDeferred) return
+        extDeferred = true
+        val self = java.lang.ref.WeakReference(this)
+        dev.dsh.miuixbrowser.ext.ExtStartupGate.runWhenReady(appContext) { self.get()?.onExtensionsReady() }
+    }
+
+    /**
+     * 拓展晚加载就绪（主线程）：补装 content script。已经加载好的页面不会有 content script（注入只对之后的导航生效），
+     * 所以前台标签如果正显示着、且有拓展的 content script 会匹配它，就重新加载一次，让拓展对当前页也生效。
+     */
+    private fun onExtensionsReady() {
+        extDeferred = false
+        if (destroyed) return
+        val pageUp = url.isNotEmpty() && !loading && !parked
+        applyWebExtensions()
+        if (!RELOAD_AFTER_LATE_EXT || !pageUp || extInstallation == null) return
+        if (BrowserState.current?.activeTab !== this) return // 后台标签：切到前台再加载页面时本来就会带上拓展
+        val matches = runCatching {
+            appContext.appContainer.webExtensionsOrNull?.hasContentScriptFor(url) == true
+        }.getOrDefault(false)
+        if (matches) {
+            Diag.log("web extensions: reload foreground tab $id once so late-loaded extensions apply")
+            reload()
+        }
     }
 
     data class ElementHit(val tag: String, val imageUrl: String, val selector: String)
@@ -1625,6 +1664,9 @@ class BrowserTab(
     }
 
     private companion object {
+        /** 拓展晚加载后，前台已加载好的页面若有 content script 匹配，是否重新加载一次让拓展生效（关掉则只对之后的导航生效） */
+        const val RELOAD_AFTER_LATE_EXT = true
+
         private const val PAUSE_MEDIA_JS =
             "(function(){try{var p=function(d){d.querySelectorAll('video,audio').forEach(function(m){" +
                 "try{if(!m.paused)m.pause()}catch(e){}})};p(document);" +

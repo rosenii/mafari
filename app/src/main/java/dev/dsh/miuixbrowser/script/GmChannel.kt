@@ -186,7 +186,7 @@ internal class GmChannel(
         return try {
             val gm = WebViewCompat.getExecutionWorld(webView, WORLD_NAME)
             val page = WebViewCompat.getExecutionWorld(webView, JavaScriptExecutionWorld.PAGE_WORLD_NAME)
-            val relay = context.applicationContext.assets.open(RELAY_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val relay = dev.dsh.miuixbrowser.browser.InjectAssets.read(context, RELAY_ASSET) ?: error("$RELAY_ASSET missing")
             WebViewCompat.addWebMessageListener(webView, LISTENER_NAME, rules, gm) { _, message, sourceOrigin, isMainFrame, reply ->
                 onMessage(message, sourceOrigin.toString(), isMainFrame, reply)
             }
