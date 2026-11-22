@@ -282,13 +282,44 @@ class ExtensionSystem(
         .use { it.readText() }.also { shimText = it }
 
     /**
+     * 冷启动预热（**后台线程**调用）：把首个标签装配拓展时主线程要做的事提前做完——
+     * 读仓库（state 目录下的 json + 解析每个 manifest）、读 shim、预处理各拓展的 content script（读文件 / 打包 / 本地化）。
+     * 都做完后，主线程上 [WebViewExtensionHost.install] 只剩拼接字符串；没有拓展时只是把系统对象建好。
+     * [injection] = false：只读仓库、不预处理 content script（默认内核不是 WebView 时，标签装配用不上）。
+     * 失败无妨：主线程用到时照旧同步做一遍。
+     */
+    fun prewarm(injection: Boolean = true) {
+        val exts = webViewExtensions()
+        if (!injection || exts.isEmpty()) return
+        shim()
+        tabHost.prewarm(exts)
+    }
+
+    private val startHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
      * 应用启动后（主线程，幂等）：拉起所有已启用拓展的后台页。每个后台页就绪后先收到 runtime.onStartup，
      * 再收到补发的 alarms.onAlarm（见 [ExtensionLifecycle]）。
+     *
+     * 每个后台页都是一个隐藏 WebView，创建有开销。[staggerMs] > 0 时第一个立即拉起，其余每个依次再晚 [staggerMs]，
+     * 避免多个拓展在主线程上挤成一次长卡顿；默认 0 = 全部立即拉起（与旧行为一致）。
      */
-    fun startAll() {
+    fun startAll(staggerMs: Long = 0L) {
+        var delay = 0L
         for (ext in webViewExtensions()) {
-            if (pages.startBackground(ext) != null) lifecycle.expectStartup(ext.spec.id)
+            val id = ext.spec.id
+            if (delay == 0L) startOne(id) else startHandler.postDelayed({ startOne(id) }, delay)
+            delay += staggerMs
         }
+    }
+
+    /**
+     * 拉起一个拓展的后台页。延后执行的启动要重新确认：期间拓展可能已被停用 / 卸载，
+     * 或已被 [onInstalled] / [onEnabled] 拉起（[ExtensionPageHost.startBackground] 对已在运行的返回 null，不会重复拉）。
+     */
+    private fun startOne(id: String) {
+        val ext = repo.get(id)?.takeIf { it.enabled && EngineKind.WEBVIEW in it.engines } ?: return
+        if (pages.startBackground(ext) != null) lifecycle.expectStartup(id)
     }
 
     /**

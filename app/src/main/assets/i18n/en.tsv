@@ -1340,7 +1340,8 @@ LOGO 标识	LOGO
 长按进入「拓展」管理页，单击是拓展快捷菜单	Long-press opens the "Extensions" management page; a tap opens the extension quick menu
 试一试	Try it
 这里只是预览，进入浏览器后点开「更多」即可使用	This is only a preview; open "More" in the browser to use it
-长按任意图标并拖动：松手前拖到分割线下方就是隐藏，再拖回上方即恢复。「设置」不能隐藏，以免找不到入口。	Long-press any icon and drag: dropping it below the divider hides it, and dragging it back above restores it. "Settings" can't be hidden so you can always find the entry.
+长按任意图标进入编辑：拖到分割线下方或点右上角的 × 即隐藏，拖回上方（或点 +）即恢复，点「完成」退出。「设置」不能隐藏，以免找不到入口。	Long-press any icon to edit: drag it below the divider or tap the × to hide it, drag it back up (or tap +) to restore it, and tap "Done" to exit. "Settings" can't be hidden so you can always find the entry.
+拖动排序，点 × 隐藏	Drag to reorder, tap × to hide
 长按还能做什么	What long-press can do
 备份方式	Backup methods
 本地加密备份文件	Local encrypted backup file
@@ -2113,3 +2114,10 @@ URL 预取	URL prefetch
 只限制 WebView 网页缓存的最大占用，不会立即清空；调小可能在后台触发清理。清空请用「清除 WebView 网页缓存」	Only caps the maximum size of the WebView web cache and does not clear it right away; lowering it may trigger cleanup in the background. To clear it, use "Clear WebView page cache"
 自动（约 {0}）	Automatic (about {0})
 自动	Automatic
+记录页面性能	Record page performance
+记录每次加载的首次内容绘制（FCP）和最大内容绘制（LCP）；关闭后不再采集，已有记录保留。需要系统 WebView 支持导航监听	Records First Contentful Paint (FCP) and Largest Contentful Paint (LCP) for each load; when off nothing new is collected and existing records are kept. Needs a system WebView with navigation listener support
+已关闭记录。打开上面的开关后，之后加载的页面会显示 FCP / LCP	Recording is off. Turn on the switch above and pages loaded afterwards will show FCP / LCP
+不支持（系统 WebView 不支持多 Profile）	Not supported (system WebView has no multi-profile support)
+支持（排队模式 enqueuePreconnect）	Supported (queued mode, enqueuePreconnect)
+支持（直连模式 preconnect；排队模式需要更新的系统 WebView）	Supported (direct mode, preconnect; queued mode needs a newer system WebView)
+不支持（当前系统 WebView 未提供 preconnect / enqueuePreconnect）	Not supported (this system WebView provides neither preconnect nor enqueuePreconnect)

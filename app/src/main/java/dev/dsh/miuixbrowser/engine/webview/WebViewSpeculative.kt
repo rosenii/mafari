@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.webkit.Profile
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewFeature
+import dev.dsh.miuixbrowser.i18n.tr
 import dev.dsh.miuixbrowser.util.Diag
 import dev.dsh.miuixbrowser.util.looksLikeUrl
 import dev.dsh.miuixbrowser.util.toUrl
@@ -112,6 +113,17 @@ object WebViewSpeculative {
             supported(WebViewFeature.PRECONNECT) -> { profile.preconnect(origin); true }
             else -> false
         }
+    }
+
+    /**
+     * 调试页「预连接」一行的文字：分别说明能不能用、走哪条路径、卡在哪。
+     * 实际能否预连接 = 多 Profile + (enqueuePreconnect 或 preconnect 二选一)；任何一项系统 WebView 没提供，[fire] 都会直接返回 false。
+     */
+    fun statusText(): String = when {
+        !supported(WebViewFeature.MULTI_PROFILE) -> tr("不支持（系统 WebView 不支持多 Profile）")
+        supported(WebViewFeature.ENQUEUE_PRECONNECT) -> tr("支持（排队模式 enqueuePreconnect）")
+        supported(WebViewFeature.PRECONNECT) -> tr("支持（直连模式 preconnect；排队模式需要更新的系统 WebView）")
+        else -> tr("不支持（当前系统 WebView 未提供 preconnect / enqueuePreconnect）")
     }
 
     private fun supported(feature: String) = runCatching { WebViewFeature.isFeatureSupported(feature) }.getOrDefault(false)

@@ -23,6 +23,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -51,6 +52,15 @@ internal object StartupCoordinator {
     /** WebView 拓展的后台页是隐藏 WebView，创建有开销：首帧之后再起，别和首屏抢主线程。 */
     private const val EXT_BACKGROUND_DELAY_MS = 1_500L
 
+    /** 多个拓展的后台页（各一个隐藏 WebView）依次错开拉起的间隔：别在主线程上挤成一次长卡顿。 */
+    private const val EXT_BACKGROUND_STAGGER_MS = 200L
+
+    /** 等主线程空闲再拉后台页；一直等不到空闲（持续动画 / 滚动）就到这个时间强行拉。 */
+    private const val EXT_BACKGROUND_IDLE_TIMEOUT_MS = 3_000L
+
+    /** 拓展预热里等 WebView 预热结束的上限：先等它，免得和它抢着加载 WebView 提供方；等不到也往下走。 */
+    private const val EXT_PREWARM_WEBVIEW_WAIT_MS = 3_000L
+
     /** 清扫上次遗留的无痕 Profile：不急，排在拓展后台页之后。 */
     private const val SWEEP_INCOGNITO_DELAY_MS = 3_000L
 
@@ -71,6 +81,34 @@ internal object StartupCoordinator {
         FaviconLoader.init(app) // 只定磁盘目录，修剪在后台
         // WebView 异步预热：默认内核是 WebView 时才做（Gecko 默认时首屏不创建 WebView，没必要）。须尽早，越早越能和加密库预热重叠
         if (!EngineSupport.defaultIsGecko(app)) WebViewStartup.begin(app)
+        prewarmExtensions(app) // 须在 WebViewStartup.begin 之后（要看它是否已开始）
+    }
+
+    /**
+     * 拓展系统预热：原先第一个 WebView 标签创建时才在主线程上同步做——建拓展系统（注册二十多个 API）、
+     * 读仓库（逐个解析 manifest）、读 shim、读 / 打包各拓展的 content script，拓展越多首屏越慢。
+     * 现在进程一创建就在后台线程做完，首个标签装配时全是缓存命中。线程优先级比默认略低（但不进后台 cgroup，
+     * 免得被饿死、到首个标签创建时还没好），不和加密库 / WebView 预热抢关键路径。
+     * 和 [StartupWarmup] 互不依赖（不碰加密库）。
+     */
+    private fun prewarmExtensions(app: Application) {
+        Thread({
+            val t0 = SystemClock.elapsedRealtime()
+            runCatching {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_LESS_FAVORABLE)
+                val webViewTabs = !EngineSupport.defaultIsGecko(app)
+                val system = app.appContainer.webExtensions
+                if (webViewTabs && WebViewStartup.started) {
+                    // 判断系统 WebView 支不支持隔离世界要碰 WebView 提供方：等 WebView 预热先把它加载好。
+                    // 只轮询，不调 awaitDone —— 它超时会替冷启动闸门「宣布结束」，这里不该有这个副作用
+                    while (!WebViewStartup.isDone() && SystemClock.elapsedRealtime() - t0 < EXT_PREWARM_WEBVIEW_WAIT_MS) {
+                        Thread.sleep(25)
+                    }
+                }
+                system.prewarm(injection = webViewTabs)
+            }.onFailure { Diag.log("prewarm: web extensions failed ${it.javaClass.simpleName}: ${it.message}") }
+            Diag.log("prewarm: web extensions ready in ${SystemClock.elapsedRealtime() - t0}ms")
+        }, "mafari-prewarm-ext").apply { isDaemon = true }.start()
     }
 
     /** 阶段 2。须在主线程、Activity.onCreate 里调用。 */
@@ -126,11 +164,20 @@ internal object StartupCoordinator {
         activity.window.decorView.post {
             Handler(Looper.getMainLooper()).postDelayed({ AdBlock.startCompile() }, ADBLOCK_COMPILE_DELAY_MS)
         }
-        // WebView 拓展的后台页：没有已启用的拓展就什么都不建；幂等（Activity 重建时已在运行的会跳过）
+        // WebView 拓展的后台页：没有已启用的拓展就什么都不建；幂等（Activity 重建时已在运行的会跳过）。
+        // 首帧后再等一会儿，然后等主线程空闲（首屏渲染 / 标签恢复期间不插队）才拉；多个拓展依次错开
         activity.window.decorView.post {
-            Handler(Looper.getMainLooper()).postDelayed({
-                runCatching { app.appContainer.webExtensions.startAll() }
-                    .onFailure { Diag.log("web extensions: start backgrounds failed ${it.message}") }
+            val handler = Handler(Looper.getMainLooper())
+            handler.postDelayed({
+                val fired = java.util.concurrent.atomic.AtomicBoolean(false)
+                val startBackgrounds = {
+                    if (fired.compareAndSet(false, true)) {
+                        runCatching { app.appContainer.webExtensions.startAll(EXT_BACKGROUND_STAGGER_MS) }
+                            .onFailure { Diag.log("web extensions: start backgrounds failed ${it.message}") }
+                    }
+                }
+                Looper.myQueue().addIdleHandler { startBackgrounds(); false }
+                handler.postDelayed({ startBackgrounds() }, EXT_BACKGROUND_IDLE_TIMEOUT_MS) // 一直不空闲时的兜底
             }, EXT_BACKGROUND_DELAY_MS)
         }
         // 上次进程被杀留在磁盘上的无痕 Profile 数据：界面出来、WebView 预热结束之后再扫（本进程已用过无痕就跳过）

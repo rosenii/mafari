@@ -31,7 +31,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.Image
@@ -136,14 +139,19 @@ BrowserChunk {
                 Sheet.Menu -> {
                     // 「更多」菜单最高占屏幕 44%，超出（如编辑排序时展开隐藏区）可滚动
                     val menuMaxH = (LocalConfiguration.current.screenHeightDp * 0.44f).dp
+                    // 编辑状态和滚动状态提到这里：「完成」要画在滚动区外面的右上角（菜单自动下滚后也一直看得见）
+                    val menuEditing = remember { mutableStateOf(false) }
+                    val menuScroll = rememberScrollState()
+                    Box(modifier = Modifier.heightIn(max = menuMaxH + sheetInsets.top + sheetInsets.bottom)) {
                     Box(
                         modifier = Modifier
-                            .heightIn(max = menuMaxH + sheetInsets.top + sheetInsets.bottom)
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(menuScroll)
                             // 先滚动后加内边距：内边距在滚动内容里面，菜单能滚到头部和导航栏下面
                             .padding(top = sheetInsets.top, bottom = sheetInsets.bottom + 8.dp),
                     ) {
                     MenuGrid(
+                        editingHost = menuEditing,
+                        scrollState = menuScroll,
                         labelFor = { action ->
                             if (action == MenuAction.Desktop) {
                                 if (tab.desktopMode) tr("移动版") else tr("桌面版")
@@ -227,6 +235,15 @@ BrowserChunk {
                             !tab.incognito && webViewEnabledExtCount(context.appContainer.webExtensions) > 0
                         },
                     )
+                    }
+                    if (menuEditing.value) {
+                        MenuEditDoneButton(
+                            onClick = { menuEditing.value = false },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = sheetInsets.top + 2.dp, end = 8.dp),
+                        )
+                    }
                     }
                 }
 

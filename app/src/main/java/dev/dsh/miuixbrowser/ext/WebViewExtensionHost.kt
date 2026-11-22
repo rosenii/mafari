@@ -196,6 +196,45 @@ class WebViewExtensionHost(
      * 在 WebView 首次加载网页之前调用。[exts] 里只传要在这个标签上生效的（已启用、引擎含 WEBVIEW、无痕范围已过滤）。
      * [shim] 是 assets/mafari_ext_shim.js 全文。
      */
+    /** [ExtensionInjection.prepare] 的缓存项：键是它依赖的全部输入，任何一个变了（授权、动态脚本、世界支持）就重算 */
+    private class PreparedEntry(
+        val ext: InstalledExtension,
+        val dynamic: List<ContentScriptSpec>,
+        val lazyModules: Boolean,
+        val prepared: PreparedInjection?,
+    )
+
+    private val preparedLock = Any()
+    private val preparedCache = HashMap<String, PreparedEntry>()
+
+    /**
+     * 取（必要时计算）拓展的注入预处理结果。整段在锁里：冷启动时后台线程正在算的话，主线程会等它算完而不是重复算一遍。
+     * 命中条件是 [ext]、动态脚本、是否走隔离世界都和上次一致；拓展被装 / 启 / 停 / 卸（[forget]）时整项丢弃。
+     */
+    private fun preparedFor(ext: InstalledExtension, dynamic: List<ContentScriptSpec>, useWorlds: Boolean): PreparedInjection? =
+        synchronized(preparedLock) {
+            val hit = preparedCache[ext.spec.id]
+            if (hit != null && hit.lazyModules == useWorlds && hit.ext == ext && hit.dynamic == dynamic) {
+                return@synchronized hit.prepared
+            }
+            val fresh = ExtensionInjection.prepare(ext, ExtensionInjection.fileReader(ext.rootDir), dynamic, useWorlds)
+            preparedCache[ext.spec.id] = PreparedEntry(ext, dynamic, useWorlds, fresh)
+            fresh
+        }
+
+    /**
+     * 冷启动预热：在**后台线程**调用，把每个拓展的 content script 先读好、打包好，
+     * 这样第一个标签在主线程装配时（[install]）只剩字符串拼接，不再同步读盘。不支持时什么都不做。
+     */
+    fun prewarm(exts: List<InstalledExtension>) {
+        if (!isSupported()) return
+        val useWorlds = isolatedWorldsSupported()
+        for (ext in exts) {
+            runCatching { preparedFor(ext, dynamicContentScripts(ext), useWorlds) }
+                .onFailure { log("ext ${ext.spec.id}: prewarm failed ${it.message}") }
+        }
+    }
+
     fun install(webView: WebView, exts: List<InstalledExtension>, shim: String, tabId: Int?): Installation? {
         if (!isSupported()) return null
         val useWorlds = isolatedWorldsSupported()
@@ -205,10 +244,9 @@ class WebViewExtensionHost(
         val installedExtIds = mutableListOf<String>()
         for (ext in exts) {
             installedExtIds.add(ext.spec.id)
-            val plan = ExtensionInjection.build(
-                ext, shim, ExtensionInjection.fileReader(ext.rootDir), dynamicContentScripts(ext), tabId,
-                lazyModules = useWorlds,
-            )
+            // 读文件 / 打包 / 本地化这部分与标签无关，走缓存（冷启动时已在后台线程算好，见 [prewarm]）；每个标签只做拼接
+            val plan = preparedFor(ext, dynamicContentScripts(ext), useWorlds)
+                ?.let { ExtensionInjection.finish(it, shim, tabId) }
             if (plan == null) {
                 log("ext ${ext.spec.id}: tab $tabId 没有可注入的 content script（manifest 无 content_scripts，或脚本文件读不到）")
                 continue
@@ -497,6 +535,7 @@ class WebViewExtensionHost(
 
     /** 拓展被卸载 / 停用时丢掉它的连接记录 */
     fun forget(extId: String) {
+        synchronized(preparedLock) { preparedCache.remove(extId) } // 包可能换了（更新 / 重装）：预处理结果作废
         synchronized(connections) { connections.remove(extId) }
         synchronized(lazyModules) { lazyModules.remove(extId) }
         synchronized(contentEndpoints) {

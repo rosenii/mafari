@@ -25,6 +25,7 @@ import dev.dsh.miuixbrowser.util.Diag
  * - 运行日志：与 Gecko 调试页共用同一个开关（[Diag]），写 Android/media/<包名>/diag.txt
  * - [consoleLog]：把网页 console.* / JS 报错写进运行日志（需先开运行日志）
  * - [pageLog]：记录页面开始 / 完成加载、加载失败、HTTP 4xx/5xx 的子资源（需先开运行日志）
+ * - [perfRecord]：页面性能记录（FCP / LCP，见 [WebViewPerf]）。默认开（沿用此前的行为）；关掉后不再采集，已有记录保留
  * - [remoteDebug]：允许桌面 Chrome 通过 chrome://inspect 经 USB 检查页面。WebView.setWebContentsDebuggingEnabled
  *   是进程级静态开关，立即生效，对已有和新建的 WebView 都有效
  */
@@ -35,6 +36,7 @@ object WebViewDebug {
 
     var consoleLog by mutableStateOf(false); private set
     var pageLog by mutableStateOf(false); private set
+    var perfRecord by mutableStateOf(true); private set
     var remoteDebug by mutableStateOf(false); private set
 
     fun load(context: Context) {
@@ -43,6 +45,7 @@ object WebViewDebug {
         prefs = p
         consoleLog = p.getBoolean("console_log", false)
         pageLog = p.getBoolean("page_log", false)
+        perfRecord = p.getBoolean("perf_record", true)
         remoteDebug = p.getBoolean("remote_debug", false)
         if (remoteDebug) applyRemoteDebug(true)
     }
@@ -57,6 +60,10 @@ object WebViewDebug {
 
     fun updatePageLog(v: Boolean) {
         pageLog = v; save { putBoolean("page_log", v) }
+    }
+
+    fun updatePerfRecord(v: Boolean) {
+        perfRecord = v; save { putBoolean("perf_record", v) }
     }
 
     fun updateRemoteDebug(v: Boolean) {
@@ -111,9 +118,7 @@ object WebViewDebug {
                 1 -> tr("旧版（仅 Page 重载）")
                 else -> tr("不支持")
             },
-            tr("预连接") to feature(WebViewFeature.ENQUEUE_PRECONNECT).let { enq ->
-                if (WebViewFeature.isFeatureSupported(WebViewFeature.PRECONNECT)) "$enq（preconnect ${tr("支持")}）" else enq
-            },
+            tr("预连接") to WebViewSpeculative.statusText(),
             tr("URL 预取") to feature(WebViewFeature.PROFILE_URL_PREFETCH),
             tr("导航排空预取") to feature(WebViewFeature.WEBVIEW_NAVIGATE_DRAIN_PREFETCH),
             tr("智能深色") to feature(WebViewFeature.ALGORITHMIC_DARKENING),

@@ -815,7 +815,7 @@ private fun MenuStep(settings: AppSettings, menuOrder: MenuOrderStore, bd: Backd
             )
         }
     }
-    HintText(tr("长按任意图标并拖动：松手前拖到分割线下方就是隐藏，再拖回上方即恢复。「设置」不能隐藏，以免找不到入口。"))
+    HintText(tr("长按任意图标进入编辑：拖到分割线下方或点右上角的 × 即隐藏，拖回上方（或点 +）即恢复，点「完成」退出。「设置」不能隐藏，以免找不到入口。"))
 
     SectionLabel(tr("长按还能做什么"))
     GuideCard(bd) {

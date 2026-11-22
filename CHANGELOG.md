@@ -1,8 +1,13 @@
 # Changelog
-## [2.1.72]
+## [2.1.73]
+
 - **The bar-detection also recognises bottom input boxes and submit buttons** (chat composers, comment boxes, checkout "submit order" bars): a visible input / textarea / contenteditable or a submit button inside a fixed (or bottom-sticky) container that is >= 60% wide and sits at the bottom of the viewport now counts as a page bottom bar, so the split bar yields the row instead of covering it. Same logic in `PageBottomBar.kt` (WebView) and `scroll-metrics.js` (Gecko).
 - **Long-press on the address pill opens the start page** (follows Settings → Customize home → Custom start page, same as the home button) instead of opening a new tab. The pill plays an elastic shrink-then-overshoot pop while it opens.
 - **The compact title pill (shown while scrolling) is lower**: 32dp → 26dp, corner 16dp → 13dp.
+- **WebView debug: new "Record page performance" switch** (page performance section, default on = previous behaviour). When off, FCP / LCP and new entries are no longer collected; existing records are kept.
+- **WebView debug: the "Preconnect" info line now says which path is available** (queued `enqueuePreconnect`, direct `preconnect`, or neither / no multi-profile) instead of a bare "not supported". `enqueuePreconnect` only exists since androidx.webkit 1.17.0-alpha04, so a system WebView that is not new enough reports it as unsupported even when it is the latest installed one.
+- **Cold start: WebView extensions no longer block the first frame / first tab.** Previously the first WebView tab built the extension system, read every extension's state + manifest, read the shim and read / bundled every content script **on the main thread** before the first page could load. Now `StartupCoordinator.prewarmExtensions` does all of that on a background thread right after process creation (`ExtensionSystem.prewarm`, `WebViewExtensionHost.prewarm`); `ExtensionInjection.build` is split into `prepare` (file reads, bundling, localisation; cached per extension, invalidated on install / enable / disable / uninstall, permission or dynamic-script change) and `finish` (per-tab string assembly with the tab id), so the main thread only concatenates. Output is byte-identical to before (`ExtensionInjectionTest.prepareThenFinishMatchesBuildForEveryTab`).
+- **Cold start: extension background pages start when the main thread is idle and are staggered** (200 ms apart, 3 s idle timeout) instead of all being created in one main-thread burst 1.5 s after the first frame. The start delay itself is unchanged; a delayed start re-checks that the extension is still enabled and not already running.
 - Not compiled here (no Android toolchain).
 
 ## [2.1.70]

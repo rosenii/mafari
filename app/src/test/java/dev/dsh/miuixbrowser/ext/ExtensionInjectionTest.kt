@@ -24,6 +24,30 @@ class ExtensionInjectionTest {
     private fun mf(contentScripts: String) =
         """{"manifest_version":3,"name":"Demo","version":"1","content_scripts":$contentScripts}"""
 
+    @Test fun prepareThenFinishMatchesBuildForEveryTab() {
+        val e = ext(
+            mf("""[{"matches":["https://a.com/*"],"js":["c.js"],"run_at":"document_idle"},{"matches":["https://b.com/*"],"js":["m.js"],"world":"MAIN"}]"""),
+            "c.js" to "console.log('c')",
+            "m.js" to "console.log('m')",
+        )
+        val read = ExtensionInjection.fileReader(e.rootDir)
+        // 冷启动预热只做一次 prepare，之后每个标签只 finish：结果必须和每次完整 build 逐字一致（tabId 照样进脚本）
+        val prepared = ExtensionInjection.prepare(e, read)!!
+        for (tabId in listOf(null, 1, 42)) {
+            val expected = ExtensionInjection.build(e, shim, read, tabId = tabId)!!
+            val actual = ExtensionInjection.finish(prepared, shim, tabId)
+            assertEquals(expected.script, actual.script)
+            assertEquals(expected.isolatedScript, actual.isolatedScript)
+            assertEquals(expected.mainScript, actual.mainScript)
+            assertEquals(expected.isolatedEndScript, actual.isolatedEndScript)
+            assertEquals(expected.originRules, actual.originRules)
+            assertEquals(expected.isolatedOriginRules, actual.isolatedOriginRules)
+            assertEquals(expected.mainOriginRules, actual.mainOriginRules)
+        }
+        assertTrue(ExtensionInjection.finish(prepared, shim, 42).script.contains("\"tabId\":42"))
+        assertFalse(ExtensionInjection.finish(prepared, shim, null).script.contains("\"tabId\""))
+    }
+
     @Test fun buildsPlanWithRulesBridgeAndScript() {
         val e = ext(
             mf("""[{"matches":["https://a.com/*"],"js":["c.js"],"css":["s.css"],"run_at":"document_start","all_frames":true}]"""),

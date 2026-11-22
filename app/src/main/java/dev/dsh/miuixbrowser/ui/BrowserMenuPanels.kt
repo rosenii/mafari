@@ -83,6 +83,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -116,6 +117,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.focusRequester
@@ -233,8 +236,12 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 更多面板：图标 + 文字宫格。长按任一图标进入编辑：面板自动拉长，底部出现高光分割线，
- * 线下方是「隐藏的功能」区；把图标拖到线下方即从菜单隐藏，再拖回线上方即恢复。
+ * 更多面板：图标 + 文字宫格。长按任一图标进入编辑：面板自动拉长（装不下时菜单自动下滚），底部出现高光分割线，
+ * 线下方是「隐藏的功能」区；右上角出现「完成」，每个图标右上角出现 ×。
+ * 点 × 或把图标拖到线下方即从菜单隐藏；隐藏区的图标点 + 或拖回线上方即恢复。
+ *
+ * 进入方式：没有长按功能的图标，长按即进入编辑（不用先拖动）；有长按功能的图标
+ * （[longPressActions]）保持原样：按住不动 0.65 秒触发长按功能，拖动超过阈值才进入编辑。
  */
 /** 更多菜单里长按进入管理页（脚本 / 收藏 / 拓展）所需的按住时长，含系统长按判定时间 */
 internal const val MENU_LONG_PRESS_MS = 650L
@@ -266,6 +273,13 @@ internal fun MenuGrid(
     translateActive: Boolean = false,
     badgeFor: (MenuAction) -> Int = { 0 },
     lockedFor: (MenuAction) -> Boolean = { false },
+    /**
+     * 编辑状态由外部持有时传入：「完成」按钮由外部画在菜单右上角（不随菜单滚动，见 [MenuEditDoneButton]）。
+     * 不传（如引导页）就用内部状态，「完成」画在网格顶部的栏里。
+     */
+    editingHost: MutableState<Boolean>? = null,
+    /** 菜单外层的滚动状态：进入编辑后自动下滚，让隐藏区露出来（菜单最高占屏幕 44%，装不下时才会滚动） */
+    scrollState: ScrollState? = null,
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -283,40 +297,70 @@ internal fun MenuGrid(
     var holdJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val longPressNow by rememberUpdatedState(onLongPressAction)
 
-    var editing by remember { mutableStateOf(false) }
+    val ownEditing = remember { mutableStateOf(false) }
+    val editingState = editingHost ?: ownEditing
+    var editing by editingState
     var dragAction by remember { mutableStateOf<MenuAction?>(null) }
+    // 手指在屏幕上累计的位移（不含下面的布局位移补偿）
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    // 长按后、尚未拖够距离时的累计位移：超过阈值才真正进入编辑，避免手指轻微抖动误触发
+    // 长按后、尚未拖够距离时的累计位移：超过阈值才真正进入编辑，避免手指轻微抖动误触发（仅有长按功能的图标用）
     var pendingDrag by remember { mutableStateOf(Offset.Zero) }
     val enterEditThresholdPx = with(density) { 24.dp.toPx() }
+
+    // 布局位移补偿：进入编辑时弹层会长高、菜单会自动下滚，图标在屏幕上的位置随之变了，手指却没动。
+    // 按下那一刻记下图标的屏幕 y（[anchorY]），之后实时对比它当前的屏幕 y（[trackedY]），差值就是要补的位移——
+    // 不再手算「分割线 + 隐藏区高度」，弹层长高 / 菜单下滚 / 头部栏有无，都自动算在里面。
+    var trackedAction by remember { mutableStateOf<MenuAction?>(null) }
+    var anchorY by remember { mutableFloatStateOf(0f) }
+    var trackedY by remember { mutableFloatStateOf(0f) }
+    // 靠长按进入编辑的那个图标：同一次手势里它接着被拖起时，沿用按下时记下的锚点
+    var entryAction by remember { mutableStateOf<MenuAction?>(null) }
+    val rootYs = remember { HashMap<MenuAction, Float>() }
+    val effectiveDrag: () -> Offset = {
+        Offset(dragOffset.x, dragOffset.y + if (trackedAction != null) anchorY - trackedY else 0f)
+    }
+    val beginTracking = { action: MenuAction ->
+        trackedAction = action
+        anchorY = rootYs[action] ?: 0f
+        trackedY = anchorY
+    }
+    val enterEdit = { action: MenuAction ->
+        beginTracking(action) // 先记锚点，再改 editing（改了之后才会重新布局）
+        entryAction = action
+        editing = true
+    }
+    val headerHeight = 32.dp
+
+    // 进入编辑后自动下沉：等隐藏区排进布局（maxValue 更新）再下滚到底，让隐藏区露出来；
+    // 内容没超过菜单最大高度时 maxValue 为 0，什么也不做
+    LaunchedEffect(editing) {
+        val sc = scrollState
+        if (editing && sc != null) {
+            withFrameNanos { }
+            withFrameNanos { }
+            sc.animateScrollTo(sc.maxValue)
+        }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val cellWidthPx = with(density) { (maxWidth / columns).toPx() }
         val cellHeightPx = with(density) { cellHeight.toPx() }
         val dividerPx = with(density) { dividerHeight.toPx() }
         val visibleRows = ((order.size + columns - 1) / columns).coerceAtLeast(1)
-        val hiddenRows = ((hidden.size + columns - 1) / columns).coerceAtLeast(1)
 
-        // 拖拽结束时按「图标中心落在哪」决定去哪个区、第几格（用最新的列表尺寸）
+        // 拖拽结束时按「图标中心落在哪」决定去哪个区、第几格（用最新的列表尺寸）。坐标是网格内的：编辑时顶部多一条头部栏
         val finishDrag by rememberUpdatedState { action: MenuAction, fromHidden: Boolean, row: Int, col: Int ->
-            val visibleBottom = visibleRows * cellHeightPx
+            val top = if (editing) with(density) { headerHeight.toPx() } else 0f
+            val visibleBottom = top + visibleRows * cellHeightPx
             val hiddenTop = visibleBottom + dividerPx
-            val originY = if (fromHidden) hiddenTop + row * cellHeightPx else row * cellHeightPx
-            val cx = col * cellWidthPx + cellWidthPx / 2 + dragOffset.x
-            val cy = originY + cellHeightPx / 2 + dragOffset.y
+            val originY = if (fromHidden) hiddenTop + row * cellHeightPx else top + row * cellHeightPx
+            val drag = effectiveDrag()
+            val cx = col * cellWidthPx + cellWidthPx / 2 + drag.x
+            val cy = originY + cellHeightPx / 2 + drag.y
             val toHidden = cy >= visibleBottom + dividerPx / 2
-            val rowT = ((if (toHidden) cy - hiddenTop else cy) / cellHeightPx).toInt().coerceAtLeast(0)
+            val rowT = ((if (toHidden) cy - hiddenTop else cy - top) / cellHeightPx).toInt().coerceAtLeast(0)
             val colT = (cx / cellWidthPx).toInt().coerceIn(0, columns - 1)
             onMove(action, toHidden, rowT * columns + colT)
-        }
-        val startDrag by rememberUpdatedState { fromHidden: Boolean ->
-            // 底部弹层向上生长：第一次进入编辑时补偿增加的高度，图标才不会脱离手指
-            dragOffset = if (!editing && !fromHidden) {
-                Offset(0f, dividerPx + hiddenRows * cellHeightPx)
-            } else {
-                Offset.Zero
-            }
-            editing = true
         }
 
         @Composable
@@ -346,8 +390,23 @@ internal fun MenuGrid(
                                 else -> MiuixTheme.colorScheme.onSurface
                             },
                             dragged = dragAction == action,
-                            dragOffset = { dragOffset },
+                            dragOffset = effectiveDrag,
                             dimmed = (dragAction != null && dragAction != action) || (inHidden && dragAction == null),
+                            // 编辑时每个图标右上角：显示区 ×（点了隐藏到下方），隐藏区 +（点了恢复）；「设置」不能隐藏；拖动中不显示
+                            editBadge = when {
+                                !editing || dragAction != null -> MenuEditBadge.None
+                                inHidden -> MenuEditBadge.Restore
+                                action == MenuAction.Settings -> MenuEditBadge.None
+                                else -> MenuEditBadge.Remove
+                            },
+                            onBadgeClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (inHidden) onMove(action, false, order.size) else onMove(action, true, hidden.size)
+                            },
+                            onPositioned = { y ->
+                                rootYs[action] = y
+                                if (trackedAction == action) trackedY = y
+                            },
                             onClick = {
                                 if (!editing) {
                                     // 置灰项（Gecko 下不支持）：只提示，不执行
@@ -363,16 +422,23 @@ internal fun MenuGrid(
                                 }
                             },
                             onDragStart = {
-                                // 长按不进编辑；等 onDrag 出现真实位移再展开隐藏区。
-                                // 系统长按（约 0.4s）后进入这里，再补足到 [MENU_LONG_PRESS_MS]（0.65s）
+                                // 系统长按（约 0.4s）后进入这里
                                 holdJob?.cancelCompat()
-                                if (action in longPressActions && !editing) {
-                                    holdJob = gridScope.launch {
-                                        kotlinx.coroutines.delay((MENU_LONG_PRESS_MS - systemLongPressMs).coerceAtLeast(0L))
-                                        if (dragAction == null && !editing && pendingDrag.getDistance() < enterEditThresholdPx) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            longPressNow(action)
+                                if (!editing) {
+                                    if (action in longPressActions) {
+                                        // 有长按功能的图标：再补足到 [MENU_LONG_PRESS_MS]（0.65s）仍没拖动才触发长按功能；拖动则进入编辑（见 onDrag）
+                                        holdJob = gridScope.launch {
+                                            kotlinx.coroutines.delay((MENU_LONG_PRESS_MS - systemLongPressMs).coerceAtLeast(0L))
+                                            if (dragAction == null && !editing && pendingDrag.getDistance() < enterEditThresholdPx) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                longPressNow(action)
+                                            }
                                         }
+                                    } else {
+                                        // 没有长按功能的图标：长按即进入编辑，不用先拖动（弹层自动拉长、菜单自动下沉，出现「完成」和各图标的 ×）。
+                                        // 此刻只进入编辑、不拎起图标：松手不会改变顺序；手指接着拖才拎起它
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        enterEdit(action)
                                     }
                                 }
                             },
@@ -382,12 +448,14 @@ internal fun MenuGrid(
                                         // 已在编辑态：直接跟手；否则累计位移，拖过阈值才进入编辑
                                         pendingDrag += delta
                                         if (editing || pendingDrag.getDistance() >= enterEditThresholdPx) {
-                                            dragAction = action
                                             if (!editing) {
-                                                startDrag(inHidden)
+                                                enterEdit(action)
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            } else if (entryAction != action) {
+                                                beginTracking(action) // 编辑中拎起别的图标：锚点取它此刻的位置
                                             }
-                                            dragOffset += pendingDrag
+                                            dragAction = action
+                                            dragOffset = pendingDrag
                                             pendingDrag = Offset.Zero
                                         }
                                     } else {
@@ -404,12 +472,16 @@ internal fun MenuGrid(
                                 dragAction = null
                                 dragOffset = Offset.Zero
                                 pendingDrag = Offset.Zero
+                                trackedAction = null
+                                entryAction = null
                             },
                             onDragCancel = {
                                 holdJob?.cancelCompat()
                                 dragAction = null
                                 dragOffset = Offset.Zero
                                 pendingDrag = Offset.Zero
+                                trackedAction = null
+                                entryAction = null
                             },
                         )
                     }
@@ -419,6 +491,20 @@ internal fun MenuGrid(
         }
 
         Column(modifier = Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 6.dp)) {
+            if (editing) {
+                // 头部栏：右上角「完成」。外部持有编辑状态时，「完成」由外部画（不随菜单滚动），这里只留出位置
+                Box(modifier = Modifier.fillMaxWidth().height(headerHeight)) {
+                    Text(
+                        text = tr("拖动排序，点 × 隐藏"),
+                        fontSize = 11.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp),
+                    )
+                    if (editingHost == null) {
+                        MenuEditDoneButton(onClick = { editing = false }, modifier = Modifier.align(Alignment.CenterEnd))
+                    }
+                }
+            }
             Cells(order, inHidden = false)
             if (editing) {
                 Box(modifier = Modifier.fillMaxWidth().height(dividerHeight)) {
@@ -427,15 +513,6 @@ internal fun MenuGrid(
                         fontSize = 11.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 6.dp),
-                    )
-                    Text(
-                        text = tr("完成"),
-                        fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .clickable { editing = false }
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                     Box(
                         modifier = Modifier
@@ -489,7 +566,13 @@ internal fun MenuCell(
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
+    /** 编辑时图标右上角的小标：× 隐藏 / + 恢复 / 无 */
+    editBadge: MenuEditBadge = MenuEditBadge.None,
+    onBadgeClick: () -> Unit = {},
+    /** 布局完成 / 位置变化时回报格子左上角的屏幕 y（不含拖动位移） */
+    onPositioned: (Float) -> Unit = {},
 ) {
+    val positioned by rememberUpdatedState(onPositioned)
     val start by rememberUpdatedState(onDragStart)
     val drag by rememberUpdatedState(onDrag)
     val end by rememberUpdatedState(onDragEnd)
@@ -497,6 +580,8 @@ internal fun MenuCell(
     Box(
         modifier = modifier
             .height(cellHeight)
+            // 放在 graphicsLayer 之前：报的是布局位置，不含拖动时的平移
+            .onGloballyPositioned { positioned(it.positionInRoot().y) }
             .graphicsLayer {
                 if (dragged) {
                     val offset = dragOffset()
@@ -534,7 +619,7 @@ internal fun MenuCell(
                         modifier = Modifier.size(if (action == MenuAction.ScriptMenu) 31.dp else 26.dp),
                     )
                 }
-                if (badge > 0) {
+                if (badge > 0 && editBadge == MenuEditBadge.None) {
                     CountBadge(
                         count = badge,
                         modifier = Modifier
@@ -546,7 +631,57 @@ internal fun MenuCell(
             Spacer(Modifier.height(4.dp))
             Text(text = label, fontSize = 11.sp, color = tint, maxLines = 1)
         }
+        if (editBadge != MenuEditBadge.None) {
+            // 画在格子里（不在 32dp 图标槽里），点击区才不会被图标槽的边界裁掉。
+            // 偏移：图标槽中心约在格子中心上方 9dp，× 圆心落在图标右上角附近
+            MenuEditBadgeButton(
+                kind = editBadge,
+                onClick = onBadgeClick,
+                modifier = Modifier.align(Alignment.Center).offset(x = 15.dp, y = (-22).dp),
+            )
+        }
     }
+}
+
+/** 编辑时图标右上角的小标种类 */
+internal enum class MenuEditBadge { None, Remove, Restore }
+
+/** 圆形小标（16dp，点击区 28dp）：[MenuEditBadge.Remove] 红底 ×，[MenuEditBadge.Restore] 主题色底 + */
+@Composable
+private fun MenuEditBadgeButton(kind: MenuEditBadge, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val bg = if (kind == MenuEditBadge.Remove) Color(0xFFE53935) else MiuixTheme.colorScheme.primary
+    Box(
+        modifier = modifier.size(28.dp).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(16.dp).clip(CircleShape).background(bg)) {
+            val a = size.minDimension * 0.3f
+            val b = size.minDimension * 0.7f
+            val m = size.minDimension * 0.5f
+            val w = 1.6.dp.toPx()
+            if (kind == MenuEditBadge.Remove) {
+                drawLine(Color.White, Offset(a, a), Offset(b, b), w)
+                drawLine(Color.White, Offset(a, b), Offset(b, a), w)
+            } else {
+                drawLine(Color.White, Offset(a, m), Offset(b, m), w)
+                drawLine(Color.White, Offset(m, a), Offset(m, b), w)
+            }
+        }
+    }
+}
+
+/** 编辑态的「完成」按钮（主题色字 + 淡底圆角）。更多菜单把它画在滚动区外面的右上角，见 BrowserSheetHost。 */
+@Composable
+internal fun MenuEditDoneButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Text(
+        text = tr("完成"),
+        fontSize = 13.sp,
+        color = MiuixTheme.colorScheme.primary,
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    )
 }
 
 /** 标签卡片。[blurBackdrop] 非空时标题条使用 miuix-glass 模糊底，否则退回半透明纯色底。[highlight] 当前页高光描边。 */

@@ -37,6 +37,27 @@ class InjectionPlan(
     val lazyModuleSources: Map<String, String> = emptyMap(),
 )
 
+/**
+ * [ExtensionInjection.prepare] 的结果：content script 条目、origin 规则、本地化后的 manifest 等与标签无关的部分。
+ * 每个标签用 [ExtensionInjection.finish] 带上 tabId 拼出最终脚本。
+ */
+class PreparedInjection internal constructor(
+    internal val extId: String,
+    internal val entries: String,
+    internal val isoEntries: String,
+    internal val mainEntries: String,
+    internal val originRules: Set<String>,
+    internal val isolatedOriginRules: Set<String>,
+    internal val mainOriginRules: Set<String>,
+    internal val isoCount: Int,
+    internal val mainCount: Int,
+    internal val isoNeedsEnd: Boolean,
+    internal val localizedManifest: JSONObject,
+    internal val i18n: JSONObject?,
+    internal val warnings: List<String>,
+    internal val lazySources: Map<String, String>,
+)
+
 object ExtensionInjection {
     private const val MAX_FILE_BYTES = 8L * 1024 * 1024
 
@@ -70,7 +91,20 @@ object ExtensionInjection {
         dynamicContentScripts: List<ContentScriptSpec> = emptyList(),
         tabId: Int? = null,
         lazyModules: Boolean = false,
-    ): InjectionPlan? {
+    ): InjectionPlan? =
+        prepare(ext, readText, dynamicContentScripts, lazyModules)?.let { finish(it, shim, tabId) }
+
+    /**
+     * [build] 里与标签无关的重活：读 manifest / content script / css、打包内联模块、本地化。
+     * 结果可以缓存，之后每个标签只需 [finish]（字符串拼接），不必在主线程上反复读盘。
+     * 没有任何可注入的 content script 时返回 null。
+     */
+    fun prepare(
+        ext: InstalledExtension,
+        readText: (String) -> String?,
+        dynamicContentScripts: List<ContentScriptSpec> = emptyList(),
+        lazyModules: Boolean = false,
+    ): PreparedInjection? {
         val spec = ext.spec
         val warnings = mutableListOf<String>()
         val manifest = try {
@@ -161,39 +195,61 @@ object ExtensionInjection {
         if (count == 0) return null
 
         fun effectiveOf(r: Set<String>): Set<String> = if ("*" in r) setOf("*") else r
-        val effective = effectiveOf(rules)
-        val bridge = bridgeNameFor(spec.id)
+        // 本地化 manifest / i18n 注入块与标签无关：这里只算一次，[finish] 里直接复用（之后只读，不会被改）
+        val localizedManifest = loc.localizedManifest()
+        val injectableI18n = loc.injectable(warnings)
+        return PreparedInjection(
+            extId = spec.id,
+            entries = entries.toString(),
+            isoEntries = isoEntries.toString(),
+            mainEntries = mainEntries.toString(),
+            originRules = effectiveOf(rules),
+            isolatedOriginRules = effectiveOf(isoRules),
+            mainOriginRules = effectiveOf(mainRules),
+            isoCount = isoCount,
+            mainCount = mainCount,
+            isoNeedsEnd = isoNeedsEnd,
+            localizedManifest = localizedManifest,
+            i18n = injectableI18n,
+            warnings = warnings,
+            lazySources = lazySources,
+        )
+    }
+
+    /** 把 [prepare] 的结果按 [shim] 与 [tabId] 拼成最终注入脚本。拼法与拆分前的 [build] 完全一致。 */
+    fun finish(p: PreparedInjection, shim: String, tabId: Int? = null): InjectionPlan {
+        val bridge = bridgeNameFor(p.extId)
         val cfg = JSONObject()
-            .put("extId", spec.id)
+            .put("extId", p.extId)
             .put("bridge", bridge)
-            .put("origin", ExtensionOrigins.originFor(spec.id))
-            .put("manifest", loc.localizedManifest())
+            .put("origin", ExtensionOrigins.originFor(p.extId))
+            .put("manifest", p.localizedManifest)
         tabId?.let { cfg.put("tabId", it) }
-        loc.injectable(warnings)?.let { cfg.put("i18n", it) }
+        p.i18n?.let { cfg.put("i18n", it) }
         // 隔离世界：桥只注册在该世界里，页面世界既看不到桥也发不出消息；browser / chrome 也只挂在这个世界的全局上
-        val isolatedScript = if (isoCount > 0) {
+        val isolatedScript = if (p.isoCount > 0) {
             val isoCfg = JSONObject(cfg.toString()).put("isolatedWorld", true)
             // 有 document_end / document_idle 条目时，让 shim 等宿主注册的原生 document-end 事件（见 [InjectionPlan.isolatedEndScript]）
-            if (isoNeedsEnd) isoCfg.put("nativeEnd", endHookFor(spec.id))
-            assemble(shim, isoCfg, isoEntries.toString())
+            if (p.isoNeedsEnd) isoCfg.put("nativeEnd", endHookFor(p.extId))
+            assemble(shim, isoCfg, p.isoEntries)
         } else {
             null
         }
         // MAIN 世界：脚本全文对页面可见，所以 cfg 里只放一个开关，不带 extId / manifest / i18n
-        val mainScript = if (mainCount > 0) {
-            assemble(shim, JSONObject().put("mainWorld", true), mainEntries.toString())
+        val mainScript = if (p.mainCount > 0) {
+            assemble(shim, JSONObject().put("mainWorld", true), p.mainEntries)
         } else {
             null
         }
         return InjectionPlan(
-            spec.id, bridge, effective, assemble(shim, cfg, entries.toString()), warnings,
-            worldName = worldNameFor(spec.id),
+            p.extId, bridge, p.originRules, assemble(shim, cfg, p.entries), p.warnings,
+            worldName = worldNameFor(p.extId),
             isolatedScript = isolatedScript,
-            isolatedOriginRules = effectiveOf(isoRules),
+            isolatedOriginRules = p.isolatedOriginRules,
             mainScript = mainScript,
-            mainOriginRules = effectiveOf(mainRules),
-            isolatedEndScript = if (isolatedScript != null && isoNeedsEnd) endScriptFor(spec.id) else null,
-            lazyModuleSources = lazySources,
+            mainOriginRules = p.mainOriginRules,
+            isolatedEndScript = if (isolatedScript != null && p.isoNeedsEnd) endScriptFor(p.extId) else null,
+            lazyModuleSources = p.lazySources,
         )
     }
 

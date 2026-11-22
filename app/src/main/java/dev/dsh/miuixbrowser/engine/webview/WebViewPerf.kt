@@ -9,6 +9,7 @@ import dev.dsh.miuixbrowser.util.Diag
  * 数据来自 androidx.webkit NavigationListener 的 onFirstContentfulPaintMillis / onLargestContentfulPaintMillis
  * （见 `WebViewNavigationBridge`）：主文档每提交一次就 [begin] 一条记录，之后到达的 FCP / LCP 写进同一标签最新的那条。
  *
+ * 调试页里有「记录页面性能」开关（[WebViewDebug.perfRecord]）：关着时 [begin] / FCP / LCP 都直接丢弃。
  * 只放内存、只留最近 [MAX] 条，不落盘；无痕标签不挂 NavigationListener，因此不会出现在这里。
  * 所有方法都在主线程调用（NavigationListener 的回调执行器就是主线程）。
  */
@@ -34,6 +35,7 @@ object WebViewPerf {
 
     /** 主文档提交：新开一条记录。 */
     fun begin(tabId: Int, url: String, now: Long = System.currentTimeMillis()) {
+        if (!WebViewDebug.perfRecord) return
         entries.add(0, Entry(tabId, url, now))
         while (entries.size > MAX) entries.removeAt(entries.lastIndex)
     }
@@ -43,7 +45,7 @@ object WebViewPerf {
     fun onLcp(tabId: Int, ms: Long) = update(tabId, Metric.LCP, ms)
 
     private fun update(tabId: Int, metric: Metric, ms: Long) {
-        if (ms < 0) return
+        if (ms < 0 || !WebViewDebug.perfRecord) return
         val i = entries.indexOfFirst { it.tabId == tabId }
         if (i < 0) return // 还没有提交记录（事件早于提交）：丢弃，别把数据挂到别的页面上
         val old = entries[i]

@@ -135,6 +135,16 @@ fun WebViewDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                     }
 
                     item { SmallTitle(text = tr("页面性能")) }
+                    item {
+                        WebViewDebugGroup {
+                            AppSwitchPreference(
+                                title = tr("记录页面性能"),
+                                summary = tr("记录每次加载的首次内容绘制（FCP）和最大内容绘制（LCP）；关闭后不再采集，已有记录保留。需要系统 WebView 支持导航监听"),
+                                checked = d.perfRecord,
+                                onCheckedChange = { d.updatePerfRecord(it) },
+                            )
+                        }
+                    }
                     item { PerfCard() }
                     item {
                         WebViewDebugGroup {
@@ -263,7 +273,7 @@ private fun PerfCard() {
     ) {
         if (rows.isEmpty()) {
             Text(
-                text = tr("还没有记录：打开一个网页后，这里会显示首次内容绘制（FCP）和最大内容绘制（LCP）。系统 WebView 不支持导航监听时不会有数据"),
+                text = if (!WebViewDebug.perfRecord) tr("已关闭记录。打开上面的开关后，之后加载的页面会显示 FCP / LCP") else tr("还没有记录：打开一个网页后，这里会显示首次内容绘制（FCP）和最大内容绘制（LCP）。系统 WebView 不支持导航监听时不会有数据"),
                 fontSize = 13.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
