@@ -221,7 +221,7 @@ fun WebViewDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         WebViewDebugGroup {
                             AppSwitchPreference(
                                 title = tr("USB 远程调试"),
-                                summary = tr("允许电脑 Chrome 通过 USB 连接，在 chrome://inspect 里检查本应用的网页（元素 / 控制台 / 网络），立即生效"),
+                                summary = tr("允许电脑 Chrome 通过 USB 连接，在 chrome://inspect 里检查本应用的网页（元素 / 控制台 / 网络），立即生效；下次冷启动时自动关闭"),
                                 checked = d.remoteDebug,
                                 onCheckedChange = { d.updateRemoteDebug(it) },
                             )

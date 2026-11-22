@@ -223,7 +223,14 @@ class WebViewExtBackend(
         }
         val res = HttpFetcher.get(
             uri,
-            HttpFetcher.Options(connectTimeoutMs = 15_000, readTimeoutMs = 60_000, maxBytes = MAX_PACKAGE_BYTES),
+            // 拓展是会在网页里执行的代码：公网上必须 https（防中间人篡改），本机 / 局域网自架的服务器可以用 http
+            HttpFetcher.Options(
+                connectTimeoutMs = 15_000,
+                readTimeoutMs = 60_000,
+                maxBytes = MAX_PACKAGE_BYTES,
+                httpsOnly = true,
+                allowLocalHttp = true,
+            ),
         )
         val dir = File(context.cacheDir, "webext_import").apply { mkdirs() }
         val target = File(dir, "dl_${System.currentTimeMillis()}.pkg")

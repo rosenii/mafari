@@ -1,6 +1,19 @@
 # Changelog
-## [2.1.76]
-- 优化：WebView 拓展不再在冷启动期间预热 / 装配，改为「首页加载成功后」晚加载
+## [2.1.76] 
+- 安全：网页 `intent://` 交给其他应用前统一清洗（`WebIntentSanitizer`）：去掉全部 URI 授权标志、拒绝 `content:` / `file:` data、清空 clipData / component / selector。浏览器标签和轻应用两处都走它。
+- 安全：移除从未使用的 FileProvider 及 `file_paths.xml`（原先把整个 files 目录都声明成可共享）。
+- 安全：`allowBackup` 改为 false，新增文件不再默认进云备份 / adb 备份。
+- 安全：运行日志和崩溃日志里的网址抹掉 query / fragment；无痕标签不再写运行日志（页面、错误、console）。
+- 安全：应用自己访问固定端点（发布信息、AMO 扩展商店、Floccus 包、GitHub 加速探测）一律只允许 https，重定向降级到 http 也拒绝（`HttpFetcher.Options.httpsOnly` / `HttpFetcher.requireHttps`）；更新安装包只从 https 地址下载，否则退回打开发布页。
+- 安全：从链接安装拓展包，公网地址必须 https，本机 / 局域网（localhost、回环、私网段、.local）仍可用 http。
+- 安全：WebView 和 Gecko 的「USB 远程调试」不再跨启动保存，冷启动时自动关闭；开关说明里已注明。
+- 安全：更新安装包下载完成后校验 SHA-256（`UpdateIntegrity`）。期望哈希单独**直连** api.github.com（https）取 release 资产的 digest——镜像和镜像给出的发布列表都不可信；对不上就删除安装包、报失败，不进入「可安装」状态。直连 GitHub 不通取不到期望值时照常下载，由系统安装器校验签名。
+- 安全：油猴 `GM_notification` 的点击经 exported 的 MainActivity 进入，现在每条通知带随机令牌，令牌对不上的 intent（其他应用伪造的点击）一律忽略。
+
+## [2.1.75] cold start: extensions load after the first page
+- 优化：WebView 拓展不再在冷启动期间预热 / 装配，改为「首页加载成功后」晚加载（`ExtStartupGate`）：主页 → 界面出来后 600ms 且主线程空闲；网页 → 第一个网页 onPageFinished 后 300ms（最多等 5s）。开闸后后台线程预热 → 主线程给已有标签补装 → 错开拉起后台页。开闸前拓展系统在热路径上视为不存在（`webExtensionsOrNull` 返回 null），首页的请求 / 导航不经过任何拓展逻辑。前台已加载的页面若有 content script 匹配，会重载一次让拓展生效（`BrowserTab.RELOAD_AFTER_LATE_EXT` 可关）。
+- 修复：首个标签在主线程等拓展预热线程持有的锁（日志里约 1.2 秒）；BrowserScreen / 对话框宿主在首次组合里提前创建拓展系统。
+- 优化：每个标签创建时在主线程读 asset（`mafari_blob_cache.js`、GM relay）改为只读一次，并由启动预热线程提前读好；`TabBlob.cleanStaleFiles` 的缓存目录扫描移到后台线程。
 ## [2.1.75]
 - 调整：页面增强现在控制范围涵盖拓展（webview实验性）
 - 优化：冷启动加载流程优化，禁用项目不再预热加载

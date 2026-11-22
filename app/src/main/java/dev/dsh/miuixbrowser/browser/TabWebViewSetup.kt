@@ -86,7 +86,11 @@ internal fun BrowserTab.setupWebView() {
     webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
     // 原生滚动回调（API 23+）：底栏收起 / 展开由滚动事件唤醒，不再靠定时轮询
     webView.setOnScrollChangeListener { _, _, _, _, _ -> scrollSignal.trySend(Unit) }
-    runCatching { webView.addJavascriptInterface(AdBlockBridge { !incognito || adblockInIncognito }, "MafariAdblock") }
+    // 元素隐藏桥：优先 WebMessageListener（host 由系统按来源给出）；不支持时退回旧的同步桥
+    val cosmeticAllowed = { !incognito || adblockInIncognito }
+    if (!dev.dsh.miuixbrowser.engine.webview.CosmeticBridge.install(webView, cosmeticAllowed)) {
+        runCatching { webView.addJavascriptInterface(AdBlockBridge(cosmeticAllowed), "MafariAdblock") }
+    }
     runCatching { webView.addJavascriptInterface(blob.bridge, "MafariBlob") }
     // 页内翻译：页面脚本经它把待译文本交给原生（只在翻译进行中受理）。单向消息，优先 WebMessageListener
     // （只受理主框架 http(s) 来源）；系统 WebView 不支持时退回 addJavascriptInterface
@@ -227,7 +231,7 @@ internal fun BrowserTab.setupWebView() {
     var lastVisitedHistoryUrl: String? = url
     webView.webViewClient = object : WebViewClient() {
         override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
-            WebViewDebug.logPage("start", pageUrl)
+            if (!incognito) WebViewDebug.logPage("start", pageUrl)
             if (!incognito && !pageUrl.isNullOrBlank()) {
                 val ext = appContext.appContainer.webExtensionsOrNull
                 // loadUrl() 等程序化导航可能不会经过 shouldOverrideUrlLoading；这里补齐 beforeNavigate。
@@ -273,7 +277,7 @@ internal fun BrowserTab.setupWebView() {
         }
 
         override fun onPageFinished(view: WebView, pageUrl: String?) {
-            WebViewDebug.logPage("finish", pageUrl)
+            if (!incognito) WebViewDebug.logPage("finish", pageUrl)
             // 拓展晚加载：第一个网页加载完成后才开始（已开闸则是空操作）
             if (!dev.dsh.miuixbrowser.ext.ExtStartupGate.ready && !pageUrl.isNullOrBlank() && !pageUrl.startsWith("about:")) {
                 dev.dsh.miuixbrowser.ext.ExtStartupGate.scheduleOpen(
@@ -396,7 +400,7 @@ internal fun BrowserTab.setupWebView() {
                     showWebViewErrorPage(view, failing, ErrorPages.fromWebView(error.errorCode, error.description?.toString()))
                 }
             }
-            WebViewDebug.logLoadError(request, error)
+            if (!incognito) WebViewDebug.logLoadError(request, error)
         }
 
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
@@ -404,7 +408,7 @@ internal fun BrowserTab.setupWebView() {
             if (request.isForMainFrame && ErrorPages.shouldReplaceHttpError(errorResponse.statusCode, errorResponse.responseHeaders)) {
                 showWebViewErrorPage(view, request.url.toString(), ErrorPages.fromHttp(errorResponse.statusCode, errorResponse.reasonPhrase))
             }
-            WebViewDebug.logHttpError(request, errorResponse)
+            if (!incognito) WebViewDebug.logHttpError(request, errorResponse)
         }
 
         /**
@@ -487,7 +491,7 @@ internal fun BrowserTab.setupWebView() {
         }
 
         override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
-            WebViewDebug.logConsole(message)
+            if (!incognito) WebViewDebug.logConsole(message)
             return super.onConsoleMessage(message)
         }
 

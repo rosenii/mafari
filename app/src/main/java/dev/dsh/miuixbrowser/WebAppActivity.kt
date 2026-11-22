@@ -710,8 +710,11 @@ class WebAppActivity : ComponentActivity() {
      * 必须在首次加载网页之前调用。
      */
     private fun setupCosmeticFilter() {
-        runCatching { webView.addJavascriptInterface(AdBlockBridge { settings.adblockInWebApp }, "MafariAdblock") }
-            .onFailure { Diag.log("webapp adblock: bridge install failed ${it.message}") }
+        val cosmeticAllowed = { settings.adblockInWebApp }
+        if (!dev.dsh.miuixbrowser.engine.webview.CosmeticBridge.install(webView, cosmeticAllowed)) {
+            runCatching { webView.addJavascriptInterface(AdBlockBridge(cosmeticAllowed), "MafariAdblock") }
+                .onFailure { Diag.log("webapp adblock: bridge install failed ${it.message}") }
+        }
         // 仅降级路径：不支持 DOCUMENT_START_SCRIPT 时才安装无参指纹桥；轻应用没有确认弹窗，不安装可信通道
         if (!fpInjector.docStartSupported) {
             runCatching { webView.addJavascriptInterface(FpFallbackBridge(fpInjector), "MafariFp") }
@@ -1078,11 +1081,9 @@ class WebAppActivity : ComponentActivity() {
 
     private fun launchIntentUri(raw: String) {
         runCatching {
-            val parsed = Intent.parseUri(raw, Intent.URI_INTENT_SCHEME).apply {
-                addCategory(Intent.CATEGORY_BROWSABLE)
-                component = null
-                selector = null
-            }
+            val parsed = dev.dsh.miuixbrowser.util.WebIntentSanitizer.sanitize(
+                Intent.parseUri(raw, Intent.URI_INTENT_SCHEME),
+            ) ?: error("blocked intent")
             startActivity(parsed)
         }.onFailure {
             val fallback = runCatching {

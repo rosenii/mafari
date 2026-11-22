@@ -105,11 +105,15 @@ object UpdateDownload {
     /** 每次开始 / 取消都 +1，用来丢弃过期的回调（选线路线程、下载完成回调） */
     private var generation = 0
 
+    /** 直连 GitHub 取到的安装包 SHA-256（见 [UpdateIntegrity]）；null = 没取到，只能靠系统安装器校验签名 */
+    private var expectedSha256: String? = null
+
     private const val APK_MIME = "application/vnd.android.package-archive"
 
     fun start(context: Context, rel: AppRelease, origin: String, openInApp: ((String) -> Unit)? = null) {
         val apk = rel.apkUrl
-        if (apk.isNullOrBlank()) {
+        // 安装包只从 https 下载；发布信息里给了非 https 地址就退回打开发布页，不下载
+        if (apk.isNullOrBlank() || !apk.startsWith("https://", ignoreCase = true)) {
             UpdateChecker.openReleasePage(context, rel, openInApp)
             return
         }
@@ -122,13 +126,21 @@ object UpdateDownload {
         apkUri = null
         taskId = 0L
         phase = UpdatePhase.PICKING
+        expectedSha256 = null
         val fileName = apk.substringBefore('?').substringAfterLast('/')
             .ifBlank { "mafari-${rel.version.removePrefix("v")}.apk" }
-        // 直连 + GitHub 加速并发探测，连通者优先；探测在后台，回主线程再入下载队列
+        // 直连 + GitHub 加速并发探测，连通者优先；探测在后台，回主线程再入下载队列。
+        // 同时直连 api.github.com 取期望哈希（和选线路并行，最多多等 6.5 秒）
         Thread {
+            val digest = java.util.concurrent.atomic.AtomicReference<String?>(null)
+            val digestThread = Thread { digest.set(UpdateIntegrity.fetchDirectSha256(rel.version, fileName)) }
+                .apply { isDaemon = true; start() }
             val url = runCatching { GitHubAccelerate.pickDownloadUrl(apk) }.getOrDefault(apk)
+            runCatching { digestThread.join(6_500) }
+            val expected = digest.get()
             Handler(Looper.getMainLooper()).post {
                 if (gen != generation || phase != UpdatePhase.PICKING) return@post // 选线路期间被取消
+                expectedSha256 = expected
                 taskId = Downloader.startForUpdate(appCtx, url, fileName, APK_MIME) { ok, err ->
                     onFinished(appCtx, gen, ok, err)
                 }
@@ -141,12 +153,12 @@ object UpdateDownload {
         if (gen != generation || phase != UpdatePhase.DOWNLOADING) return
         if (ok) {
             apkUri = Downloader.tasks.firstOrNull { it.id == taskId }?.uri
-            if (apkUri == null) {
+            val uri = apkUri
+            if (uri == null) {
                 error = tr("找不到下载好的安装包")
                 phase = UpdatePhase.FAILED
             } else {
-                phase = UpdatePhase.DONE
-                Toast.makeText(context, tr("更新已下载完成，点击安装"), Toast.LENGTH_SHORT).show()
+                verifyThenFinish(context, gen, uri)
             }
         } else if (err == "cancelled") {
             // 在下载页里删掉了任务
@@ -157,9 +169,42 @@ object UpdateDownload {
         }
     }
 
+    /**
+     * 下载完成后校验 SHA-256（有期望值时）：后台线程算哈希，对不上就删除安装包、报失败，绝不进入「可安装」状态。
+     * 没有期望值（直连 GitHub 不通）：照常完成，由系统安装器校验签名。
+     */
+    private fun verifyThenFinish(context: Context, gen: Int, uri: Uri) {
+        val expected = expectedSha256
+        if (expected == null) {
+            phase = UpdatePhase.DONE
+            Toast.makeText(context, tr("更新已下载完成，点击安装"), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val appCtx = context.applicationContext
+        Thread {
+            val actual = runCatching {
+                appCtx.contentResolver.openInputStream(uri)?.use { UpdateIntegrity.sha256Hex(it) }
+            }.getOrNull()
+            Handler(Looper.getMainLooper()).post {
+                if (gen != generation || phase != UpdatePhase.DOWNLOADING) return@post
+                if (actual != null && UpdateIntegrity.same(expected, actual)) {
+                    phase = UpdatePhase.DONE
+                    Toast.makeText(appCtx, tr("更新已下载完成，点击安装"), Toast.LENGTH_SHORT).show()
+                } else {
+                    Downloader.delete(appCtx, taskId)
+                    taskId = 0L
+                    apkUri = null
+                    error = tr("安装包校验失败（SHA-256 与官方发布不一致），已删除，请重试")
+                    phase = UpdatePhase.FAILED
+                }
+            }
+        }.start()
+    }
+
     /** 取消下载（选线路 / 下载中 / 失败后）：删掉任务和未完成的文件，回到「下载」状态 */
     fun cancel(context: Context) {
         generation++
+        expectedSha256 = null
         val id = taskId
         if (id != 0L && phase != UpdatePhase.DONE) Downloader.delete(context.applicationContext, id)
         taskId = 0L

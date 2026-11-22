@@ -830,37 +830,48 @@ object AdBlock {
       var ao = location.ancestorOrigins;
       if (ao && ao.length) topHost = new URL(ao[ao.length - 1]).hostname;
     } catch (e) {}
-    var css = '';
-    try { css = MafariAdblock.css(host, topHost); } catch (e) { return; }
-    window.__mafariAdblockInit = 1;
-    if (!css) return;
-    // 首选 adoptedStyleSheets：不受页面 CSP（style-src）限制，严格 CSP 的站点（GitHub 等）也能生效
-    try {
-      if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in document) {
-        var sheet = new CSSStyleSheet();
-        sheet.replaceSync(css);
-        document.adoptedStyleSheets = document.adoptedStyleSheets.concat([sheet]);
-        return;
+    function apply(css) {
+      if (!css) return;
+      // 首选 adoptedStyleSheets：不受页面 CSP（style-src）限制，严格 CSP 的站点（GitHub 等）也能生效
+      try {
+        if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in document) {
+          var sheet = new CSSStyleSheet();
+          sheet.replaceSync(css);
+          document.adoptedStyleSheets = document.adoptedStyleSheets.concat([sheet]);
+          return;
+        }
+      } catch (e) {}
+      var st = null;
+      function mount() {
+        var root = document.head || document.documentElement;
+        if (!root) return false;
+        if (!st) {
+          st = document.createElement('style');
+          st.setAttribute('data-mafari-adblock', '1');
+          st.textContent = css;
+        }
+        if (!st.isConnected) root.appendChild(st);
+        return true;
       }
-    } catch (e) {}
-    var st = null;
-    function mount() {
-      var root = document.head || document.documentElement;
-      if (!root) return false;
-      if (!st) {
-        st = document.createElement('style');
-        st.setAttribute('data-mafari-adblock', '1');
-        st.textContent = css;
+      if (!mount()) {
+        var wait = new MutationObserver(function () { if (mount()) wait.disconnect(); });
+        wait.observe(document, { childList: true, subtree: true });
       }
-      if (!st.isConnected) root.appendChild(st);
-      return true;
+      var watch = new MutationObserver(function () { if (st && !st.isConnected) mount(); });
+      if (document.documentElement) watch.observe(document.documentElement, { childList: true });
     }
-    if (!mount()) {
-      var wait = new MutationObserver(function () { if (mount()) wait.disconnect(); });
-      wait.observe(document, { childList: true, subtree: true });
+    if (typeof MafariAdblock.postMessage === 'function') {
+      // 主路径：WebMessageListener。本框架的 host 由原生按来源判定，这里只带顶层站点；CSS 异步回来
+      MafariAdblock.onmessage = function (e) { if (e && typeof e.data === 'string') apply(e.data); };
+      window.__mafariAdblockInit = 1;
+      MafariAdblock.postMessage(topHost);
+    } else if (typeof MafariAdblock.css === 'function') {
+      // 降级路径：系统 WebView 不支持 WebMessageListener 时的同步桥
+      var css = '';
+      try { css = MafariAdblock.css(host, topHost); } catch (e) { return; }
+      window.__mafariAdblockInit = 1;
+      apply(css);
     }
-    var watch = new MutationObserver(function () { if (st && !st.isConnected) mount(); });
-    if (document.documentElement) watch.observe(document.documentElement, { childList: true });
   } catch (e) {}
 })();"""
 
@@ -1169,7 +1180,10 @@ object AdBlock {
 """
 }
 
-/** 暴露给页面脚本的桥：只返回某个站点的元素隐藏 CSS，不泄露任何用户数据。指纹保护不经过这个桥。 */
+/**
+ * 降级桥（addJavascriptInterface，对所有框架可见）：只在系统 WebView 不支持 WebMessageListener 时才用，
+ * 主路径见 [dev.dsh.miuixbrowser.engine.webview.CosmeticBridge]。只返回某个站点的元素隐藏 CSS，不泄露任何用户数据。
+ */
 class AdBlockBridge(private val cosmeticAllowed: () -> Boolean = { true }) {
     /** [cosmeticAllowed] 为 false（如无痕 / 轻应用里关闭了去广告）时不返回任何隐藏 CSS。 */
     @JavascriptInterface

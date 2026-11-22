@@ -58,6 +58,7 @@ object GitHubAccelerate {
 
     /** 对候选 URL 做连通探测（GET + Range，兼容不支持 HEAD 的镜像） */
     fun probe(url: String, timeoutMs: Int = 4000): Boolean = runCatching {
+        HttpFetcher.requireHttps(url) // 镜像与直连一律 https
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = timeoutMs
             readTimeout = timeoutMs

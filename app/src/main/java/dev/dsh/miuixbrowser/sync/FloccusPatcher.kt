@@ -99,6 +99,7 @@ object FloccusPatcher {
      */
     fun latestRelease(): Release? {
         return try {
+            dev.dsh.miuixbrowser.net.HttpFetcher.requireHttps(RELEASES_API)
             val c = (URL(RELEASES_API).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 30_000
@@ -164,6 +165,7 @@ object FloccusPatcher {
     }
 
     private fun download(url: String, target: File): File {
+        dev.dsh.miuixbrowser.net.HttpFetcher.requireHttps(url)
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 60_000

@@ -87,6 +87,7 @@ object AmoClient {
             maxBytes = 8 * 1024 * 1024,
             userAgent = "Mozilla/5.0 mafari",
             accept = "application/json",
+            httpsOnly = true,
         ),
     )
 }

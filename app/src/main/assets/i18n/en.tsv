@@ -1069,7 +1069,7 @@ Gecko 调试	Gecko debug
 在页面上显示 WebRender 帧率与耗时统计；仅用于排查，会增加开销	Shows WebRender frame rate and timing stats on the page; for troubleshooting only and adds overhead
 记录 Surface 创建 / 销毁等到 Android/media/<包名>/diag.txt；每条都是一次文件写入，排查完请关闭	Logs Surface creation / destruction etc. to Android/media/<package>/diag.txt; every entry is a file write, so turn it off after troubleshooting
 USB 远程调试	USB remote debugging
-允许桌面 Firefox 通过 USB 连接并检查页面，立即生效	Lets desktop Firefox connect over USB and inspect pages; takes effect immediately
+允许桌面 Firefox 通过 USB 连接并检查页面，立即生效；下次冷启动时自动关闭	Lets desktop Firefox connect over USB and inspect pages; takes effect immediately; turns off automatically on the next cold start.
 允许 about:config	Allow about:config
 允许打开 about:config 手动修改偏好，立即生效；误改可能导致网页异常	Allows opening about:config to edit preferences manually; takes effect immediately; wrong changes may break pages
 拓展快捷菜单	Extension quick menu
@@ -1713,7 +1713,7 @@ CSV 导入 · 加密存储 · 自动填充	CSV import · Encrypted storage · Au
 清空 diag.txt 的内容，不改变开关	Clears the contents of diag.txt without changing the switch
 已清空	Cleared
 调试	Debug
-允许电脑 Chrome 通过 USB 连接，在 chrome://inspect 里检查本应用的网页（元素 / 控制台 / 网络），立即生效	Lets desktop Chrome connect over USB to inspect this app's pages (elements / console / network) at chrome://inspect; takes effect immediately
+允许电脑 Chrome 通过 USB 连接，在 chrome://inspect 里检查本应用的网页（元素 / 控制台 / 网络），立即生效；下次冷启动时自动关闭	Lets desktop Chrome connect over USB to inspect this app's pages (elements / console / network) at chrome://inspect; takes effect immediately; turns off automatically on the next cold start.
 维护	Maintenance
 清除 WebView 网页缓存	Clear WebView page cache
 只清 HTTP 缓存，不影响 Cookie、登录状态和站点数据	Clears only the HTTP cache; cookies, sign-in state and site data are unaffected
@@ -2121,3 +2121,5 @@ URL 预取	URL prefetch
 支持（排队模式 enqueuePreconnect）	Supported (queued mode, enqueuePreconnect)
 支持（直连模式 preconnect；排队模式需要更新的系统 WebView）	Supported (direct mode, preconnect; queued mode needs a newer system WebView)
 不支持（当前系统 WebView 未提供 preconnect / enqueuePreconnect）	Not supported (this system WebView provides neither preconnect nor enqueuePreconnect)
+仅允许 HTTPS 连接	Only HTTPS connections are allowed
+安装包校验失败（SHA-256 与官方发布不一致），已删除，请重试	Package verification failed (SHA-256 does not match the official release). It was deleted; please try again.

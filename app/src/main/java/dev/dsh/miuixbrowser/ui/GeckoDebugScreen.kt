@@ -178,7 +178,7 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                             )
                             AppSwitchPreference(
                                 title = tr("USB 远程调试"),
-                                summary = tr("允许桌面 Firefox 通过 USB 连接并检查页面，立即生效"),
+                                summary = tr("允许桌面 Firefox 通过 USB 连接并检查页面，立即生效；下次冷启动时自动关闭"),
                                 checked = d.remoteDebug,
                                 onCheckedChange = { d.updateRemoteDebug(it) },
                             )

@@ -51,7 +51,11 @@ object GeckoDebug {
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         prefs = p
         appCtx = context.applicationContext
-        remoteDebug = p.getBoolean("remote_debug", false)
+        // USB 远程调试只对「当前这次运行」有效：上次开着的，冷启动时自动关掉（GeckoEngine 创建运行时读的就是这个值）
+        if (p.getBoolean("remote_debug", false)) {
+            p.edit().putBoolean("remote_debug", false).apply()
+        }
+        remoteDebug = false
         aboutConfig = p.getBoolean("about_config", false)
         profiler = p.getBoolean("profiler", false)
         diagLog = p.getBoolean("diag", false)

@@ -27,7 +27,7 @@ import dev.dsh.miuixbrowser.util.Diag
  * - [pageLog]：记录页面开始 / 完成加载、加载失败、HTTP 4xx/5xx 的子资源（需先开运行日志）
  * - [perfRecord]：页面性能记录（FCP / LCP，见 [WebViewPerf]）。默认开（沿用此前的行为）；关掉后不再采集，已有记录保留
  * - [remoteDebug]：允许桌面 Chrome 通过 chrome://inspect 经 USB 检查页面。WebView.setWebContentsDebuggingEnabled
- *   是进程级静态开关，立即生效，对已有和新建的 WebView 都有效
+ *   是进程级静态开关，立即生效，对已有和新建的 WebView 都有效；不跨启动保存——冷启动时一律关闭（见 [load]）
  */
 object WebViewDebug {
 
@@ -46,8 +46,12 @@ object WebViewDebug {
         consoleLog = p.getBoolean("console_log", false)
         pageLog = p.getBoolean("page_log", false)
         perfRecord = p.getBoolean("perf_record", true)
-        remoteDebug = p.getBoolean("remote_debug", false)
-        if (remoteDebug) applyRemoteDebug(true)
+        // USB 远程调试只对「当前这次运行」有效：上次开着的，冷启动时自动关掉（忘了关会一直让 USB 另一端读到页面内容）
+        if (p.getBoolean("remote_debug", false)) {
+            p.edit().putBoolean("remote_debug", false).apply()
+            Diag.log("webview remote debugging was on; turned off for this launch")
+        }
+        remoteDebug = false
     }
 
     private inline fun save(block: SharedPreferences.Editor.() -> Unit) {

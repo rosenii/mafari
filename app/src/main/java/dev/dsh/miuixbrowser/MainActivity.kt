@@ -300,8 +300,8 @@ class MainActivity : ComponentActivity() {
                     buildString {
                         appendLine("time=" + java.util.Date())
                         appendLine("thread=" + thread.name)
-                        appendLine(error.toString())
-                        error.stackTraceToString().lines().take(80).forEach { appendLine(it) }
+                        appendLine(dev.dsh.miuixbrowser.util.Diag.redactUrls(error.toString()))
+                        dev.dsh.miuixbrowser.util.Diag.redactUrls(error.stackTraceToString()).lines().take(80).forEach { appendLine(it) }
                     },
                 )
             }

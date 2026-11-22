@@ -26,6 +26,12 @@ object GmNotifications {
     private const val CHANNEL = "userscript"
     private const val CHANNEL_SILENT = "userscript_silent"
     const val EXTRA_NOTIFICATION = "gm_notification_id"
+
+    /**
+     * 点击通知会进 MainActivity（exported，别的应用也能给它发 intent）：id 是自增小整数、很好猜，
+     * 所以每条通知再带一个随机令牌，[consumeClick] 令牌对不上就当作伪造的点击忽略。
+     */
+    const val EXTRA_TOKEN = "gm_notification_token"
     const val ACTION_DISMISS = "dev.dsh.miuixbrowser.GM_NOTIFICATION_DISMISS"
 
     private val seq = AtomicInteger(0x6d00)
@@ -33,6 +39,7 @@ object GmNotifications {
     private val pending = ConcurrentHashMap<Int, (String) -> Unit>()
     private val byTag = ConcurrentHashMap<String, Int>()
     private val timeouts = ConcurrentHashMap<Int, Runnable>()
+    private val tokens = ConcurrentHashMap<Int, String>()
 
     /** 没有通知权限时抛异常，由桥转成 JS 异常，运行时据此退回 toast */
     fun post(
@@ -58,10 +65,13 @@ object GmNotifications {
         }
         settle(id, "close") // 同 id 的上一条（同 tag 顶替）
         pending[id] = callback
+        val token = java.util.UUID.randomUUID().toString()
+        tokens[id] = token
 
         val open = Intent(app, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra(EXTRA_NOTIFICATION, id)
+            putExtra(EXTRA_TOKEN, token)
         }
         val dismiss = Intent(app, GmNotificationReceiver::class.java).apply {
             action = ACTION_DISMISS
@@ -96,7 +106,12 @@ object GmNotifications {
     fun consumeClick(intent: Intent?) {
         val id = intent?.getIntExtra(EXTRA_NOTIFICATION, -1) ?: return
         if (id < 0) return
+        val token = intent.getStringExtra(EXTRA_TOKEN)
         intent.removeExtra(EXTRA_NOTIFICATION)
+        intent.removeExtra(EXTRA_TOKEN)
+        // 令牌对不上：不是我们发出去的通知点击（别的应用伪造的 intent），忽略
+        val expected = tokens[id] ?: return
+        if (token == null || !java.security.MessageDigest.isEqual(token.toByteArray(), expected.toByteArray())) return
         settle(id, "click")
     }
 
@@ -104,6 +119,7 @@ object GmNotifications {
 
     private fun settle(id: Int, kind: String) {
         timeouts.remove(id)?.let { main.removeCallbacks(it) }
+        tokens.remove(id)
         val cb = pending.remove(id) ?: return
         runCatching { cb(kind) }
     }

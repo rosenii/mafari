@@ -36,6 +36,10 @@ object HttpFetcher {
         val accept: String? = null,
         val referer: String? = null,
         val maxRedirects: Int = 5,
+        /** 应用自己访问固定端点（更新、扩展商店等）时开：起始地址和每一跳重定向都必须是 https，不接受降级到 http */
+        val httpsOnly: Boolean = false,
+        /** 配合 [httpsOnly]：本机 / 局域网地址仍可用 http（用户自己架的服务）；公网地址和重定向降级照样拒绝 */
+        val allowLocalHttp: Boolean = false,
     )
 
     class Response(val code: Int, val bytes: ByteArray, val contentType: String, val url: String) {
@@ -46,6 +50,7 @@ object HttpFetcher {
     fun get(url: String, options: Options = Options()): Response {
         var current = url
         for (hop in 0..options.maxRedirects) {
+            if (options.httpsOnly) requireHttps(current, options.allowLocalHttp)
             val conn = (URL(current).openConnection() as HttpURLConnection).apply {
                 connectTimeout = options.connectTimeoutMs
                 readTimeout = options.readTimeoutMs
@@ -98,4 +103,27 @@ object HttpFetcher {
     }
 
     fun getText(url: String, options: Options = Options()): String = get(url, options).text()
+
+    /**
+     * 必须是 https，否则抛 [IOException]。[allowLocal] 为 true 时，本机 / 局域网地址（localhost、回环、私网段、.local）可以用 http——
+     * 它们的流量不出本地网络，开发者自己架的拓展服务器常见。
+     */
+    fun requireHttps(url: String, allowLocal: Boolean = false) {
+        val u = runCatching { URL(url) }.getOrNull() ?: throw IOException(tr("仅允许 HTTPS 连接"))
+        if (u.protocol.equals("https", ignoreCase = true)) return
+        if (allowLocal && isLocalHost(u.host)) return
+        throw IOException(tr("仅允许 HTTPS 连接"))
+    }
+
+    /** 本机 / 局域网主机名或 IP 字面量（不做 DNS 解析）。 */
+    internal fun isLocalHost(host: String?): Boolean {
+        val h = host?.trim()?.lowercase()?.removePrefix("[")?.removeSuffix("]").orEmpty()
+        if (h.isEmpty()) return false
+        if (h == "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h == "::1") return true
+        val parts = h.split('.')
+        if (parts.size != 4) return false
+        val n = parts.map { it.toIntOrNull() ?: return false }
+        if (n.any { it !in 0..255 }) return false
+        return n[0] == 127 || n[0] == 10 || (n[0] == 192 && n[1] == 168) || (n[0] == 172 && n[1] in 16..31)
+    }
 }

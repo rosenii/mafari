@@ -65,11 +65,16 @@ object Diag {
 
     val enabled: Boolean get() = file != null
 
+    private val urlWithQuery = Regex("""(https?://[^\s"'<>?#]+)[?#][^\s"'<>]*""", RegexOption.IGNORE_CASE)
+
+    /** 日志 / 崩溃文件放在其他有「全部文件访问」权限的应用也读得到的目录：网址里的 query / fragment（常带 token、会话 id）一律抹掉。 */
+    fun redactUrls(text: String): String = urlWithQuery.replace(text) { it.groupValues[1] + "?…" }
+
     fun log(message: String) {
         val f = file ?: return
         runCatching {
             val stamp = synchronized(time) { time.format(Date()) }
-            f.appendText("$stamp  $message\n")
+            f.appendText("$stamp  ${redactUrls(message)}\n")
         }
     }
 }

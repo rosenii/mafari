@@ -167,12 +167,13 @@ internal fun BrowserTab.launchExternalApp(uri: Uri) {
         android.widget.Toast.makeText(appContext, tr("无法打开该链接"), android.widget.Toast.LENGTH_SHORT).show()
         return
     }
-    // 网页给出的 intent 不得指定组件 / selector，只允许按 BROWSABLE 解析，防止直指本应用或非导出组件
-    intent.addCategory(Intent.CATEGORY_BROWSABLE)
-    intent.component = null
-    intent.selector = null
-    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    val started = runCatching { appContext.startActivity(intent) }.isSuccess
+    // 网页给出的 intent：去掉 URI 授权标志 / content: file: data / clipData / component / selector（见 WebIntentSanitizer）
+    val safe = dev.dsh.miuixbrowser.util.WebIntentSanitizer.sanitize(intent)
+    if (safe == null) {
+        android.widget.Toast.makeText(appContext, tr("无法打开该链接"), android.widget.Toast.LENGTH_SHORT).show()
+        return
+    }
+    val started = runCatching { appContext.startActivity(safe) }.isSuccess
     if (started) return
     val fallback = if (isIntentScheme) intent.getStringExtra("browser_fallback_url") else null
     if (!fallback.isNullOrBlank() && (fallback.startsWith("http://") || fallback.startsWith("https://"))) {

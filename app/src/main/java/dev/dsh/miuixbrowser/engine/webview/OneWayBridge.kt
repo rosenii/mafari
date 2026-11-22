@@ -13,7 +13,7 @@ import dev.dsh.miuixbrowser.util.Diag
  * 这里只受理主框架、http(s) 来源、字符串消息、长度有上限；子框架（广告 iframe 等）发的一律丢弃。
  * 页面里的对象只有 `postMessage(string)` 一个方法，不再把 Java 对象的方法面暴露给每个框架。
  *
- * 只适合不需要同步返回值的桥。需要同步返回值的（MafariAdblock.css / MafariFp.fp / MafariBlob.begin）不能用它。
+ * 只适合不需要返回值的桥。要返回值的元素隐藏桥见 [CosmeticBridge]（带回复通道）；MafariFp.fp / MafariBlob.begin 仍是同步桥，不能用它。
  * 必须在首次加载网页之前安装（对象只出现在之后创建的文档里）。
  */
 object OneWayBridge {

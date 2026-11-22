@@ -603,6 +603,7 @@ private val RELEASE_OPTIONS = HttpFetcher.Options(
     maxBytes = 8 * 1024 * 1024,
     userAgent = "mafari",
     accept = "application/vnd.github+json",
+    httpsOnly = true,
 )
 
 private fun fetchReleasePage(url: String): org.json.JSONArray? = runCatching {
