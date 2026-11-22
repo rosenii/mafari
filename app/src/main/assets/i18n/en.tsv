@@ -1635,7 +1635,7 @@ WebView（系统）	WebView (system)
  内核	 engine
 管理 Firefox 扩展	Manage Firefox extensions
 网页增强	Web enhancements
-总开关：同步启用 / 停用全部油猴脚本和去广告；关闭后也不再检测长按标记广告	Master switch: enables / disables all userscripts and ad blocking together; when off, long-press ad marking is no longer detected either
+总开关：一键启停全部油猴脚本、去广告和拓展；关闭后全部停止加载，不占内存和资源，冷启动也不再加载	Master switch: turns all userscripts, ad blocking and extensions on or off at once. When off, everything stops loading and uses no memory or resources, and nothing loads at cold start either
 已开启 · 	On · 
  个订阅 · 订阅源导入、自定义规则	 subscriptions · import subscriptions, custom rules
 脚本管理	Script management
@@ -2126,3 +2126,20 @@ URL 预取	URL prefetch
 仅允许 HTTPS 连接	Only HTTPS connections are allowed
 安装包校验失败（SHA-256 与官方发布不一致），已删除，请重试	Package verification failed (SHA-256 does not match the official release). It was deleted; please try again.
 切换语言后应用会自动重启，之后可在 设置 → 外观 里更换	The app restarts automatically after you switch language. You can change it later in Settings → Appearance.
+网页增强已关闭 · 拓展未运行	Page enhancements are off · extensions are not running
+请在浏览器中下载	Please download in the browser
+无痕浏览暂不运行 WebView 拓展。	WebView extensions don't run in private browsing yet.
+无法打开拓展快捷菜单	Can't open the extension quick menu
+未启用（当前为 Gecko 内核）	Not enabled (currently using the Gecko engine)
+已复制网址	URL copied
+拓展未启用	Extension is not enabled
+该拓展没有设置页	This extension has no settings page
+无法打开拓展页面	Can't open the extension page
+支持拓展商店页面链接、.zip / .crx / .xpi 直链，或本地拓展包文件	Supports extension store page links, direct .zip / .crx / .xpi links, or local extension package files
+还没有安装拓展。点右上角搜索，从 Firefox 拓展商店添加，或在「更多」里导入链接 / 本地 .zip / .crx / .xpi 文件。	No extensions installed yet. Tap Search at the top right to add one from the Firefox add-ons store, or import a link / local .zip / .crx / .xpi file under "More".
+监控网页网络请求	Monitor web network requests
+阻止或重定向网页网络请求	Block or redirect web network requests
+读取、创建、修改和删除 Mafari 原生脚本	Read, create, edit and delete Mafari native scripts
+单击打开正在运行的拓展快捷菜单；长按进入「拓展」管理页	Tap to open the quick menu of running extensions; long-press to open the Extensions manager
+功能菜单	Feature menu
+打开拓展的快捷菜单	Open the extension's quick menu

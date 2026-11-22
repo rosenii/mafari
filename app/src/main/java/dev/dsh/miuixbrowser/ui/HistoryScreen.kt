@@ -5,6 +5,7 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
+import dev.dsh.miuixbrowser.browser.FaviconLoader
 import dev.dsh.miuixbrowser.browser.rememberFavicon
 import dev.dsh.miuixbrowser.crypto.EncryptionInfoDialog
 import dev.dsh.miuixbrowser.crypto.EncryptionLockButton
@@ -88,7 +89,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.ImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -1534,6 +1539,8 @@ private fun HistoryPage(
                         .clickable { onOpen(entry.url) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    HistorySiteIcon(entry.url)
+                    Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = entry.title,
@@ -1577,6 +1584,62 @@ private fun HistoryPage(
         }
         }
     }
+    }
+}
+
+/** 历史记录里能取站点图标的主机：只认 http(s)，按小写、去 www. 规整（与 [FaviconLoader] 的键一致）；其余（about: / file: / data: 等）返回空串 */
+private fun historyIconHost(url: String): String {
+    val u = runCatching { Uri.parse(url.trim()) }.getOrNull() ?: return ""
+    val scheme = u.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") return ""
+    return FaviconLoader.normalize(u.host.orEmpty())
+}
+
+/**
+ * 历史页的站点图标：同一站点（域名忽略 www.）的所有记录共用同一张图，不重复加载——
+ * 键就是规整后的主机名，[FaviconLoader] 里内存 → 磁盘 → 网络三级缓存，同键并发请求合并成一次，失败按次数退避。
+ * 已在内存里的第一帧直接出图；没有时先等 150ms 再加载，快速滑动时滚出屏幕的行不会各自排起一个请求。
+ */
+@Composable
+private fun rememberHistoryFavicon(url: String): ImageBitmap? {
+    val host = remember(url) { historyIconHost(url) }
+    var icon by remember(host) { mutableStateOf(if (host.isEmpty()) null else FaviconLoader.peek(host)) }
+    LaunchedEffect(host) {
+        if (icon == null && host.isNotEmpty()) {
+            delay(150)
+            icon = withContext(Dispatchers.IO) { FaviconLoader.load(host) }
+        }
+    }
+    return icon
+}
+
+/** 历史记录左侧的站点图标：与书签行同款底板（主色淡底圆角方块），没有图标 / 还在加载时显示占位图标。 */
+@Composable
+private fun HistorySiteIcon(url: String) {
+    val favicon = rememberHistoryFavicon(url)
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .squircleClip(10.dp)
+            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (favicon != null) {
+            androidx.compose.foundation.Image(
+                bitmap = favicon,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+            )
+        } else {
+            Icon(
+                imageVector = MiuixIcons.Glass.File,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 
