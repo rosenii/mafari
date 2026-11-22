@@ -478,9 +478,12 @@ fun BrowserScreen(
     // 停靠在顶部的栏占掉网页区域顶部一段：网页从「状态栏 + 栏」下面开始，而不是被悬浮的栏盖住
     val dockedTopBody = if (barLayout.reservesTop) barLayout.style.metrics.height else 0.dp
     val topReserved = statusBarHeight + dockedTopBody
+    // 悬浮三段式：栏不隐藏（barHidden 恒为 false），而是缩成小胶囊（barCompact，阈值与自动隐藏一致）；
+    // 缩小时与默认导航栏样式的「沉浸浏览」一致：顶部状态栏留白随滑动收起，网页铺到屏幕顶，上滑展开后恢复
+    val topInsetCollapsed = barHidden || (barLayout.style.splitPills && ui.barCompact && tab.url.isNotEmpty())
     val animatedTopPadding by animateDpAsState(
         // 顶栏停靠且页面已深入栏下：留白归零，网页铺到屏幕顶（栏的玻璃盖在网页上）
-        targetValue = if (barHidden || (barLayout.reservesTop && ui.barOverlap)) 0.dp else topReserved,
+        targetValue = if (topInsetCollapsed || (barLayout.reservesTop && ui.barOverlap)) 0.dp else topReserved,
         animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
         label = "statusInset",
     )
