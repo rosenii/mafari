@@ -1,5 +1,6 @@
 # miuix 上游来源（由 tools/miuix-sync.sh 读取）
-# 已验证可用的上游提交：2b226150（main；9 个补丁全部干净应用，旧 0006「空标题不留间距」已被上游吸收故删除）
+# 已验证可用的上游提交：44f1d315（main；9 个补丁全部干净应用；0008 已适配上游对 GlassBottomSheet/GlassDialog 的改动）
+# 上一已验证提交：2b226150
 # 旧基线：6d2554a850b8960e2616c968263ff64beb5ffb03（10 个补丁）
 repo=https://github.com/compose-miuix-ui/miuix.git
 # 分支或 tag；跟随主线就写 main

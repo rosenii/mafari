@@ -1,4 +1,10 @@
 # Changelog
+## [2.1.72]
+- **The bar-detection also recognises bottom input boxes and submit buttons** (chat composers, comment boxes, checkout "submit order" bars): a visible input / textarea / contenteditable or a submit button inside a fixed (or bottom-sticky) container that is >= 60% wide and sits at the bottom of the viewport now counts as a page bottom bar, so the split bar yields the row instead of covering it. Same logic in `PageBottomBar.kt` (WebView) and `scroll-metrics.js` (Gecko).
+- **Long-press on the address pill opens the start page** (follows Settings → Customize home → Custom start page, same as the home button) instead of opening a new tab. The pill plays an elastic shrink-then-overshoot pop while it opens.
+- **The compact title pill (shown while scrolling) is lower**: 32dp → 26dp, corner 16dp → 13dp.
+- Not compiled here (no Android toolchain).
+
 ## [2.1.70]
 ## WebView extensions: blank popups (Dark Reader / Tampermonkey)
 

@@ -1173,6 +1173,22 @@ test('methods the host cannot do reject with UNSUPPORTED instead of throwing syn
   assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.__codes)), ['UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED']);
 });
 
+test('userScripts.configureWorld / getWorldConfigurations / resetWorldConfiguration resolve locally (Tampermonkey MV3 init needs them)', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 3, name: 'x', version: '1', permissions: ['userScripts'] } }), entry([`
+    window.__r = [];
+    var us = chrome.userScripts;
+    window.__r.push(typeof us.configureWorld, typeof us.getWorldConfigurations, typeof us.resetWorldConfiguration);
+    us.configureWorld({ csp: "script-src 'self'", messaging: true }).then(function () { return us.getWorldConfigurations(); })
+      .then(function (l) { window.__r.push(l.length, l[0].messaging); return us.resetWorldConfiguration(); })
+      .then(function () { return us.getWorldConfigurations(); })
+      .then(function (l) { window.__r.push(l.length); }, function (e) { window.__r.push('err:' + e.message); });
+  `])));
+  await tick(); await tick(); await tick(); await tick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.__r)), ['function', 'function', 'function', 1, true, 0]);
+  assert.ok(!env.posted.some((x) => /^userScripts\.(configureWorld|getWorldConfigurations|resetWorldConfiguration)$/.test(x.api)), 'must not cross the bridge');
+});
+
 test('windows: single-window model, ids agree with tabs.windowId', async () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true }), entry([`

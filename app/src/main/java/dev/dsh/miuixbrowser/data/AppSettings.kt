@@ -687,6 +687,16 @@ class AppSettings(context: Context) {
         prefs.edit().putBoolean(KEY_AD_MARK_LONG_PRESS, enabled).apply()
     }
 
+    /** 退出时是否处于无痕模式：冷启动据此直接落在一个空白无痕标签上（无痕标签的页面本身不落盘） */
+    var incognitoActive by mutableStateOf(prefs.getBoolean(KEY_INCOGNITO_ACTIVE, false))
+        private set
+
+    fun updateIncognitoActive(active: Boolean) {
+        if (incognitoActive == active) return
+        incognitoActive = active
+        prefs.edit().putBoolean(KEY_INCOGNITO_ACTIVE, active).apply()
+    }
+
     /** 启用范围：油猴脚本是否在无痕浏览 / 轻应用（桌面快捷方式）中运行 */
     var scriptsInIncognito by mutableStateOf(prefs.getBoolean(KEY_SCRIPTS_INCOGNITO, true))
         private set
@@ -1039,6 +1049,7 @@ class AppSettings(context: Context) {
         const val KEY_AD_MARK_LONG_PRESS = "ad_mark_long_press"
         const val KEY_SCRIPTS = "scripts_enabled"
         const val KEY_SCRIPTS_INCOGNITO = "scripts_in_incognito"
+        const val KEY_INCOGNITO_ACTIVE = "incognito_active"
         const val KEY_SCRIPTS_WEBAPP = "scripts_in_webapp"
         const val KEY_ADBLOCK_INCOGNITO = "adblock_in_incognito"
         const val KEY_ADBLOCK_WEBAPP = "adblock_in_webapp"

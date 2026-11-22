@@ -591,6 +591,8 @@ fun BrowserScreen(
             // 阅读模式：返回先退出阅读模式
             tab.readerActive -> tab.exitReader()
             tab.canGoBack -> tab.goBack()
+            // 唯一的空白无痕标签：关掉只会再冒出一个空白无痕标签（无痕模式要手动切换才退出），返回直接退出应用
+            tab.incognito && tab.isBlank && state.tabs.count { it.incognito } == 1 -> (context as? Activity)?.finish()
             state.tabs.size > 1 -> state.closeTab(state.activeIndex)
             else -> (context as? Activity)?.finish()
         }

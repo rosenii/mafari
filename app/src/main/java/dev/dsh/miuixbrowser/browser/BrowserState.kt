@@ -66,6 +66,9 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         }
     }
 
+    /** 冷启动恢复完成前不写「无痕模式」标志，否则恢复过程中的 activate 会把上次的状态冲掉 */
+    private var trackIncognito = false
+
     init {
         // 拓展（油猴等）通过 tabs.create / tabs.update / tabs.remove 操作浏览器标签时的回调入口
         if (EngineSupport.GECKO_BUNDLED) GeckoExtensionStore.tabHost = this
@@ -85,6 +88,10 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
             RestoreMode.KEEP_NEW -> if (!restoreSavedTabs(activateLast = false, preloaded)) newTab()
             else -> if (!restoreSavedTabs(activateLast = true, preloaded)) newTab()
         }
+        // 上次退出时在无痕模式：落在一个空白无痕标签上（普通标签照常恢复，在它后面）
+        if (coldStart && context.appContainer.settings.incognitoActive) newTab(incognito = true)
+        trackIncognito = true
+        syncIncognitoFlag()
         if (EngineSupport.GECKO_BUNDLED) mainHandler.postDelayed(reclaimTick, RECLAIM_INTERVAL_MS)
     }
 
@@ -269,6 +276,13 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         }
     }
 
+    /** 当前标签是否无痕记进设置：模式只会经 [activate] 改变（后台标签被关 / 重排都不改当前标签） */
+    private fun syncIncognitoFlag() {
+        if (!trackIncognito) return
+        val active = tabs.getOrNull(activeIndex)?.incognito == true
+        context.appContainer.settings.updateIncognitoActive(active)
+    }
+
     /** 唯一的切换入口：同时维护最近使用顺序 */
     private fun activate(index: Int) {
         if (index !in tabs.indices) return
@@ -283,6 +297,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         tabs.forEachIndexed { i, t -> t.setEngineActive(i == index) }
         // 从 tabs 表恢复出来的标签，成为当前标签时才真正加载页面
         tabs[index].wakeIfPending()
+        syncIncognitoFlag()
         // 告诉拓展哪个是当前标签：tabs.query({active:true}) / 安装页等都依赖它，不能只在打开拓展菜单时才登记
         if (EngineSupport.GECKO_BUNDLED) {
             GeckoExtensionStore.activeSession = tabs[index].geckoSession
@@ -457,7 +472,8 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
      */
     fun newTab(
         target: String = "",
-        incognito: Boolean = false,
+        /** 默认沿用当前模式：处于无痕时新标签也是无痕，直到用户手动切回普通（见 [toggleIncognito]） */
+        incognito: Boolean = tabs.getOrNull(activeIndex)?.incognito == true,
         opener: BrowserTab? = tabs.getOrNull(activeIndex),
         /** 由页面里的链接打开：第一页返回直接关闭并回到 opener，不经过本标签的主页 */
         fromLink: Boolean = false,
@@ -539,15 +555,16 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
 
     /**
      * 从主页 / 外部 / 应用内打开网址：
-     * 1. 已有同站标签 → 直接切过去显示它原来的页面，不新建、不重新加载；
-     *    仅当 [navigateIfDeepLink] 为 true 且目标是带具体路径的深链、且与该标签当前页不同，才在该标签里跳转。
+     * 1. 已有同站标签 → 切过去；目标是站点根地址时直接显示它原来的页面，不重新加载；
+     *    目标是带具体路径的深链、且与该标签当前页不同时，在该标签里跳转到它（默认开启：
+     *    从主页收藏 / 分组弹窗打开 github.com/xxx/yyy 时，已有的 github.com/xxx 标签也要跳过去，而不是停在原页）。
      * 2. 没有同站标签 → 当前是空白/主页就地加载，否则新开标签。
      * 切走后遗留的空白标签会被清掉，避免多出一张空卡片。
      */
     fun openOrReuse(
         target: String,
         incognito: Boolean = activeTab.incognito,
-        navigateIfDeepLink: Boolean = false,
+        navigateIfDeepLink: Boolean = true,
         fromStartPage: Boolean = false,
     ) {
         if (target.isBlank()) return
@@ -578,7 +595,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
     fun toggleIncognito() {
         if (activeTab.incognito) {
             // 回到普通：关闭当前无痕标签，回到最近用过的普通标签；没有就新建一个
-            closeTab(activeIndex)
+            closeTab(activeIndex, stayIncognito = false)
             val normal = lastUsed(incognito = false)
             if (normal == null) {
                 newTab(incognito = false)
@@ -663,7 +680,11 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         return candidates.firstOrNull { it.incognito == closing.incognito } ?: candidates.first()
     }
 
-    fun closeTab(index: Int) {
+    /**
+     * [stayIncognito]：关掉的是当前的无痕标签、且没有别的无痕标签时，留在无痕模式（新开一个空白无痕标签），
+     * 而不是跳到普通标签——无痕模式只由用户手动切换（[toggleIncognito]）才退出。
+     */
+    fun closeTab(index: Int, stayIncognito: Boolean = true) {
         if (index !in tabs.indices) return
         val closing = tabs[index]
         val activeBefore = tabs[activeIndex.coerceIn(0, tabs.lastIndex)]
@@ -673,6 +694,10 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         if (tabs.isEmpty()) {
             // 关掉的是最后一个标签：新建一个（保持无痕 / 普通模式不变）；普通标签会按「自定义起始页」打开指定页面
             newTab(incognito = closing.incognito)
+            return
+        }
+        if (wasActive && stayIncognito && closing.incognito && tabs.none { it.incognito }) {
+            newTab(incognito = true)
             return
         }
         // 关掉的是后台标签时当前标签不能变；关掉当前标签才按层级回退

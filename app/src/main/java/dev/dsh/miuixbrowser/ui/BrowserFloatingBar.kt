@@ -444,7 +444,7 @@ internal fun BoxScope.BrowserFloatingBar(
                 onBack = { tab.goBack() },
                 onMore = { sheet = Sheet.Menu },
                 onRefresh = { tab.reload() },
-                onNewTab = { state.newTab(incognito = tab.incognito) },
+                onHome = { state.goHome(tab) },
                 onSwitchTab = { dir ->
                     // 只在同一类标签（普通 / 无痕）里切换，不绕回，也不在两端新建
                     val same = state.tabs.withIndex().filter { it.value.incognito == tab.incognito }.map { it.index }

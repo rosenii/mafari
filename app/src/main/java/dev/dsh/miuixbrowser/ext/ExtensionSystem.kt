@@ -37,6 +37,9 @@ class ExtensionSystem(
     val installer = PackageInstaller(repo, File(baseDir, "work"))
 
     private val router = ApiRouter()
+
+    /** 原生已注册的 API 全名（如 tabs.query）：拓展管理页的说明文案据此生成，不手写维护 */
+    fun registeredApis(): Set<String> = router.registered()
     private val historyStore by lazy { HistoryStore(context.applicationContext) }
     val broker = MessageBroker().also { it.log = log }
     private val dynamicScripts = DynamicContentScriptStore()

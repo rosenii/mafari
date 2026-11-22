@@ -63,6 +63,60 @@
     if (/cookie|consent|gdpr|snackbar|toast|modal|dialog|popup|smartbanner|app-?install|install-?app|open-?in-?app|advert|adsbygoogle/.test(tag)) return false;
     return e.querySelectorAll('a[href],button,[role=tab],[role=link],[role=button],input,textarea').length >= 2;
   }
+  function blockedHost(c) {
+    if (c.closest && c.closest('[role=dialog],[role=alertdialog],[aria-modal=true],dialog')) return true;
+    var tag = ((c.id || '') + ' ' + (typeof c.className === 'string' ? c.className : '')).toLowerCase();
+    return /cookie|consent|gdpr|snackbar|toast|modal|dialog|popup|smartbanner|app-?install|install-?app|open-?in-?app|advert|adsbygoogle/.test(tag);
+  }
+  function shown(e) {
+    var cs = getComputedStyle(e);
+    return cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity) >= 0.05;
+  }
+  function isInputLike(e) {
+    var t = e.tagName;
+    if (t === 'TEXTAREA') return !e.disabled && !e.readOnly;
+    if (t === 'INPUT') {
+      var ty = (e.getAttribute('type') || 'text').toLowerCase();
+      return !e.disabled && !e.readOnly && !/^(hidden|checkbox|radio|range|file|color|image|button|submit|reset)/.test(ty);
+    }
+    var ce = e.getAttribute('contenteditable');
+    return ce !== null && ce.toLowerCase() !== 'false';
+  }
+  function isSubmitLike(e) {
+    var t = e.tagName;
+    var ty = (e.getAttribute('type') || '').toLowerCase();
+    if (e.disabled) return false;
+    if (t === 'INPUT') return ty === 'submit' || ty === 'image';
+    if (t === 'BUTTON' && ty === 'submit') return true;
+    var s = ((t === 'INPUT' ? e.value : e.innerText) || '').replace(/^\s+/, '').slice(0, 12);
+    return /^(submit|send|post|reply|comment|提交|发送|发布|评论|回复|下单|结算|支付|确认订单|立即购买)/i.test(s);
+  }
+  function inBottomHost(e, w, h) {
+    var c = e;
+    while (c && c.nodeType === 1 && c !== document.body && c !== document.documentElement) {
+      var cs = getComputedStyle(c);
+      if (cs.position === 'fixed' || (cs.position === 'sticky' && cs.bottom !== 'auto')) {
+        var r = c.getBoundingClientRect();
+        if (shown(c) && r.width >= w * 0.6 && r.height >= 32 && r.height <= Math.min(240, h * 0.3) &&
+            r.bottom >= h - 40 && r.bottom <= h + 2 && r.top >= h * 0.5 && !blockedHost(c)) return true;
+      }
+      c = c.parentElement;
+    }
+    return false;
+  }
+  function hasBottomInput(w, h) {
+    var list = document.querySelectorAll('input,textarea,[contenteditable],button,[role=button]');
+    var n = 0;
+    for (var i = 0; i < list.length && i < 400 && n < 60; i++) {
+      var e = list[i];
+      var r = e.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0 || r.bottom < h * 0.5 || r.top > h) continue;
+      n++;
+      if (!(isInputLike(e) || isSubmitLike(e)) || !shown(e)) continue;
+      if (inBottomHost(e, w, h)) return true;
+    }
+    return false;
+  }
   function hasBottomBar() {
     try {
       var w = window.innerWidth, h = window.innerHeight;
@@ -80,6 +134,7 @@
           e = e.parentElement;
         }
       }
+      return hasBottomInput(w, h);
     } catch (x) {}
     return false;
   }

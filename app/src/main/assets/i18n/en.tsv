@@ -2065,7 +2065,13 @@ API Key（可选）	API key (optional)
 正在显示原文	Showing original
 支持 .zip / .crx / .xpi 直链，或本地拓展包文件	Supports direct .zip / .crx / .xpi links, or a local extension package
 还没有安装拓展。点右上角「更多」→「导入拓展」，从链接或本地 .zip / .crx / .xpi 文件安装。	No extensions installed yet. Tap "More" at the top right → "Import extension" to install from a link or a local .zip / .crx / .xpi file.
-拓展由 WebView 内核运行（实验性）：目前支持 content script、后台页以及 storage / runtime API，tabs、scripting 等尚未实现；改动对下一次页面加载生效。APP 已原生支持油猴脚本，请勿再安装油猴类拓展	Extensions run on the WebView engine (experimental): content scripts, background pages and the storage / runtime APIs are supported; tabs, scripting etc. are not implemented yet. Changes take effect on the next page load. The app natively supports userscripts, so please don't install userscript-manager extensions
+拓展由 WebView 内核运行（实验性），改动对下一次页面加载生效；无痕标签不运行拓展。	Extensions run on the WebView engine (experimental). Changes take effect on the next page load; incognito tabs do not run extensions.
+已接入的 API：{0}。	Implemented APIs: {0}.
+未接入的方法会返回 UNSUPPORTED；不支持多窗口（windows.create）、idle 状态查询，子框架事件的 frameId 固定为 0；MV3 service worker 用隐藏页面模拟。	Unimplemented methods reject with UNSUPPORTED. Multiple windows (windows.create) and idle state queries are not supported, frameId is always 0 in frame events, and MV3 service workers are emulated with a hidden page.
+APP 已原生支持油猴脚本，请勿再安装油猴类拓展	The app natively supports userscripts, so please don't install userscript-manager extensions
+mafari（原生脚本）	mafari (native scripts)
+tabs（单窗口）	tabs (single window)
+webNavigation（仅主框架）	webNavigation (main frame only)
 此拓展不能在 WebView 内核上运行	This extension can't run on the WebView engine
 添加 {0}？	Add {0}?
 更新 {0}？	Update {0}?

@@ -727,12 +727,21 @@ function (CFG, ENTRIES) {
   }
 
   var userScripts = null;
+  var userScriptWorlds = {};
   if (CFG.page && declares('userScripts')) {
     userScripts = {
       register: promised(function (scripts) { return rpc('userScripts.register', [scripts || []]); }),
       getScripts: promised(function (filter) { return rpc('userScripts.getScripts', [filter || {}]); }),
       update: promised(function (scripts) { return rpc('userScripts.update', [scripts || []]); }),
       unregister: promised(function (options) { return rpc('userScripts.unregister', [options || {}]); }),
+      // Tampermonkey MV3 后台初始化时必调 configureWorld（设置 USER_SCRIPT world 的 CSP / 消息开关）；
+      // 缺失会抛 TypeError，它的 userscripts 引擎就判定初始化失败，弹窗随后 unable to load tree 白屏。
+      // Mafari 的脚本注入不走 Chrome 的 USER_SCRIPT world，这里只记录配置、返回 resolve 即可。
+      configureWorld: promised(function (properties) { userScriptWorlds.default = properties || {}; return P.resolve(); }),
+      getWorldConfigurations: promised(function () {
+        return P.resolve(Object.keys(userScriptWorlds).map(function (k) { return Object.assign({ worldId: k === 'default' ? undefined : k }, userScriptWorlds[k]); }));
+      }),
+      resetWorldConfiguration: promised(function (worldId) { delete userScriptWorlds[worldId || 'default']; return P.resolve(); }),
       onBeforeScript: inertEvent('userScripts.onBeforeScript', true),
       onAfterScript: inertEvent('userScripts.onAfterScript', true)
     };

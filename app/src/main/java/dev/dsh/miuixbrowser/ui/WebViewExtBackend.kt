@@ -66,7 +66,25 @@ class WebViewExtBackend(
     override val emptyHint: String
         get() = tr("还没有安装拓展。点右上角搜索，从 Firefox 拓展商店添加，或在「更多」里导入链接 / 本地 .zip / .crx / .xpi 文件。")
     override val footerHint: String
-        get() = tr("拓展由 WebView 内核运行（实验性）：目前支持 content script、后台页以及 storage / runtime API，tabs、scripting 等尚未实现；改动对下一次页面加载生效。APP 已原生支持油猴脚本，请勿再安装油猴类拓展")
+        get() = tr("拓展由 WebView 内核运行（实验性），改动对下一次页面加载生效；无痕标签不运行拓展。") + "\n" +
+            tr("已接入的 API：{0}。", implementedApiSummary()) + "\n" +
+            tr("未接入的方法会返回 UNSUPPORTED；不支持多窗口（windows.create）、idle 状态查询，子框架事件的 frameId 固定为 0；MV3 service worker 用隐藏页面模拟。") + "\n" +
+            tr("APP 已原生支持油猴脚本，请勿再安装油猴类拓展")
+
+    /** 按原生实际注册的 API 生成（见 [ExtensionSystem.registeredApis]），新增 / 移除 API 后文案自动跟着变 */
+    private fun implementedApiSummary(): String {
+        val names = system.registeredApis().map { it.substringBefore('.') }.toSortedSet()
+        // action 与 browserAction 同一套实现；mafari 是 Mafari 自己的脚本接口；contentScripts 并入 scripting 说明
+        val shown = names.filter { it != "browserAction" && it != "contentScripts" }.map { ns ->
+            when (ns) {
+                "mafari" -> tr("mafari（原生脚本）")
+                "tabs" -> tr("tabs（单窗口）")
+                "webNavigation" -> tr("webNavigation（仅主框架）")
+                else -> ns
+            }
+        }
+        return shown.joinToString(tr("、"))
+    }
 
     override fun bind(context: Context) {
         activityRef = WeakReference(context.asActivity())

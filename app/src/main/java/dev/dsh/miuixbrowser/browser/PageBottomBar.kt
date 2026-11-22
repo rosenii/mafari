@@ -15,6 +15,12 @@ import kotlin.coroutines.resume
  *  - 不是对话框（role=dialog / aria-modal），类名 / id 不含 cookie / consent / toast / popup / 广告 / 下载 App 之类横幅
  *  - 左 / 右 15% 处点到的也是同一个元素：只盖住中间一块的不算
  * 全屏遮罩 / 弹窗太高会被排除。
+ *
+ * 另外识别「底部输入框 / 提交按钮」（聊天输入条、评论框、结算页的提交订单条，它们常常不整宽、不满足上面的判据，也可能悬空留边）：
+ *  - 页面里有可输入的元素（input 不含 checkbox / radio / file 等、textarea、contenteditable），或提交按钮
+ *    （type=submit 的 input / button，或文字以 提交 / 发送 / 发布 / 评论 / 回复 / 下单 / 结算 / 支付 / Submit / Send / Post / Reply 开头的按钮）；
+ *  - 它位于 fixed（或设了 bottom 的 sticky）祖先里：宽度 ≥ 视口 60%，高度 32px ~ min(240px, 视口 30%)，下沿离视口底边 -40 ~ +2px，且在视口下半屏；
+ *  - 容器不是对话框 / cookie / 弹窗 / 横幅类。只扫描下半屏可见的前 60 个候选元素，避免长页面上耗时。
  */
 internal object PageBottomBar {
     const val DETECT_JS = """(function(){
@@ -51,6 +57,60 @@ function isBar(e, w, h, painted) {
   if (/cookie|consent|gdpr|snackbar|toast|modal|dialog|popup|smartbanner|app-?install|install-?app|open-?in-?app|advert|adsbygoogle/.test(tag)) return false;
   return e.querySelectorAll('a[href],button,[role=tab],[role=link],[role=button],input,textarea').length >= 2;
 }
+function blockedHost(c) {
+  if (c.closest && c.closest('[role=dialog],[role=alertdialog],[aria-modal=true],dialog')) return true;
+  var tag = ((c.id || '') + ' ' + (typeof c.className === 'string' ? c.className : '')).toLowerCase();
+  return /cookie|consent|gdpr|snackbar|toast|modal|dialog|popup|smartbanner|app-?install|install-?app|open-?in-?app|advert|adsbygoogle/.test(tag);
+}
+function shown(e) {
+  var cs = getComputedStyle(e);
+  return cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity) >= 0.05;
+}
+function isInputLike(e) {
+  var t = e.tagName;
+  if (t === 'TEXTAREA') return !e.disabled && !e.readOnly;
+  if (t === 'INPUT') {
+    var ty = (e.getAttribute('type') || 'text').toLowerCase();
+    return !e.disabled && !e.readOnly && !/^(hidden|checkbox|radio|range|file|color|image|button|submit|reset)/.test(ty);
+  }
+  var ce = e.getAttribute('contenteditable');
+  return ce !== null && ce.toLowerCase() !== 'false';
+}
+function isSubmitLike(e) {
+  var t = e.tagName;
+  var ty = (e.getAttribute('type') || '').toLowerCase();
+  if (e.disabled) return false;
+  if (t === 'INPUT') return ty === 'submit' || ty === 'image';
+  if (t === 'BUTTON' && ty === 'submit') return true;
+  var s = ((t === 'INPUT' ? e.value : e.innerText) || '').replace(/^\s+/, '').slice(0, 12);
+  return /^(submit|send|post|reply|comment|提交|发送|发布|评论|回复|下单|结算|支付|确认订单|立即购买)/i.test(s);
+}
+function inBottomHost(e, w, h) {
+  var c = e;
+  while (c && c.nodeType === 1 && c !== document.body && c !== document.documentElement) {
+    var cs = getComputedStyle(c);
+    if (cs.position === 'fixed' || (cs.position === 'sticky' && cs.bottom !== 'auto')) {
+      var r = c.getBoundingClientRect();
+      if (shown(c) && r.width >= w * 0.6 && r.height >= 32 && r.height <= Math.min(240, h * 0.3) &&
+          r.bottom >= h - 40 && r.bottom <= h + 2 && r.top >= h * 0.5 && !blockedHost(c)) return true;
+    }
+    c = c.parentElement;
+  }
+  return false;
+}
+function hasBottomInput(w, h) {
+  var list = document.querySelectorAll('input,textarea,[contenteditable],button,[role=button]');
+  var n = 0;
+  for (var i = 0; i < list.length && i < 400 && n < 60; i++) {
+    var e = list[i];
+    var r = e.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0 || r.bottom < h * 0.5 || r.top > h) continue;
+    n++;
+    if (!(isInputLike(e) || isSubmitLike(e)) || !shown(e)) continue;
+    if (inBottomHost(e, w, h)) return true;
+  }
+  return false;
+}
 function hasBottomBar() {
   try {
     var w = window.innerWidth, h = window.innerHeight;
@@ -68,6 +128,7 @@ function hasBottomBar() {
         e = e.parentElement;
       }
     }
+    return hasBottomInput(w, h);
   } catch (x) {}
   return false;
 }

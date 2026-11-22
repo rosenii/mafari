@@ -63,7 +63,7 @@ internal fun BrowserUiState.performMenuAction(
 ) {
     val tab = state.activeTab
     when (action) {
-        MenuAction.NewTab -> state.newTab(incognito = false)
+        MenuAction.NewTab -> state.newTab()
         MenuAction.Incognito -> state.toggleIncognito()
         MenuAction.Desktop -> tab.toggleDesktopMode(!tab.desktopMode)
         MenuAction.Find -> showFind = true

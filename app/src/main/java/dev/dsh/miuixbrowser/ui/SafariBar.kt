@@ -1,5 +1,6 @@
 package dev.dsh.miuixbrowser.ui
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import kotlin.math.tanh
 import androidx.compose.ui.unit.sp
@@ -67,7 +69,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 悬浮三段式导航栏（[BarStyles.SafariSplit]）：三块分开的玻璃件——左边圆形「后退」、中间地址栏胶囊、右边圆形「更多」。
  *
  * - 处于首页（[atHome]）时后退按钮置灰不可点；
- * - 地址栏：点击 = 输入网址，长按 = 新建标签页，左右滑动 = 切换标签页，上滑 = 打开标签页列表；
+ * - 地址栏：点击 = 输入网址，长按 = 打开起始页（跟随「定制主页 → 自定义起始页」，带弹性缩放动画），左右滑动 = 切换标签页，上滑 = 打开标签页列表；
  * - 输入网址时两侧圆钮收起，地址栏占满整行。
  *
  * 只放内容，不画整条底板（底板由 [BarStyle.surface] 负责，这个样式的底板是透明的，三个玻璃件各自画自己的）。
@@ -106,8 +108,8 @@ internal fun SafariSplitBar(
     onBack: () -> Unit,
     onMore: () -> Unit,
     onRefresh: () -> Unit,
-    /** 长按地址栏：新建标签页 */
-    onNewTab: () -> Unit,
+    /** 长按地址栏：打开起始页（跟随设置里的自定义起始页） */
+    onHome: () -> Unit,
     /** 左右滑动地址栏：-1 = 上一个标签，+1 = 下一个标签 */
     onSwitchTab: (Int) -> Unit,
     /** 上滑地址栏：打开标签页列表 */
@@ -221,7 +223,7 @@ internal fun SafariSplitBar(
                 translateOriginal = translateOriginal,
                 onTranslateToggle = onTranslateToggle,
                 onRefresh = onRefresh,
-                onNewTab = onNewTab,
+                onHome = onHome,
                 onSwitchTab = onSwitchTab,
                 onOpenTabs = onOpenTabs,
             )
@@ -255,10 +257,10 @@ private val SafariCompactWidth = 240.dp
 private val SafariCompactMinWidth = 100.dp
 
 /** 小胶囊的高度 */
-private val SafariCompactHeight = 32.dp
+private val SafariCompactHeight = 26.dp
 
 /** 小胶囊的圆角 */
-private val SafariCompactCorner = 16.dp
+private val SafariCompactCorner = 13.dp
 
 /**
  * 圆钮的占位槽：宽度（含与地址栏之间的间距）随 [progress] 从 100% 收到 0，同时淡出、缩小。
@@ -443,7 +445,7 @@ private fun SafariAddressPill(
     translateOriginal: Boolean,
     onTranslateToggle: () -> Unit,
     onRefresh: () -> Unit,
-    onNewTab: () -> Unit,
+    onHome: () -> Unit,
     onSwitchTab: (Int) -> Unit,
     onOpenTabs: () -> Unit,
 ) {
@@ -486,6 +488,17 @@ private fun SafariAddressPill(
     }
     val latestSwitch by rememberUpdatedState(onSwitchTab)
     val latestOpenTabs by rememberUpdatedState(onOpenTabs)
+    val latestHome by rememberUpdatedState(onHome)
+    // 长按打开起始页的弹性动画：先快速缩小，到底时打开起始页，再带过冲弹回（放大）
+    val popScope = rememberCoroutineScope()
+    val pop = remember { Animatable(1f) }
+    val playHomePop: () -> Unit = {
+        popScope.launch {
+            pop.animateTo(0.82f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessHigh))
+            latestHome()
+            pop.animateTo(1f, spring(dampingRatio = 0.38f, stiffness = Spring.StiffnessLow))
+        }
+    }
 
     Box(
         modifier = modifier
@@ -505,6 +518,8 @@ private fun SafariAddressPill(
                 translationX = animX * 0.35f
                 // 只跟着上滑走，下拉不动
                 translationY = animY.coerceAtMost(0f) * 0.35f
+                scaleX = pop.value
+                scaleY = pop.value
             }
             // 输入网址时不挂手势：横向拖动要留给输入框（移动光标 / 选词）
             .pointerInput(editing, compact) {
@@ -599,7 +614,7 @@ private fun SafariAddressPill(
                     modifier = Modifier.weight(1f),
                 )
             } else {
-                // 标题：居中；点击 = 输入网址，长按 = 新建标签页（只盖标题区，不挡住两侧的小图标）
+                // 标题：居中；点击 = 输入网址，长按 = 打开起始页（只盖标题区，不挡住两侧的小图标）
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -614,7 +629,7 @@ private fun SafariAddressPill(
                             onLongClick = {
                                 if (!compact) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onNewTab()
+                                    playHomePop()
                                 }
                             },
                         ),
