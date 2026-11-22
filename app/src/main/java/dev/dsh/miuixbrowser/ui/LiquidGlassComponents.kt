@@ -95,11 +95,6 @@ import top.yukonga.miuix.kmp.glass.GlassPopupDefaults
 import top.yukonga.miuix.kmp.material.GlassShape
 import top.yukonga.miuix.kmp.glass.GlassPopupSizing
 import top.yukonga.miuix.kmp.glass.GlassPopupVisuals
-import top.yukonga.miuix.kmp.glass.GlassBottomSheetDefaults
-import top.yukonga.miuix.kmp.layout.BottomSheetDefaults
-import top.yukonga.miuix.kmp.layout.DialogDefaults
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -174,18 +169,15 @@ object LiquidGlassMaterial : AppMaterial {
         val containerColor = GlassDialogDefaults.containerColor()
         val dark = isAppDarkTheme()
         val panelColor = demoContainerColor(dark)
-        OverlayDialog(
+        GlassDialog(
+            onDismissRequest = onDismissRequest,
             show = show,
+            backdrop = backdrop,
             modifier = modifier,
             title = title,
-            titleColor = DialogDefaults.titleColor(),
             summary = summary,
-            summaryColor = DialogDefaults.summaryColor(),
-            backgroundColor = containerColor,
-            enableWindowDim = true,
-            onDismissRequest = onDismissRequest,
+            containerColor = containerColor,
             onDismissFinished = onDismissFinished,
-            dimColor = GlassDialogDefaults.ScrimColor,
             surface = {
                 val shape = RoundedCornerShape(cornerRadius)
                 val scrim = scrimColor
@@ -229,25 +221,20 @@ object LiquidGlassMaterial : AppMaterial {
             return
         }
         val panelColor = demoContainerColor(isAppDarkTheme())
-        OverlayBottomSheet(
+        GlassBottomSheet(
+            onDismissRequest = onDismissRequest,
             show = show,
+            backdrop = backdrop,
             modifier = modifier,
+            enableWindowDim = enableWindowDim,
             title = title,
             startAction = startAction,
             endAction = endAction,
-            backgroundColor = GlassBottomSheetDefaults.containerColor(),
-            enableWindowDim = enableWindowDim,
-            cornerRadius = BottomSheetDefaults.cornerRadius,
-            sheetMaxWidth = BottomSheetDefaults.maxWidth,
-            onDismissRequest = onDismissRequest,
             onDismissFinished = onDismissFinished,
-            outsideMargin = BottomSheetDefaults.outsideMargin,
             // 取消 sheet 内边距：左右留白由 AppBottomSheet 加在内容上
             insideMargin = DpSize.Zero,
-            // 沉浸：内容铺满整个 sheet，拖动条 / 标题浮在上面（见上游补丁 0010）
+            // 沉浸：内容铺满整个 sheet，拖动条 / 标题浮在上面（见上游补丁 0009）
             immersive = true,
-            dragHandleColor = BottomSheetDefaults.dragHandleColor(),
-            dimColor = GlassBottomSheetDefaults.ScrimColor,
             surface = {
                 val shape = if (isOverscroll) {
                     RectangleShape
