@@ -69,6 +69,13 @@ class ExtensionPageHost(
      */
     @Volatile var externalLinkHandler: ((extId: String, url: String) -> Unit)? = null
 
+    /**
+     * 拓展调用 `runtime.openOptionsPage()`（path = null，用 manifest 的设置页）或用 tabs.create / tabs.update 打开自己的页面（path = 相对拓展根）时（主线程）回调，由 UI 层用拓展页面 Sheet 打开设置页。
+     * 设置页必须跑在 [PageKind.OPTIONS] 的拓展页面里（有桥、有拓展 origin）；放进普通标签只会因为不是
+     * web_accessible_resources 而 404。没设置回调时 openOptionsPage 退回旧的开标签行为。
+     */
+    @Volatile var openOptionsHandler: ((extId: String, path: String?) -> Unit)? = null
+
     fun isSupported(): Boolean = runCatching {
         WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
             WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
@@ -144,6 +151,9 @@ class ExtensionPageHost(
         )
         plan.warnings.forEach { warning -> log("ext $id injection warning: $warning") }
         val webView = WebView(appContext)
+        // 原生 Profile 隔离存储：必须先于 settings / 加载 / evaluateJavascript
+        val isolated = ExtensionProfiles.apply(webView, id)
+        log("ext $id ${pageKind.name.lowercase()} profile=" + if (isolated) ExtensionProfiles.nameFor(id) else "default（系统 WebView 不支持 MULTI_PROFILE）")
         val page = ExtensionPage(UUID.randomUUID().toString(), id, pageKind, webView)
         try {
             webView.settings.apply {

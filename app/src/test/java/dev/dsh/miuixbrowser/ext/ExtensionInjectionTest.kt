@@ -200,4 +200,37 @@ class ExtensionInjectionTest {
         assertNull(plan.isolatedScript)
         assertNotNull(plan.mainScript)
     }
+
+    @Test fun isolatedEndScriptOnlyWhenSomeEntryRunsAfterDocumentStart() {
+        val onlyStart = ext(
+            mf("""[{"matches":["https://a.com/*"],"js":["s.js"],"run_at":"document_start"}]"""),
+            "s.js" to "1;",
+        )
+        val p1 = ExtensionInjection.build(onlyStart, shim, ExtensionInjection.fileReader(onlyStart.rootDir))!!
+        assertNull(p1.isolatedEndScript)
+        assertFalse(p1.isolatedScript!!.contains("nativeEnd"))
+
+        val withEnd = ext(
+            mf("""[{"matches":["https://a.com/*"],"js":["s.js"],"run_at":"document_start"},{"matches":["https://a.com/*"],"js":["e.js"],"run_at":"document_end"}]"""),
+            "s.js" to "1;", "e.js" to "2;",
+        )
+        val p2 = ExtensionInjection.build(withEnd, shim, ExtensionInjection.fileReader(withEnd.rootDir))!!
+        val hook = ExtensionInjection.endHookFor(TestExt.ID)
+        assertTrue(Regex("^__mend_[0-9a-f]{12}$").matches(hook))
+        assertTrue(p2.isolatedScript!!.contains("\"nativeEnd\":\"$hook\""))
+        assertEquals(ExtensionInjection.endScriptFor(TestExt.ID), p2.isolatedEndScript)
+        assertTrue(p2.isolatedEndScript!!.contains(hook))
+        // 旧路径（页面世界）的脚本不带钩子，也不泄露钩子名
+        assertFalse(p2.script.contains("nativeEnd") || p2.script.contains(hook))
+    }
+
+    @Test fun mainWorldEndEntriesDoNotCreateNativeEndScript() {
+        val e = ext(
+            mf("""[{"matches":["https://a.com/*"],"js":["m.js"],"world":"MAIN","run_at":"document_end"}]"""),
+            "m.js" to "1;",
+        )
+        val plan = ExtensionInjection.build(e, shim, ExtensionInjection.fileReader(e.rootDir))!!
+        assertNull(plan.isolatedEndScript)
+        assertFalse(plan.mainScript!!.contains("nativeEnd"))
+    }
 }

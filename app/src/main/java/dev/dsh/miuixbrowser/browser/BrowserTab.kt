@@ -160,6 +160,15 @@ class BrowserTab(
     /** 请求关闭自己（由 [BrowserState] 接线），用于 [openedFromLink] 标签在第一页返回 */
     var onRequestClose: (() -> Unit)? = null
 
+    /**
+     * WebView 渲染进程崩溃 / 被系统回收（由 [BrowserState] 接线）：这个标签的 WebView 已经不能用了，
+     * 回调里由 [BrowserState] 建一个新标签顶替它的位置。参数是 [android.webkit.RenderProcessGoneDetail.didCrash]。
+     */
+    var onRenderGone: ((didCrash: Boolean) -> Unit)? = null
+
+    /** 渲染进程已经没了（只会置一次）：之后这个标签等着被替换，不再处理第二次回调 */
+    @Volatile internal var renderGone = false
+
     /** 从主页进入页面时 WebView 历史的当前下标（-1 = 历史为空）：回退到这一层就回主页，不再穿透到主页之前的旧页面 */
     internal var homeAnchor = -1
 
@@ -306,7 +315,12 @@ class BrowserTab(
     val pageAdBlocked = java.util.concurrent.atomic.AtomicInteger(0)
 
     /** 只有 WebView 内核的标签才有 WebView；Gecko 标签不创建（省内存） */
-    internal val webViewOrNull: WebView? = if (engineKind == EngineKind.WEBVIEW) WebView(appContext) else null
+    internal val webViewOrNull: WebView? = if (engineKind == EngineKind.WEBVIEW) {
+        // 无痕标签：创建后立刻绑到独立 Profile（必须在 WebView 首次使用前）。不支持多 Profile 时沿用进程级 Cookie 开关
+        WebView(appContext).also { if (startIncognito) dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.bind(it) }
+    } else {
+        null
+    }
 
     /** WebView 内核专用 API 的入口。Gecko 标签访问它会抛异常，界面层应改用 [contentView] 等与内核无关的成员 */
     val webView: WebView
@@ -391,6 +405,9 @@ class BrowserTab(
 
     /** 长按元素检测 / 手动标记广告（仅 WebView），见 [TabElementInspector] */
     internal val inspector = TabElementInspector(this)
+
+    /** 本标签 WebView 的油猴原生能力实现（旧桥 MafariGM 与隔离世界通道 [GmChannel] 共用），由 setupWebView 创建 */
+    internal var gmBridge: GmBridge? = null
 
     /** 打开新标签页（GM_openInTab 用）：桥生成的 [id]、地址、是否切到前台 */
     var onGmOpenTab: ((id: String, url: String, active: Boolean) -> Unit)? = null
@@ -559,10 +576,10 @@ class BrowserTab(
 
     private fun engineReload() = ops.reload()
 
-    internal fun engineLoad(target: String) {
+    internal fun engineLoad(target: String, replace: Boolean = false) {
         proceedTarget = null // 换了地址：之前错误页上的「继续」不再有效
         pendingSsl = null
-        ops.load(target)
+        if (replace) ops.loadReplacing(target) else ops.load(target)
     }
 
     /** 强制刷新（下拉刷新 / 脚本开关后刷新）：不像 [reload] 那样在加载中变成「停止」 */
@@ -1026,7 +1043,8 @@ class BrowserTab(
         }
     }
 
-    fun load(input: String) {
+    /** [replace]：替换当前历史项而不是新增（拓展 tabs.update 的 loadReplace；仅 WebView 且系统支持 navigate 时生效） */
+    fun load(input: String, replace: Boolean = false) {
         restore.dropPending()
         val target = toUrl(input, searchTemplate)
         if (url.isEmpty() && !openedFromLink) {
@@ -1045,7 +1063,7 @@ class BrowserTab(
         parked = false
         url = target
         fpInjector?.prepare(target)
-        engineLoad(target)
+        engineLoad(target, replace)
         syncNav()
     }
 
@@ -1086,6 +1104,8 @@ class BrowserTab(
             else -> customUserAgent
         }
         runCatching { webView.settings.userAgentString = ua }
+        // 请求头 Sec-CH-UA-Mobile / Sec-CH-UA-Platform 和 navigator.userAgentData 跟着 UA 走，别和 UA 字符串矛盾
+        dev.dsh.miuixbrowser.engine.webview.UaClientHints.apply(webView.settings, ua, defaultUserAgent)
     }
 
     /**
@@ -1150,9 +1170,16 @@ class BrowserTab(
         gecko?.applyPrivacy()
         webViewOrNull?.let { wv ->
             runCatching {
-                // 官方 CookieManager：总开关（无痕 / 拒绝全部时关）+ 按 WebView 的第三方开关
-                CookieManager.getInstance().setAcceptCookie(!incognito && cookieMode != 3)
-                CookieManager.getInstance().setAcceptThirdPartyCookies(wv, cookieMode == 0)
+                if (dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.isBound(wv)) {
+                    // 无痕 Profile 有自己的 CookieManager：只管它，不碰进程级（默认 Profile）的开关；无痕里登录也能保持，Profile 随最后一个无痕标签一起删
+                    val cm = dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.cookieManagerFor(wv)
+                    cm.setAcceptCookie(cookieMode != 3)
+                    cm.setAcceptThirdPartyCookies(wv, cookieMode == 0)
+                } else {
+                    // 官方 CookieManager：总开关（无痕 / 拒绝全部时关）+ 按 WebView 的第三方开关
+                    CookieManager.getInstance().setAcceptCookie(!incognito && cookieMode != 3)
+                    CookieManager.getInstance().setAcceptThirdPartyCookies(wv, cookieMode == 0)
+                }
             }
         }
         dntEnabled = sendDnt
@@ -1417,6 +1444,10 @@ class BrowserTab(
     /** 成为当前标签时调用：该显示页面的恢复标签此刻才加载 */
     internal fun wakeIfPending() = restore.wakeIfPending()
 
+    /** 渲染进程崩溃后顶替上来的前台标签：不自动重载（页面可能一加载就崩，会死循环），显示崩溃页等用户点「重试」 */
+    internal fun adoptCrashedPage(failingUrl: String, savedTitle: String, desktop: Boolean, fromLink: Boolean, didCrash: Boolean) =
+        restore.adoptCrashed(failingUrl, savedTitle, desktop, fromLink, didCrash)
+
     internal fun canDiscardEngine(): Boolean = restore.canDiscard()
 
     internal fun discardEngine(): Boolean = restore.discardEngine()
@@ -1545,6 +1576,7 @@ class BrowserTab(
         runCatching { fpInjector?.clear() }
         runCatching { extInstallation?.close() }
         extInstallation = null
+        runCatching { scripts.release() }
         if (isGecko) {
             // 引擎从没建过（延迟创建的后台标签）就没有东西要销毁
             geckoEngine?.let { g ->
@@ -1561,6 +1593,8 @@ class BrowserTab(
             webView.removeAllViews()
             webView.destroy()
         }
+        // 绑在无痕 Profile 上的最后一个 WebView 销毁后，整个 Profile（Cookie / 缓存 / 站点数据）一起删掉
+        webViewOrNull?.let { dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.release(it) }
     }
 
     /**

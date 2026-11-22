@@ -1,4 +1,35 @@
 # Changelog
+## [2.1.70]
+## WebView extensions: blank popups (Dark Reader / Tampermonkey)
+
+- **Dark Reader popup was blank.** `chrome.extension` in the page shim was the raw object, not wrapped by `cbObj`, so `chrome.extension.isAllowedFileSchemeAccess(cb)` / `isAllowedIncognitoAccess(cb)` never called their callback. Dark Reader's `collectData()` does `Promise.all([... new Promise(r => chrome.extension.isAllowedFileSchemeAccess(r)) ...])`, so on Firefox (port `getData`) the background never answered and the popup stayed empty. `chrome.extension` is now `cbObj(ext)`; promise-style `browser.extension.*` is unchanged.
+- **`runtime.sendMessage` no longer rejects with `NO_RECEIVER` when a listener exists but does not respond** (Firefox semantics: resolves `undefined`). Only "no listener at all / undeliverable" is `NO_RECEIVER`. The shim now replies `{noResponse:true}` (listener present, no answer) vs `{noReceiver:true}` (no listener); `MessageBroker` resolves `undefined` when every target finished without a real reply and at least one had a listener. A real reply from any context still wins. Tampermonkey's popup sends fire-and-forget messages and then reads data over a Port; the rejection surfaced as "unable to load tree".
+- Diagnostics: a `listener present but no response` line is logged for `noResponse` replies.
+- Tests: `ext-shim-test` (chrome.extension callback style, noResponse reply), `MessageBrokerTest.listenerWithoutResponseResolvesUndefinedNotNoReceiver`. Not compiled for Android here. Two shim tests (`windows.create` UNSUPPORTED, API wiring list) already failed in the uploaded tree and are unchanged.
+
+## WebView adoption, part 2: incognito Profile, WebMessageListener bridges
+
+- **Incognito tabs use a separate WebView Profile** (`IncognitoProfile`, `MULTI_PROFILE`). The tab's WebView is bound with `setProfile` right after creation (incognito is fixed at tab creation, which is already how `createTab` uses it). Cookies, cache, localStorage / IndexedDB, service workers and site permissions are isolated from the default profile; logging in inside an incognito tab now persists for that session (the old process-wide `setAcceptCookie(false)` flip blocked all cookies). When the last bound WebView is destroyed the whole profile is deleted (retry once; leftovers from a killed process are removed on first incognito use, plus a sweep after the UI is shown). Without `MULTI_PROFILE` the old behaviour is kept.
+- Cookie access that used the global `CookieManager` is now profile-aware: `applyPrivacy`, initial tab setup, `GmBridge` (GM_cookie / `GM_xmlhttpRequest` cookies) and the temp WebView of `window.open` (bound to the opener's profile). Cookie backup reads the default profile path and is unchanged; incognito downloads still send no cookies (`withCookies = !tab.incognito`).
+- **One-way bridges moved to `WebMessageListener`** (`OneWayBridge`): `MafariTr` (page translation) and `MafariElement` (ad marking long-press) now only accept messages from the main frame with an http(s) origin, string payloads under a length cap. `addJavascriptInterface` remains as the fallback when `WEB_MESSAGE_LISTENER` is unsupported; the page scripts feature-detect `postMessage` vs the old method (`mafari_translate.js` and its Gecko copy kept identical; node test added).
+- Not converted (they need a synchronous return value): `MafariAdblock.css`, `MafariFp.fp` (fallback only), `MafariBlob.begin` / chunk streaming. Tests: `OneWayBridgeTest`.
+- Not compiled here; see the delivery notes for the device checklist.
+
+## WebView adoption: render-process recovery, UA client hints, async startup
+
+- **Main tabs now survive a renderer crash / OOM kill.** `TabWebViewSetup` handles `onRenderProcessGone` (returns `true`, so the app is no longer taken down with the renderer). `BrowserState.replaceCrashedTab` swaps in a fresh tab at the same position, keeping URL / title / desktop mode / opener chain / `tabs` row key. A foreground tab shows the existing "page crashed" error page (`ErrorPages.crashed`) and waits for Retry (no auto-reload, so a page that crashes on load cannot loop); a background tab becomes a pending-restore tab and loads when switched to.
+- **UA client hints follow the UA string.** New `UaClientHints` derives platform / mobile from the effective UA and applies `WebSettingsCompat.setUserAgentMetadata` (`USER_AGENT_METADATA`) after every `userAgentString` change, so `Sec-CH-UA-Mobile` / `Sec-CH-UA-Platform` / `navigator.userAgentData` no longer contradict desktop mode or a custom UA. When the target UA has the same platform and mobile flag as the system default it is left to WebView (the reduced UA's Android version is frozen and less accurate). Brand list untouched. Test: `UaClientHintsTest`.
+- **Async WebView start-up.** New `WebViewStartup` calls `WebViewCompat.startUpWebView` from `Application.onCreate` (main process, WebView default engine only). The cold-start content gate (`StartupCoordinator.awaitContentReady`) waits for it (<= 1.5 s, in parallel with the encrypted-DB warm-up), so the first `BrowserTab` WebView is created only after start-up finished; if it never finishes or is unsupported the old synchronous behaviour applies.
+- Not compiled here; `startUpWebView` / `UserAgentMetadata` signatures are written from the androidx.webkit docs, see the device checklist in the delivery notes.
+
+## WebView GM channel: step 1c (legacy bridge only on demand, `@connect`)
+## [2.1.68]
+
+- Isolated-world devices no longer expose `MafariGM` to page JS: `setupWebView` only creates the shared `GmBridge`; `TabScripts.ensureLegacyBridge()` attaches the `addJavascriptInterface` bridge only when the system WebView lacks isolated worlds or the channel failed to install.
+- `TabScripts.injectMissing` skips late `evaluateJavascript` injection while the channel is active (such a script would have neither bridge nor relay).
+- New `GmConnectPolicy` (pure JVM, same rules as the Gecko background page): `@connect` is enforced for `GM_xmlhttpRequest` (every redirect hop re-checked) and, more strictly, `GM_cookie` on the channel path. Private/LAN hosts need an explicit `@connect`.
+- Script quick menu subtitle now shows the runtime environment after the running count ("N scripts running · Isolated-world channel" / "· In-page bridge", the latter with a red "!" that toasts an unsafe warning and advises updating WebView): `TabScripts.bridgeMode()` reports isolated world when the GM channel (or Gecko relay) is in use and in-page when the legacy `MafariGM` bridge is attached.
+- Tests: `GmConnectPolicyTest`. Not compiled for Android here; see the device checklist in `docs/WEBVIEW_GM_CHANNEL.md`.
 
 ## androidx.webkit 1.19.0-alpha02 + true isolated worlds
 

@@ -1221,6 +1221,8 @@ internal fun <T> ReorderTileGrid(
     onTap: (index: Int, item: T, editing: Boolean) -> Unit,
     onToggleEdit: () -> Unit,
     onMove: (Int, Int) -> Unit,
+    /** 手指按下瞬间（还不知道是点击、长按还是拖动）；只用来做「很可能要打开」的预热，不消费事件 */
+    onPress: (index: Int, item: T) -> Unit = { _, _ -> },
     hasTrailing: Boolean = false,
     trailing: @Composable (modifier: Modifier) -> Unit = {},
     tile: @Composable (item: T, index: Int, modifier: Modifier) -> Unit,
@@ -1236,6 +1238,7 @@ internal fun <T> ReorderTileGrid(
     val onMoveNow by rememberUpdatedState(onMove)
     val editingNow by rememberUpdatedState(editing)
     val onToggleEditNow by rememberUpdatedState(onToggleEdit)
+    val onPressNow by rememberUpdatedState(onPress)
     val haptic = LocalHapticFeedback.current
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -1288,6 +1291,7 @@ internal fun <T> ReorderTileGrid(
                                 //（clickable 长按后会 consumeUntilUp，把后续移动吞掉，导致拖不动）
                                 awaitEachGesture {
                                     val down = awaitFirstDown()
+                                    if (!editingNow) onPressNow(indexNow, item)
                                     var up: androidx.compose.ui.input.pointer.PointerInputChange? = null
                                     val finishedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                                         up = waitForUpOrCancellation()
@@ -1365,6 +1369,7 @@ internal fun FavoriteGrid(
         onTap = { index, favorite, isEditing -> if (isEditing) onEdit(index) else onOpen(favorite.url) },
         onToggleEdit = onToggleEdit,
         onMove = onMove,
+        onPress = { _, favorite -> dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.onLikelyNavigation(favorite.url) },
         hasTrailing = showMore,
         trailing = { mod ->
             FavoriteMoreTile(

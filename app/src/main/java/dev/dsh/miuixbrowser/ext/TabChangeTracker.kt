@@ -5,7 +5,7 @@ package dev.dsh.miuixbrowser.ext
  *
  * - 第一次 [update] 只建立基线、不发事件：接上桥接之前就存在的标签不算「新建」；
  * - 事件顺序：onRemoved → onCreated → onUpdated → onActivated；
- * - 只有 status（loading / complete）、url、title、favIconUrl 的变化才发 onUpdated；下标变化单独发 onMoved；
+ * - 只有 status（loading / complete）、url、title、favIconUrl、muted 的变化才发 onUpdated；下标变化单独发 onMoved；
  * - favIconUrl 变成 null（无法用 [TabChange] 表示「清除」）不发；
  * - 前台标签换了才发 onActivated；之前的前台标签已不存在时 previousTabId 为 null；
  *   没有任何可见前台标签（用户正停在无痕 / Gecko 标签上）时不发，也不算「失去前台」，回到可见标签时 previousTabId 为 null。
@@ -46,5 +46,6 @@ class TabChangeTracker(private val sink: TabEventListener) {
         url = now.url.takeIf { it != old.url },
         title = now.title.takeIf { it != old.title },
         favIconUrl = now.favIconUrl?.takeIf { it != old.favIconUrl },
+        muted = now.muted?.takeIf { it != (old.muted ?: false) },
     )
 }

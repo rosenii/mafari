@@ -106,6 +106,16 @@ object WebViewDebug {
             tr("文档开始脚本") to feature(WebViewFeature.DOCUMENT_START_SCRIPT),
             "Passkey" to feature(WebViewFeature.WEB_AUTHENTICATION),
             tr("代理覆盖") to feature(WebViewFeature.PROXY_OVERRIDE),
+            tr("导航监听") to when (dev.dsh.miuixbrowser.ext.WebViewNavigationBridge.tier()) {
+                2 -> tr("支持（含 FCP / LCP）")
+                1 -> tr("旧版（仅 Page 重载）")
+                else -> tr("不支持")
+            },
+            tr("预连接") to feature(WebViewFeature.ENQUEUE_PRECONNECT).let { enq ->
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.PRECONNECT)) "$enq（preconnect ${tr("支持")}）" else enq
+            },
+            tr("URL 预取") to feature(WebViewFeature.PROFILE_URL_PREFETCH),
+            tr("导航排空预取") to feature(WebViewFeature.WEBVIEW_NAVIGATE_DRAIN_PREFETCH),
             tr("智能深色") to feature(WebViewFeature.ALGORITHMIC_DARKENING),
             tr("运行日志") to if (Diag.enabled) tr("已开启") else tr("关闭"),
             tr("日志文件") to Diag.logFile(context).let { f ->

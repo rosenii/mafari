@@ -12,7 +12,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
-index 9f864bd..9f7960a 100644
+index 27b2095..f3df6f0 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 @@ -10,6 +10,7 @@ import androidx.compose.ui.unit.Dp
@@ -23,7 +23,7 @@ index 9f864bd..9f7960a 100644
  import top.yukonga.miuix.kmp.material.EdgeStroke
  import top.yukonga.miuix.kmp.material.GlassMaterial
  import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-@@ -43,6 +44,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+@@ -44,6 +45,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
   * @param stroke Optional bloom stroke, omitted on the overscroll extension.
   * @param containerColor Opaque fallback fill.
   * @param dimColor Scrim color before the host applies animation progress.
@@ -31,7 +31,7 @@ index 9f864bd..9f7960a 100644
   * @param onDismissFinished Called after the hide animation completes.
   * @param content Sheet content. Add scrolling, navigation-bar padding and extra spacing as needed.
   */
-@@ -69,6 +71,7 @@ fun GlassBottomSheet(
+@@ -70,6 +72,7 @@ fun GlassBottomSheet(
      stroke: EdgeStroke? = GlassBottomSheetDefaults.stroke(),
      containerColor: Color = GlassBottomSheetDefaults.containerColor(),
      dimColor: Color = GlassBottomSheetDefaults.ScrimColor,
@@ -39,7 +39,7 @@ index 9f864bd..9f7960a 100644
      onDismissFinished: (() -> Unit)? = null,
      content: @Composable () -> Unit,
  ) {
-@@ -92,7 +95,7 @@ fun GlassBottomSheet(
+@@ -93,7 +96,7 @@ fun GlassBottomSheet(
          enableNestedScroll = enableNestedScroll,
          renderInRootScaffold = renderInRootScaffold,
          dimColor = dimColor,
@@ -48,3 +48,6 @@ index 9f864bd..9f7960a 100644
          content = content,
      )
  }
+-- 
+2.43.0
+

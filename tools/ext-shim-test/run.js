@@ -177,6 +177,58 @@ test('run_at scheduling', () => {
   assert.strictEqual(idle.sandbox.n, 1);
 });
 
+test('run_at with native document-end hook (isolated world)', () => {
+  const HOOK = '__mend_test';
+  const nc = () => cfg({ isolatedWorld: true, nativeEnd: HOOK });
+
+  // document_end：不再监听 DOMContentLoaded，等宿主的 document-end 脚本调钩子
+  const end = makeEnv();
+  end.run(assemble(nc(), entry(['window.hit = (window.hit || 0) + 1'], { at: 'document_end' })));
+  assert.strictEqual(typeof end.sandbox[HOOK], 'function');
+  assert.strictEqual((end.docListeners['DOMContentLoaded'] || []).length, 0);
+  assert.strictEqual(end.sandbox.hit, undefined);
+  end.sandbox[HOOK]();
+  assert.strictEqual(end.sandbox.hit, 1);
+  assert.strictEqual(end.sandbox[HOOK], undefined); // 触发后钩子被摘掉
+  end.fireWin('load'); // load 兜底不会重复执行
+  assert.strictEqual(end.sandbox.hit, 1);
+
+  // 钩子没来：window.load 兜底
+  const fallback = makeEnv();
+  fallback.run(assemble(nc(), entry(['window.hit = (window.hit || 0) + 1'], { at: 'document_end' })));
+  fallback.fireWin('load');
+  assert.strictEqual(fallback.sandbox.hit, 1);
+
+  // 脚本启动时文档已过 loading：立即执行
+  const late = makeEnv({ readyState: 'interactive' });
+  late.run(assemble(nc(), entry(['window.hit = 1'], { at: 'document_end' })));
+  assert.strictEqual(late.sandbox.hit, 1);
+
+  // document_idle：钩子之后再等 load 或 200ms
+  const idle = makeEnv();
+  idle.run(assemble(nc(), entry(['window.n = (window.n || 0) + 1'], { at: 'document_idle' })));
+  idle.sandbox[HOOK]();
+  assert.strictEqual(idle.sandbox.n, undefined);
+  idle.runTimers();
+  idle.fireWin('load');
+  assert.strictEqual(idle.sandbox.n, 1);
+
+  // 多个条目按声明顺序执行；一个抛错不影响后一个
+  const order = makeEnv();
+  const two = entry(['window.o = (window.o || "") + "a"; throw new Error("x")'], { at: 'document_end' }).slice(0, -1) + ',' +
+    entry(['window.o = (window.o || "") + "b"'], { at: 'document_end' }).slice(1);
+  order.run(assemble(nc(), two));
+  order.sandbox[HOOK]();
+  assert.strictEqual(order.sandbox.o, 'ab');
+
+  // 没设 nativeEnd（页面世界 / 旧路径）：仍然自己监听 DOMContentLoaded
+  const legacy = makeEnv();
+  legacy.run(assemble(cfg(), entry(['window.hit = 1'], { at: 'document_end' })));
+  assert.strictEqual(legacy.sandbox[HOOK], undefined);
+  legacy.fireDoc('DOMContentLoaded');
+  assert.strictEqual(legacy.sandbox.hit, 1);
+});
+
 test('css is inserted; defers when document has no head yet', () => {
   const a = makeEnv();
   a.run(assemble(cfg(), entry([''], { css: ['body{color:red}'] })));
@@ -324,6 +376,20 @@ test('tabs.onHighlighted dispatches Chrome highlightInfo payload', () => {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.highlighted)), { tabIds: [7], windowId: 1 });
 });
 
+test('chrome.extension promise methods honour callback style (Dark Reader collectData awaits isAllowedFileSchemeAccess(cb))', async () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true }), entry([`
+    window.__r = [];
+    chrome.extension.isAllowedFileSchemeAccess(function (v) { window.__r.push(['file', v]); });
+    chrome.extension.isAllowedIncognitoAccess(function (v) { window.__r.push(['incog', v]); });
+    browser.extension.isAllowedFileSchemeAccess().then(function (v) { window.__r.push(['promise', v]); });
+    window.__url = chrome.extension.getURL('a.html');
+  `])));
+  await tick(); await tick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(env.sandbox.__r)).sort(), [['file', false], ['incog', false], ['promise', false]]);
+  assert.ok(String(env.sandbox.__url).endsWith('/a.html'));
+});
+
 test('runtime.onMessage: sync, return true + sendResponse, promise, and no listener', async () => {
   // 没有监听器
   let env = makeEnv();
@@ -331,11 +397,11 @@ test('runtime.onMessage: sync, return true + sendResponse, promise, and no liste
   env.native({ type: 'message', cid: 'c0', message: 'x' });
   assert.deepStrictEqual(env.posted[0].args, ['c0', null, { noReceiver: true }]);
 
-  // 监听器收到消息但没有回复：按 NO_RECEIVER 处理，不伪造成功的 undefined
+  // 监听器收到消息但没有回复：标记 noResponse（不是 noReceiver），由 broker 决定发送方 resolve undefined
   env = makeEnv();
   env.run(assemble(cfg(), entry(['browser.runtime.onMessage.addListener(function () { });'])));
   env.native({ type: 'message', cid: 'c1', message: 'x' });
-  assert.deepStrictEqual(env.posted[0].args, ['c1', null, { noReceiver: true }]);
+  assert.deepStrictEqual(env.posted[0].args, ['c1', null, { noResponse: true }]);
 
   // 同步 sendResponse：即使监听器没有 return true，也立即完成回复
   env = makeEnv();
@@ -993,11 +1059,10 @@ test('cookies: namespace is extension-page-only and requires the manifest permis
   assert.strictEqual(noPerm.sandbox.browser.cookies, undefined);
   const page = makeEnv();
   page.run(assemble(cfg({ page: true, manifest }), '[]'));
-  for (const method of ['get', 'set', 'remove']) {
+  for (const method of ['get', 'getAll', 'set', 'remove']) {
     assert.strictEqual(typeof page.sandbox.browser.cookies[method], 'function', method);
     assert.strictEqual(typeof page.sandbox.chrome.cookies[method], 'function', 'chrome.' + method);
   }
-  assert.strictEqual(page.sandbox.browser.cookies.getAll, undefined);
 });
 
 test('cookies: get/set/remove forward details to native', () => {
@@ -1005,13 +1070,14 @@ test('cookies: get/set/remove forward details to native', () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true, manifest }), entry([
     "browser.cookies.get({ url: 'https://example.com/', name: 'sid' });",
+    "browser.cookies.getAll({ url: 'https://example.com/' });",
     "browser.cookies.set({ url: 'https://example.com/', name: 'sid', value: 'abc', secure: true });",
     "browser.cookies.remove({ url: 'https://example.com/', name: 'sid', path: '/' });",
     "chrome.cookies.get({ url: 'https://example.com/', name: 'sid' }, function () {});"
   ])));
   const calls = env.posted.filter((x) => x.api && x.api.indexOf('cookies.') === 0);
-  assert.deepStrictEqual(calls.map((x) => x.api), ['cookies.get', 'cookies.set', 'cookies.remove', 'cookies.get']);
-  assert.strictEqual(calls[1].args[0].value, 'abc');
+  assert.deepStrictEqual(calls.map((x) => x.api), ['cookies.get', 'cookies.getAll', 'cookies.set', 'cookies.remove', 'cookies.get']);
+  assert.strictEqual(calls[2].args[0].value, 'abc');
 });
 
 test('history API is extension-page-only and exposes native-backed methods', () => {
@@ -1090,7 +1156,7 @@ test('feature-detectable namespaces stay absent (privacy / dns / contextualIdent
 test('inert events and no-op setters never reach the native bridge (no fake success against a native handler)', () => {
   const env = makeEnv();
   env.run(assemble(cfg({ page: true, manifest: { manifest_version: 2, name: 'x', version: '1', permissions: ['webRequest', 'idle'] } }), entry([
-    "var f = function () {}; browser.webRequest.onHeadersReceived.addListener(f, {}, ['blocking']); browser.browserAction.onClicked.addListener(f); browser.browserAction.setIcon({}); browser.idle.onStateChanged.addListener(f);",
+    "var f = function () {}; browser.webRequest.onBeforeSendHeaders.addListener(f, {}, ['blocking']); browser.browserAction.onClicked.addListener(f); browser.browserAction.setIcon({}); browser.idle.onStateChanged.addListener(f);",
   ])));
   assert.deepStrictEqual(env.posted.map((x) => x.api), ['runtime.hello']);
 });
@@ -1182,10 +1248,10 @@ test('inert events warn once (unless quiet) and never reach the native bridge', 
   env.sandbox.console.warn = (m) => warns.push(String(m));
   env.run(assemble(cfg({ page: true, manifest: { manifest_version: 2, name: 'x', version: '1', permissions: ['webRequest'] } }), entry([`
     var f = function () {}, g = function () {};
-    browser.webRequest.onHeadersReceived.addListener(f); browser.webRequest.onHeadersReceived.addListener(g);
+    browser.webRequest.onBeforeSendHeaders.addListener(f); browser.webRequest.onBeforeSendHeaders.addListener(g);
     browser.runtime.onSuspend.addListener(f);
   `])));
-  assert.strictEqual(warns.filter((w) => w.includes('webRequest.onHeadersReceived')).length, 1);
+  assert.strictEqual(warns.filter((w) => w.includes('webRequest.onBeforeSendHeaders')).length, 1);
   assert.strictEqual(warns.filter((w) => w.includes('runtime.onSuspend')).length, 0);
   assert.deepStrictEqual(env.posted.map((x) => x.api), ['runtime.hello']);
 });
@@ -1238,3 +1304,26 @@ test('wiring: every `fun register(router: ApiRouter)` is actually called from Ex
   console.log(failed ? failed + ' failed' : 'all ' + tests.length + ' passed');
   process.exit(failed ? 1 : 0);
 })();
+
+// ───────────── onHeadersReceived / onDOMContentLoaded 现在是真实事件（来自 NavigationListener），要走原生桥 ─────────────
+test('webRequest.onHeadersReceived registers natively with its extraInfoSpec and receives main-frame events', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 2, name: 'x', version: '1', permissions: ['webRequest'] } }), entry([`
+    window.__got = [];
+    browser.webRequest.onHeadersReceived.addListener(function (d) { window.__got.push(d.statusCode); }, { urls: ['<all_urls>'] }, ['responseHeaders']);
+  `])));
+  const reg = env.posted.find((x) => x.api === 'webRequest.addListener');
+  assert.ok(reg, 'onHeadersReceived must register with the native router');
+  assert.strictEqual(reg.args[0], 'onHeadersReceived');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(reg.args[3])), ['responseHeaders']);
+});
+
+test('webNavigation.onDOMContentLoaded is a real event', () => {
+  const env = makeEnv();
+  env.run(assemble(cfg({ page: true, manifest: { manifest_version: 2, name: 'x', version: '1', permissions: ['webNavigation'] } }), entry([`
+    window.__n = 0;
+    browser.webNavigation.onDOMContentLoaded.addListener(function () { window.__n++; });
+  `])));
+  assert.strictEqual(typeof env.sandbox.__n, 'number');
+});
+

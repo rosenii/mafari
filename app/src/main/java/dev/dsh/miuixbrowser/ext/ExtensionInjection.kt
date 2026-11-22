@@ -28,6 +28,13 @@ class InjectionPlan(
     val isolatedOriginRules: Set<String> = emptySet(),
     val mainScript: String? = null,
     val mainOriginRules: Set<String> = emptySet(),
+    /**
+     * 隔离世界里 document_end / document_idle 条目的触发脚本，宿主用 INJECTION_EVENT_DOCUMENT_END（对应 DOMContentLoaded）
+     * 注册，origin 规则同 [isolatedOriginRules]。null = 隔离世界里没有晚于 document_start 的条目。
+     */
+    val isolatedEndScript: String? = null,
+    /** [ExtensionInjection.build] 的 lazyModules 模式下，按需送进隔离世界的模块：路径 → 模块函数源码。 */
+    val lazyModuleSources: Map<String, String> = emptyMap(),
 )
 
 object ExtensionInjection {
@@ -35,6 +42,13 @@ object ExtensionInjection {
 
     /** 每个拓展一个隔离世界；名字由 extId 哈希得出（只含字母数字下划线），与桥名同源，不暴露 extId */
     fun worldNameFor(extId: String): String = "mw_" + bridgeNameFor(extId).removePrefix("__mext_")
+
+    /** 隔离世界里挂 document-end 钩子的全局名：只存在于该拓展自己的世界，页面看不到；与桥名同源 */
+    fun endHookFor(extId: String): String = "__mend_" + bridgeNameFor(extId).removePrefix("__mext_")
+
+    /** 在 document-end 事件里执行：调用 shim 挂的钩子，由它按顺序跑 document_end / document_idle 条目 */
+    fun endScriptFor(extId: String): String =
+        "(function(){try{var f=window[\"" + endHookFor(extId) + "\"];if(typeof f===\"function\")f();}catch(e){}})();"
 
     fun bridgeNameFor(extId: String): String {
         val h = MessageDigest.getInstance("SHA-256").digest(extId.toByteArray(Charsets.UTF_8))
@@ -44,6 +58,10 @@ object ExtensionInjection {
     /**
      * [shim] 是 assets/mafari_ext_shim.js 全文；[readText] 按拓展包内的相对路径读文本（读不到返回 null）。
      * 没有任何可注入的 content script 时返回 null。
+     *
+     * [lazyModules]：true 时，ISOLATED 条目里 content script 动态 import 的拓展内模块不随脚本注入（可能有几 MB，
+     * 而且条目会被拼进多份脚本），只把路径写进条目（`lazy`），源码放进 [InjectionPlan.lazyModuleSources]，
+     * 由宿主在 shim 请求时经隔离世界的 executeJavaScript 送进去。只在宿主能用隔离世界时才能开；MAIN 条目没有桥，始终内联。
      */
     fun build(
         ext: InstalledExtension,
@@ -51,6 +69,7 @@ object ExtensionInjection {
         readText: (String) -> String?,
         dynamicContentScripts: List<ContentScriptSpec> = emptyList(),
         tabId: Int? = null,
+        lazyModules: Boolean = false,
     ): InjectionPlan? {
         val spec = ext.spec
         val warnings = mutableListOf<String>()
@@ -69,6 +88,7 @@ object ExtensionInjection {
         var count = 0
         var isoCount = 0
         var mainCount = 0
+        var isoNeedsEnd = false
 
         // Dynamic registrations are durable configuration, not durable permission grants.
         // Re-evaluate their host access every time a WebView injection plan is built.
@@ -79,6 +99,7 @@ object ExtensionInjection {
             if (allowedMatches.isEmpty()) null else script.copy(matches = allowedMatches)
         }
 
+        val lazySources = linkedMapOf<String, String>()
         for (cs in spec.contentScripts + authorizedDynamicScripts) {
             val origin = cs.matches.flatMap { it.toOriginRules() }
             if (origin.isEmpty()) {
@@ -102,8 +123,21 @@ object ExtensionInjection {
             // 同一条 content_scripts 的多个 js 文件拼进同一个函数（用 `;` 隔开）：Chrome 里它们共享同一个全局，
             // 常见写法是 ["utils.js","main.js"]，main.js 直接用 utils.js 顶层声明的函数 / 变量，分开包会让后面的文件找不到。
             // 代价：前一个文件抛错会连累后面的；变量只在这条 content script 内可见，不会泄漏到页面全局。
-            val body = if (js.isEmpty()) "" else "function(browser,chrome){\n" + js.joinToString("\n;\n") + "\n}"
-            entry.append(",\"js\":[").append(body).append("]}")
+            // 动态 import(拓展内模块)会被页面 CSP 拦截（WebView 的隔离世界受页面 CSP 约束），
+            // 这里把引用到的模块内联进条目，import( 改写成 __mafariImport(，由 shim 在运行时取内联模块。
+            val bundled = if (js.isEmpty()) null else ContentModuleBundler.process(js.joinToString("\n;\n"), readText)
+            bundled?.warnings?.forEach { warnings.add(it) }
+            val body = if (bundled == null) "" else
+                "function(browser,chrome," + ContentModuleBundler.IMPORT_FN + "){\n" + bundled.rewrittenJs + "\n}"
+            entry.append(",\"js\":[").append(body).append(']')
+            val lazyEntry = lazyModules && cs.world != ScriptWorld.MAIN && bundled != null && bundled.mods.isNotEmpty()
+            if (lazyEntry) {
+                entry.append(",\"lazy\":[").append(bundled!!.mods.keys.joinToString(",") { JSONObject.quote(it) }).append(']')
+                lazySources.putAll(bundled.mods)
+            } else {
+                bundled?.modulesJs?.let { entry.append(",\"mods\":").append(it) }
+            }
+            entry.append('}')
             val entryJson = entry.toString()
 
             // 旧路径：所有条目一起进同一个页面世界脚本
@@ -118,6 +152,7 @@ object ExtensionInjection {
                 if (isoCount++ > 0) isoEntries.append(',')
                 isoEntries.append(entryJson)
                 isoRules.addAll(origin)
+                if (cs.runAt != RunAt.DOCUMENT_START) isoNeedsEnd = true
             }
         }
         entries.append(']')
@@ -138,6 +173,8 @@ object ExtensionInjection {
         // 隔离世界：桥只注册在该世界里，页面世界既看不到桥也发不出消息；browser / chrome 也只挂在这个世界的全局上
         val isolatedScript = if (isoCount > 0) {
             val isoCfg = JSONObject(cfg.toString()).put("isolatedWorld", true)
+            // 有 document_end / document_idle 条目时，让 shim 等宿主注册的原生 document-end 事件（见 [InjectionPlan.isolatedEndScript]）
+            if (isoNeedsEnd) isoCfg.put("nativeEnd", endHookFor(spec.id))
             assemble(shim, isoCfg, isoEntries.toString())
         } else {
             null
@@ -155,6 +192,8 @@ object ExtensionInjection {
             isolatedOriginRules = effectiveOf(isoRules),
             mainScript = mainScript,
             mainOriginRules = effectiveOf(mainRules),
+            isolatedEndScript = if (isolatedScript != null && isoNeedsEnd) endScriptFor(spec.id) else null,
+            lazyModuleSources = lazySources,
         )
     }
 

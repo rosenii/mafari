@@ -16,7 +16,7 @@ Content-Transfer-Encoding: 8bit
  4 files changed, 12 insertions(+), 6 deletions(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
-index 9f7960a..b22f016 100644
+index f3df6f0..164287e 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 @@ -13,6 +13,7 @@ import top.yukonga.miuix.kmp.layout.BottomSheetDefaults
@@ -27,7 +27,7 @@ index 9f7960a..b22f016 100644
  import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
  
  /**
-@@ -67,9 +68,11 @@ fun GlassBottomSheet(
+@@ -68,9 +69,11 @@ fun GlassBottomSheet(
      outsideMargin: DpSize = BottomSheetDefaults.outsideMargin,
      insideMargin: DpSize = BottomSheetDefaults.insideMargin,
      dragHandleColor: Color = BottomSheetDefaults.dragHandleColor(),
@@ -40,7 +40,7 @@ index 9f7960a..b22f016 100644
      dimColor: Color = GlassBottomSheetDefaults.ScrimColor,
      surface: (@Composable BottomSheetSurfaceScope.() -> Modifier)? = null,
      onDismissFinished: (() -> Unit)? = null,
-@@ -95,7 +98,7 @@ fun GlassBottomSheet(
+@@ -96,7 +99,7 @@ fun GlassBottomSheet(
          enableNestedScroll = enableNestedScroll,
          renderInRootScaffold = renderInRootScaffold,
          dimColor = dimColor,
@@ -50,10 +50,10 @@ index 9f7960a..b22f016 100644
      )
  }
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-index bec1df4..bfe2ed4 100644
+index efbe10d..8b7bd3e 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-@@ -69,7 +69,7 @@ object GlassBottomSheetDefaults {
+@@ -75,7 +75,7 @@ object GlassBottomSheetDefaults {
  @Composable
  fun glassBottomSheetSurface(
      backdrop: Backdrop?,
@@ -109,3 +109,6 @@ index 9c732ef..7e2441c 100644
      stroke: EdgeStroke? = GlassDialogDefaults.stroke(),
      containerColor: Color = GlassDialogDefaults.containerColor(),
      shading: Boolean = GlassSurfaceShading.enabled,
+-- 
+2.43.0
+

@@ -199,6 +199,8 @@ internal fun BrowserTab.handleCreateWindow(view: WebView, isUserGesture: Boolean
     val linkClick = isUserGesture && hit != null && !hit.extra.isNullOrEmpty() &&
         (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE || hit.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE)
     val temp = WebView(appContext)
+    // 无痕标签弹出的窗口：临时 WebView 和来源同一个 Profile（否则首个请求会带上默认 Profile 的 Cookie）
+    dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.bindLike(temp, view)
     temp.settings.javaScriptEnabled = true
     var handled = false
     fun capture(target: String?) {
@@ -207,6 +209,7 @@ internal fun BrowserTab.handleCreateWindow(view: WebView, isUserGesture: Boolean
         val uri = Uri.parse(target)
         temp.post {
             runCatching { temp.stopLoading(); temp.destroy() }
+            dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.release(temp)
         }
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
@@ -231,6 +234,7 @@ internal fun BrowserTab.handleCreateWindow(view: WebView, isUserGesture: Boolean
         if (!handled) {
             handled = true
             runCatching { temp.stopLoading(); temp.destroy() }
+            dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.release(temp)
         }
     }, 8_000)
     transport.webView = temp

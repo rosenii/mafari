@@ -1150,7 +1150,13 @@ internal fun AddressField(
     }
     // 用户输入：只有文字真的变了才通知外部（光标 / 选区移动不算输入，外部据此判断「用户是否改过地址」）
     LaunchedEffect(fieldState) {
-        snapshotFlow { fieldState.text.toString() }.collect { t -> if (t != latestValue) onChange(t) }
+        snapshotFlow { fieldState.text.toString() }.collect { t ->
+            if (t != latestValue) {
+                onChange(t)
+                // 预连接：用户在打字，停顿后若已是完整网址就提前建连（纯搜索词不处理）
+                dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.onAddressInput(t)
+            }
+        }
     }
     // 进入编辑态（点击地址栏 / 圆形搜索钮）：先全选当前网址，再拿焦点，用户可以直接输入替换或粘贴；
     // 退出编辑态时选区收起并滚回开头。失焦时通知外部退出编辑态。
@@ -1158,6 +1164,7 @@ internal fun AddressField(
         if (editing) {
             fieldState.setTo(value, TextRange(0, value.length))
             runCatching { focusRequester.requestFocus() }
+            dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.onAddressFocus()
         } else {
             fieldState.setTo(value, TextRange(0))
             runCatching { scroll.scrollTo(0) }

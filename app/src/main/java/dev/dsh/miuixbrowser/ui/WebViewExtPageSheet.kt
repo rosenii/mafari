@@ -57,7 +57,7 @@ internal fun WebViewExtPageSheet(
         }
         val path = when (r.kind) {
             ExtPageRequest.Kind.POPUP -> system.actionApi.state(ext).popup?.takeIf { it.isNotBlank() }
-            ExtPageRequest.Kind.OPTIONS -> ext.spec.optionsPage?.takeIf { it.isNotBlank() }
+            ExtPageRequest.Kind.OPTIONS -> (r.path ?: ext.spec.optionsPage)?.takeIf { it.isNotBlank() }
         }
         if (path == null) {
             Toast.makeText(

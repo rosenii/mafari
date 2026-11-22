@@ -19,7 +19,7 @@ jobs:
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       # 版本名（或 tag 名）以 -canary 结尾 → 预发布（canary，只出 3 个包）；没有任何后缀 → 正式发布（全部安装包，标 latest）；
-      # 其它后缀一律报错。tag 推送和 dual / gecko 分支推送都按这条规则；其余分支只出 debug
+      # 其它后缀一律报错。tag 推送和 dual / gecko 分支推送都按这条规则；main 分支推送构建签名 release 包但不发布（见 IS_MAIN_BRANCH）；其余分支只出 debug
       IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
       IS_GECKO_BRANCH: ${{ github.ref == 'refs/heads/gecko' }}
       # dual 分支：同时构建 gecko + lite 两个变体，直接发布为正式 release（tag = 应用版本名，如 v2.1.3，标 latest，进 lite / gecko 更新通道）；
@@ -28,6 +28,9 @@ jobs:
       # 预发布分支（gecko 或 dual）：tag 前缀 = 分支名
       IS_PRE_BRANCH: ${{ github.ref == 'refs/heads/gecko' || github.ref == 'refs/heads/dual' }}
       PRE_PREFIX: ${{ github.ref == 'refs/heads/dual' && 'dual' || 'gecko' }}
+      # main 分支：构建签名的 release 包（不是 debug），但不发布——不建 GitHub Release、不推 Telegram，安装包只出现在本次运行的构建产物（Artifacts）里。
+      # 没配置签名密钥时退回 debug 包
+      IS_MAIN_BRANCH: ${{ github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -89,21 +92,21 @@ jobs:
           echo "version: $NAME ($CODE)"
 
       - name: Prepare keystore
-        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
+        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true' || env.IS_MAIN_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > mafari-release.jks
 
       # 变体一次编完（共用 miuix 与 Gradle 缓存）：
       #   gecko = 内嵌 GeckoView 的双内核版（带 Firefox 同步）；lite = 无内核版（只用系统 WebView，不带 Firefox 同步，三种架构）；
       #   liteSync = 无内核版 + Firefox 同步（只构建 arm64）
-      # main 或 无 keystore 的 gecko/tag：编 debug
+      # 其它分支，或没有 keystore 的 main / gecko / tag：编 debug
       - name: Build debug (gecko + lite + sync_lite)
-        if: env.IS_RELEASE_TAG != 'true' && env.IS_PRE_BRANCH != 'true' || env.KEYSTORE_BASE64 == ''
+        if: (env.IS_RELEASE_TAG != 'true' && env.IS_PRE_BRANCH != 'true' && env.IS_MAIN_BRANCH != 'true') || env.KEYSTORE_BASE64 == ''
         run: bash ./gradlew :app:assembleGeckoArm64Debug :app:assembleLiteArm64Debug :app:assembleLiteArm32Debug :app:assembleLiteX64Debug :app:assembleLiteSyncArm64Debug --stacktrace
 
-      # tag 或 gecko 且有签名：编 release（Gradle 用 MAFARI_* 直接签名并 zipalign，无需再手工签）
+      # tag、gecko / dual、main 且有签名：编 release（Gradle 用 MAFARI_* 直接签名并 zipalign，无需再手工签）；main 只上传构建产物，不发布
       - name: Build release (gecko + lite + sync_lite)
-        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
+        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true' || env.IS_MAIN_BRANCH == 'true') && env.KEYSTORE_BASE64 != ''
         env:
           MAFARI_KEYSTORE: mafari-release.jks
           MAFARI_STORE_PASS: ${{ secrets.STORE_PASSWORD }}
@@ -133,7 +136,9 @@ jobs:
           if [ "$IS_RELEASE_TAG" = "true" ]; then LABEL="${GITHUB_REF_NAME#v}"
           elif [ "$IS_PRE_BRANCH" = "true" ]; then LABEL="${APP_VERSION_NAME#v}"
           else LABEL="$(echo "$GITHUB_SHA" | cut -c1-7)-debug"; fi
-          if [ -f mafari-release.jks ] && { [ "$IS_RELEASE_TAG" = "true" ] || [ "$IS_PRE_BRANCH" = "true" ]; }; then TYPE=release; else TYPE=debug; fi
+          if [ -f mafari-release.jks ] && { [ "$IS_RELEASE_TAG" = "true" ] || [ "$IS_PRE_BRANCH" = "true" ] || [ "$IS_MAIN_BRANCH" = "true" ]; }; then TYPE=release; else TYPE=debug; fi
+          # main：不发布，文件名用提交号 + 包类型（<sha7>-release / <sha7>-debug），避免和正式发布的安装包混淆
+          if [ "$IS_MAIN_BRANCH" = "true" ]; then LABEL="$(echo "$GITHUB_SHA" | cut -c1-7)-$TYPE"; fi
           echo "label=$LABEL type=$TYPE"
           # 变体目录 : 输出名后缀（lite 按架构各一个包，gecko 与 sync_lite 只有 arm64）
           # canary 只收 3 个包：Mafari-<版本>-canary-gecko.apk、-canary-lite-arm64-v8a.apk、-canary-sync_lite-arm64.apk（版本名已带 -canary）
@@ -151,12 +156,54 @@ jobs:
           (cd dist && sha256sum Mafari-*.apk > SHA256SUMS.txt)
           ls -lh dist
 
-      - name: Upload artifacts
+      # 每个安装包单独一个构建产物（upload-artifact@v7 的 archive: false：不压缩、不套 zip，产物名就是 apk 文件名）。
+      # archive: false 一次只能传 1 个文件，所以每个变体一步；lite-armeabi / lite-x86_64 在 canary 里不构建，找不到就跳过。
+      # 配额满时不拦住后面的 Release / Telegram（它们直接用 dist/ 里的文件）。
+      # 保留期：会发布的运行（tag / gecko / dual）安装包已在 Release 里，只留 1 天；main 等不发布的运行，产物是唯一的安装包来源，留 3 天
+      - name: Upload gecko
         uses: actions/upload-artifact@v7
+        continue-on-error: true
         with:
-          name: mafari-apk
-          path: dist/*.apk
+          path: dist/*-gecko.apk
+          archive: false
           if-no-files-found: error
+          retention-days: ${{ (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && 1 || 3 }}
+
+      - name: Upload lite arm64
+        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          path: dist/*-lite-arm64-v8a.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && 1 || 3 }}
+
+      - name: Upload lite arm32
+        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          path: dist/*-lite-armeabi-v7a.apk
+          archive: false
+          if-no-files-found: ignore
+          retention-days: ${{ (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && 1 || 3 }}
+
+      - name: Upload lite x64
+        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          path: dist/*-lite-x86_64.apk
+          archive: false
+          if-no-files-found: ignore
+          retention-days: ${{ (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && 1 || 3 }}
+
+      - name: Upload sync_lite arm64
+        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          path: dist/*-sync_lite-arm64.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && 1 || 3 }}
 
       # tag 用 CHANGELOG 对应小节；gecko 分支写预发布说明
       - name: Prepare release notes

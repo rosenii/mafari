@@ -27,6 +27,8 @@ class RuntimeApi(
     private val messenger: RuntimeMessenger,
     /** 当前浏览器标签桥接；运行时初始化时可先传闭包，真正调用时再读取已 attach 的桥接。 */
     private val tabBridge: () -> TabBridge? = { null },
+    /** 用拓展页面 Sheet 打开设置页；返回 false = 没有 UI 可用（退回开标签） */
+    private val openOptions: (extId: String) -> Boolean = { false },
 ) {
     fun register(router: ApiRouter) {
         router.register("runtime.getManifest") { ctx, _ ->
@@ -69,6 +71,7 @@ class RuntimeApi(
                 throw ApiException(ErrorCodes.DENIED_PERMISSION, "runtime.openOptionsPage 只能从拓展页面调用")
             }
             val page = ctx.ext.spec.optionsPage ?: return@register null
+            if (openOptions(ctx.ext.spec.id)) return@register null
             val bridge = tabBridge()
                 ?: throw ApiException(ErrorCodes.UNSUPPORTED, "标签页暂不可用")
             // options_page 来自第三方 manifest，走与 tabs.create 相同的路径校验，拒绝 ../ 等越界路径。

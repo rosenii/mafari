@@ -46,6 +46,14 @@ class WebViewExtensionHost(
     private companion object {
         /** `WebViewCompat.addJavaScriptOnEvent` 的「文档刚创建、页面脚本之前」事件，与 addDocumentStartJavaScript 同时机 */
         const val EVENT_DOCUMENT_START = WebViewCompat.INJECTION_EVENT_DOCUMENT_START
+        /** shim 向原生要内联模块的内部 api（不走 PermissionChecker，由 [handleModuleLoad] 自己校验）；符合 ApiProtocol 的 api 名格式。 */
+        const val MODULE_LOAD_API = "mafari.module.load"
+        /** shim 在隔离世界里代 content script 读拓展自己的 web_accessible 资源（页面 CSP 的 connect-src 会拦直接 fetch） */
+        const val RESOURCE_READ_API = "mafari.resource.read"
+        const val MAX_RESOURCE_BYTES = 4 * 1024 * 1024
+
+        /** `addJavaScriptOnEvent` 的 document-end 事件（1.16 起；官方文档写明对应 DOMContentLoaded），用来驱动 run_at: document_end / document_idle */
+        const val EVENT_DOCUMENT_END = WebViewCompat.INJECTION_EVENT_DOCUMENT_END
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -62,6 +70,12 @@ class WebViewExtensionHost(
         var installation: Installation,
     )
     private val bindings = HashMap<Int, Binding>()
+
+    /**
+     * 按需送进隔离世界的 content script 模块：extId → (路径 → 模块函数源码)，见 [ExtensionInjection.build] 的 lazyModules。
+     * 只有该拓展自己世界里的桥请求得到（[onPageMessage] 里按 viaWorld 校验），路径必须在这张表里，所以页面拿不到别的文件。
+     */
+    private val lazyModules = HashMap<String, Map<String, String>>()
 
     private inner class ContentEndpoint(
         override val extId: String,
@@ -193,12 +207,17 @@ class WebViewExtensionHost(
             installedExtIds.add(ext.spec.id)
             val plan = ExtensionInjection.build(
                 ext, shim, ExtensionInjection.fileReader(ext.rootDir), dynamicContentScripts(ext), tabId,
+                lazyModules = useWorlds,
             )
             if (plan == null) {
                 log("ext ${ext.spec.id}: tab $tabId 没有可注入的 content script（manifest 无 content_scripts，或脚本文件读不到）")
                 continue
             }
             plan.warnings.forEach { log("ext ${ext.spec.id}: $it") }
+            synchronized(lazyModules) {
+                if (plan.lazyModuleSources.isEmpty()) lazyModules.remove(ext.spec.id)
+                else lazyModules[ext.spec.id] = plan.lazyModuleSources
+            }
             try {
                 if (useWorlds) {
                     installInWorlds(webView, plan, tabId, handlers, worldListeners)
@@ -239,6 +258,10 @@ class WebViewExtensionHost(
             }
             worldListeners.add(WorldListener(plan.bridgeName, world))
             handlers.add(WebViewCompat.addJavaScriptOnEvent(webView, script, EVENT_DOCUMENT_START, plan.isolatedOriginRules, world))
+            // document_end / document_idle 条目：shim 在 document-start 时只登记，等这个 document-end 事件来触发（window.load 兜底）
+            plan.isolatedEndScript?.let { end ->
+                handlers.add(WebViewCompat.addJavaScriptOnEvent(webView, end, EVENT_DOCUMENT_END, plan.isolatedOriginRules, world))
+            }
             log("ext ${plan.extId}: tab $tabId isolated world '${plan.worldName}' rules=${plan.isolatedOriginRules.take(4)} script=${script.length}B")
         }
         plan.mainScript?.let { script ->
@@ -327,6 +350,11 @@ class WebViewExtensionHost(
             return
         }
 
+        if (req.api == MODULE_LOAD_API) {
+            handleModuleLoad(req, reply, viaWorld)
+            return
+        }
+
         // 回调在主线程：主框架网址取自这个标签的 WebView（浏览器自己记录的，不是页面自报的）；子框架只有 origin/
         val frameUrl = (if (isMainFrame && tabId != null) synchronized(bindings) { bindings[tabId]?.webView?.url } else null)
             ?.takeIf { it.startsWith(origin.trimEnd('/') + "/") }
@@ -339,6 +367,10 @@ class WebViewExtensionHost(
                 }
             }
         }
+        if (req.api == RESOURCE_READ_API) {
+            handleResourceRead(req, reply, viaWorld, tabId, frameUrl)
+            return
+        }
         val sender = Sender(
             SenderKind.CONTENT_SCRIPT, origin, isMainFrame, tabId,
             if (isMainFrame && tabId != null) "content:$boundExtId:$tabId" else null,
@@ -347,6 +379,69 @@ class WebViewExtensionHost(
         scope.launch {
             val response = runtime.handle(text, sender)
             send(reply, response)
+        }
+    }
+
+    /**
+     * shim 的 `__mafariImport` 首次用到某个拓展内模块时请求它：用隔离世界的 executeJavaScript 调
+     * `__mafariModDefine(path, fn)` 把模块函数送进去（页面 CSP 管不到 executeJavaScript），执行完才回复 ok，shim 随后即可取用。
+     * 必须在主线程（[onPageMessage] 的回调线程）。
+     */
+    private fun handleModuleLoad(req: ApiRequest, reply: JavaScriptReplyProxy, viaWorld: Boolean) {
+        val path = req.args.optString(0)
+        val src = synchronized(lazyModules) { lazyModules[req.extId]?.get(path) }
+        if (!viaWorld || path.isEmpty() || src == null) {
+            send(reply, ApiProtocol.error(req.id, ErrorCodes.BAD_REQUEST, "没有这个模块：$path"))
+            return
+        }
+        val js = "globalThis.__mafariModDefine(" + JSONObject.quote(path) + "," + src + ")"
+        val receiver = object : WebViewOutcomeReceiver<String, JavaScriptExecutionException> {
+            override fun onResult(result: String) = send(reply, ApiProtocol.ok(req.id, true))
+            override fun onError(error: JavaScriptExecutionException) =
+                send(reply, ApiProtocol.error(req.id, ErrorCodes.SCRIPT_ERROR, "模块送入隔离世界失败：$path"))
+        }
+        try {
+            reply.executeJavaScript(js, receiver)
+        } catch (e: Exception) {
+            send(reply, ApiProtocol.error(req.id, ErrorCodes.SCRIPT_ERROR, "模块送入隔离世界失败：${e.message}"))
+        }
+    }
+
+    /**
+     * 读拓展包里的资源给 content script（`fetch(runtime.getURL(...))`）。规则与网页直接请求拓展地址一致：
+     * 只放行 web_accessible_resources，页面网址取自浏览器记录的标签网址（[frameUrl]），不信任页面自报。
+     * 回复 `{status, mime, b64}`；不存在 / 不可访问回 404，让页面侧拿到与网络请求一样的 404 响应。
+     */
+    private fun handleResourceRead(req: ApiRequest, reply: JavaScriptReplyProxy, viaWorld: Boolean, tabId: Int?, frameUrl: String) {
+        val path = req.args.optString(0)
+        // 旧的页面世界路径同样允许：连接已绑定到这个拓展，且只放行 web_accessible_resources，与网页直接请求拓展地址的规则一致
+        val ext = if (tabId != null) {
+            synchronized(bindings) { bindings[tabId]?.exts?.firstOrNull { it.spec.id == req.extId } }
+        } else {
+            null
+        }
+        if (ext == null || path.isEmpty()) {
+            send(reply, ApiProtocol.error(req.id, ErrorCodes.BAD_REQUEST, "不能读取资源：$path"))
+            return
+        }
+        scope.launch {
+            val out = try {
+                val res = ExtensionPages.openWebAccessible(ext, "/" + path.removePrefix("/"), frameUrl)
+                val bytes = res?.let { it.file?.readBytes() ?: it.bytes }
+                when {
+                    res == null || bytes == null -> JSONObject().put("status", 404)
+                    bytes.size > MAX_RESOURCE_BYTES -> null
+                    else -> JSONObject().put("status", 200).put("mime", res.mime)
+                        .put("b64", android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP))
+                }
+            } catch (_: Exception) {
+                null
+            }
+            send(
+                reply,
+                if (out != null) ApiProtocol.ok(req.id, out)
+                else ApiProtocol.error(req.id, ErrorCodes.BAD_REQUEST, "资源读取失败或超过 ${MAX_RESOURCE_BYTES / 1024 / 1024}MB：$path"),
+            )
         }
     }
 
@@ -403,6 +498,7 @@ class WebViewExtensionHost(
     /** 拓展被卸载 / 停用时丢掉它的连接记录 */
     fun forget(extId: String) {
         synchronized(connections) { connections.remove(extId) }
+        synchronized(lazyModules) { lazyModules.remove(extId) }
         synchronized(contentEndpoints) {
             contentEndpoints.values.filter { it.extId == extId }.forEach { broker.unregister(it.contextId) }
             contentEndpoints.entries.removeAll { it.value.extId == extId }

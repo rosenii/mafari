@@ -19,17 +19,17 @@ Content-Transfer-Encoding: 8bit
  create mode 100644 miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-index 341d992..03bd367 100644
+index eee2d42..122b677 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-@@ -80,7 +80,9 @@ fun glassBottomSheetSurface(
+@@ -86,7 +86,9 @@ fun glassBottomSheetSurface(
      val shape = remember(cornerRadius) {
          GlassShape(topStart = cornerRadius, topEnd = cornerRadius, bottomEnd = 0.dp, bottomStart = 0.dp)
      }
--    Modifier.glassPanel(
+-    val panel = Modifier.glassPanel(
 +    val deform = rememberGlassDragDeform()
 +    // The overscroll extension follows the sheet, so only the sheet body deforms.
-+    (if (isOverscroll) Modifier else deform.layer).glassPanel(
++    val panel = (if (isOverscroll) Modifier else deform.layer).glassPanel(
          backdrop = effectiveBackdrop,
          shape = shape,
          material = material,
@@ -193,7 +193,7 @@ index 3fca00a..56a66ae 100644
      )
  }
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-index 5d2373f..41e4380 100644
+index 9be53d4..0919eec 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 @@ -194,6 +194,8 @@ internal fun rememberGlassWindowBounds(): IntRect {
@@ -250,3 +250,6 @@ index 5d2373f..41e4380 100644
                      .padding(contentPadding),
                  content = content,
              )
+-- 
+2.43.0
+

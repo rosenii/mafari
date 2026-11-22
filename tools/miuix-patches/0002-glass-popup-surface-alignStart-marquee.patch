@@ -270,7 +270,7 @@ index 71ff77b..30fefde 100644
                  Text(
                      text = summary,
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-index b14f3ed..5d2373f 100644
+index c51350a..9be53d4 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 @@ -131,8 +131,11 @@ internal fun placeGlassPopup(
@@ -286,3 +286,6 @@ index b14f3ed..5d2373f 100644
          anchor.right - size.width
      } else {
          anchor.left
+-- 
+2.43.0
+

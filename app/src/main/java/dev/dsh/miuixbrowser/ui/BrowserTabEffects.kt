@@ -157,6 +157,7 @@ internal fun BrowserUiState.BindTabCallbacks(
 
     LaunchedEffect(tab.id, settings.searchTemplate) {
         tab.searchTemplate = settings.searchTemplate
+        dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.searchTemplate = settings.searchTemplate
         tab.onPullRefresh = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             tab.refresh()

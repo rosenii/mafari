@@ -112,6 +112,8 @@ data class TabInfo(
     val loading: Boolean,
     /** 打开它的标签；没有或已关闭为 null */
     val openerTabId: Int?,
+    /** 标签音频是否静音。null = 这个系统 WebView 不支持静音（没有 MUTE_AUDIO），序列化时按「未静音」处理 */
+    val muted: Boolean? = null,
 ) {
     val status: String get() = if (loading) TabChange.STATUS_LOADING else TabChange.STATUS_COMPLETE
 }
@@ -129,6 +131,10 @@ data class TabUpdateOptions(
     val url: String? = null,
     /** true = 切到前台。false 不会把标签「切到后台」（Chrome 里 active:false 同样是空操作） */
     val active: Boolean? = null,
+    /** true / false = 静音 / 取消静音；系统 WebView 不支持静音时是空操作。null = 不改 */
+    val muted: Boolean? = null,
+    /** true = 加载 [url] 时替换当前历史项（Firefox `loadReplace`）；用 `WebViewCompat.navigate`，系统 WebView 不支持时忽略 */
+    val loadReplace: Boolean? = null,
 )
 
 /**
@@ -140,8 +146,10 @@ data class TabChange(
     val url: String? = null,
     val title: String? = null,
     val favIconUrl: String? = null,
+    /** 静音状态变化（只在支持静音的标签上出现） */
+    val muted: Boolean? = null,
 ) {
-    fun isEmpty(): Boolean = status == null && url == null && title == null && favIconUrl == null
+    fun isEmpty(): Boolean = status == null && url == null && title == null && favIconUrl == null && muted == null
 
     companion object {
         const val STATUS_LOADING = "loading"

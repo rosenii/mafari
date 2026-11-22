@@ -168,6 +168,18 @@ class MessageBrokerTest {
         assertEquals(ErrorCodes.NO_RECEIVER, r.await())
     }
 
+    /** Firefox 语义：有监听器但没响应 → 发送方 resolve undefined；只有「完全没有监听器」才是 NO_RECEIVER。 */
+    @Test fun listenerWithoutResponseResolvesUndefinedNotNoReceiver() = runBlocking {
+        var n = 0
+        val b = MessageBroker(timeoutMs = 5000, newCid = { "c${++n}" })
+        b.register(Ep("a")); b.register(Ep("b"))
+        val r = async { try { b.sendMessage(ctx(csSender()), null, "x") ?: "undefined" } catch (e: ApiException) { e.code } }
+        yield()
+        b.reply(TestExt.ID, "c1", null, noReceiver = false, noResponse = true) // a：有监听器、没响应
+        b.reply(TestExt.ID, "c2", null, noReceiver = true)                     // b：没有监听器
+        assertEquals("undefined", r.await())
+    }
+
     @Test fun firstRealReplyWinsEvenIfAnotherSaysNoReceiver() = runBlocking {
         var n = 0
         val b = MessageBroker(timeoutMs = 5000, newCid = { "c${++n}" })

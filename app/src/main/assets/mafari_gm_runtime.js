@@ -9,7 +9,7 @@
  *   Required: getValue, setValue, deleteValue, listValues, toast
  *   Optional (graceful fallback):
  *     - xhrStart / xhrPoll / xhrAbort
- *     - streamOpen / streamWrite / streamClose / streamAbort
+ *     - streamOpen / streamWrite / streamClose / streamAbort   (同步)；或 streamOpenAsync / streamWriteAsync / streamCloseAsync(…, cb(res)) + streamAbort（异步，私有通道桥）
  *     - copy / copyHtml
  *     - download(url, name)              fire-and-forget
  *     - downloadAsync(url, name, cbId)   async; native calls
@@ -1138,45 +1138,72 @@
   }
 
   // 原生流式写文件：写入 Download/mafari，逐段落盘，不占内存。返回 Promise<{name, write, close, abort}>
+  // 同步桥（addJavascriptInterface 的 streamOpen/Write/Close）直接返回；私有通道桥只有异步版
+  // （streamOpenAsync/WriteAsync/CloseAsync，回调给出与同步版相同的返回串）。这里统一成回调形式。
   function openFileStream(name, mime) {
     return new Promise(function (resolve, reject) {
-      if (!bridge || typeof bridge.streamOpen !== 'function') { reject(new Error('unsupported')); return; }
-      var info;
-      try { info = JSON.parse(bridge.streamOpen(String(name || ''), String(mime || ''))); }
-      catch (e) { reject(e); return; }
-      if (!info || !info.id) { reject(new Error((info && info.error) || 'open failed')); return; }
-      var id = info.id, closed = false;
-      resolve({
-        name: info.name,
-        write: function (data) {
-          if (closed) return Promise.reject(new Error('stream closed'));
-          var blob = data instanceof Blob ? data : new Blob([data]);
-          var SLICE = 3 * 1024 * 1024;
-          var chain = Promise.resolve();
-          for (var off = 0; off < blob.size; off += SLICE) {
-            (function (o) {
-              chain = chain.then(function () {
-                return blob.slice(o, o + SLICE).arrayBuffer();
-              }).then(function (buf) {
-                var err = bridge.streamWrite(id, bytesToB64(new Uint8Array(buf)));
-                if (err) throw new Error(err);
-              });
-            })(off);
+      var asyncS = !!(bridge && typeof bridge.streamOpenAsync === 'function');
+      if (!bridge || (!asyncS && typeof bridge.streamOpen !== 'function')) { reject(new Error('unsupported')); return; }
+      function msgOf(e) { return String((e && e.message) || e); }
+      function sOpen(cb) {
+        if (asyncS) { bridge.streamOpenAsync(String(name || ''), String(mime || ''), cb); return; }
+        var r;
+        try { r = bridge.streamOpen(String(name || ''), String(mime || '')); } catch (e) { r = JSON.stringify({ error: msgOf(e) }); }
+        cb(r);
+      }
+      function sWrite(id, b64, cb) {
+        if (asyncS) { bridge.streamWriteAsync(id, b64, cb); return; }
+        var r = '';
+        try { r = bridge.streamWrite(id, b64); } catch (e) { r = msgOf(e); }
+        cb(r);
+      }
+      function sClose(id, cb) {
+        if (asyncS) { bridge.streamCloseAsync(id, cb); return; }
+        var r = '';
+        try { r = bridge.streamClose(id); } catch (e) { r = msgOf(e); }
+        cb(r);
+      }
+      sOpen(function (raw) {
+        var info;
+        try { info = JSON.parse(raw); } catch (e) { reject(e); return; }
+        if (!info || !info.id) { reject(new Error((info && info.error) || 'open failed')); return; }
+        var id = info.id, closed = false;
+        resolve({
+          name: info.name,
+          write: function (data) {
+            if (closed) return Promise.reject(new Error('stream closed'));
+            var blob = data instanceof Blob ? data : new Blob([data]);
+            var SLICE = 3 * 1024 * 1024;
+            var chain = Promise.resolve();
+            for (var off = 0; off < blob.size; off += SLICE) {
+              (function (o) {
+                chain = chain.then(function () {
+                  return blob.slice(o, o + SLICE).arrayBuffer();
+                }).then(function (buf) {
+                  return new Promise(function (res, rej) {
+                    sWrite(id, bytesToB64(new Uint8Array(buf)), function (err) {
+                      if (err) rej(new Error(err)); else res();
+                    });
+                  });
+                });
+              })(off);
+            }
+            return chain;
+          },
+          close: function () {
+            if (closed) return Promise.resolve();
+            closed = true;
+            return new Promise(function (res, rej) {
+              sClose(id, function (err) { if (err) rej(new Error(err)); else res(); });
+            });
+          },
+          abort: function () {
+            if (closed) return Promise.resolve();
+            closed = true;
+            try { bridge.streamAbort(id); } catch (e) {}
+            return Promise.resolve();
           }
-          return chain;
-        },
-        close: function () {
-          if (closed) return Promise.resolve();
-          closed = true;
-          var err = bridge.streamClose(id);
-          return err ? Promise.reject(new Error(err)) : Promise.resolve();
-        },
-        abort: function () {
-          if (closed) return Promise.resolve();
-          closed = true;
-          try { bridge.streamAbort(id); } catch (e) {}
-          return Promise.resolve();
-        }
+        });
       });
     });
   }

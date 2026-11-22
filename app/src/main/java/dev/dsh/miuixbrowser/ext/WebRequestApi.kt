@@ -19,7 +19,13 @@ class WebRequestApi(
     private val extensions: () -> List<InstalledExtension>,
     private val blockingTimeoutMs: Long = 350L,
 ) {
-    private data class ListenerRegistration(val filter: JSONObject, val blocking: Boolean, val contextId: String?)
+    private data class ListenerRegistration(
+        val filter: JSONObject,
+        val blocking: Boolean,
+        val contextId: String?,
+        /** extraInfoSpec 含 "responseHeaders"：主框架事件里附带响应头 */
+        val responseHeaders: Boolean = false,
+    )
     private class BlockingPending(expected: Map<String, String>) {
         /** contextId -> extensionId：只接受真正注册了匹配 blocking listener 的页面上下文回复。 */
         private val expected = expected
@@ -57,8 +63,8 @@ class WebRequestApi(
     fun register(router: ApiRouter) {
         router.register("webRequest.addListener") { ctx, args ->
             val event = args.optString(0)
-            if (event !in setOf("onBeforeRequest", "onBeforeRedirect", "onResponseStarted", "onCompleted", "onErrorOccurred")) {
-                throw ApiException(ErrorCodes.UNSUPPORTED, "当前支持 onBeforeRequest / onBeforeRedirect / 主框架 onResponseStarted / onCompleted / onErrorOccurred")
+            if (event !in setOf("onBeforeRequest", "onBeforeRedirect", "onHeadersReceived", "onResponseStarted", "onCompleted", "onErrorOccurred")) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "当前支持 onBeforeRequest / onBeforeRedirect / 主框架 onHeadersReceived / onResponseStarted / onCompleted / onErrorOccurred")
             }
             val token = args.optString(1)
             if (token.isBlank()) throw ApiException(ErrorCodes.BAD_REQUEST, "listener token 缺失")
@@ -66,11 +72,15 @@ class WebRequestApi(
             validateFilter(filter)
             val extra = args.opt(3) as? JSONArray ?: JSONArray()
             val extraSpecs = (0 until extra.length()).map { extra.optString(it) }.toSet()
-            val unsupported = extraSpecs - setOf("blocking")
+            val unsupported = extraSpecs - setOf("blocking", "responseHeaders")
             if (unsupported.isNotEmpty()) {
                 throw ApiException(ErrorCodes.UNSUPPORTED, "WebView webRequest 暂不支持 extraInfoSpec: ${unsupported.joinToString()}")
             }
             val wantsBlocking = "blocking" in extraSpecs
+            // onHeadersReceived 只读：WebView 不允许改响应头，blocking 在这里没有意义，明确拒绝而不是假装成功
+            if (event == "onHeadersReceived" && wantsBlocking) {
+                throw ApiException(ErrorCodes.UNSUPPORTED, "onHeadersReceived 在 WebView 上只读，不支持 blocking")
+            }
             if (wantsBlocking) {
                 if (event != "onBeforeRequest") throw ApiException(ErrorCodes.UNSUPPORTED, "blocking 目前仅支持 onBeforeRequest")
                 if ("webRequestBlocking" !in PermissionChecker.effectivePermissions(ctx.ext)) {
@@ -81,13 +91,16 @@ class WebRequestApi(
             if (wantsBlocking && contextId.isNullOrBlank()) {
                 throw ApiException(ErrorCodes.UNSUPPORTED, "blocking listener 必须注册在有原生 contextId 的拓展页面")
             }
-            filters["${ctx.ext.spec.id}:$event:$token"] = ListenerRegistration(JSONObject(filter.toString()), wantsBlocking, contextId)
+            filters["${ctx.ext.spec.id}:$event:$token"] = ListenerRegistration(
+                JSONObject(filter.toString()), wantsBlocking, contextId, responseHeaders = "responseHeaders" in extraSpecs,
+            )
             true
         }
         router.register("webRequest.removeListener") { ctx, args ->
             val token = args.optString(0)
             filters.remove("${ctx.ext.spec.id}:onBeforeRequest:$token")
             filters.remove("${ctx.ext.spec.id}:onBeforeRedirect:$token")
+            filters.remove("${ctx.ext.spec.id}:onHeadersReceived:$token")
             filters.remove("${ctx.ext.spec.id}:onResponseStarted:$token")
             filters.remove("${ctx.ext.spec.id}:onCompleted:$token")
             filters.remove("${ctx.ext.spec.id}:onErrorOccurred:$token")
@@ -178,10 +191,43 @@ class WebRequestApi(
     }
 
     /** WebRequest API 仅能可靠观察主文档终态；子资源终态由 WebView 不提供。 */
-    fun mainFrameCompleted(tabId: Int, url: String) = terminal("onCompleted", tabId, url, null)
+    fun mainFrameCompleted(tabId: Int, url: String, statusCode: Int? = null, headers: JSONArray? = null) =
+        terminal("onCompleted", tabId, url, null, statusCode, headers)
     fun mainFrameFailed(tabId: Int, url: String, error: String) = terminal("onErrorOccurred", tabId, url, error)
 
-    private fun terminal(event: String, tabId: Int, url: String, error: String?) {
+    /**
+     * NavigationListener 给出主文档的真实响应后调用（取代 [mainFrameResponseStarted] 的 onPageCommitVisible 近似）：
+     * 依次发 onHeadersReceived（只读）和 onResponseStarted，都带真实 statusCode；响应头只发给声明了 "responseHeaders" 的 listener 所在拓展。
+     * 不合成 statusLine：WebView 只给状态码，没有 HTTP 原因短语。
+     */
+    fun mainFrameResponse(tabId: Int, url: String, statusCode: Int?, headers: JSONArray?) {
+        val payload = inFlight[requestKey(tabId, url)]
+            ?: inFlight.entries.firstOrNull { it.key.startsWith("$tabId\u0000") }?.value
+            ?: return
+        val copy = JSONObject(payload.toString()).put("url", url).put("timeStamp", System.currentTimeMillis())
+        if (statusCode != null && statusCode > 0) copy.put("statusCode", statusCode)
+        dispatch("onHeadersReceived", JSONObject(copy.toString()), url, tabId, "main_frame", headers)
+        dispatch("onResponseStarted", copy, url, tabId, "main_frame", headers)
+    }
+
+    /** 主文档发生服务端重定向：发真实的 onBeforeRedirect（含 redirectUrl / statusCode），并让后续终态事件对上新地址。 */
+    fun mainFrameRedirected(tabId: Int, fromUrl: String, toUrl: String, statusCode: Int?, headers: JSONArray?) {
+        val old = inFlight.remove(requestKey(tabId, fromUrl))
+            ?: inFlight.entries.firstOrNull { it.key.startsWith("$tabId\u0000") }?.let { inFlight.remove(it.key) }
+            ?: return
+        val event = JSONObject(old.toString())
+            .put("url", fromUrl)
+            .put("redirectUrl", toUrl)
+            .put("timeStamp", System.currentTimeMillis())
+        if (statusCode != null && statusCode > 0) event.put("statusCode", statusCode)
+        dispatch("onBeforeRedirect", event, fromUrl, tabId, "main_frame", headers)
+        inFlight[requestKey(tabId, toUrl)] = JSONObject(old.toString()).put("url", toUrl)
+    }
+
+    private fun terminal(
+        event: String, tabId: Int, url: String, error: String?,
+        statusCode: Int? = null, headers: JSONArray? = null,
+    ) {
         val exactKey = requestKey(tabId, url)
         val payload = inFlight.remove(exactKey)
             ?: inFlight.entries.firstOrNull { it.key.startsWith("$tabId\u0000") }?.let { inFlight.remove(it.key) }
@@ -189,21 +235,27 @@ class WebRequestApi(
         payload.put("url", url)
         payload.put("timeStamp", System.currentTimeMillis())
         if (error != null) payload.put("error", error)
-        dispatch(event, payload, url, tabId, "main_frame")
+        if (statusCode != null && statusCode > 0) payload.put("statusCode", statusCode)
+        dispatch(event, payload, url, tabId, "main_frame", headers)
     }
 
     private fun requestKey(tabId: Int, url: String) = "$tabId\u0000$url"
 
-    private fun dispatch(event: String, payload: JSONObject, url: String, tabId: Int, type: String) {
+    private fun dispatch(
+        event: String, payload: JSONObject, url: String, tabId: Int, type: String, headers: JSONArray? = null,
+    ) {
         for (ext in extensions()) {
             if (!ext.enabled || "webRequest" !in PermissionChecker.effectivePermissions(ext)) continue
             if (!PermissionChecker.hasHostAccess(ext, url)) continue
             val prefix = "${ext.spec.id}:$event:"
-            val matchingTokens = filters.entries.mapNotNull { (key, registration) ->
-                if (key.startsWith(prefix) && matchesFilter(registration.filter, url, tabId, type)) key.removePrefix(prefix) else null
+            val matching = filters.entries.filter { (key, registration) ->
+                key.startsWith(prefix) && matchesFilter(registration.filter, url, tabId, type)
             }
-            if (matchingTokens.isEmpty()) continue
+            if (matching.isEmpty()) continue
+            val matchingTokens = matching.map { it.key.removePrefix(prefix) }
             val eventPayload = JSONObject(payload.toString()).put("listenerTokens", JSONArray(matchingTokens))
+            // 事件按拓展广播，同一拓展的多个 listener 共用一份 payload：只要有一个声明了 responseHeaders 就附带。
+            if (headers != null && matching.any { it.value.responseHeaders }) eventPayload.put("responseHeaders", headers)
             runCatching { events.emit(ext.spec.id, "webRequest.$event", eventPayload) }
         }
     }

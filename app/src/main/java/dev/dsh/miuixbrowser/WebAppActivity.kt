@@ -497,6 +497,7 @@ class WebAppActivity : ComponentActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView() {
+        dev.dsh.miuixbrowser.engine.webview.WebViewNetSavings.disableFaviconDownload(webView)
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true

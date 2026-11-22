@@ -2,13 +2,20 @@ package dev.dsh.miuixbrowser.ext
 
 import android.net.Uri
 import android.webkit.CookieManager
+import androidx.webkit.CookieManagerCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.coroutines.resume
 
-/** WebView CookieManager adapter. WebView exposes URL-scoped reads, not a global cookie enumeration API. */
+/**
+ * WebView CookieManager adapter. WebView exposes URL-scoped reads, not a global cookie enumeration API.
+ * 系统 WebView 支持 GET_COOKIE_INFO（CookieManagerCompat，1.6）时读到真实的 domain / path / secure / httpOnly /
+ * sameSite / 过期时间；不支持时退回 getCookie 的 name=value，且不再凭空补属性。
+ */
 class CookiesApi {
     fun register(router: ApiRouter) {
         router.register("cookies.get") { ctx, args ->
@@ -17,11 +24,26 @@ class CookiesApi {
             requireHostAccess(ctx, url)
             val name = details.optString("name")
             if (name.isBlank()) bad("cookies.get 需要 name")
-            withContext(Dispatchers.Main.immediate) {
-                val raw = CookieManager.getInstance().getCookie(url).orEmpty()
-                val pair = raw.split(';').asSequence().map { it.trim() }.firstOrNull { it.substringBefore('=') == name }
-                pair?.let { cookieFromPair(it) }
-            }
+            // 同名取 path 最长的（和浏览器发送 Cookie 头时的排序一致）
+            readCookies(url).filter { it.optString("name") == name }.maxByOrNull { it.optString("path").length }
+        }
+        router.register("cookies.getAll") { ctx, args ->
+            val d = args.argOrNull(0) as? JSONObject ?: bad("cookies.getAll 需要 details 对象")
+            val allowed = setOf("url", "name", "domain", "path", "secure", "session", "storeId")
+            val keys = d.keys(); while (keys.hasNext()) { val k = keys.next(); if (k !in allowed) throw ApiException(ErrorCodes.UNSUPPORTED, "cookies.getAll 暂不支持字段：$k") }
+            // WebView 只能按 URL 读，没有全局枚举：不给 url 就明确报错，而不是悄悄返回空数组让扩展以为没有 cookie
+            if (!d.has("url")) throw ApiException(ErrorCodes.UNSUPPORTED, "cookies.getAll 在 WebView 上必须提供 url（没有全局枚举）")
+            val url = validatedUrl(d.optString("url"))
+            requireHostAccess(ctx, url)
+            if (d.has("storeId") && d.optString("storeId") != "0") return@register JSONArray()
+            val name = d.optString("name").takeIf { d.has("name") }
+            val domain = d.optString("domain").takeIf { it.isNotBlank() }
+            val path = d.optString("path").takeIf { it.isNotBlank() }
+            val secure = if (d.has("secure")) d.optBoolean("secure") else null
+            val session = if (d.has("session")) d.optBoolean("session") else null
+            val out = JSONArray()
+            readCookies(url).filter { CookieInfo.matches(it, name, domain, path, secure, session) }.forEach { out.put(it) }
+            out
         }
         router.register("cookies.set") { ctx, args ->
             val d = args.argOrNull(0) as? JSONObject ?: bad("cookies.set 需要 details 对象")
@@ -81,6 +103,18 @@ class CookiesApi {
             val cookie = "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=$path" + (domain?.let { "; Domain=$it" } ?: "")
             if (!setCookie(url, cookie)) null else JSONObject().put("url", url).put("name", name).put("storeId", "0")
         }
+    }
+
+    /** 该 URL 可见的全部 cookie。有 GET_COOKIE_INFO 就带真实属性，否则只有 name / value。 */
+    private suspend fun readCookies(url: String): List<JSONObject> = withContext(Dispatchers.Main.immediate) {
+        val cm = CookieManager.getInstance()
+        val host = Uri.parse(url).host.orEmpty()
+        val withInfo = runCatching { WebViewFeature.isFeatureSupported(WebViewFeature.GET_COOKIE_INFO) }.getOrDefault(false)
+        if (withInfo) {
+            val parsed = runCatching { CookieManagerCompat.getCookieInfo(cm, url) }.getOrNull()
+            if (parsed != null) return@withContext parsed.mapNotNull { CookieInfo.parse(it, host) }
+        }
+        cm.getCookie(url).orEmpty().split(';').map { it.trim() }.filter { it.isNotEmpty() }.map { cookieFromPair(it) }
     }
 
     private suspend fun setCookie(url: String, value: String): Boolean = withContext(Dispatchers.Main.immediate) {

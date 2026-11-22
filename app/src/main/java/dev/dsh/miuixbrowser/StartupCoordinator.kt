@@ -4,7 +4,9 @@ import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.data.AppDatabase
 import dev.dsh.miuixbrowser.data.RestoreMode
 import dev.dsh.miuixbrowser.data.TabDb
+import dev.dsh.miuixbrowser.engine.webview.IncognitoProfile
 import dev.dsh.miuixbrowser.engine.webview.WebViewDebug
+import dev.dsh.miuixbrowser.engine.webview.WebViewStartup
 import dev.dsh.miuixbrowser.browser.AppShortcuts
 import dev.dsh.miuixbrowser.browser.CacheCleaner
 import dev.dsh.miuixbrowser.browser.CookieControl
@@ -32,7 +34,8 @@ import kotlinx.coroutines.withContext
  *  2. [onActivityCreate]  MainActivity.onCreate（Intent 处理之后）：Gecko 调试开关 / 拓展弹框宿主 → 去广告规则 →
  *                         缓存与 Cookie 的冷启动清理 → Gecko 运行时提前创建 → 下载列表延后恢复。
  *  3. 库就绪闸门          [isContentReady] / [awaitContentReady]：库没好之前界面只画 [StartupSkeleton]，
- *                         好了之后才组合 BrowserScreen（它首次组合会同步读库）。
+ *                         好了之后才组合 BrowserScreen（它首次组合会同步读库）；WebView 异步预热
+ *                         （[WebViewStartup]，阶段 1 起跑）也在这里等，保证第一个 WebView 在它之后才创建。
  *  4. [onContentShown]    界面真正出来之后：Firefox 同步预热（延迟几秒）。
  *
  * 具体「怎么预热加密库」仍在 [StartupWarmup]（只管库这一件事）。新增启动任务：先想清楚它属于哪个阶段，加在对应函数里。
@@ -47,6 +50,9 @@ internal object StartupCoordinator {
 
     /** WebView 拓展的后台页是隐藏 WebView，创建有开销：首帧之后再起，别和首屏抢主线程。 */
     private const val EXT_BACKGROUND_DELAY_MS = 1_500L
+
+    /** 清扫上次遗留的无痕 Profile：不急，排在拓展后台页之后。 */
+    private const val SWEEP_INCOGNITO_DELAY_MS = 3_000L
 
     /** 长按图标的快捷方式在界面出来之后再发布。 */
     private const val SHORTCUTS_DELAY_MS = 2_000L
@@ -63,6 +69,8 @@ internal object StartupCoordinator {
         Diag.log("MafariApp.onCreate")
         StartupWarmup.start(app)
         FaviconLoader.init(app) // 只定磁盘目录，修剪在后台
+        // WebView 异步预热：默认内核是 WebView 时才做（Gecko 默认时首屏不创建 WebView，没必要）。须尽早，越早越能和加密库预热重叠
+        if (!EngineSupport.defaultIsGecko(app)) WebViewStartup.begin(app)
     }
 
     /** 阶段 2。须在主线程、Activity.onCreate 里调用。 */
@@ -77,6 +85,7 @@ internal object StartupCoordinator {
         }
         Diag.log("MainActivity.onCreate")
         WebViewDebug.load(activity) // 远程调试是进程级静态开关，须在创建任何 WebView 之前设置
+        dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.load(activity)
         AdBlock.init(activity)
         // Firefox 同步不占冷启动：这里什么都不做，界面出来后由 [onContentShown] 延迟预热（仅「上次已知已登录」才初始化，
         // 没登录过的用户零开销）；打开「Firefox帐户同步」页（FxaScreen）/ 系统分享面板发标签页（SendTabActivity）时仍会按需 init
@@ -90,12 +99,14 @@ internal object StartupCoordinator {
     }
 
     /** 阶段 3：库已就绪（含迁移，或已确定打不开而降级）。界面重建时库早已好，直接组合，不闪占位。 */
-    fun isContentReady(): Boolean = StartupWarmup.isDbReady()
+    fun isContentReady(): Boolean = StartupWarmup.isDbReady() && (!WebViewStartup.started || WebViewStartup.isDone())
 
     /** 阶段 3：挂起直到库就绪（在 IO 线程等，不卡主线程）。 */
     suspend fun awaitContentReady(context: Context) {
         withContext(Dispatchers.IO) {
             StartupWarmup.awaitDb(context)
+            // 第一个 WebView 在闸门放行后才会创建：等 WebView 预热结束（和库预热并行，通常早已好；有超时，等不到照旧放行）
+            WebViewStartup.awaitDone()
             // 顺手把标签列表读好：BrowserState 初始化（主线程）就不必再读库，只管建界面要用的那一个标签
             runCatching {
                 if (context.appContainer.settings.restoreTabsMode != RestoreMode.NONE) {
@@ -121,6 +132,10 @@ internal object StartupCoordinator {
                 runCatching { app.appContainer.webExtensions.startAll() }
                     .onFailure { Diag.log("web extensions: start backgrounds failed ${it.message}") }
             }, EXT_BACKGROUND_DELAY_MS)
+        }
+        // 上次进程被杀留在磁盘上的无痕 Profile 数据：界面出来、WebView 预热结束之后再扫（本进程已用过无痕就跳过）
+        activity.window.decorView.post {
+            Handler(Looper.getMainLooper()).postDelayed({ IncognitoProfile.sweepStale() }, SWEEP_INCOGNITO_DELAY_MS)
         }
         // 长按应用图标的快捷方式：界面出来后再发布，不占冷启动
         activity.window.decorView.post {

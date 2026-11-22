@@ -70,6 +70,7 @@ function makeBrowser(url) {
       },
       onMessage: { addListener: (f) => bgMsgListeners.push(f) },
       onConnect: { addListener: (f) => bgConnectListeners.push(f) },
+      onMessageExternal: { addListener() {} },
       connect: ({ name }) => { const [mine, bgSide] = makePair(sender, name); bgConnectListeners.forEach((f) => f(bgSide)); return mine; },
       connectNative: (name) => {
         if (name === 'mafariGmBg') {
@@ -127,7 +128,7 @@ vm.runInNewContext(rd('mafari-gm-ext/background.js'), {
 
 // ---------- 原生侧：拼源码（= GeckoGm.buildSource）----------
 const runtime = rd('mafari_gm_runtime.js');
-const shimTpl = rd('mafari_gm_gecko_shim.js');
+const shimTpl = rd('mafari_gm_shim.js');
 const INLINE_MAX = 64 * 1024;
 function snapshot(id, all) { // = GeckoGm.valuesJson：超阈值的值不内联，键名进 big
   const ents = Object.entries(all);

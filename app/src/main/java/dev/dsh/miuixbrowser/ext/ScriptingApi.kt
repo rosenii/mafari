@@ -71,6 +71,46 @@ class ScriptingApi(
             onDynamicScriptsChanged(ctx.ext.spec.id)
             null
         }
+        // ---- Firefox MV2 contentScripts.register（uBlock Origin 等用）：不持久化，只接受 file 形式的 js / css ----
+        router.register("contentScripts.register") { ctx, a ->
+            val o = a.argOrNull(0) as? JSONObject ?: throw bad("contentScripts.register 需要对象")
+            if (o.optString("id").isBlank()) throw bad("缺少脚本 id")
+            val copy = JSONObject(o.toString()).put("persistAcrossSessions", false)
+            dynamicScripts.register(ctx.ext, listOf(parseDynamic(ctx, copy)))
+            onDynamicScriptsChanged(ctx.ext.spec.id)
+            o.optString("id")
+        }
+        router.register("contentScripts.unregister") { ctx, a ->
+            val id = (a.argOrNull(0) as? String)?.takeIf { it.isNotBlank() } ?: throw bad("缺少脚本 id")
+            dynamicScripts.unregister(ctx.ext, setOf(id))
+            onDynamicScriptsChanged(ctx.ext.spec.id)
+            null
+        }
+        // ---- MV2 tabs.executeScript / insertCSS / removeCSS：转到 scripting 的实现（host 权限仍由 access() 校验）----
+        router.register("tabs.executeScript") { ctx, a ->
+            val d = legacyInjection(a, ctx)
+            if (d.has("code")) throw ApiException(ErrorCodes.UNSUPPORTED, "tabs.executeScript 暂不支持内联 code，请改用 file")
+            val file = d.str("file") ?: throw bad("tabs.executeScript 需要 file")
+            val res = executeScript(ctx, JSONObject().put("target", d.getJSONObject("target")).put("files", JSONArray().put(file)))
+            // MV2 返回「每个框架一个结果」的数组，而不是 scripting 的 {frameId, result}
+            JSONArray().also { out ->
+                (res as? JSONArray)?.let { arr -> for (i in 0 until arr.length()) out.put(arr.optJSONObject(i)?.opt("result") ?: JSONObject.NULL) }
+            }
+        }
+        router.register("tabs.insertCSS") { ctx, a ->
+            val d = legacyInjection(a, ctx)
+            val inj = JSONObject().put("target", d.getJSONObject("target"))
+            if (d.has("code")) inj.put("css", d.optString("code")) else inj.put("files", JSONArray().put(d.str("file") ?: throw bad("tabs.insertCSS 需要 code 或 file")))
+            insertCss(ctx, inj)
+            null
+        }
+        router.register("tabs.removeCSS") { ctx, a ->
+            val d = legacyInjection(a, ctx)
+            val inj = JSONObject().put("target", d.getJSONObject("target"))
+            if (d.has("code")) inj.put("css", d.optString("code")) else inj.put("files", JSONArray().put(d.str("file") ?: throw bad("tabs.removeCSS 需要 code 或 file")))
+            removeCss(ctx, inj)
+            null
+        }
         router.register("scripting.unregisterContentScripts") { ctx, a ->
             val filter = a.argOrNull(0) as? JSONObject
             val ids = filter?.optJSONArray("ids")?.let { arr -> (0 until arr.length()).map { arr.optString(it) }.toSet() }
@@ -313,6 +353,19 @@ class ScriptingApi(
     private fun slot(token: String) = "__mx_$token"
 
     // ------------------------------------------------------------------ 参数与权限
+
+    /** MV2 (tabId|null, details) → details 里补上 target；tabId 缺省取活动标签；allFrames / frameId 非主框架明确拒绝 */
+    private suspend fun legacyInjection(a: JSONArray, ctx: CallContext): JSONObject {
+        val details = (a.argOrNull(1) as? JSONObject) ?: throw bad("缺少注入参数")
+        if (details.optBoolean("allFrames", false)) throw ApiException(ErrorCodes.UNSUPPORTED, "WebView 上只支持主框架注入；allFrames 不可用")
+        if (details.has("frameId") && details.optInt("frameId", 0) != 0) throw ApiException(ErrorCodes.UNSUPPORTED, "只支持主框架（frameId 0）")
+        val explicit = a.argOrNull(0)
+        val tabId = if (explicit == null || explicit == JSONObject.NULL) {
+            (bridge() ?: throw ApiException(ErrorCodes.UNSUPPORTED, "标签页暂不可用")).list().firstOrNull { it.active }?.id
+                ?: throw ApiException(ErrorCodes.UNSUPPORTED, "当前没有活动标签页")
+        } else TabsApi.toInt(explicit, "tabId")
+        return JSONObject(details.toString()).put("target", JSONObject().put("tabId", tabId))
+    }
 
     private fun details(a: JSONArray): JSONObject = a.argOrNull(0) as? JSONObject ?: throw bad("缺少参数对象")
 

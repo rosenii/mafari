@@ -15,6 +15,7 @@ class FakeTabBridge(private val maxTabs: Int = 100) : TabBridge {
         var loading: Boolean = false,
         var favIconUrl: String? = null,
         var openerTabId: Int? = null,
+        var muted: Boolean? = null,
     )
 
     private val entries = ArrayList<Entry>()
@@ -40,6 +41,9 @@ class FakeTabBridge(private val maxTabs: Int = 100) : TabBridge {
         return isolatedHandler?.invoke(extId, tabId, js) ?: WorldEval.Unavailable
     }
 
+    /** 模拟系统 WebView 是否支持 MUTE_AUDIO；不支持时 muted 恒为 null、update 的 muted 是空操作 */
+    var mutingSupported = true
+
     val reloads = ArrayList<Pair<Int, Boolean>>()
     var capturedDataUrl: String = "data:image/png;base64,dGVzdA=="
     var lastCapture: Pair<String, Int>? = null
@@ -53,6 +57,7 @@ class FakeTabBridge(private val maxTabs: Int = 100) : TabBridge {
         favIconUrl = e.favIconUrl,
         loading = e.loading,
         openerTabId = e.openerTabId?.takeIf { oid -> entries.any { it.id == oid } },
+        muted = if (mutingSupported) (e.muted ?: false) else null,
     )
 
     private fun find(id: Int) = entries.firstOrNull { it.id == id }
@@ -130,6 +135,11 @@ class FakeTabBridge(private val maxTabs: Int = 100) : TabBridge {
             listeners.forEach { it.onUpdated(snapshot(e), TabChange(status = TabChange.STATUS_LOADING, url = u)) }
         }
         if (options.active == true) activate(e.id)
+        val m = options.muted
+        if (m != null && mutingSupported && (e.muted ?: false) != m) {
+            e.muted = m
+            listeners.forEach { it.onUpdated(snapshot(e), TabChange(muted = m)) }
+        }
         return snapshot(e)
     }
 

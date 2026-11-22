@@ -8,6 +8,7 @@ import dev.dsh.miuixbrowser.browser.rememberRemoteIcon
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,7 +72,7 @@ private val NO_MENU_TEXT: String get() = tr("脚本未注册快捷菜单")
 
 /**
  * 脚本快捷菜单（底部 Sheet）。
- * - 标题 + 绿点副标题「N个脚本运行中」，右上角一键启停开关
+ * - 标题 + 绿点副标题「N个脚本运行中 · 运行环境（隔离世界 / 页面内）」，右上角一键启停开关
  * - 下方为当前页面运行的脚本：图标 + 标题（过长滚动）+ 下拉框，下拉里是该脚本注册的快捷命令
  * - 一键关闭后脚本列表整体置灰、不可操作
  */
@@ -80,6 +81,7 @@ fun ScriptMenuSheet(
     show: Boolean,
     backdrop: Backdrop?,
     scripts: List<RunningScript>,
+    bridgeMode: dev.dsh.miuixbrowser.script.ScriptBridgeMode,
     commands: List<ScriptMenuCommand>,
     scriptsEnabled: Boolean,
     onScriptsEnabledChange: (Boolean) -> Unit,
@@ -126,11 +128,42 @@ fun ScriptMenuSheet(
                                 ),
                         )
                         Spacer(Modifier.width(6.dp))
+                        val inPage = bridgeMode == dev.dsh.miuixbrowser.script.ScriptBridgeMode.IN_PAGE
                         Text(
-                            text = if (scriptsEnabled) tr("{0}个脚本运行中", scripts.size) else tr("脚本已停用"),
+                            text = if (scriptsEnabled) {
+                                // 运行环境：隔离世界通道（中继 + 私有通道）/ 页面内桥（MafariGM 挂在页面世界）
+                                val env = if (inPage) tr("页面内桥") else tr("隔离世界通道")
+                                tr("{0}个脚本运行中", scripts.size) + " · " + env
+                            } else tr("脚本已停用"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
+                        // 页面内桥：页面里的 JS 能直接调到原生桥，点红色感叹号看风险提示
+                        if (scriptsEnabled && inPage) {
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            Spacer(Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF3B30))
+                                    .clickable {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            tr("页面内桥不安全：网页可直接调用脚本原生接口，建议更新 WebView 版本"),
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "!",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                )
+                            }
+                        }
                     }
                 }
                 AppSwitch(checked = scriptsEnabled, onCheckedChange = onScriptsEnabledChange)

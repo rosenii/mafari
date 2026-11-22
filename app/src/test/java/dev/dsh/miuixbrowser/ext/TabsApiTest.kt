@@ -233,6 +233,28 @@ class TabsApiTest {
         assertEquals("No tab with id: 404.", call("tabs.update", 404, JSONObject().put("active", true)).errorMessage())
     }
 
+    @Test fun updateMutedTogglesMutedInfoQueryAndEvent() {
+        install(setOf("tabs"))
+        val r = call("tabs.update", tabB, JSONObject().put("muted", true)).result() as JSONObject
+        assertTrue(r.getJSONObject("mutedInfo").getBoolean("muted"))
+        val upd = sink.named("tabs.onUpdated").single()
+        assertEquals(tabB, upd.getInt("tabId"))
+        assertTrue(upd.getJSONObject("changeInfo").getJSONObject("mutedInfo").getBoolean("muted"))
+        assertEquals(listOf(tabB), ids(call("tabs.query", JSONObject().put("muted", true))))
+        assertFalse(ids(call("tabs.query", JSONObject().put("muted", false))).contains(tabB))
+        val back = call("tabs.update", tabB, JSONObject().put("muted", false)).result() as JSONObject
+        assertFalse(back.getJSONObject("mutedInfo").getBoolean("muted"))
+    }
+
+    @Test fun updateMutedIsNoOpWhenWebViewCannotMute() {
+        install(setOf("tabs"))
+        bridge.mutingSupported = false
+        val r = call("tabs.update", tabB, JSONObject().put("muted", true)).result() as JSONObject
+        assertFalse(r.getJSONObject("mutedInfo").getBoolean("muted"))
+        assertTrue(sink.named("tabs.onUpdated").isEmpty())
+        assertTrue(ids(call("tabs.query", JSONObject().put("muted", true))).isEmpty())
+    }
+
     @Test fun removeClosesExistingAndReportsMissing() {
         install(setOf("tabs"))
         assertEquals("No tab with id: 555.", call("tabs.remove", JSONArray(listOf(tabB, 555))).errorMessage())

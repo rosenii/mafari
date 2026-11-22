@@ -14,10 +14,11 @@ mafari-dual/
 │  ├─ build.gradle.kts               flavors、依赖版本、签名、BuildConfig
 │  └─ src/
 │     ├─ main/java/dev/dsh/miuixbrowser/   全部 Kotlin（平铺）
-│     ├─ main/assets/                WebView 注入脚本：mafari_gm_runtime.js（GM 运行时）、mafari_fingerprint.js、
+│     ├─ main/assets/                WebView 注入脚本：mafari_gm_runtime.js（GM 运行时）、mafari_gm_shim.js（GM 桥垫片，
+│     │                              Gecko / WebView 共用）、mafari_gm_relay_wv.js（WebView 隔离世界中继）、mafari_fingerprint.js、
 │     │                              mafari_desktop.js、mafari_no_webrtc.js、mafari_blob_cache.js、mafari_fp_prereg.json
 │     ├─ gecko/assets/               仅 gecko 变体：内置拓展 mafari-gm-ext/（manifest / background.js / relay.js）、
-│     │                              mafari_gm_gecko_shim.js、mafari-bookmarks-shim.js（Floccus 书签垫片）
+│     │                              mafari-bookmarks-shim.js（Floccus 书签垫片）
 │     └─ test/                       JVM 单测：CryptoEngine、BackupFormat、GitNames、GitHistory、WebDavNames
 ├─ miuix.ref                         miuix 上游仓库与版本（跟随主线）
 ├─ third_party/miuix/                上游源码（gitignore，tools/miuix-sync.sh 生成，includeBuild + dependencySubstitution）
@@ -216,8 +217,8 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | 设置项 | `AppSettings`、`SettingsScreen` 及各子页（路由在 `AppRoute`） |
 | Gecko 回调 / 弹层 / 权限 | `GeckoEngine`（`GeckoTabEngine`）、`GeckoPrompts` |
 | Gecko 隐私 / about:config | `GeckoProtection`、`GeckoPrefs`、`GeckoDebug` |
-| 油猴（WebView） | `UserscriptEngine`、`GmBridge`、`assets/mafari_gm_runtime.js` |
-| 油猴（Gecko） | `GeckoGm`、`assets/mafari-gm-ext`、`mafari_gm_gecko_shim.js` |
+| 油猴（WebView） | `UserscriptEngine`、`GmBridge`、`assets/mafari_gm_runtime.js`；隔离世界通道见 `docs/WEBVIEW_GM_CHANNEL.md`（`mafari_gm_shim.js` + `mafari_gm_relay_wv.js`） |
+| 油猴（Gecko） | `GeckoGm`、`assets/mafari-gm-ext`、`mafari_gm_shim.js` |
 | 去广告规则语法 / 性能 | `AdBlockEngine`、`AdBlock` |
 | 备份格式 / 加密 | `Backup.kt`、`CipherSuite.kt`、`CryptoEngine.kt` |
 | 云同步 | `WebDav.kt`、`GitSync.kt`、`BackupAuto.kt` |

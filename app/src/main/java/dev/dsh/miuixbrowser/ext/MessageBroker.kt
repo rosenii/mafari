@@ -59,11 +59,13 @@ class MessageBroker(
 
     private class Reply(val value: Any?)
 
-    private class Pending(val extId: String) {
+    private class Pending(val extId: String, val shape: String = "") {
         val result = CompletableDeferred<Reply>()
         val cids = HashSet<String>()
         var outstanding = 0
         var sealed = false
+        /** 至少有一个目标上下文装了 onMessage 监听器、但没有给出响应（Firefox：此时发送方 resolve undefined，而不是报错） */
+        var listened = false
     }
 
     /** One caller-side Port can be observed by every live extension page context. */
@@ -145,6 +147,7 @@ class MessageBroker(
             id, extId, caller.contextId, CopyOnWriteArraySet(), name, sender,
         )
         ports[id] = connection
+        log("ext $extId runtime.connect name='${name}' port=${id.take(8)} from=${caller.kind.name.lowercase()} targets=${targets.joinToString { it.contextType.lowercase() }}")
         targets.forEach { target ->
             // Register before delivery so an immediately responding endpoint is already authorized.
             connection.rightContexts.add(target.contextId)
@@ -166,6 +169,7 @@ class MessageBroker(
         if (c.extId != ctx.ext.spec.id || (senderId != c.leftContext && senderId !in c.rightContexts)) {
             throw ApiException(ErrorCodes.DENIED_PERMISSION, "无权使用此 Port")
         }
+        log("ext ${c.extId} port ${portId.take(8)} name='${c.name}' ${if (senderId == c.leftContext) "caller" else "target"} posts msg=${shapeOf(message)}")
         if (senderId == c.leftContext) {
             val liveTargets = c.rightContexts.toList()
             var delivered = 0
@@ -176,6 +180,7 @@ class MessageBroker(
                 }.getOrDefault(false)
                 if (ok) delivered++ else c.rightContexts.remove(targetId)
             }
+            log("ext ${c.extId} port ${portId.take(8)} name='${c.name}' caller→targets delivered=$delivered/${liveTargets.size}")
             if (delivered == 0) {
                 closePort(portId, notifyContexts = emptySet())
                 throw ApiException(ErrorCodes.NO_RECEIVER, "Port 接收端已关闭")
@@ -185,6 +190,7 @@ class MessageBroker(
             val ok = target != null && runCatching {
                 target.deliverPort("portMessage", portId, c.name, c.sender, message)
             }.getOrDefault(false)
+            log("ext ${c.extId} port ${portId.take(8)} name='${c.name}' target→caller delivered=$ok")
             if (!ok) {
                 closePort(portId, notifyContexts = emptySet())
                 throw ApiException(ErrorCodes.NO_RECEIVER, "Port 调用端已关闭")
@@ -269,7 +275,7 @@ class MessageBroker(
         sender: JSONObject,
     ): Any? {
         if (targets.isEmpty()) throw noReceiver()
-        val state = Pending(extId)
+        val state = Pending(extId, shapeOf(message))
         for (t in targets) {
             val cid = newCid()
             synchronized(state) {
@@ -283,7 +289,7 @@ class MessageBroker(
         }
         synchronized(state) {
             state.sealed = true
-            if (state.outstanding == 0 && !state.result.isCompleted) state.result.completeExceptionally(noReceiver())
+            if (state.outstanding == 0 && !state.result.isCompleted) finishWithoutReply(state)
         }
         try {
             val reply = withTimeoutOrNull(timeoutMs) { state.result.await() }
@@ -300,11 +306,22 @@ class MessageBroker(
     }
 
     /** `runtime.reply`：页面把 onMessage 的结果送回来。[noReceiver] 表示该上下文没有监听器 */
-    fun reply(extId: String, cid: String, value: Any?, noReceiver: Boolean) {
+    fun reply(extId: String, cid: String, value: Any?, noReceiver: Boolean, noResponse: Boolean = false, error: String? = null) {
         val state = pending[cid] ?: return
         if (state.extId != extId) return
-        if (noReceiver) {
-            settleWithoutReply(cid)
+        if (error != null) {
+            // 监听器返回的 Promise 被 reject：Firefox 里发送方会收到这个错误，而不是静默得到 undefined
+            if (pending.remove(cid) == null) return
+            pendingOwner.remove(cid)
+            synchronized(state) { state.cids.remove(cid) }
+            log("ext $extId runtime.sendMessage: 目标页面的 onMessage 监听器 reject：${error.take(200)}")
+            state.result.completeExceptionally(ApiException(ErrorCodes.INTERNAL, error))
+            return
+        }
+        if (noResponse) log("ext $extId runtime.sendMessage: 目标页面有 onMessage 监听器但没有响应（没 sendResponse / 没 return true） msg=${state.shape}")
+        if (noReceiver || noResponse) {
+            // noResponse：该上下文有监听器但没响应；noReceiver：该上下文根本没有监听器
+            settleWithoutReply(cid, hadListener = noResponse)
             return
         }
         if (pending.remove(cid) == null) return
@@ -313,15 +330,24 @@ class MessageBroker(
         state.result.complete(Reply(value))
     }
 
-    private fun settleWithoutReply(cid: String) {
+    private fun settleWithoutReply(cid: String, hadListener: Boolean = false) {
         val state = pending.remove(cid) ?: return
         pendingOwner.remove(cid)
         synchronized(state) {
+            if (hadListener) state.listened = true
             if (state.cids.remove(cid)) state.outstanding--
-            if (state.sealed && state.outstanding == 0 && !state.result.isCompleted) {
-                state.result.completeExceptionally(noReceiver())
-            }
+            if (state.sealed && state.outstanding == 0 && !state.result.isCompleted) finishWithoutReply(state)
         }
+    }
+
+    /**
+     * 所有目标都已表态且没人给出回复：
+     * - 有人装了监听器但没响应 → 和 Firefox 一样 resolve undefined（Tampermonkey 等的 fire-and-forget 消息依赖这一点）；
+     * - 没有任何监听器 / 送不到 → NO_RECEIVER。
+     */
+    private fun finishWithoutReply(state: Pending) {
+        if (state.listened) state.result.complete(Reply(null))
+        else state.result.completeExceptionally(noReceiver())
     }
 
     fun register(router: ApiRouter) {
@@ -330,7 +356,12 @@ class MessageBroker(
         router.register("runtime.reply") { ctx, a ->
             val cid = a.argOrNull(0) as? String ?: throw ApiException(ErrorCodes.BAD_REQUEST, "reply 需要 cid")
             val opts = a.argOrNull(2) as? JSONObject
-            reply(ctx.ext.spec.id, cid, a.argOrNull(1), opts?.optBoolean("noReceiver", false) == true)
+            reply(
+                ctx.ext.spec.id, cid, a.argOrNull(1),
+                noReceiver = opts?.optBoolean("noReceiver", false) == true,
+                noResponse = opts?.optBoolean("noResponse", false) == true,
+                error = opts?.optString("error", "")?.takeIf { it.isNotEmpty() },
+            )
             null
         }
     }
@@ -411,6 +442,28 @@ class MessageBroker(
             }
         return out
     }
+
+    /** 诊断用：只记消息的形状（键名与类型，加几个常见的分发字段的短值），不记内容 */
+    private fun shapeOf(m: Any?): String = try {
+        when (m) {
+            null, JSONObject.NULL -> "null"
+            is JSONObject -> {
+                val parts = ArrayList<String>()
+                val it = m.keys()
+                while (it.hasNext() && parts.size < 12) {
+                    val k = it.next()
+                    val v = m.opt(k)
+                    val t = when (v) { null, JSONObject.NULL -> "null"; is JSONObject -> "obj"; is org.json.JSONArray -> "arr${v.length()}"; is String -> "str${v.length}"; is Number -> "num"; is Boolean -> "bool"; else -> "?" }
+                    val tag = if (v is String && k in setOf("method", "type", "action", "cmd", "name", "event", "op")) "=" + v.take(40) else ""
+                    parts.add("$k:$t$tag")
+                }
+                "{" + parts.joinToString(",") + "}"
+            }
+            is org.json.JSONArray -> "arr${m.length()}"
+            is String -> "str${m.length}"
+            else -> m.javaClass.simpleName
+        }
+    } catch (_: Exception) { "?" }
 
     private fun noReceiver() =
         ApiException(ErrorCodes.NO_RECEIVER, "Could not establish connection. Receiving end does not exist.")

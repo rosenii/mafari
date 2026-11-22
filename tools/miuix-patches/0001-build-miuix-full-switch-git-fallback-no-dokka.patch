@@ -278,3 +278,6 @@ index ff4c0c9..8f37092 100644
 +    include(":docs:demo")
 +    include(":docs:iconGen")
 +}
+-- 
+2.43.0
+

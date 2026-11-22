@@ -22,7 +22,7 @@ Content-Transfer-Encoding: 8bit
  create mode 100644 miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
-index b22f016..ea4819c 100644
+index 164287e..5ac0556 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 @@ -33,6 +33,8 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -31,10 +31,10 @@ index b22f016..ea4819c 100644
   * @param renderInRootScaffold Whether the outermost Scaffold hosts the sheet.
 + * @param immersive Whether the content fills the whole sheet with the drag handle and title floating
 + *   above it (read the space to keep clear from [top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets]).
-  * @param title Optional title above the body.
+  * @param title Optional title. The header takes up space if any of [title], [startAction], or
+  *   [endAction] is non-null (including `title = ""`). The drag handle is unaffected.
   * @param startAction Optional leading header action.
-  * @param endAction Optional trailing header action.
-@@ -60,6 +62,7 @@ fun GlassBottomSheet(
+@@ -61,6 +63,7 @@ fun GlassBottomSheet(
      allowDismiss: Boolean = true,
      enableNestedScroll: Boolean = true,
      renderInRootScaffold: Boolean = true,
@@ -42,7 +42,7 @@ index b22f016..ea4819c 100644
      title: String? = null,
      startAction: @Composable (() -> Unit)? = null,
      endAction: @Composable (() -> Unit)? = null,
-@@ -97,6 +100,7 @@ fun GlassBottomSheet(
+@@ -98,6 +101,7 @@ fun GlassBottomSheet(
          allowDismiss = allowDismiss,
          enableNestedScroll = enableNestedScroll,
          renderInRootScaffold = renderInRootScaffold,
@@ -51,7 +51,7 @@ index b22f016..ea4819c 100644
          surface = surface ?: glassBottomSheetSurface(backdrop, material, stroke, containerColor, shading, style),
          content = content,
 diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
-index 992999e..7836814 100644
+index 6071b42..d3b684a 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 @@ -55,9 +55,11 @@ import androidx.compose.ui.graphics.graphicsLayer
@@ -272,10 +272,10 @@ index 0000000..d744eda
 + */
 +val LocalBottomSheetInsets = staticCompositionLocalOf { BottomSheetInsets() }
 diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
-index fdbb63b..ce5338c 100644
+index a9b5b06..63d28d7 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
-@@ -42,6 +42,9 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
+@@ -43,6 +43,9 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayout
   * @param renderInRootScaffold Whether to render the bottom sheet in the root (outermost) Scaffold.
   *   When true (default), the bottom sheet covers the full screen. When false, it renders within the
   *   current Scaffold's bounds.
@@ -285,7 +285,7 @@ index fdbb63b..ce5338c 100644
   * @param dimColor The unanimated dimming color.
   * @param surface Optional replacement for the default background and clipping. Also used for
   *   the exposed bottom edge during upward overscroll, with [BottomSheetSurfaceScope.isOverscroll].
-@@ -68,6 +71,7 @@ fun OverlayBottomSheet(
+@@ -69,6 +72,7 @@ fun OverlayBottomSheet(
      allowDismiss: Boolean = true,
      enableNestedScroll: Boolean = true,
      renderInRootScaffold: Boolean = true,
@@ -293,7 +293,7 @@ index fdbb63b..ce5338c 100644
      dimColor: Color = MiuixTheme.colorScheme.windowDimming,
      surface: (@Composable BottomSheetSurfaceScope.() -> Modifier)? = null,
      content: @Composable () -> Unit,
-@@ -104,6 +108,7 @@ fun OverlayBottomSheet(
+@@ -105,6 +109,7 @@ fun OverlayBottomSheet(
          defaultWindowInsetsPadding = defaultWindowInsetsPadding,
          allowDismiss = allowDismiss,
          enableNestedScroll = enableNestedScroll,
@@ -301,3 +301,6 @@ index fdbb63b..ce5338c 100644
          dimColor = dimColor,
          surface = surface,
          content = content,
+-- 
+2.43.0
+

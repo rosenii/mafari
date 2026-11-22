@@ -12,7 +12,7 @@
  *   { t:'err', id, kind, detail }                         这一批失败
  *
  * - WebView：原生用 evaluateJavascript 注入本文件（幂等），随后调 attachWebView() / start({target})；
- *   页面 → 原生走 addJavascriptInterface 的 window.MafariTr.post(json)，原生 → 页面走 evaluateJavascript 调 recv。
+ *   页面 → 原生走 window.MafariTr（WebMessageListener 的 postMessage(json)；旧 WebView 退回 addJavascriptInterface 的 post(json)），原生 → 页面走 evaluateJavascript 调 recv。
  * - Gecko：本文件原样放在内置拓展 mafari-translate-ext（assets/mafari-translate-ext/translate.js）里当内容脚本；
  *   文末的「Gecko 胶水」经 runtime.connectNative('mafariTranslate') 收发。
  *   （两份必须逐字一致，TranslateCoreSyncTest 会校验。）
@@ -434,7 +434,10 @@
 
   function attachWebView() {
     transport = function (msg) {
-      if (window.MafariTr && typeof window.MafariTr.post === 'function') window.MafariTr.post(JSON.stringify(msg));
+      var b = window.MafariTr;
+      if (!b) return;
+      if (typeof b.postMessage === 'function') b.postMessage(JSON.stringify(msg));
+      else if (typeof b.post === 'function') b.post(JSON.stringify(msg));
     };
   }
 

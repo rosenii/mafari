@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.ClipboardManager
 /** 脚本快捷菜单：查询当前页面运行的脚本 + 它们注册的快捷命令 */
 internal fun BrowserUiState.refreshScriptSheet(state: BrowserState) {
     val t = state.activeTab
+    scriptBridgeMode = t.scripts.bridgeMode()
     t.queryRunningScriptIds { ids ->
         val byId = t.userScripts.associateBy { it.id }
         runningScripts = ids.map { id ->

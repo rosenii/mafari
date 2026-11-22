@@ -56,6 +56,8 @@ internal class BrowserUiState {
     var requestSheetShow by mutableStateOf(false)
     var scriptMenuItems by mutableStateOf<List<ScriptMenuCommand>>(emptyList())
     var runningScripts by mutableStateOf<List<RunningScript>>(emptyList())
+    // 脚本菜单副标题里的运行环境（隔离世界 / 页面内）
+    var scriptBridgeMode by mutableStateOf(dev.dsh.miuixbrowser.script.ScriptBridgeMode.ISOLATED)
     // 菜单面板右上角蓝标：当前页面运行的脚本数
     var scriptRunCount by mutableIntStateOf(0)
     // 菜单「同步」进行中：图标变主题色、文字变「同步中」，防止重复点击

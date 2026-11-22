@@ -85,9 +85,19 @@ manifest.json
 不要为了兼容检测而把未实现的 API 返回空成功；保持 `UNSUPPORTED`，并在扩展安装兼容性报告里显示 PARTIAL / NONE。
 
 
+### webRequest 主文档响应（NavigationListener）
+
+- 系统 WebView 支持时，主文档会发真实的 `onBeforeRedirect`（含 `redirectUrl`、`statusCode`）、`onHeadersReceived`（只读，不支持 `blocking`）、`onResponseStarted` 与 `onCompleted`，均带 `statusCode`；
+  listener 声明 `extraInfoSpec: ["responseHeaders"]` 时附带 `responseHeaders: [{name, value}]`。
+- 不合成 `statusLine`（WebView 只给状态码）；子资源仍然没有响应阶段；`onBeforeSendHeaders` / `onSendHeaders` / `onAuthRequired` 仍是空事件。
+
 ### webNavigation 主框架支持
 
 - 支持 `getFrame({tabId, frameId: 0})`、`getAllFrames({tabId})`。
 - 支持 `onBeforeNavigate`、`onCommitted`、`onCompleted`、`onHistoryStateUpdated`、`onReferenceFragmentUpdated`。
 - 事件仅发送给声明 `webNavigation` 且拥有目标 URL host 权限的拓展；无痕标签不发事件。
-- 当前 `frameId` 固定为 0，`parentFrameId` 固定为 -1；子框架、documentId、DOMContentLoaded、onErrorOccurred 和完整 transition 语义尚未实现。
+- 当前 `frameId` 固定为 0，`parentFrameId` 固定为 -1；子框架与 documentId 尚未实现。
+- 系统 WebView 支持 `NAVIGATION_LISTENER`（androidx.webkit ≥ 1.16，`NavigationState` / 响应头需要 1.19）时，`WebViewNavigationBridge` 接管主文档的
+  `onCommitted`（真实 `transitionType`，`transitionQualifiers` 含 `forward_back` / `server_redirect`）、`onDOMContentLoaded` 与 `onCompleted`；
+  不支持时回到 WebViewClient 近似路径（`onPageCommitVisible` 当 committed、`onPageFinished` 当 completed，无 DOMContentLoaded，qualifiers 为空）。
+- `onBeforeNavigate`、`onErrorOccurred`、`onHistoryStateUpdated` / `onReferenceFragmentUpdated` 仍走 WebViewClient 路径：NavigationListener 的 started 回调连同文档导航也会触发，直接使用会产生假的 beforeNavigate。

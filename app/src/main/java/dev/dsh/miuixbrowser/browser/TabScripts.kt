@@ -2,6 +2,7 @@ package dev.dsh.miuixbrowser.browser
 
 import android.webkit.WebView
 import dev.dsh.miuixbrowser.engine.gecko.GeckoGm
+import dev.dsh.miuixbrowser.script.GmChannel
 import dev.dsh.miuixbrowser.script.ScriptResources
 import dev.dsh.miuixbrowser.script.UserscriptEngine
 import dev.dsh.miuixbrowser.util.Diag
@@ -17,6 +18,58 @@ internal class TabScripts(private val tab: BrowserTab) {
     private var installedScriptsSignature = ""
     private var prefetchingScripts = false
 
+    /**
+     * 隔离世界通道（WebView 支持 JS_INJECTION_IN_FRAME_AND_WORLD 时）：脚本 handler 由它自己管理，
+     * 此时 [scriptHandlers] 为空。不支持 / 安装失败时为 null，沿用旧的 addDocumentStartJavaScript + MafariGM 路径。
+     */
+    private var channel: GmChannel? = null
+
+    private var legacyBridgeInstalled = false
+
+    /**
+     * 旧桥：`addJavascriptInterface(GmBridge, "MafariGM")`，对该标签所有框架、所有 origin 可见，所以只在确实需要时才挂：
+     * 系统 WebView 不支持隔离世界，或通道安装失败退回旧路径。幂等。注意 addJavascriptInterface 对「下一次页面加载」生效。
+     */
+    fun ensureLegacyBridge() {
+        if (legacyBridgeInstalled) return
+        val bridge = tab.gmBridge ?: return
+        runCatching { tab.webView.addJavascriptInterface(bridge, "MafariGM") }
+            .onSuccess { legacyBridgeInstalled = true }
+            .onFailure { Diag.log("userscript: legacy bridge install failed ${it.message}") }
+    }
+
+    /** 标签销毁：摘掉通道（监听器 / 中继 / 脚本 handler）。主线程 */
+    fun release() {
+        channel?.close()
+        channel = null
+        scriptHandlers.forEach { handler -> runCatching { handler.remove() } }
+        scriptHandlers.clear()
+        installedScriptsSignature = ""
+    }
+
+    /** 通道版安装：true = 已由通道接管（脚本 handler 都在通道里），false = 调用方走旧路径 */
+    private fun syncViaChannel(enabled: List<dev.dsh.miuixbrowser.script.UserScript>): Boolean {
+        val bridge = tab.gmBridge ?: return false
+        if (!GmChannel.isSupported()) return false
+        val ch = channel ?: GmChannel(tab.appContext, tab.webView, bridge) { Diag.log(it) }.also { channel = it }
+        if (ch.sync(enabled)) return true
+        ch.close() // 装到一半失败：sync 已清理，这里确保实例不再留着
+        channel = null
+        return false
+    }
+
+    /**
+     * Gecko 走内置 WebExtension（中继是扩展内容脚本，不在页面世界），算隔离世界；
+     * WebView：通道接管（或支持隔离世界、尚未装脚本）= 隔离世界，旧桥已挂上 / 系统不支持 = 页面内。
+     */
+    fun bridgeMode(): dev.dsh.miuixbrowser.script.ScriptBridgeMode = when {
+        tab.isGecko -> dev.dsh.miuixbrowser.script.ScriptBridgeMode.ISOLATED
+        channel != null -> dev.dsh.miuixbrowser.script.ScriptBridgeMode.ISOLATED
+        legacyBridgeInstalled -> dev.dsh.miuixbrowser.script.ScriptBridgeMode.IN_PAGE
+        GmChannel.isSupported() -> dev.dsh.miuixbrowser.script.ScriptBridgeMode.ISOLATED
+        else -> dev.dsh.miuixbrowser.script.ScriptBridgeMode.IN_PAGE
+    }
+
     /** 当前标签是否应运行油猴脚本：网页增强、脚本总开关、无痕范围三者都允许 */
     fun active(): Boolean =
         tab.pageEnhancements && tab.scriptsEnabled && (!tab.incognito || tab.scriptsInIncognito)
@@ -31,9 +84,7 @@ internal class TabScripts(private val tab: BrowserTab) {
         if (tab.isGecko) { syncGecko(); return }
         if (tab.destroyed) return
         if (!active()) {
-            scriptHandlers.forEach { handler -> runCatching { handler.remove() } }
-            scriptHandlers.clear()
-            installedScriptsSignature = ""
+            release()
             return
         }
         val enabled = tab.userScripts.filter { it.enabled }
@@ -59,8 +110,19 @@ internal class TabScripts(private val tab: BrowserTab) {
         scriptHandlers.clear()
         installedScriptsSignature = signature
         if (!androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            ensureLegacyBridge() // 只能靠 injectMissing 的 evaluateJavascript 补注入，脚本源码需要 MafariGM
             return
         }
+        if (enabled.isEmpty()) {
+            channel?.close()
+            channel = null
+            return
+        }
+        if (syncViaChannel(enabled)) {
+            Diag.log("userscript: isolated-world channel scripts=${enabled.size}")
+            return
+        }
+        ensureLegacyBridge() // 通道不可用（不支持 / 安装失败）：退回旧桥
         enabled.forEach { script ->
             runCatching {
                 val source = UserscriptEngine.buildSource(tab.appContext, script)
@@ -114,6 +176,9 @@ internal class TabScripts(private val tab: BrowserTab) {
      */
     fun injectMissing(view: WebView) {
         if (!active()) return
+        // 通道接管时脚本源码没有 MafariGM，也没有中继（中继只随 document-start 注入）：late 注入的脚本调不了任何原生能力，
+        // 反而半残运行；这种情况交给下次导航的 document-start handler
+        if (channel != null) return
         val enabled = tab.userScripts.filter { it.enabled }
         if (enabled.isEmpty()) return
         val query = "(function(){try{return JSON.stringify(Object.keys(window.__mafariSeen||{}))}catch(e){return '[]'}})()"

@@ -238,6 +238,16 @@ const PAGE = `<!doctype html><html><head><title>Hello World</title><style>p{}</s
     assert(got.some(m => m.t === 'state' && m.phase === 'translating'));
   });
 
+  await test('webview transport prefers MafariTr.postMessage (WebMessageListener)', async () => {
+    const dom = new JSDOM('<body><p>Hello listener</p></body>', { runScripts: 'outside-only' });
+    const w = dom.window; const got = [];
+    w.MafariTr = { postMessage: s => got.push(JSON.parse(s)) };
+    w.eval(SRC);
+    w.__mafariTr.attachWebView();
+    w.__mafariTr.start({ target: 'zh-CN' });
+    assert(got.some(m => m.t === 'req' && m.texts[0] === 'Hello listener'));
+  });
+
   await test('gecko glue: connectNative, commands and replies', async () => {
     const dom = new JSDOM('<body><p>Hello gecko</p></body>', { runScripts: 'outside-only' });
     const w = dom.window; const posted = []; let onMsg;

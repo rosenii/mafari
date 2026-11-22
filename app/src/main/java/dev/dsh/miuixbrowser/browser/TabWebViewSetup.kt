@@ -68,6 +68,7 @@ import dev.dsh.miuixbrowser.util.toUrl
  */
 @SuppressLint("SetJavaScriptEnabled")
 internal fun BrowserTab.setupWebView() {
+    dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.noteWebViewCreated()
     // 显式开启 WebView 的硬件层：WebView 内容进 GPU 离屏层后，被 layerBackdrop 录制并送入 RuntimeShader
     // 时不再整页闪烁 / 崩溃，底栏、弹窗才能在网页态下采样 WebView 使用高级材质（miuix-glass / 液态玻璃）。
     webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -75,8 +76,11 @@ internal fun BrowserTab.setupWebView() {
     webView.setOnScrollChangeListener { _, _, _, _, _ -> scrollSignal.trySend(Unit) }
     runCatching { webView.addJavascriptInterface(AdBlockBridge { !incognito || adblockInIncognito }, "MafariAdblock") }
     runCatching { webView.addJavascriptInterface(blob.bridge, "MafariBlob") }
-    // 页内翻译：页面脚本经它把待译文本交给原生（只在翻译进行中受理）
-    runCatching { webView.addJavascriptInterface(translate.webBridge(), "MafariTr") }
+    // 页内翻译：页面脚本经它把待译文本交给原生（只在翻译进行中受理）。单向消息，优先 WebMessageListener
+    // （只受理主框架 http(s) 来源）；系统 WebView 不支持时退回 addJavascriptInterface
+    if (!dev.dsh.miuixbrowser.engine.webview.OneWayBridge.install(webView, "MafariTr", TabTranslate.MAX_WEB_MESSAGE_CHARS) { translate.onWebMessage(it) }) {
+        runCatching { webView.addJavascriptInterface(translate.webBridge(), "MafariTr") }
+    }
     // 仅降级路径：WebView 不支持 DOCUMENT_START_SCRIPT 时才安装无参的指纹桥；主路径不向页面暴露任何指纹接口
     val fp = fpInjector ?: return
     if (!fp.docStartSupported) {
@@ -124,30 +128,32 @@ internal fun BrowserTab.setupWebView() {
         }
     }.onFailure { Diag.log("adblock: document-start install failed ${it.message}") }
     runCatching {
-        webView.addJavascriptInterface(
-            GmBridge(
-                appContext,
-                { webView },
-                { id, target, active -> onGmOpenTab?.invoke(id, target, active) },
-                { link, name, onResult ->
-                    val gm = onGmDownload
-                    if (gm != null) {
-                        gm(link, name, onResult)
-                    } else {
-                        onDownload?.invoke(
-                            link,
-                            null,
-                            if (name.isBlank()) null else "attachment; filename=\"$name\"",
-                            null,
-                        )
-                        onResult?.invoke(false, "unsupported")
-                    }
-                },
-                { id -> onGmCloseTab?.invoke(id) },
-                { resolveActivity() },
-            ),
-            "MafariGM",
-        )
+        // 原生能力实现（xhr / 下载 / 通知 / 文件流 / Cookie）：隔离世界通道 GmChannel 与旧桥共用这一个实例，先建出来交给 tab.gmBridge。
+        // 旧桥 MafariGM（页面世界里的 JS 接口，所有框架可见）只在系统 WebView 不支持隔离世界、或通道装不上时才挂上，
+        // 见 TabScripts.ensureLegacyBridge：支持的设备上页面世界里没有任何原生入口。
+        val gmBridge = GmBridge(
+            appContext,
+            { webView },
+            { id, target, active -> onGmOpenTab?.invoke(id, target, active) },
+            { link, name, onResult ->
+                val gm = onGmDownload
+                if (gm != null) {
+                    gm(link, name, onResult)
+                } else {
+                    onDownload?.invoke(
+                        link,
+                        null,
+                        if (name.isBlank()) null else "attachment; filename=\"$name\"",
+                        null,
+                    )
+                    onResult?.invoke(false, "unsupported")
+                }
+            },
+            { id -> onGmCloseTab?.invoke(id) },
+            { resolveActivity() },
+            )
+        this.gmBridge = gmBridge
+        if (!dev.dsh.miuixbrowser.script.GmChannel.isSupported()) scripts.ensureLegacyBridge()
     }
     webView.settings.apply {
         javaScriptEnabled = true
@@ -165,6 +171,8 @@ internal fun BrowserTab.setupWebView() {
         cacheMode = WebSettings.LOAD_DEFAULT
         userAgentString = userAgentString.replace("; wv", "")
     }
+    // 图标由应用自己的 FaviconLoader 取，不读 WebView 的图标：别让 WebView 每次导航再下载一遍
+    dev.dsh.miuixbrowser.engine.webview.WebViewNetSavings.disableFaviconDownload(webView)
     // 先固定系统默认 UA（之后 applyUserAgent 会覆盖 settings.userAgentString）
     runCatching { defaultUserAgent.length }
     // 打开 WebView 的 WebAuthn（Passkey）支持。
@@ -193,8 +201,18 @@ internal fun BrowserTab.setupWebView() {
     }.onFailure { Diag.log("passkey: enable failed ${it.message}") }
     // 默认浅色底；深浅色由 applyDisplayTheme 按应用主题覆盖
     webView.setBackgroundColor(0xFFFFFFFF.toInt())
-    CookieManager.getInstance().setAcceptCookie(true)
-    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+    // 按 WebView 所在 Profile 的 CookieManager 设（无痕标签有自己的，不能顺手把默认 Profile 的开关也改了）
+    dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.cookieManagerFor(webView).apply {
+        setAcceptCookie(true)
+        setAcceptThirdPartyCookies(webView, true)
+    }
+
+    // 非无痕标签：主文档的 committed / completed / webRequest 响应交给 NavigationListener（系统 WebView 支持时）。
+    // 必须在首次加载前注册；不支持就保持下面 WebViewClient 的近似路径。
+    if (!incognito) {
+        runCatching { appContext.appContainer.webExtensions.attachNavigationListener(webView, id) }
+            .onFailure { Diag.log("webnav: NavigationListener attach failed ${it.message}") }
+    }
 
     var lastVisitedHistoryUrl: String? = url
     webView.webViewClient = object : WebViewClient() {
@@ -371,6 +389,21 @@ internal fun BrowserTab.setupWebView() {
             WebViewDebug.logHttpError(request, errorResponse)
         }
 
+        /**
+         * 渲染进程崩溃 / 被系统回收（后台标签内存吃紧时最常见）。必须返回 true：返回 false 或不处理，
+         * 系统会连应用进程一起杀掉。这个 WebView 已经不能再用，不在回调里就地销毁，
+         * 而是稍后交给 [BrowserState] 建新标签顶替（前台标签显示崩溃页，后台标签等切过去再加载）。
+         */
+        override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+            if (renderGone) return true
+            renderGone = true
+            val crashed = detail.didCrash()
+            Diag.log("webview render process gone tab=$id crashed=$crashed page=$url")
+            loading = false
+            mainHandler.post { if (!closed && !destroyed) onRenderGone?.invoke(crashed) }
+            return true
+        }
+
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val target = request.url.toString()
             if (ErrorPages.isProceedUrl(target)) {
@@ -424,7 +457,10 @@ internal fun BrowserTab.setupWebView() {
         }
     }
 
-    webView.addJavascriptInterface(inspector.bridge, "MafariElement")
+    // 长按元素：同上，单向消息优先走 WebMessageListener
+    if (!dev.dsh.miuixbrowser.engine.webview.OneWayBridge.install(webView, "MafariElement", TabElementInspector.MAX_MESSAGE_CHARS) { inspector.onMessage(it) }) {
+        runCatching { webView.addJavascriptInterface(inspector.bridge, "MafariElement") }
+    }
 
     webView.webChromeClient = object : WebChromeClient() {
         override fun onProgressChanged(view: WebView, newProgress: Int) {

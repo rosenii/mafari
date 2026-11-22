@@ -31,7 +31,7 @@ class ExtEntry(
 )
 
 /** 请求在管理页里用底部 Sheet 打开某个拓展自己的页面（目前只有 WebView 内核支持） */
-class ExtPageRequest(val extId: String, val name: String, val kind: Kind) {
+class ExtPageRequest(val extId: String, val name: String, val kind: Kind, val path: String? = null) {
     enum class Kind { POPUP, OPTIONS }
 }
 

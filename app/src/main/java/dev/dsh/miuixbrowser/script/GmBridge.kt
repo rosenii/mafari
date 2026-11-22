@@ -111,23 +111,39 @@ class GmBridge(
         purgeStaleResults()
         // 脚本标识由运行时随 options 带来（sid）；解析失败就按空标识归为同一组
         val sid = runCatching { JSONObject(optionsJson).optString("sid", "") }.getOrDefault("")
+        xhrExec(sid, reqId, optionsJson, bodyBase64) { json -> results[reqId] = Pending(json) }
+    }
+
+    /**
+     * 发起一次 GM_xmlhttpRequest（旧桥与 [GmChannel] 共用）。
+     * [sid] 只用于「每脚本在途上限」；[reqId] 在本桥内必须唯一（通道侧会加上帧前缀）。
+     * [onResult] 恰好回调一次（工作线程 / 调用线程），内容是与 [xhrPoll] 相同形状的 JSON；
+     * 唯一例外：调用过 [abortXhr] 的请求不再回调（调用方已不关心结果）。
+     * [allowHost] 非空时（通道版的 @connect 策略）每一跳（含重定向）都要先过它，不通过就以错误结束；旧桥传 null，行为不变。
+     */
+    internal fun xhrExec(
+        sid: String,
+        reqId: String,
+        optionsJson: String,
+        bodyBase64: String,
+        allowHost: ((String) -> Boolean)? = null,
+        onResult: (String) -> Unit,
+    ) {
         val counter = inflight.getOrPut(sid) { AtomicInteger(0) }
         if (counter.incrementAndGet() > MAX_INFLIGHT_PER_SCRIPT) {
             counter.decrementAndGet()
-            results[reqId] = Pending(
-                JSONObject().put("state", "error").put("error", "too many concurrent requests").toString(),
-            )
+            onResult(JSONObject().put("state", "error").put("error", "too many concurrent requests").toString())
             return
         }
         try {
             pool.execute {
                 try {
-                    val result = runCatching { runXhr(reqId, optionsJson, bodyBase64) }.getOrElse { e ->
+                    val result = runCatching { runXhr(reqId, optionsJson, bodyBase64, allowHost) }.getOrElse { e ->
                         JSONObject().put("state", "error").put("error", e.message ?: "request failed").toString()
                     }
                     connections.remove(reqId)
-                    // v2 运行时在 abort 后就停止轮询，不会再来取结果：不存，免得堆积
-                    if (!aborted.remove(reqId)) results[reqId] = Pending(result)
+                    // v2 运行时在 abort 后就停止取结果，不会再来要：不回调，免得堆积
+                    if (!aborted.remove(reqId)) onResult(result)
                 } finally {
                     if (counter.decrementAndGet() <= 0) inflight.remove(sid, counter)
                 }
@@ -135,9 +151,7 @@ class GmBridge(
         } catch (_: RejectedExecutionException) {
             counter.decrementAndGet()
             // 并发请求过多（队列已满）：直接给脚本一个错误结果，而不是无限排队
-            results[reqId] = Pending(
-                JSONObject().put("state", "error").put("error", "too many concurrent requests").toString(),
-            )
+            onResult(JSONObject().put("state", "error").put("error", "too many concurrent requests").toString())
         }
     }
 
@@ -146,7 +160,9 @@ class GmBridge(
     fun xhrPoll(reqId: String): String? = results.remove(reqId)?.json
 
     @JavascriptInterface
-    fun xhrAbort(reqId: String) {
+    fun xhrAbort(reqId: String) = abortXhr(reqId)
+
+    internal fun abortXhr(reqId: String) {
         aborted.add(reqId)
         results.remove(reqId) // 结果恰好已出、尚未被取走
         connections[reqId]?.let { conn -> abortPool.execute { runCatching { conn.disconnect() } } }
@@ -163,7 +179,7 @@ class GmBridge(
     private fun hasHeader(headers: JSONObject, name: String): Boolean =
         headers.keys().asSequence().any { it.equals(name, ignoreCase = true) }
 
-    private fun runXhr(reqId: String, optionsJson: String, bodyBase64: String): String {
+    private fun runXhr(reqId: String, optionsJson: String, bodyBase64: String, allowHost: ((String) -> Boolean)?): String {
         val opt = JSONObject(optionsJson)
         var method = opt.optString("method", "GET").ifBlank { "GET" }.uppercase()
         val headers = opt.optJSONObject("headers") ?: JSONObject()
@@ -171,11 +187,19 @@ class GmBridge(
         val anonymous = opt.optBoolean("anonymous", false)
         var body: ByteArray? = if (bodyBase64.isNotEmpty()) android.util.Base64.decode(bodyBase64, android.util.Base64.DEFAULT) else null
         var currentUrl = opt.getString("url")
-        val cookieManager = CookieManager.getInstance()
+        val cookieManager = profileCookies()
 
         try {
             var redirects = 0
             while (true) {
+                if (allowHost != null) {
+                    if (!isHttp(currentUrl)) return JSONObject().put("state", "error").put("error", "unsupported url").toString()
+                    val host = runCatching { URL(currentUrl).host }.getOrDefault("").orEmpty()
+                    if (host.isEmpty() || !allowHost(host)) {
+                        return JSONObject().put("state", "error")
+                            .put("error", "blocked by @connect policy: $host（在脚本头部添加 // @connect $host）").toString()
+                    }
+                }
                 val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                     requestMethod = method
                     connectTimeout = timeoutMs
@@ -288,7 +312,9 @@ class GmBridge(
     private val streams = ConcurrentHashMap<String, FileStream>()
 
     @JavascriptInterface
-    fun streamOpen(name: String, mime: String): String = runCatching {
+    fun streamOpen(name: String, mime: String): String = streamOpenImpl(name, mime)
+
+    internal fun streamOpenImpl(name: String, mime: String): String = runCatching {
         val safe = name.replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001F]"), "_").trim().trim('.').take(120)
             .ifBlank { "download_${System.currentTimeMillis()}" }
         val values = android.content.ContentValues().apply {
@@ -311,14 +337,18 @@ class GmBridge(
 
     /** 返回空串表示成功，否则为错误信息 */
     @JavascriptInterface
-    fun streamWrite(id: String, base64: String): String = runCatching {
+    fun streamWrite(id: String, base64: String): String = streamWriteImpl(id, base64)
+
+    internal fun streamWriteImpl(id: String, base64: String): String = runCatching {
         val s = streams[id] ?: error("stream closed")
         s.out.write(android.util.Base64.decode(base64, android.util.Base64.DEFAULT))
         ""
     }.getOrElse { it.message ?: "write failed" }
 
     @JavascriptInterface
-    fun streamClose(id: String): String = runCatching {
+    fun streamClose(id: String): String = streamCloseImpl(id)
+
+    internal fun streamCloseImpl(id: String): String = runCatching {
         val s = streams.remove(id) ?: error("stream closed")
         s.out.flush(); s.out.close()
         context.contentResolver.update(
@@ -330,7 +360,9 @@ class GmBridge(
     }.getOrElse { it.message ?: "close failed" }
 
     @JavascriptInterface
-    fun streamAbort(id: String) {
+    fun streamAbort(id: String) = streamAbortImpl(id)
+
+    internal fun streamAbortImpl(id: String) {
         val s = streams.remove(id) ?: return
         runCatching { s.out.close() }
         runCatching { context.contentResolver.delete(s.uri, null, null) }
@@ -339,7 +371,9 @@ class GmBridge(
     // ------------------------------------------------------------------ misc
 
     @JavascriptInterface
-    fun toast(message: String) {
+    fun toast(message: String) = toastImpl(message)
+
+    internal fun toastImpl(message: String) {
         mainHandler.post {
             runCatching {
                 android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
@@ -359,10 +393,16 @@ class GmBridge(
     @JavascriptInterface
     fun openTab(url: String, optionsJson: String): String {
         if (!isHttp(url)) return ""
-        val active = runCatching { JSONObject(optionsJson).optBoolean("active", true) }.getOrDefault(true)
         val id = java.util.UUID.randomUUID().toString()
-        mainHandler.post { onOpenTab(id, url, active) }
+        openTabWithId(id, url, optionsJson)
         return id
+    }
+
+    /** 通道版：标签 id 由脚本侧（shim）生成，原生只负责带着它去开标签（之后 [closeTab] 用它找回）。只允许 http(s) */
+    internal fun openTabWithId(id: String, url: String, optionsJson: String) {
+        if (!isHttp(url)) return
+        val active = runCatching { JSONObject(optionsJson).optBoolean("active", true) }.getOrDefault(true)
+        mainHandler.post { onOpenTab(id, url, active) }
     }
 
     @JavascriptInterface
@@ -374,11 +414,14 @@ class GmBridge(
 
     /** 结果与事件经 window.__mafariHostCallback_<cbId>(kind, json) 回传，见 [MediaHost] */
     @JavascriptInterface
-    fun host(op: String, json: String, cbId: String) {
+    fun host(op: String, json: String, cbId: String) = hostTo(op, json, cbId, jsSink)
+
+    /** [sink]（回调函数名, 参数）：旧桥是 evaluateJavascript 进主框架，通道是按 pid 回给发起的那个框架 */
+    internal fun hostTo(op: String, json: String, cbId: String, sink: (String, JSONArray) -> Unit) {
         if (!SAFE_ID.matches(cbId) || op.length > 20) return
         val fn = "__mafariHostCallback_$cbId"
         MediaHost.handle(hostActivity(), "webview", op, json.take(20_000), fn) { f, kind, payload ->
-            callJs(f, JSONObject.quote(kind) + "," + JSONObject.quote(payload))
+            sink(f, JSONArray().put(kind).put(payload))
         }
     }
 
@@ -391,9 +434,14 @@ class GmBridge(
 
     /** v2：结果经 window.__mafariDlCallback_<cbId>(ok, err) 回传（仅主框架能收到，见 [callJs]） */
     @JavascriptInterface
-    fun downloadAsync(url: String, name: String, cbId: String) {
-        if (!isHttp(url) || !SAFE_ID.matches(cbId)) {
-            callJs("__mafariDlCallback_$cbId", "false,'unsupported url'")
+    fun downloadAsync(url: String, name: String, cbId: String) = downloadTo(url, name, cbId, jsSink)
+
+    /** 一次性回调 __mafariDlCallback_<cbId>(ok, err)，经 [sink] 投递；host 保证恰好回调一次 */
+    internal fun downloadTo(url: String, name: String, cbId: String, sink: (String, JSONArray) -> Unit) {
+        if (!SAFE_ID.matches(cbId)) return
+        val fn = "__mafariDlCallback_$cbId"
+        if (!isHttp(url)) {
+            sink(fn, JSONArray().put(false).put("unsupported url"))
             return
         }
         mainHandler.post {
@@ -401,10 +449,7 @@ class GmBridge(
             onDownload(url, name) { ok, err ->
                 if (!called) {
                     called = true
-                    callJs(
-                        "__mafariDlCallback_$cbId",
-                        if (ok) "true" else "false," + JSONObject.quote(err ?: "download failed"),
-                    )
+                    sink(fn, if (ok) JSONArray().put(true) else JSONArray().put(false).put(err ?: "download failed"))
                 }
             }
         }
@@ -438,7 +483,10 @@ class GmBridge(
      * 不能发通知（权限被拒）时抛异常：运行时会退回 toast，且不会伪造 ondone。
      */
     @JavascriptInterface
-    fun notification(json: String, cbId: String) {
+    fun notification(json: String, cbId: String) = notificationTo(json, cbId, jsSink)
+
+    /** 同 [notification]，回调经 [sink] 投递；无通知权限时抛异常（旧桥：运行时退回 toast；通道：由调用方退回 toast） */
+    internal fun notificationTo(json: String, cbId: String, sink: (String, JSONArray) -> Unit) {
         if (!SAFE_ID.matches(cbId)) error("bad callback id")
         val o = JSONObject(json)
         GmNotifications.post(
@@ -448,7 +496,7 @@ class GmBridge(
             tag = o.optString("tag"),
             timeoutMs = o.optLong("timeout", 0L),
             silent = o.optBoolean("silent", false),
-        ) { kind -> callJs("__mafariNtfCallback_$cbId", JSONObject.quote(kind)) }
+        ) { kind -> sink("__mafariNtfCallback_$cbId", JSONArray().put(kind)) }
     }
 
     // ------------------------------------------------------------------ JS 回调
@@ -470,13 +518,20 @@ class GmBridge(
         }
     }
 
+    /** 脚本所在 WebView 的 Profile 对应的 CookieManager：无痕标签读写的是无痕 Profile 的 Cookie，不碰默认 Profile 的 */
+    private fun profileCookies(): CookieManager =
+        dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.cookieManagerFor(webViewProvider())
+
+    /** 旧桥的回调投递：把参数数组按 JS 字面量拼进 evaluateJavascript（JSONArray.join 对字符串自动加引号转义） */
+    private val jsSink: (String, JSONArray) -> Unit = { fn, args -> callJs(fn, args.join(",")) }
+
     @JavascriptInterface
     fun cookies(url: String): String =
-        runCatching { CookieManager.getInstance().getCookie(url).orEmpty() }.getOrDefault("")
+        runCatching { profileCookies().getCookie(url).orEmpty() }.getOrDefault("")
 
     @JavascriptInterface
     fun setCookie(url: String, cookie: String) {
-        runCatching { CookieManager.getInstance().setCookie(url, cookie) }
+        runCatching { profileCookies().setCookie(url, cookie) }
     }
 
     /**
@@ -489,7 +544,7 @@ class GmBridge(
         if (!isHttp(url)) return arr.toString()
         val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
         val secure = url.startsWith("https://", true)
-        CookieManager.getInstance().getCookie(url).orEmpty().split(";").forEach { kv ->
+        profileCookies().getCookie(url).orEmpty().split(";").forEach { kv ->
             val pair = kv.trim()
             if (pair.isEmpty()) return@forEach
             val i = pair.indexOf('=')
@@ -527,7 +582,7 @@ class GmBridge(
                     sb.append("; Expires=").append(fmt.format(java.util.Date(exp * 1000)))
                 }
             }
-            val cm = CookieManager.getInstance()
+            val cm = profileCookies()
             cm.setCookie(url, sb.toString())
             cm.flush()
         }

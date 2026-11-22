@@ -376,6 +376,7 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
         // 页面自己要开的新标签（window.open / 允许的重定向 / GM_openInTab）以它为 opener
         tab.onOpenInNewTab = { u -> newTab(u, tab.incognito, tab, fromLink = true) }
         tab.onRequestClose = { closeTab(tabs.indexOf(tab)) }
+        tab.onRenderGone = { crashed -> replaceCrashedTab(tab, crashed) }
         tab.onGmOpenTab = { id, u, active ->
             val opened = openTabInternal(u, tab.incognito, tab, fromLink = active, makeActive = active)
             if (opened != null) gmTabs[id] = opened
@@ -387,6 +388,44 @@ class BrowserState(private val context: Context, initialUserAgent: String = "") 
             }
         }
         return tab
+    }
+
+    /**
+     * WebView 渲染进程崩溃 / 被回收后的善后：旧标签的 WebView 已经不可用，建一个新标签顶替它的位置，
+     * 地址 / 标题 / 桌面模式 / 来源链 / tabs 表主键都沿用，标签列表里看起来还是同一张卡片。
+     *  - 前台标签：直接显示崩溃页，不自动重载（页面若一加载就崩会死循环），用户点「重试」再加载；
+     *  - 后台标签 / 正显示主页的标签：走「待恢复」，切回去 / 点回页面时才加载（和重启后恢复一样）。
+     */
+    private fun replaceCrashedTab(old: BrowserTab, didCrash: Boolean) {
+        val index = tabs.indexOf(old)
+        if (index < 0 || old.closed) return
+        val wasActive = index == activeIndex
+        val page = old.persistedPageUrl
+        val onHome = old.url.isEmpty() && page.isNotBlank() && !old.showsSavedPage
+        val fresh = runCatching { createTab(old.incognito, opener = null, lazyEngine = true) }
+            .onFailure { Diag.log("tabs: replace crashed tab failed: ${it.message}") }
+            .getOrNull()
+        if (fresh == null) {
+            closeTab(index)
+            return
+        }
+        fresh.dbKey = old.dbKey
+        fresh.lastUsedAt = old.lastUsedAt
+        fresh.openerId = old.openerId
+        if (wasActive && !fresh.isGecko && page.isNotBlank() && !onHome) {
+            fresh.adoptCrashedPage(page, old.title, old.wantsDesktop, old.openedFromLink, didCrash)
+        } else {
+            fresh.prepareRestore(page, old.title, onHome, old.wantsDesktop, old.openedFromLink)
+        }
+        // 别处按旧标签 id 记的引用改指新标签
+        tabs.forEach { if (it.openerId == old.id) it.openerId = fresh.id }
+        gmTabs.entries.forEach { if (it.value === old) it.setValue(fresh) }
+        val r = recentIds.indexOf(old.id)
+        if (r >= 0) recentIds[r] = fresh.id
+        tabs[index] = fresh
+        old.close()
+        if (wasActive) activate(index)
+        saveTabs()
     }
 
     /** 「自定义起始页」选了「指定页面」且填了有效网址时返回该网址，否则 null */

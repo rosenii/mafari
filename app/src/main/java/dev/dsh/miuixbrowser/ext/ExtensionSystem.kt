@@ -57,7 +57,22 @@ class ExtensionSystem(
      * tabs.*：事件只发往拓展自己的页面（[pages]），不走 [sinks]——后者包含标签页里的 content script，
      * 标签的网址不能推到网页里去。浏览器界面建好后调用 [attachTabs] 接上真实的标签桥接（BrowserScreen 里接），之前调用回 UNSUPPORTED。
      */
-    private val tabs = TabsApi(pages, { webViewExtensions() }, broker, activeTab)
+    private val tabs = TabsApi(pages, { webViewExtensions() }, broker, activeTab, ::openOwnPageInSheet)
+
+    /**
+     * 拓展用 tabs.create / tabs.update 打开自己的页面（如 popup 里的「设置」）：普通标签里没有拓展消息桥，
+     * 且只放行 web_accessible_resources（其余 404），所以改在拓展页面 Sheet 里打开。返回 false = 不是自己的页面或没有 UI。
+     */
+    private fun openOwnPageInSheet(ext: InstalledExtension, url: String): Boolean {
+        val prefix = ExtensionOrigins.originFor(ext.spec.id) + "/"
+        if (!url.startsWith(prefix, ignoreCase = true)) return false
+        val path = url.substring(prefix.length)
+        val handler = pages.openOptionsHandler
+        log("ext ${ext.spec.id}: 打开自己的页面 path=$path -> " + if (handler != null) "拓展页面 Sheet" else "无 UI 处理器，退回标签")
+        if (handler == null) return false
+        android.os.Handler(android.os.Looper.getMainLooper()).post { handler(ext.spec.id, path) }
+        return true
+    }
     private val webNavigation = WebNavigationApi(pages, { webViewExtensions() }) { tabs.bridgeOrNull() }
     val contextMenus = ContextMenusApi(pages)
     val actionApi = ActionApi()
@@ -89,7 +104,18 @@ class ExtensionSystem(
     init {
         pages.externalLinkHandler = { extId, url -> openExternalLink(extId, url) }
         pages.onPageDestroyed = { _, contextId -> webRequest.forgetContext(contextId) }
-        RuntimeApi(broker) { tabs.bridgeOrNull() }.register(router)
+        RuntimeApi(
+            broker,
+            { tabs.bridgeOrNull() },
+            openOptions = { extId ->
+                val handler = pages.openOptionsHandler
+                log("ext $extId: runtime.openOptionsPage -> " + if (handler != null) "拓展页面 Sheet" else "无 UI 处理器，退回标签")
+                if (handler == null) false else {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post { handler(extId, null) }
+                    true
+                }
+            },
+        ).register(router)
         broker.register(router)
         storage.register(router)
         alarms.register(router)
@@ -104,6 +130,7 @@ class ExtensionSystem(
         OffscreenApi(pages).register(router)
         permissions.register(router)
         ClipboardApi(context.applicationContext).register(router)
+        NetApi().register(router)
         NotificationsApi(context.applicationContext, pages).register(router)
         BookmarksApi(context.applicationContext, pages).register(router)
         HistoryApi(historyStore).register(router)
@@ -148,18 +175,57 @@ class ExtensionSystem(
 
     fun onWebRequestBefore(tabId: Int, request: android.webkit.WebResourceRequest): WebResourceResponse? =
         declarativeNetRequest.intercept(tabId, request) ?: webRequest.beforeRequest(tabId, request)
-    fun onWebRequestMainFrameResponseStarted(tabId: Int, url: String) = webRequest.mainFrameResponseStarted(tabId, url)
-    fun onWebRequestMainFrameCompleted(tabId: Int, url: String) = webRequest.mainFrameCompleted(tabId, url)
+    // 以下两个 WebViewClient 近似事件，在由 NavigationListener 驱动的标签上让位给 [navigationSink]（真实状态码 / 响应头）
+    fun onWebRequestMainFrameResponseStarted(tabId: Int, url: String) {
+        if (!webNavigation.isListenerDriven(tabId)) webRequest.mainFrameResponseStarted(tabId, url)
+    }
+    fun onWebRequestMainFrameCompleted(tabId: Int, url: String) {
+        if (!webNavigation.isListenerDriven(tabId)) webRequest.mainFrameCompleted(tabId, url)
+    }
     fun onWebRequestMainFrameFailed(tabId: Int, url: String, error: String) = webRequest.mainFrameFailed(tabId, url, error)
 
     fun onWebNavigationBefore(tabId: Int, url: String, transitionType: String = "other") = webNavigation.beforeNavigate(tabId, url, transitionType)
     fun onWebNavigationStarted(tabId: Int, url: String) = webNavigation.ensureBeforeNavigate(tabId, url)
-    fun onWebNavigationCommitted(tabId: Int, url: String) = webNavigation.committed(tabId, url)
+    fun onWebNavigationCommitted(tabId: Int, url: String) {
+        if (!webNavigation.isListenerDriven(tabId)) webNavigation.committed(tabId, url)
+    }
     fun onWebNavigationError(tabId: Int, url: String, error: String) = webNavigation.errorOccurred(tabId, url, error)
     fun onWebNavigationForgetTab(tabId: Int) = webNavigation.forgetTab(tabId)
-    fun onWebNavigationCompleted(tabId: Int, url: String) = webNavigation.completed(tabId, url)
+    fun onWebNavigationCompleted(tabId: Int, url: String) {
+        if (!webNavigation.isListenerDriven(tabId)) webNavigation.completed(tabId, url)
+    }
     fun onWebNavigationHistoryState(tabId: Int, url: String) = webNavigation.historyStateUpdated(tabId, url)
     fun onWebNavigationFragment(tabId: Int, url: String) = webNavigation.referenceFragmentUpdated(tabId, url)
+
+    private val navigationSink = object : NavigationSink {
+        override fun redirected(tabId: Int, fromUrl: String, toUrl: String, statusCode: Int?, headers: org.json.JSONArray?) =
+            webRequest.mainFrameRedirected(tabId, fromUrl, toUrl, statusCode, headers)
+
+        override fun committed(
+            tabId: Int, url: String, transitionType: String, qualifiers: List<String>,
+            statusCode: Int?, headers: org.json.JSONArray?,
+        ) {
+            webNavigation.committed(tabId, url, transitionType, qualifiers)
+            webRequest.mainFrameResponse(tabId, url, statusCode, headers)
+        }
+
+        override fun domContentLoaded(tabId: Int, url: String) = webNavigation.domContentLoaded(tabId, url)
+
+        override fun loaded(tabId: Int, url: String, statusCode: Int?, headers: org.json.JSONArray?) {
+            webNavigation.completed(tabId, url)
+            webRequest.mainFrameCompleted(tabId, url, statusCode, headers)
+        }
+    }
+
+    /**
+     * 给非无痕的 WebView 标签接上 NavigationListener。成功后该标签的 committed / completed / webRequest 主文档事件
+     * 改由真实导航回调驱动；系统 WebView 不支持时返回 false，保持 WebViewClient 近似路径。主线程调用。
+     */
+    fun attachNavigationListener(webView: android.webkit.WebView, tabId: Int): Boolean {
+        if (!WebViewNavigationBridge.attach(webView, tabId, navigationSink)) return false
+        webNavigation.setListenerDriven(tabId, true)
+        return true
+    }
 
     /**
      * 用户在快捷菜单里点了某个拓展：对当前前台标签的当前 origin 授予 activeTab。
@@ -269,6 +335,7 @@ class ExtensionSystem(
         contextMenus.forget(extId)
         actionApi.states.remove(extId)
         declarativeNetRequest.forget(extId)
+        ExtensionProfiles.delete(extId)
         repo.remove(extId)
     }
 }

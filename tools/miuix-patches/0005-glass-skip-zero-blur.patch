@@ -26,3 +26,6 @@ index 423cce5..c720553 100644
              if (underlayMaterial != null) {
                  colorBlendEffect(underlayMaterial, 1f, "${GLASS_COLOR_BLEND_SHADER_KEY}ActionBar")
              }
+-- 
+2.43.0
+

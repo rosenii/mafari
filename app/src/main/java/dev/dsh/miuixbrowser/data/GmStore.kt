@@ -17,14 +17,24 @@ internal object GmStore {
 
     private const val CHUNK = 400_000
 
-    /** (脚本 id, 名字, 新值；删除为 null)，主线程回调 */
+    /** (脚本 id, 名字, 新值；删除为 null)，主线程回调。Gecko 独占这个槽位；其它使用方请用 [addListener] */
     @Volatile
     var listener: ((sid: String, key: String, value: String?) -> Unit)? = null
+
+    /** 额外的监听者（WebView 的 GmChannel 分发器）：与 [listener]（Gecko）并存，互不覆盖 */
+    private val extraListeners = java.util.concurrent.CopyOnWriteArrayList<(String, String, String?) -> Unit>()
+
+    fun addListener(l: (sid: String, key: String, value: String?) -> Unit) { extraListeners.addIfAbsent(l) }
+
+    fun removeListener(l: (sid: String, key: String, value: String?) -> Unit) { extraListeners.remove(l) }
 
     private val main = Handler(Looper.getMainLooper())
 
     private fun notify(sid: String, key: String, value: String?) {
-        main.post { listener?.invoke(sid, key, value) }
+        main.post {
+            listener?.invoke(sid, key, value)
+            extraListeners.forEach { it(sid, key, value) }
+        }
     }
 
     /** 值的字符数；不存在返回 -1。 */

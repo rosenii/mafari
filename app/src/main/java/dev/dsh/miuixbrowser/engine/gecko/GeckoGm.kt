@@ -48,7 +48,7 @@ internal object GeckoGm {
     private const val EXT_URI = "resource://android/assets/mafari-gm-ext/"
     private const val NATIVE_BG = "mafariGmBg"
     private const val NATIVE_SESSION = "mafariGm"
-    private const val SHIM_ASSET = "mafari_gm_gecko_shim.js"
+    private const val SHIM_ASSET = "mafari_gm_shim.js"
     private const val SNAPSHOT_MARK = "__MAFARI_SNAPSHOT__"
 
     /**

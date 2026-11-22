@@ -164,6 +164,12 @@ class TabTranslate(private val tab: BrowserTab) {
 
     fun webBridge() = WebBridge()
 
+    /** WebView：WebMessageListener 通道收到的消息（主线程；来源 / 主框架 / 长度已在 [dev.dsh.miuixbrowser.engine.webview.OneWayBridge] 校验过）。 */
+    fun onWebMessage(json: String) {
+        val msg = runCatching { JSONObject(json) }.getOrNull() ?: return
+        handle(msg) { reply -> tab.evaluateJs(TranslateMode.recvScript(reply.toString())) }
+    }
+
     /** Gecko：内容脚本发来的消息（主线程） */
     internal fun geckoMessage(p: WebExtension.Port, msg: JSONObject) {
         // 端口由握手消息登记；之后只受理当前端口的消息，旧页面迟到的消息不能影响新页面
@@ -253,6 +259,9 @@ class TabTranslate(private val tab: BrowserTab) {
     }
 
     companion object {
+        /** WebMessageListener 通道单条消息的字数上限：一批最多 [MAX_CHARS] 字，JSON 转义后会更长，留足余量 */
+        const val MAX_WEB_MESSAGE_CHARS = 200_000
+
         private const val MAX_TEXTS = 50
         private const val MAX_CHARS = 30_000
 

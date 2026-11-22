@@ -5,6 +5,7 @@ import android.webkit.WebSettings
 import dev.dsh.miuixbrowser.data.AppDatabase
 import dev.dsh.miuixbrowser.data.TabDb
 import dev.dsh.miuixbrowser.util.Diag
+import dev.dsh.miuixbrowser.util.ErrorPages
 
 /**
  * 标签页的「待恢复」状态与 Gecko 引擎回收（从 BrowserTab 拆出）：
@@ -82,24 +83,45 @@ internal class TabRestore(private val tab: BrowserTab) {
         pendingHasState = false
         if (pendingDesktop) {
             pendingDesktop = false
-            tab.desktopMode = true
-            if (!tab.isGecko) {
-                runCatching {
-                    tab.webView.settings.apply {
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        setSupportZoom(true)
-                        builtInZoomControls = true
-                        displayZoomControls = false
-                        layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
-                    }
-                }
-                tab.installDesktopScript(true)
-            }
-            tab.applyUserAgent()
+            applyDesktop()
         }
         if (target.isBlank()) return
         if (withState && tab.isGecko) restoreWithState(target) else tab.load(target)
+    }
+
+    /** 桌面模式：WebView 的视口 / 缩放设置 + 桌面脚本 + UA（加载页面之前套上） */
+    private fun applyDesktop() {
+        tab.desktopMode = true
+        if (!tab.isGecko) {
+            runCatching {
+                tab.webView.settings.apply {
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    setSupportZoom(true)
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
+                }
+            }
+            tab.installDesktopScript(true)
+        }
+        tab.applyUserAgent()
+    }
+
+    /**
+     * WebView 渲染进程崩溃后，新标签顶替前台那个旧标签：沿用它的地址 / 标题 / 桌面模式，
+     * 但不重新加载页面，而是直接显示崩溃页（地址栏仍是原地址，点「重试」才重载）。仅 WebView 内核。
+     */
+    fun adoptCrashed(target: String, savedTitle: String, desktop: Boolean, fromLink: Boolean, didCrash: Boolean) {
+        if (tab.isGecko) return
+        tab.openedFromLink = fromLink
+        if (savedTitle.isNotBlank()) tab.title = savedTitle
+        if (desktop) applyDesktop()
+        tab.parked = false
+        tab.url = target
+        val spec = ErrorPages.crashed(if (didCrash) "RENDERER_CRASHED" else "RENDERER_KILLED")
+        tab.errorText = spec.title
+        tab.showWebViewErrorPage(tab.webView, target, spec)
     }
 
     /**

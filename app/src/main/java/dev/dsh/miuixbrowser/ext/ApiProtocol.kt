@@ -18,6 +18,8 @@ object ErrorCodes {
     /** 注入页面的脚本自己抛了异常 / 无法执行；message 里是页面侧的错误文本 */
     const val SCRIPT_ERROR = "SCRIPT_ERROR"
     const val INTERNAL = "INTERNAL"
+    /** 原生代发的网络请求失败（对应页面里的 TypeError: Failed to fetch） */
+    const val NETWORK = "NETWORK"
 }
 
 /** 带错误码的失败：会原样（code + message）回给调用方，所以 message 里不要放内部细节 */

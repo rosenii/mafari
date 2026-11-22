@@ -256,6 +256,37 @@ object UserscriptEngine {
         return fill(trimmedTemplate(context, meta.grants), metaJson, if (meta.topLevelAwait) "async function" else "function", code)
     }
 
+    // ------------------------------------------------------------------ 隔离世界通道（WebView GmChannel）的源码：运行时 + 值快照 + shim
+
+    private const val SHIM_ASSET = "mafari_gm_shim.js"
+
+    @Volatile
+    private var shimCache: String? = null
+
+    private fun shimTemplate(context: Context): String {
+        shimCache?.let { return it }
+        val text = context.applicationContext.assets.open(SHIM_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        shimCache = text
+        return text
+    }
+
+    /**
+     * 通道版注入源码（WebView 隔离世界）：脚本与运行时仍在页面世界，原生入口只经 shim → 中继 → [GmChannel]。
+     * [token] 由 [GmChannel] 为该脚本生成；值快照在拼装时从 [dev.dsh.miuixbrowser.data.GmStore] 读取（值变化后由调用方重建）。
+     */
+    fun buildChannelSource(context: Context, script: UserScript, token: String): String {
+        val app = context.applicationContext
+        val runtime = buildSource(app, script)
+        val entries = dev.dsh.miuixbrowser.data.GmStore.entries(app, script.id)
+        val (inlineKeys, big) = GmSnapshot.partitionValues(entries)
+        val values = LinkedHashMap<String, String>()
+        for (k in inlineKeys) {
+            // 读取间隙里被删了就丢掉：既不内联，也不算大值
+            dev.dsh.miuixbrowser.data.GmStore.get(app, script.id, k)?.let { values[k] = it }
+        }
+        return GmSnapshot.wrapWithShim(runtime, shimTemplate(app), GmSnapshot.snapshotJson(script.id, token, values, big))
+    }
+
     /** 依次替换三个占位符各一次，不会二次扫描已填入的脚本内容 */
     private fun fill(template: String, meta: String, fn: String, code: String): String {
         val sb = StringBuilder(template.length + meta.length + code.length + 64)

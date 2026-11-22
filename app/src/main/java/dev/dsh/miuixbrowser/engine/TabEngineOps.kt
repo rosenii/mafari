@@ -2,6 +2,7 @@ package dev.dsh.miuixbrowser.engine
 
 import dev.dsh.miuixbrowser.engine.gecko.GeckoTabEngine
 import android.webkit.WebView
+import dev.dsh.miuixbrowser.engine.webview.WebViewNavigate
 
 /**
  * 标签页里「与内核无关的基础操作」：导航、查找、滚动位置、标题。
@@ -35,6 +36,9 @@ internal interface TabEngineOps {
     fun stop()
     fun reload()
     fun load(target: String)
+
+    /** 加载并替换当前历史项（tabs.update 的 loadReplace）。内核不支持替换时等同 [load]。 */
+    fun loadReplacing(target: String) = load(target)
     fun goBack()
     fun goForward()
 
@@ -76,10 +80,9 @@ internal class WebViewTabOps(
 
     override fun reload() = webView.reload()
 
-    override fun load(target: String) {
-        val headers = extraHeaders()
-        if (headers.isEmpty()) webView.loadUrl(target) else webView.loadUrl(target, headers)
-    }
+    override fun load(target: String) = WebViewNavigate.load(webView, target, extraHeaders())
+
+    override fun loadReplacing(target: String) = WebViewNavigate.load(webView, target, extraHeaders(), replace = true)
 
     override fun goBack() = webView.goBack()
     override fun goForward() = webView.goForward()

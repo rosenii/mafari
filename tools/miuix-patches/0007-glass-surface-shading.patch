@@ -19,18 +19,18 @@ Content-Transfer-Encoding: 8bit
  create mode 100644 miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassSurfaceShading.kt
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-index 03bd367..bec1df4 100644
+index 122b677..efbe10d 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-@@ -20,6 +20,7 @@ import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
+@@ -25,6 +25,7 @@ import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
  import top.yukonga.miuix.kmp.material.GlassMaterial
  import top.yukonga.miuix.kmp.material.GlassMaterials
  import top.yukonga.miuix.kmp.material.GlassShape
 +import top.yukonga.miuix.kmp.material.GlassStyle
+ import top.yukonga.miuix.kmp.material.drawEdgeStroke
  import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
  import top.yukonga.miuix.kmp.theme.MiuixTheme
- 
-@@ -71,6 +72,8 @@ fun glassBottomSheetSurface(
+@@ -77,6 +78,8 @@ fun glassBottomSheetSurface(
      material: GlassMaterial = GlassBottomSheetDefaults.material(),
      stroke: EdgeStroke? = GlassBottomSheetDefaults.stroke(),
      containerColor: Color = GlassBottomSheetDefaults.containerColor(),
@@ -39,19 +39,19 @@ index 03bd367..bec1df4 100644
  ): @Composable BottomSheetSurfaceScope.() -> Modifier = {
      val effectiveBackdrop = if (backdrop != null && isRuntimeShaderSupported()) {
          remember(backdrop, scrimColor) { ScrimBackdrop(backdrop, scrimColor) }
-@@ -85,10 +88,11 @@ fun glassBottomSheetSurface(
-     (if (isOverscroll) Modifier else deform.layer).glassPanel(
+@@ -91,10 +94,11 @@ fun glassBottomSheetSurface(
+     val panel = (if (isOverscroll) Modifier else deform.layer).glassPanel(
          backdrop = effectiveBackdrop,
          shape = shape,
 +        style = style,
          material = material,
-         stroke = if (isOverscroll) null else stroke,
+         stroke = null,
          shadow = null,
 -        shading = false,
 +        shading = shading,
          fallback = if (effectiveBackdrop == null) Modifier.clip(shape).background(containerColor) else null,
      )
- }
+     if (isOverscroll || stroke == null) {
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
 index 03e50ab..9c732ef 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
@@ -100,7 +100,7 @@ index 30fefde..acf7892 100644
          stroke: EdgeStroke? = stroke(),
          shadow: GlassShadow? = GlassShadows.Regular,
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-index 41e4380..68d7780 100644
+index 0919eec..8023430 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 @@ -419,7 +419,7 @@ internal fun BoxScope.GlassPopupBackground(
@@ -154,3 +154,6 @@ index 0000000..4f3a9cd
 +    @Composable
 +    fun style(): GlassStyle = style(MiuixTheme.colorScheme.background.luminance() < 0.5f)
 +}
+-- 
+2.43.0
+

@@ -38,7 +38,19 @@ class WebNavigationApi(
         }
     }
 
-    private val navigationStates = java.util.concurrent.ConcurrentHashMap<Int, NavigationState>()
+    private val navigationStates = java.util.concurrent.ConcurrentHashMap<Int, NavState>()
+
+    /**
+     * 由 androidx.webkit NavigationListener（[WebViewNavigationBridge]）驱动的标签。这些标签上，
+     * WebViewClient 回调推出来的近似 before/committed/completed/error 事件由 [ExtensionSystem] 丢弃，避免同一次导航发两遍。
+     */
+    private val listenerDriven: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    fun setListenerDriven(tabId: Int, driven: Boolean) {
+        if (driven) listenerDriven.add(tabId) else listenerDriven.remove(tabId)
+    }
+
+    fun isListenerDriven(tabId: Int): Boolean = tabId in listenerDriven
 
     /**
      * WebView 的回调不等价于 Gecko 的导航阶段。这里把 shouldOverrideUrlLoading / onPageStarted
@@ -51,7 +63,7 @@ class WebNavigationApi(
         val current = navigationStates[tabId]
         if (current != null && !current.terminal && current.initialUrl == url) return
         // 新的顶层导航取代尚未结束的导航；WebView 不提供可靠的 redirect chain，因此只保留初始 URL。
-        navigationStates[tabId] = NavigationState(initialUrl = url, transitionType = transitionType)
+        navigationStates[tabId] = NavState(initialUrl = url, transitionType = transitionType)
         emit("webNavigation.onBeforeNavigate", tabId, url, frameId)
     }
 
@@ -63,7 +75,9 @@ class WebNavigationApi(
     }
 
     @Synchronized
-    fun committed(tabId: Int, url: String, transitionType: String? = null) {
+    fun committed(
+        tabId: Int, url: String, transitionType: String? = null, qualifiers: List<String> = emptyList(),
+    ) {
         if (url.isBlank()) return
         var state = navigationStates[tabId]
         if (state == null || state.terminal) {
@@ -76,7 +90,7 @@ class WebNavigationApi(
         val type = transitionType ?: active.transitionType
         emit(
             "webNavigation.onCommitted", tabId, url, 0,
-            JSONObject().put("transitionType", type).put("transitionQualifiers", JSONArray()),
+            JSONObject().put("transitionType", type).put("transitionQualifiers", JSONArray(qualifiers)),
         )
     }
 
@@ -110,15 +124,19 @@ class WebNavigationApi(
         )
     }
 
+    /** 主框架 DOMContentLoaded（NavigationListener 的 onPageDomContentLoadedEvent）。 */
+    fun domContentLoaded(tabId: Int, url: String) = emit("webNavigation.onDOMContentLoaded", tabId, url)
+
     fun historyStateUpdated(tabId: Int, url: String) = emit("webNavigation.onHistoryStateUpdated", tabId, url)
     fun referenceFragmentUpdated(tabId: Int, url: String) = emit("webNavigation.onReferenceFragmentUpdated", tabId, url)
 
     @Synchronized
     fun forgetTab(tabId: Int) {
         navigationStates.remove(tabId)
+        listenerDriven.remove(tabId)
     }
 
-    private data class NavigationState(
+    private data class NavState(
         val initialUrl: String,
         val transitionType: String,
         var committedUrl: String? = null,

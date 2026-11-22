@@ -8,7 +8,7 @@ import android.webkit.WebView
  */
 internal class TabElementInspector(private val tab: BrowserTab) {
 
-    /** 以 "MafariElement" 名挂到 WebView 的 JS 桥 */
+    /** 仅在系统 WebView 不支持 WebMessageListener 时才以 "MafariElement" 名挂到 WebView 的 JS 桥（见 [onMessage]） */
     val bridge = object {
         @android.webkit.JavascriptInterface
         fun onElement(selector: String, tag: String, imageUrl: String) {
@@ -16,6 +16,14 @@ internal class TabElementInspector(private val tab: BrowserTab) {
                 tab.onElementLongPress?.invoke(BrowserTab.ElementHit(tag, imageUrl, selector))
             }
         }
+    }
+
+    /** WebMessageListener 通道收到的元素消息（主线程；JSON：s 选择器 / t 标签名 / u 图片地址）。 */
+    fun onMessage(json: String) {
+        val o = runCatching { org.json.JSONObject(json) }.getOrNull() ?: return
+        val selector = o.optString("s")
+        if (selector.isEmpty()) return
+        tab.onElementLongPress?.invoke(BrowserTab.ElementHit(o.optString("t"), o.optString("u"), selector))
     }
 
     /** 最近一次按下的位置（WebView 像素），由触摸监听写入 */
@@ -35,6 +43,7 @@ internal class TabElementInspector(private val tab: BrowserTab) {
         val cssX = lastTouchX / scale
         val cssY = lastTouchY / scale
         val js = """(function(){
+  $SEND_FN
   try {
     var el = document.elementFromPoint($cssX, $cssY);
     if (!el) return 0;
@@ -81,7 +90,7 @@ internal class TabElementInspector(private val tab: BrowserTab) {
     var src = img ? (img.currentSrc || img.src || '') : '';
     var sel = selectorOf(target);
     if (!sel) return 0;
-    MafariElement.onElement(sel, target.tagName, src);
+    __mafariSend(sel, target.tagName, src);
     return 1;
   } catch (e) { return 0; }
 })()"""
@@ -94,6 +103,7 @@ internal class TabElementInspector(private val tab: BrowserTab) {
     fun install(view: WebView) {
         if (!tab.pageEnhancements || !tab.adMarkLongPress) return
         val js = """(function(){
+  $SEND_FN
   if (window.__mafariInspector) return;
   window.__mafariInspector = true;
   function selectorOf(el){
@@ -127,7 +137,7 @@ internal class TabElementInspector(private val tab: BrowserTab) {
     if (!isAdLike(el)) return;
     var img = el.querySelector ? el.querySelector('img') : null;
     var src = img ? (img.currentSrc || img.src || '') : '';
-    try { MafariElement.onElement(selectorOf(el), tag, src); } catch (e) {}
+    try { __mafariSend(selectorOf(el), tag, src); } catch (e) {}
     try { var sel = getSelection(); if (sel) sel.removeAllRanges(); } catch (e) {}
   }
   var timer = null, sx = 0, sy = 0, moved = false;
@@ -149,5 +159,19 @@ internal class TabElementInspector(private val tab: BrowserTab) {
   document.addEventListener('touchcancel', function(){ clearTimeout(timer); }, { capture: true, passive: true });
 })();"""
         view.evaluateJavascript(js, null)
+    }
+    companion object {
+        /** 单条消息字数上限（图片地址可能是 data: base64，所以比较宽） */
+        const val MAX_MESSAGE_CHARS = 262_144
+
+        /**
+         * 页面侧发送函数：WebMessageListener 通道的对象只有 postMessage，退回旧桥时才有 onElement。
+         * 图片地址过长（大图 data: URL）时丢掉图片地址，免得整条消息被长度上限拒收。
+         */
+        private const val SEND_FN =
+            "function __mafariSend(s, t, u){ var b = window.MafariElement; if (!b) return; " +
+                "if (u && u.length > 200000) u = ''; " +
+                "if (typeof b.postMessage === 'function') b.postMessage(JSON.stringify({s: s, t: t, u: u})); " +
+                "else if (typeof b.onElement === 'function') b.onElement(s, t, u); }"
     }
 }

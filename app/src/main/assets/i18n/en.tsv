@@ -1582,6 +1582,9 @@ Mafari 是一款本地优先的浏览器。应用不要求注册账号，不包�
 脚本快捷菜单	Script quick menu
 {0}个脚本运行中	{0} scripts running
 脚本已停用	Scripts disabled
+隔离世界通道	Isolated-world channel
+页面内桥	In-page bridge
+页面内桥不安全：网页可直接调用脚本原生接口，建议更新 WebView 版本	In-page bridge is unsafe: web pages can call the script native interface directly. Please update WebView.
 当前页面没有运行中的脚本	No scripts running on this page
 开启后将在刷新页面时运行脚本	Scripts will run when the page is refreshed after turning on
 外观	Appearance
@@ -2086,3 +2089,21 @@ API Key（可选）	API key (optional)
 悬浮三段式	Floating three-piece
 复制链接	Copy link
 已复制链接	Link copied
+页面性能	Page performance
+清空性能记录	Clear performance records
+只清内存里的记录；无痕标签不会被记录	Clears in-memory records only; incognito tabs are never recorded
+加速	Speed
+预连接	Preconnect
+进入地址栏、输入完整网址或按下主页快捷方式时，提前完成 DNS / TLS 握手，缩短首次加载；只建连接不发请求。需要系统 WebView 支持	Performs the DNS / TLS handshake ahead of time when you focus the address bar, type a complete URL or press a home shortcut, shortening the first load. Only opens a connection, sends no request. Requires WebView support
+还没有记录：打开一个网页后，这里会显示首次内容绘制（FCP）和最大内容绘制（LCP）。系统 WebView 不支持导航监听时不会有数据	No records yet: after you open a page, First Contentful Paint (FCP) and Largest Contentful Paint (LCP) show up here. There is no data if the system WebView lacks navigation listener support
+（待优化）	 (needs work)
+（较慢）	 (slow)
+导航监听	Nav listener
+支持（含 FCP / LCP）	Supported (with FCP / LCP)
+旧版（仅 Page 重载）	Legacy (Page overloads only)
+URL 预取	URL prefetch
+导航排空预取	Nav drains prefetch
+网页缓存上限	Web cache limit
+只限制 WebView 网页缓存的最大占用，不会立即清空；调小可能在后台触发清理。清空请用「清除 WebView 网页缓存」	Only caps the maximum size of the WebView web cache and does not clear it right away; lowering it may trigger cleanup in the background. To clear it, use "Clear WebView page cache"
+自动（约 {0}）	Automatic (about {0})
+自动	Automatic

@@ -45,7 +45,7 @@ function (CFG, ENTRIES) {
   // 早于监听器注册到达的事件先缓存（只缓存下面 BUFFERED 里的几种，每种最多 BUF_MAX 条，页面启动 BUF_MS 之后不再缓存），
   // 第一个监听器注册时统一补投。常见时序：后台页的脚本是异步加载 / 动态 import 的，原生已经把 onStartup / onAlarm 送到了。
   var BUF = {}, BUF_MAX = 32, BUF_MS = 5000;
-  var BUFFERED = { 'storage.onChanged': 1, 'storage.local.onChanged': 1, 'storage.session.onChanged': 1, 'storage.sync.onChanged': 1, 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'tabs.onHighlighted': 1, 'alarms.onAlarm': 1, 'webNavigation.onBeforeNavigate': 1, 'webNavigation.onCommitted': 1, 'webNavigation.onCompleted': 1, 'webNavigation.onErrorOccurred': 1, 'webNavigation.onHistoryStateUpdated': 1, 'webNavigation.onReferenceFragmentUpdated': 1, 'contextMenus.onClicked': 1, 'notifications.onClicked': 1, 'notifications.onClosed': 1, 'bookmarks.onCreated': 1, 'bookmarks.onChanged': 1, 'bookmarks.onMoved': 1, 'bookmarks.onRemoved': 1, 'downloads.onCreated': 1, 'downloads.onErased': 1 };
+  var BUFFERED = { 'storage.onChanged': 1, 'storage.local.onChanged': 1, 'storage.session.onChanged': 1, 'storage.sync.onChanged': 1, 'runtime.onStartup': 1, 'runtime.onInstalled': 1, 'runtime.onConnect': 1, 'tabs.onHighlighted': 1, 'alarms.onAlarm': 1, 'webNavigation.onBeforeNavigate': 1, 'webNavigation.onCommitted': 1, 'webNavigation.onCompleted': 1, 'webNavigation.onDOMContentLoaded': 1, 'webNavigation.onErrorOccurred': 1, 'webNavigation.onHistoryStateUpdated': 1, 'webNavigation.onReferenceFragmentUpdated': 1, 'contextMenus.onClicked': 1, 'notifications.onClicked': 1, 'notifications.onClosed': 1, 'bookmarks.onCreated': 1, 'bookmarks.onChanged': 1, 'bookmarks.onMoved': 1, 'bookmarks.onRemoved': 1, 'downloads.onCreated': 1, 'downloads.onErased': 1 };
   function ev(name) {
     return {
       addListener: function (f) {
@@ -87,6 +87,7 @@ function (CFG, ENTRIES) {
     'webNavigation.onCommitted': function (p) { return [['webNavigation.onCommitted', [p]]]; },
     'webNavigation.onCompleted': function (p) { return [['webNavigation.onCompleted', [p]]]; },
     'webNavigation.onErrorOccurred': function (p) { return [['webNavigation.onErrorOccurred', [p]]]; },
+    'webNavigation.onDOMContentLoaded': function (p) { return [['webNavigation.onDOMContentLoaded', [p]]]; },
     'webNavigation.onHistoryStateUpdated': function (p) { return [['webNavigation.onHistoryStateUpdated', [p]]]; },
     'webNavigation.onReferenceFragmentUpdated': function (p) { return [['webNavigation.onReferenceFragmentUpdated', [p]]]; },
     'contextMenus.onClicked': function (p) {
@@ -104,6 +105,7 @@ function (CFG, ENTRIES) {
     'downloads.onErased': function (p) { return [['downloads.onErased', [p.id]]]; },
     'webRequest.onBeforeRequest': function (p) { return [['webRequest.onBeforeRequest', [p]]]; },
     'webRequest.onBeforeRedirect': function (p) { return [['webRequest.onBeforeRedirect', [p]]]; },
+    'webRequest.onHeadersReceived': function (p) { return [['webRequest.onHeadersReceived', [p]]]; },
     'webRequest.onResponseStarted': function (p) { return [['webRequest.onResponseStarted', [p]]]; },
     'webRequest.onCompleted': function (p) { return [['webRequest.onCompleted', [p]]]; },
     'webRequest.onErrorOccurred': function (p) { return [['webRequest.onErrorOccurred', [p]]]; }
@@ -171,22 +173,26 @@ function (CFG, ENTRIES) {
   function deliverMessage(m) {
     var listeners = (L['runtime.onMessage'] || []).slice();
     var done = false;
-    function reply(v, noReceiver) {
+    // opts: 'noReceiver' = 这个上下文根本没有 onMessage 监听器；'noResponse' = 有监听器但没有给出响应。
+    // 两者对发送方的结果不同（Firefox）：前者 reject「Receiving end does not exist」，后者 resolve undefined。
+    function reply(v, opt, msg) {
       if (done) return;
       done = true;
-      rpc('runtime.reply', [m.cid, v === undefined ? null : v, noReceiver ? { noReceiver: true } : null]).catch(function () { });
+      var o = opt === 'noReceiver' ? { noReceiver: true } : opt === 'noResponse' ? { noResponse: true } : opt === 'error' ? { error: msg || 'error' } : null;
+      rpc('runtime.reply', [m.cid, v === undefined ? null : v, o]).catch(function () { });
     }
-    if (!listeners.length) { reply(undefined, true); return; }
+    if (!listeners.length) { reply(undefined, 'noReceiver'); return; }
     var async = false;
     listeners.forEach(function (f) {
       var r;
       try { r = f(m.message, m.sender || {}, function (v) { reply(v); }); } catch (e) { cerr(e); return; }
       if (r === true) async = true;
-      else if (r && typeof r.then === 'function') { async = true; r.then(function (v) { reply(v); }, function () { reply(undefined); }); }
+      else if (r && typeof r.then === 'function') { async = true; r.then(function (v) { reply(v); }, function (e) { cerr(e); reply(undefined, 'error', e && e.message ? String(e.message) : String(e)); }); }
     });
-    // Chrome 的消息通道只有在监听器明确同步 sendResponse、返回 true 或返回 Promise 时才算得到响应。
-    // 单纯收到消息但没有响应，不应伪造一个成功的 undefined 回复。
-    if (!async && !done) reply(undefined, true);
+    // 监听器收到了消息但既没同步 sendResponse、也没返回 true / Promise：不是「没有接收端」。
+    // 交给 broker 汇总——所有目标都没响应时，发送方 resolve undefined（Firefox 语义），而不是 NO_RECEIVER。
+    // 这里不伪造成功回复：只要还有别的上下文给出真正的响应，那个响应优先。
+    if (!async && !done) reply(undefined, 'noResponse');
   }
 
   // runtime.connect / Port。Port 在 JS 侧同步返回；底层连接异步建立，建立前 postMessage 会排队。
@@ -220,6 +226,7 @@ function (CFG, ENTRIES) {
       _id: id || null,
       _queue: [],
       _closed: false,
+      _hasMessageListeners: function () { return msgListeners.length > 0; },
       _message: function (message) { if (!p._closed) notify(msgListeners, [message, p]); },
       _close: function (notifyLocal) {
         if (p._closed) return;
@@ -234,12 +241,16 @@ function (CFG, ENTRIES) {
   function receivePortConnect(m) {
     if (!m.portId || ports[m.portId]) return;
     var p = makePort(m.portId, m.name, m.sender, true);
+    if (!(L['runtime.onConnect'] || []).length) cwarnPort('[mafari] onConnect arrived with no listener (buffered), port name=' + (m.name || ''));
     deliverEvent('runtime.onConnect', [p]);
   }
   function receivePortMessage(m) {
     var p = ports[m.portId];
-    if (p) p._message(m.message);
+    if (!p) { cwarnPort('[mafari] port message dropped: unknown port ' + m.portId + ' name=' + (m.name || '')); return; }
+    if (!p._hasMessageListeners()) cwarnPort('[mafari] port message dropped: no onMessage listener yet, port name=' + (p.name || ''));
+    p._message(m.message);
   }
+  function cwarnPort(t) { try { win.console.warn(t); } catch (e) { } }
   function receivePortDisconnect(m) {
     var p = ports[m.portId];
     if (p) p._close();
@@ -377,7 +388,12 @@ function (CFG, ENTRIES) {
     onBrowserUpdateAvailable: inertEvent('runtime.onBrowserUpdateAvailable', true),
     onMessageExternal: inertEvent('runtime.onMessageExternal', true),
     onConnectExternal: inertEvent('runtime.onConnectExternal', true),
-    setUninstallURL: unsupported('runtime.setUninstallURL'),
+    // 卸载后打开的页面：WebView 适配层没有这个入口，接受并忽略（拓展只是想统计 / 问卷，失败不该拖垮后台页）
+    setUninstallURL: promised(function () { return P.resolve(); }),
+    // Firefox 专有；Tampermonkey 等在后台页启动时就会调，缺失会让启动流程中断
+    getBrowserInfo: promised(function () {
+      return P.resolve({ name: 'Mafari', vendor: 'Mafari', version: String(CFG.appVersion || '1.0.0'), buildID: '' });
+    }),
     requestUpdateCheck: unsupported('runtime.requestUpdateCheck'),
     reload: unsupported('runtime.reload'),
     // 只有后台页自己能拿到自己的 window；别的页面在另一个 WebView 里，跨 WebView 拿不到
@@ -510,9 +526,16 @@ function (CFG, ENTRIES) {
         return rpc('tabs.sendMessage', [tabId, message === undefined ? null : message, nul(options)]);
       }),
       // MV2 注入接口：WebView 上注入的代码拿不到 browser / chrome，不能照 Firefox 语义工作，明确拒绝
-      executeScript: unsupported('tabs.executeScript'),
-      insertCSS: unsupported('tabs.insertCSS'),
-      removeCSS: unsupported('tabs.removeCSS'),
+      // MV2 注入：只支持主框架、file 形式（insertCSS 另支持 code）；host 权限由原生按目标标签校验
+      executeScript: promised(function (a, b) {
+        return isObj(a) ? rpc('tabs.executeScript', [null, a]) : rpc('tabs.executeScript', [nul(a), nul(b)]);
+      }),
+      insertCSS: promised(function (a, b) {
+        return isObj(a) ? rpc('tabs.insertCSS', [null, a]) : rpc('tabs.insertCSS', [nul(a), nul(b)]);
+      }),
+      removeCSS: promised(function (a, b) {
+        return isObj(a) ? rpc('tabs.removeCSS', [null, a]) : rpc('tabs.removeCSS', [nul(a), nul(b)]);
+      }),
       detectLanguage: unsupported('tabs.detectLanguage'),
       captureVisibleTab: promised(function (windowId, options) {
         if (isObj(windowId)) return rpc('tabs.captureVisibleTab', [windowId]);
@@ -570,6 +593,24 @@ function (CFG, ENTRIES) {
     };
   }
 
+  // contentScripts.register：Firefox MV2 专有（uBlock Origin 等在后台页启动时就用）。只在拓展自己的页面提供，
+  // 转成原生的动态脚本注册（不持久化，进程内有效）；只支持 { file } 形式的 js / css，内联 code 会被拒绝。
+  var contentScripts = null;
+  if (CFG.page && Number(CFG.manifest && CFG.manifest.manifest_version) < 3) {
+    var csSeq = 1;
+    contentScripts = {
+      register: promised(function (details) {
+        if (details === null || typeof details !== 'object') return P.reject(new E('contentScripts.register: details must be an object'));
+        var d = {}; OK(details).forEach(function (k) { d[k] = details[k]; });
+        d.id = 'mafari-cs-' + (csSeq++) + '-' + Math.random().toString(36).slice(2, 8);
+        return rpc('contentScripts.register', [d]).then(function (id) {
+          var done = false;
+          return { unregister: promised(function () { if (done) return P.resolve(); done = true; return rpc('contentScripts.unregister', [id]); }) };
+        });
+      })
+    };
+  }
+
   // permissions：request/remove 由浏览器原生确认 UI 执行；事件在所有拓展上下文中分发。
   var permissions = {
     getAll: promised(function () { return rpc('permissions.getAll', []); }),
@@ -623,7 +664,7 @@ function (CFG, ENTRIES) {
 
   var webRequest = null, webRequestSequence = 1;
   if (CFG.page && declares('webRequest')) {
-    var webRequestListeners = { onBeforeRequest: [], onBeforeRedirect: [], onResponseStarted: [], onCompleted: [], onErrorOccurred: [] };
+    var webRequestListeners = { onBeforeRequest: [], onBeforeRedirect: [], onHeadersReceived: [], onResponseStarted: [], onCompleted: [], onErrorOccurred: [] };
     function makeWebRequestEvent(eventName) {
       return {
         addListener: function (fn, filter, extraInfoSpec) {
@@ -649,16 +690,26 @@ function (CFG, ENTRIES) {
     webRequest = {
       onBeforeRequest: makeWebRequestEvent('onBeforeRequest'),
       onBeforeRedirect: makeWebRequestEvent('onBeforeRedirect'),
+      onHeadersReceived: makeWebRequestEvent('onHeadersReceived'),
       onResponseStarted: makeWebRequestEvent('onResponseStarted'),
       onCompleted: makeWebRequestEvent('onCompleted'),
       onErrorOccurred: makeWebRequestEvent('onErrorOccurred'),
-      // 请求头 / 响应头 / 认证阶段 WebView 看不到（shouldInterceptRequest 只在发请求前给一次）；仅拓展自定义重定向可触发 onBeforeRedirect：
-      // 事件对象必须存在，否则 uBO / 篡改猴 / 沉浸式翻译的后台页在 `webRequest.onHeadersReceived.addListener` 这一行就抛 TypeError，
-      // 后台页从此不响应任何消息。事件本身不会触发。
+      // 请求头 / 认证阶段 WebView 看不到（shouldInterceptRequest 只在发请求前给一次）。
+      // 主框架的响应头 / 状态码来自 androidx.webkit NavigationListener（系统 WebView 支持时）：onHeadersReceived 只读，且只覆盖主文档。
+      // 其余事件对象必须存在，否则 uBO / 篡改猴 / 沉浸式翻译的后台页在 `.addListener` 这一行就抛 TypeError，事件本身不会触发。
       onBeforeSendHeaders: inertEvent('webRequest.onBeforeSendHeaders'),
       onSendHeaders: inertEvent('webRequest.onSendHeaders'),
-      onHeadersReceived: inertEvent('webRequest.onHeadersReceived'),
       onAuthRequired: inertEvent('webRequest.onAuthRequired'),
+      // Firefox 里这些选项枚举是存在的（没有 EXTRA_HEADERS）：Violentmonkey 在后台页顶层直接读
+      // browser.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS，对象缺失会抛 TypeError，后台页整个起不来。
+      OnBeforeRequestOptions: { BLOCKING: 'blocking', REQUEST_BODY: 'requestBody' },
+      OnBeforeSendHeadersOptions: { BLOCKING: 'blocking', REQUEST_HEADERS: 'requestHeaders' },
+      OnSendHeadersOptions: { REQUEST_HEADERS: 'requestHeaders' },
+      OnHeadersReceivedOptions: { BLOCKING: 'blocking', RESPONSE_HEADERS: 'responseHeaders' },
+      OnAuthRequiredOptions: { BLOCKING: 'blocking', RESPONSE_HEADERS: 'responseHeaders', ASYNC_BLOCKING: 'asyncBlocking' },
+      OnResponseStartedOptions: { RESPONSE_HEADERS: 'responseHeaders' },
+      OnBeforeRedirectOptions: { RESPONSE_HEADERS: 'responseHeaders' },
+      OnCompletedOptions: { RESPONSE_HEADERS: 'responseHeaders' },
       handlerBehaviorChanged: promised(function () { return P.resolve(); }),
       MAX_HANDLER_BEHAVIOR_CHANGED_CALLS_PER_10_MINUTES: 20
     };
@@ -700,7 +751,7 @@ function (CFG, ENTRIES) {
       onReferenceFragmentUpdated: ev('webNavigation.onReferenceFragmentUpdated'),
       // uBO 等的后台页在顶层直接 addListener（弹窗拦截 / 标签替换）；宿主不产生这几个事件
       onCreatedNavigationTarget: inertEvent('webNavigation.onCreatedNavigationTarget'),
-      onDOMContentLoaded: inertEvent('webNavigation.onDOMContentLoaded'),
+      onDOMContentLoaded: ev('webNavigation.onDOMContentLoaded'),
       onTabReplaced: inertEvent('webNavigation.onTabReplaced', true)
     };
   }
@@ -780,9 +831,11 @@ function (CFG, ENTRIES) {
   if (CFG.page && declares('cookies')) {
     cookies = {
       get: promised(function (details) { return rpc('cookies.get', [details || {}]); }),
+      // 只支持带 url 的调用（WebView 没有全局枚举）；不带 url 时原生端会报 unsupported
+      getAll: promised(function (details) { return rpc('cookies.getAll', [details || {}]); }),
       set: promised(function (details) { return rpc('cookies.set', [details || {}]); }),
       remove: promised(function (details) { return rpc('cookies.remove', [details || {}]); }),
-      // WebView 只有按 URL 的 CookieManager：没有全局枚举（getAll 故意不提供，让拓展特性检测后降级），也没有变更事件
+      // WebView 只有按 URL 的 CookieManager：getAll 必须带 url，没有全局枚举，也没有变更事件
       onChanged: inertEvent('cookies.onChanged')
     };
   }
@@ -884,6 +937,7 @@ function (CFG, ENTRIES) {
   if (!CFG.offscreen && alarms) browser.alarms = alarms;
   if (!CFG.offscreen && tabs) browser.tabs = tabs;
   if (!CFG.offscreen && scripting) browser.scripting = scripting;
+  if (!CFG.offscreen && contentScripts) browser.contentScripts = contentScripts;
   if (!CFG.offscreen && webNavigation) browser.webNavigation = webNavigation;
   if (!CFG.offscreen && webRequest) browser.webRequest = webRequest;
   if (!CFG.offscreen && declarativeNetRequest) browser.declarativeNetRequest = declarativeNetRequest;
@@ -901,7 +955,10 @@ function (CFG, ENTRIES) {
       onChanged: storage.onChanged
     },
     i18n: cbObj(i18n),
-    extension: ext,
+    // extension 里的 isAllowedFileSchemeAccess / isAllowedIncognitoAccess 是 promise 方法，Chrome 风格的调用方传回调
+    // （Dark Reader 的 collectData 就是 new Promise(r => chrome.extension.isAllowedFileSchemeAccess(r))）。
+    // 不过 cbObj 的话回调永远不被调用，等它的 Promise.all 会卡死，popup 空白。
+    extension: cbObj(ext),
     permissions: cbObj(permissions)
   };
   if (!CFG.offscreen && mafari) chrome['mafari'] = { userscripts: cbObj(mafari.userscripts) };
@@ -949,6 +1006,69 @@ function (CFG, ENTRIES) {
     rpc('runtime.hello', []).catch(function () { });
   }
 
+  // 拓展页里的跨域 fetch：Chrome / Firefox 里拓展凭 host 权限可以绕过 CORS，WebView 里这些页面只是普通网页，会被 CORS 拦下
+  // （例如后台页请求 api.xxx.com 的预检不过）。指向别的 origin 的 http(s) 请求转给原生（mafari.net.fetch）代发，
+  // 原生按拓展已获授权的 host 放行。没有权限 / 请求体类型不支持（FormData 等）/ 原生不可用时原样走原生 fetch，行为与改动前一致。
+  // 不带 cookie（等同 credentials: omit）；XMLHttpRequest 不在此列。
+  if (CFG.page && !MAIN && typeof win.fetch === 'function' && typeof win.Response === 'function') {
+    var pageNativeFetch = win.fetch;
+    var netB64 = function (buf) {
+      var u8 = new Uint8Array(buf), out = '', i;
+      for (i = 0; i < u8.length; i += 0x8000) out += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+      return win.btoa(out);
+    };
+    // 返回 Promise<{ bytes: ArrayBuffer|null, type: string|null }>；不支持的请求体类型 resolve(undefined) → 走原生 fetch
+    var netBody = function (b) {
+      if (b === undefined || b === null) return P.resolve({ bytes: null, type: null });
+      if (typeof b === 'string') return P.resolve({ bytes: new win.TextEncoder().encode(b).buffer, type: 'text/plain;charset=UTF-8' });
+      if (win.URLSearchParams && b instanceof win.URLSearchParams) return P.resolve({ bytes: new win.TextEncoder().encode(b.toString()).buffer, type: 'application/x-www-form-urlencoded;charset=UTF-8' });
+      if (b instanceof win.ArrayBuffer) return P.resolve({ bytes: b, type: null });
+      if (win.ArrayBuffer.isView && win.ArrayBuffer.isView(b)) return P.resolve({ bytes: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), type: null });
+      if (win.Blob && b instanceof win.Blob) return b.arrayBuffer().then(function (bytes) { return { bytes: bytes, type: b.type || null }; });
+      return P.resolve(undefined);
+    };
+    win.fetch = function (input, init) {
+      var self = this, args = arguments;
+      var viaNative = function () { return pageNativeFetch.apply(self, args); };
+      var isReq = typeof win.Request === 'function' && input instanceof win.Request;
+      var abs;
+      try { abs = new U(isReq ? input.url : String(input), win.location && win.location.href); } catch (e) { return viaNative(); }
+      var proto = abs.protocol;
+      if ((proto !== 'http:' && proto !== 'https:') || abs.origin === CFG.origin || (win.location && abs.origin === win.location.origin)) return viaNative();
+      init = init || {};
+      var method = String(init.method || (isReq && input.method) || 'GET').toUpperCase();
+      var signal = init.signal || (isReq ? input.signal : null);
+      if (signal && signal.aborted) return P.reject(new win.DOMException('The operation was aborted.', 'AbortError'));
+      var headers = [];
+      try { new win.Headers(init.headers || (isReq ? input.headers : undefined)).forEach(function (v, k) { headers.push([k, v]); }); } catch (e) { return viaNative(); }
+      var bodySrc = init.body !== undefined ? P.resolve(init.body) : (isReq && method !== 'GET' && method !== 'HEAD' ? input.clone().arrayBuffer() : P.resolve(null));
+      var call = bodySrc.then(netBody).then(function (b) {
+        if (b === undefined) return { native: true };
+        if (b.type && !headers.some(function (h) { return h[0].toLowerCase() === 'content-type'; })) headers.push(['content-type', b.type]);
+        return rpc('mafari.net.fetch', [{
+          url: abs.href, method: method, headers: headers, redirect: init.redirect || (isReq && input.redirect) || 'follow',
+          bodyB64: b.bytes && b.bytes.byteLength ? netB64(b.bytes) : null
+        }]).then(function (r) { return { r: r }; }, function (e) {
+          var c = e && e.code;
+          if (c === 'DENIED_PERMISSION' || c === 'UNSUPPORTED' || c === 'UNKNOWN_API') return { native: true };
+          throw new TypeError(c === 'NETWORK' ? 'Failed to fetch' : 'Failed to fetch: ' + (e && e.message));
+        });
+      }).then(function (o) {
+        if (o.native) return viaNative();
+        var r = o.r, bin = win.atob(r.b64 || ''), bytes = new Uint8Array(bin.length), i;
+        for (i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        var resp = new win.Response(r.status === 204 || r.status === 205 || r.status === 304 ? null : bytes, { status: r.status, statusText: r.statusText || '', headers: r.headers || [] });
+        try { Object.defineProperty(resp, 'url', { value: r.url || abs.href }); } catch (e) { }
+        return resp;
+      });
+      if (!signal || typeof signal.addEventListener !== 'function') return call;
+      return new P(function (resolve, reject) {
+        signal.addEventListener('abort', function () { reject(new win.DOMException('The operation was aborted.', 'AbortError')); }, { once: true });
+        call.then(resolve, reject);
+      });
+    };
+  }
+
   // ───────────── 匹配与执行 ─────────────
   function matchDesc(d, href) {
     var u;
@@ -983,20 +1103,127 @@ function (CFG, ENTRIES) {
     if (doc.head || doc.documentElement) go(); else docAdd('DOMContentLoaded', go, { once: true });
   }
 
+  // 原生 document_end（只在隔离世界，CFG.nativeEnd 由宿主设置）：宿主在这个世界里另注册了一段
+  // INJECTION_EVENT_DOCUMENT_END（对应 DOMContentLoaded）脚本，到点调用这里挂的世界私有钩子。
+  // 钩子没被调用时（注册失败 / 事件没来）靠 window.load 兜底，保证条目一定会跑；文档已过了 loading 阶段则立即触发。
+  var endFired = false, endQueue = [];
+  function fireEnd() {
+    if (endFired) return;
+    endFired = true;
+    try { delete win[CFG.nativeEnd]; } catch (e) { }
+    var q = endQueue;
+    endQueue = [];
+    q.forEach(function (f) { try { f(); } catch (e) { cerr(e); } });
+  }
+  if (CFG.nativeEnd) {
+    try { Object.defineProperty(win, CFG.nativeEnd, { value: fireEnd, configurable: true }); } catch (e) { }
+    if (doc.readyState !== 'loading') fireEnd(); else winAdd('load', fireEnd, { once: true });
+  }
+  function whenEnd(f) {
+    if (!CFG.nativeEnd) {
+      // 页面世界 / 旧路径：自己监听 DOMContentLoaded
+      if (doc.readyState !== 'loading') f(); else docAdd('DOMContentLoaded', f, { once: true });
+      return;
+    }
+    if (endFired) f(); else endQueue.push(f);
+  }
+
   function runWhen(at, fn) {
     if (at === 'document_start') { fn(); return; }
-    var afterDcl = function (f) {
-      if (doc.readyState !== 'loading') f(); else docAdd('DOMContentLoaded', f, { once: true });
-    };
-    if (at === 'document_end') { afterDcl(fn); return; }
-    // document_idle：DOMContentLoaded 之后，load 或 200ms 先到者
-    afterDcl(function () {
+    if (at === 'document_end') { whenEnd(fn); return; }
+    // document_idle：document_end 之后，load 或 200ms 先到者
+    whenEnd(function () {
       var ran = false;
       var go = function () { if (!ran) { ran = true; fn(); } };
       if (doc.readyState === 'complete') { ST(go, 0); return; }
       winAdd('load', go, { once: true });
       ST(go, 200);
     });
+  }
+
+  // 模块加载器：content script 里的 import(...) 被改写成它。页面 CSP 会拦截 import(拓展 origin 的 URL)，所以拓展内的模块
+  // 不走网络，而是由原生送进来，有两种方式：
+  //   en.mods ：随条目内联（路径 → async function(exp, req, url, imp)），用于没有桥的 MAIN 世界等；
+  //   en.lazy ：只有路径；首次用到时经桥请求 mafari.module.load，原生用隔离世界的 executeJavaScript 调
+  //             __mafariModDefine(path, fn) 把模块函数送进来（同样不受页面 CSP 约束），源码不占每个页面的注入脚本。
+  // 都没有的（外部 URL 等）才回退原生 import()。模块每个世界只执行一次（modCache）。
+  var modFns = {}, modLazy = {}, modWait = {}, modCache = {};
+  if (CFG.isolatedWorld) {
+    // 只在隔离世界里挂：页面世界看不到这个世界的全局
+    globalThis.__mafariModDefine = function (path, fn) { modFns[path] = fn; };
+  }
+  // content script 里的 fetch 受页面 CSP 的 connect-src 约束（github、browsercheck.net 等站点会拦 https://<拓展>.ext.mafari.internal/...），
+  // content script 读自己的 default_config.json 之类就会失败。指向拓展 origin 的 GET 改走桥读文件（仅 web_accessible 资源），
+  // 其余请求原样交给原生 fetch。隔离世界和旧的页面世界路径（不支持隔离世界 / 首次加载走旧路径）都要装；MAIN 世界没有桥，不装。
+  if (CFG.isolatedWorld || (!CFG.page && !MAIN)) {
+    var nativeFetch = globalThis.fetch;
+    if (typeof nativeFetch === 'function') {
+      globalThis.fetch = function (input, init) {
+        try {
+          var url = typeof input === 'string' ? input : (input && input.url) || String(input);
+          var method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+          var abs = new U(url, win.location && win.location.href).href;
+          if (method === 'GET' && abs.indexOf(CFG.origin + '/') === 0) {
+            var path = abs.slice(CFG.origin.length + 1).replace(/[?#].*$/, '');
+            return rpc('mafari.resource.read', [path]).then(function (r) {
+              if (!r || r.status !== 200) return new Response(null, { status: (r && r.status) || 404 });
+              var bin = atob(r.b64), bytes = new Uint8Array(bin.length);
+              for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              return new Response(bytes, { status: 200, headers: { 'content-type': r.mime || 'application/octet-stream' } });
+            });
+          }
+        } catch (e) { /* 解析失败就按原样请求 */ }
+        return nativeFetch.apply(this, arguments);
+      };
+    }
+  }
+  function makeImporter(en) {
+    var base = CFG.origin + '/';
+    var own = Object.prototype.hasOwnProperty;
+    var mods = en.mods || {};
+    (en.lazy || []).forEach(function (p) { modLazy[p] = 1; });
+    function norm(from, rel) {
+      var parts = rel.charAt(0) === '/' ? [] : from.split('/').slice(0, -1);
+      rel.split('/').forEach(function (seg) {
+        if (seg === '' || seg === '.') return;
+        if (seg === '..') { if (parts.length) parts.pop(); } else parts.push(seg);
+      });
+      return parts.join('/');
+    }
+    function toPath(spec) {
+      var s = String(spec).replace(/[?#].*$/, '');
+      if (s.indexOf(base) === 0) return s.slice(base.length);
+      if (/^[a-z][a-z0-9+.-]*:/i.test(s) || s.indexOf('//') === 0) return null;
+      return norm('', s);
+    }
+    function fnFor(path) {
+      if (own.call(mods, path)) return P.resolve(mods[path]);
+      if (own.call(modFns, path)) return P.resolve(modFns[path]);
+      if (!own.call(modLazy, path)) return null;
+      return modWait[path] || (modWait[path] = rpc('mafari.module.load', [path]).then(function () {
+        if (!own.call(modFns, path)) throw new E('module not delivered: ' + path);
+        return modFns[path];
+      }, function (e) { delete modWait[path]; throw e; }));
+    }
+    function load(path) {
+      if (own.call(modCache, path)) return modCache[path];
+      var fp = fnFor(path);
+      if (!fp) return null;
+      return (modCache[path] = fp.then(function (fn) {
+        var exp = {};
+        return P.resolve(fn(exp, function (p) {
+          var l = load(p);
+          return l || P.reject(new E('module not found: ' + p));
+        }, base + path, imp)).then(function () { return exp; });
+      }));
+    }
+    function imp(spec) {
+      var p = toPath(spec);
+      var l = p && load(p);
+      if (l) return l;
+      return import(String(spec));
+    }
+    return imp;
   }
 
   function runEntries(br, ch) {
@@ -1007,7 +1234,8 @@ function (CFG, ENTRIES) {
       if (!anyMatch(en.m, href) || anyMatch(en.x, href)) return;
       runWhen(en.at, function () {
         en.css.forEach(function (c) { try { insertCss(c); } catch (e) { cerr(e); } });
-        en.js.forEach(function (fn) { try { fn(br, ch); } catch (e) { cerr(e); } });
+        var imp = (en.mods || en.lazy) ? makeImporter(en) : function (u) { return import(String(u)); };
+        en.js.forEach(function (fn) { try { fn(br, ch, imp); } catch (e) { cerr(e); } });
       });
     });
   }
