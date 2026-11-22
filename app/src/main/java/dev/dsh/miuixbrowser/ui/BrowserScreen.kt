@@ -699,6 +699,15 @@ fun BrowserScreen(
         )
         } // backdrop capture layer ends before the floating toolbar
 
+        // ---- 网页态的状态栏背景：高级材质，以网页最顶部一条区域为采样层（仅 WebView；Gecko 保持原样）----
+        // 页面处于初始状态（状态栏留白未收起）时显示；下滑沉浸收起后淡出。停靠在顶部的栏自己的底板已经铺到状态栏下，不叠加
+        if (webGlassAvailable && settings.blurEnabled && !barLayout.reservesTop) {
+            StatusBarMaterialBand(
+                backdrop = browserBackdrop,
+                visible = !topInsetCollapsed,
+            )
+        }
+
         // ---- 新建标签页：顶部渐进模糊（与子页面顶栏同款 miuix 渐进模糊）----
         // 放在采集层之外，只采样首页内容；仅在内容滚到状态栏下方时淡入。
         if (homeBlurAvailable && settings.blurEnabled &&
