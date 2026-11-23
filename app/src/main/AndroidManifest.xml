@@ -64,12 +64,15 @@
         </activity>
 
         <!-- 响应系统里的 http(s) 链接：无界面的分流入口（原来声明在 MainActivity 上），按「外部链接打开方式」转给主界面 / 自定义标签页 / 其他浏览器。
-             不加 launchMode / affinity：调用方不带 NEW_TASK 时，它和后面的自定义标签页都留在调用方的任务里 -->
+             不加 launchMode：调用方不带 NEW_TASK 时，它和后面的自定义标签页都留在调用方的任务里。
+             独立 taskAffinity：不少应用（如 Telegram 等）会带 NEW_TASK 打开链接，若用默认 affinity 会并进 / 拉起 Mafari 主界面所在任务（看起来像「跳到 Mafari」）；
+             用单独的 affinity 后只会新建一个只含自定义标签页的任务，且不进最近任务，返回直接回到原应用 -->
         <activity
             android:name=".LinkDispatchActivity"
             android:exported="true"
             android:excludeFromRecents="true"
             android:noHistory="true"
+            android:taskAffinity="${applicationId}.customtab"
             android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -84,6 +87,8 @@
         <activity
             android:name=".CustomTabActivity"
             android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="${applicationId}.customtab"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MiuixBrowser" />
