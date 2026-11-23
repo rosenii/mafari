@@ -778,6 +778,27 @@ fun BrowserScreen(
             pushPage = ::pushPage,
         )
 
+        // ---- 地址栏搜索引擎快捷切换菜单：用抽象的 AppGlassPopup（与其他弹出菜单同一套材质 / 动效），输入时才会打开 ----
+        LaunchedEffect(ui.editing) { if (!ui.editing) ui.engineMenuShow = false }
+        AppGlassPopup(
+            show = ui.engineMenuShow && ui.editing,
+            onDismissRequest = { ui.engineMenuShow = false },
+            anchorBounds = ui.engineMenuAnchor,
+            backdrop = if (glassAvailable) glassBackdrop else null,
+            alignStart = true,
+            sizing = top.yukonga.miuix.kmp.glass.GlassPopupSizing(minWidth = 140.dp, maxWidth = 240.dp),
+        ) {
+            settings.allSearchEngines.forEachIndexed { index, engine ->
+                top.yukonga.miuix.kmp.glass.GlassPopupItem(
+                    text = if (index == settings.searchIndex) engine.name + "  ✓" else engine.name,
+                    onClick = {
+                        settings.updateSearch(index)
+                        ui.engineMenuShow = false
+                    },
+                )
+            }
+        }
+
         // 隐藏状态不放置透明热区：底部网页区域完全交给 WebView 处理点击、长按和滚动。
         // 通过 WebView 的 scrollY 方向判断下拉恢复，不通过点击底部区域恢复。
 

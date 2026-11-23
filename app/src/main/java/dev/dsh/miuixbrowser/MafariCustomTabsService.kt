@@ -32,4 +32,6 @@ class MafariCustomTabsService : CustomTabsService() {
     override fun postMessage(sessionToken: CustomTabsSessionToken, message: String, extras: Bundle?): Int = CustomTabsService.RESULT_FAILURE_DISALLOWED
 
     override fun receiveFile(sessionToken: CustomTabsSessionToken, uri: Uri, purpose: Int, extras: Bundle?): Boolean = false
+
+    override fun validateRelationship(sessionToken: CustomTabsSessionToken, relation: Int, origin: Uri, extras: Bundle?): Boolean = false
 }

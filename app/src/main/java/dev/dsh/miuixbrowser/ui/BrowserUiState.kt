@@ -30,6 +30,9 @@ internal class BrowserUiState {
     var elementHit by mutableStateOf<BrowserTab.ElementHit?>(null)
     var address by mutableStateOf("")
     var editing by mutableStateOf(false)
+    /** 地址栏输入时点左侧搜索引擎图标弹出的快捷切换菜单（用抽象的 AppGlassPopup 画在 BrowserScreen 里）：是否显示 + 图标在根坐标里的位置 */
+    var engineMenuShow by mutableStateOf(false)
+    var engineMenuAnchor by mutableStateOf(androidx.compose.ui.geometry.Rect.Zero)
     var barHidden by mutableStateOf(false)
     /** 固定（停靠）导航栏：页面是否已深入栏下（滑动中为 true；回到页面顶部 / 底部恢复为 false），判定见 [BarOverlap] */
     var barOverlap by mutableStateOf(false)

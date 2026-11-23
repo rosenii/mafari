@@ -384,10 +384,9 @@ internal fun BottomBar(
     /** 正显示原文：图标变灰；译文时是主题色 */
     translateOriginal: Boolean = false,
     onTranslateToggle: () -> Unit = {},
-    /** 搜索引擎列表 / 当前下标：输入网址时地址栏最左侧显示当前引擎图标，点击弹出菜单快速切换（列表为空则不显示） */
-    searchEngines: List<dev.dsh.miuixbrowser.data.SearchEngine> = emptyList(),
-    searchIndex: Int = 0,
-    onPickEngine: (Int) -> Unit = {},
+    /** 当前搜索引擎：输入网址时地址栏最左侧显示它的图标，点击回报图标位置，由外层弹出引擎快捷切换菜单（null 则不显示） */
+    searchEngine: dev.dsh.miuixbrowser.data.SearchEngine? = null,
+    onEngineClick: (androidx.compose.ui.geometry.Rect) -> Unit = {},
     /** 导航栏样式的尺寸参数（高度 / 圆角 / 按钮大小…）；默认是悬浮胶囊的尺寸 */
     metrics: BarMetrics = BarStyles.FloatingCapsule.metrics,
     /** false = 底板由外层通过 [BarStyle.surface] 画（停靠样式的底板要铺到状态栏 / 导航栏下面），这里只放按钮 */
@@ -484,8 +483,8 @@ internal fun BottomBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // 输入中：最左侧是当前搜索引擎图标（此时阅读 / 脚本 / 下载 / 翻译图标都不显示），点击切换引擎
-                if (editing && searchEngines.isNotEmpty()) {
-                    AddressEngineButton(engines = searchEngines, current = searchIndex, onPick = onPickEngine)
+                if (editing && searchEngine != null) {
+                    AddressEngineButton(engine = searchEngine, onClick = onEngineClick)
                     Spacer(Modifier.width(6.dp))
                 }
                 // 阅读模式图标：地址栏最左侧（比加载小圆点还靠左）

@@ -118,7 +118,7 @@ open class WebAppActivity : ComponentActivity() {
     private var topAnimator: ValueAnimator? = null
 
     // 下拉刷新
-    protected lateinit var refreshSpinner: RefreshSpinnerView
+    internal lateinit var refreshSpinner: RefreshSpinnerView
 
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
