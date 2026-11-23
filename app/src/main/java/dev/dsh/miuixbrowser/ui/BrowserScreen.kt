@@ -738,6 +738,9 @@ fun BrowserScreen(
             }
         }
 
+        // ---- 加载进度条：放在采集层与所有渐进模糊带之外的最上层，不会被模糊采样 ----
+        ui.BrowserProgressOverlay(tab = tab, barLayout = barLayout, contentTopPx = contentTopPx)
+
         // ---- 地址栏输入中：底栏以外的区域是「收键盘」热区 ----
         // 透明遮罩盖在网页之上、底栏之下：点击只退出编辑并收起键盘，不会落到网页上
         // （避免误触链接 / 按钮）；同时吞掉拖动，输入时不让网页跟着滚动。

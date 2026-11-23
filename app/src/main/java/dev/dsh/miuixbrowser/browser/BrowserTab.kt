@@ -178,6 +178,12 @@ class BrowserTab(
 
     /** 标签正显示主页：WebView 里的页面（若有）被盖住，页面侧回调不得再改写 url，否则主页会被页面「顶」出来 */
     internal var parked = false
+        set(value) {
+            if (field == value) return
+            field = value
+            // 页面被主页盖住期间（同一个标签、引擎仍存活）禁止播放媒体：回到页面前一律保持暂停
+            applyMediaBlock(value)
+        }
         internal set
 
     var closed = false
@@ -724,6 +730,21 @@ class BrowserTab(
         }
         if (isGecko) return
         runCatching { webViewOrNull?.evaluateJavascript(PAUSE_MEDIA_JS, null) }
+    }
+
+    /**
+     * 主页盖住页面时：暂停并拦住页面里的媒体（含之后页面脚本自己触发的播放）；页面还原 / 重新加载后解除。
+     * Gecko：onPlay 里补暂停；WebView：脚本暂停现有媒体 + 捕获阶段监听 play 事件。
+     */
+    private fun applyMediaBlock(block: Boolean) {
+        val g = geckoEngine
+        if (g != null) {
+            g.setMediaBlocked(block)
+            if (block) g.pauseMedia()
+            return
+        }
+        if (isGecko) return
+        runCatching { webViewOrNull?.evaluateJavascript(if (block) PARK_MEDIA_JS else UNPARK_MEDIA_JS, null) }
     }
 
     /** 最近一次作为当前标签（或被创建）的时间，uptime 毫秒；闲置时长 = now - 它 */
@@ -1674,6 +1695,11 @@ class BrowserTab(
         /** 拓展晚加载后，前台已加载好的页面若有 content script 匹配，是否重新加载一次让拓展生效（关掉则只对之后的导航生效） */
         const val RELOAD_AFTER_LATE_EXT = true
 
+        private const val PARK_MEDIA_JS =
+            "(function(){try{window.__mfPark=true;if(!window.__mfParkL){window.__mfParkL=function(e){" +
+                "if(window.__mfPark){try{e.target.pause()}catch(x){}}};document.addEventListener('play',window.__mfParkL,true)}" +
+                "document.querySelectorAll('video,audio').forEach(function(m){try{if(!m.paused)m.pause()}catch(e){}})}catch(e){}})()"
+        private const val UNPARK_MEDIA_JS = "(function(){try{window.__mfPark=false}catch(e){}})()"
         private const val PAUSE_MEDIA_JS =
             "(function(){try{var p=function(d){d.querySelectorAll('video,audio').forEach(function(m){" +
                 "try{if(!m.paused)m.pause()}catch(e){}})};p(document);" +

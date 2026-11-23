@@ -74,13 +74,6 @@ internal fun BrowserUiState.BrowserContentLayer(
     } else {
         homePadding.bottom
     }
-    val statusBars = WindowInsets.statusBars
-    // 加载进度条贴着停靠顶栏的下沿；页面深入栏下时 contentTopPx 归零，进度条不能跟着钻到栏后面去
-    val progressTopPx: Density.() -> Int = if (barLayout.reservesTop) {
-        { if (barHidden) contentTopPx() else statusBars.getTop(this) + barLayout.style.metrics.height.roundToPx() }
-    } else {
-        contentTopPx
-    }
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
@@ -267,13 +260,33 @@ internal fun BrowserUiState.BrowserContentLayer(
                 )
             }
         }
-        if (tab.loading) {
-            ProgressLine(
-                progress = { tab.progress },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .topInsetPx(progressTopPx),
-            )
-        }
+    }
+}
+
+/**
+ * 加载进度条：单独成层，由 BrowserScreen 放在整页采集层、状态栏 / 顶部渐进模糊带之外的最上层，
+ * 否则它会被渐进模糊采样进去（被模糊 / 糊掉）。加载进度条贴着停靠顶栏的下沿；页面深入栏下时 contentTopPx 归零，
+ * 进度条不能跟着钻到栏后面去。只画不接触摸。
+ */
+@Composable
+internal fun BrowserUiState.BrowserProgressOverlay(
+    tab: BrowserTab,
+    barLayout: BarLayout,
+    contentTopPx: Density.() -> Int,
+) {
+    if (!tab.loading) return
+    val statusBars = WindowInsets.statusBars
+    val progressTopPx: Density.() -> Int = if (barLayout.reservesTop) {
+        { if (barHidden) contentTopPx() else statusBars.getTop(this) + barLayout.style.metrics.height.roundToPx() }
+    } else {
+        contentTopPx
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        ProgressLine(
+            progress = { tab.progress },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .topInsetPx(progressTopPx),
+        )
     }
 }

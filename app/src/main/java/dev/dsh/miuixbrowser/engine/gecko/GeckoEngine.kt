@@ -386,6 +386,14 @@ class GeckoTabEngine(
     @Volatile
     private var appStopped = false
 
+    /** 页面被主页盖住期间为 true：onPlay 一律补暂停 */
+    @Volatile
+    private var mediaBlocked = false
+
+    fun setMediaBlocked(blocked: Boolean) {
+        mediaBlocked = blocked
+    }
+
     /** 暂停本标签正在播放的媒体；没有媒体会话时什么都不做 */
     fun pauseMedia() {
         runCatching { mediaSession?.pause() }
@@ -617,7 +625,7 @@ class GeckoTabEngine(
 
             override fun onPlay(session: GeckoSession, mediaSession: MediaSession) {
                 // 切走 / 退到后台之后才开始播的（缓冲完成后自动播放、定时脚本等）：补一次暂停
-                if (!sessionActive || appStopped) runCatching { mediaSession.pause() }
+                if (!sessionActive || appStopped || mediaBlocked) runCatching { mediaSession.pause() }
             }
         })
 
