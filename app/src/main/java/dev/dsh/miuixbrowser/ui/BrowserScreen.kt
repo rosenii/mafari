@@ -73,6 +73,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -780,10 +781,20 @@ fun BrowserScreen(
 
         // ---- 地址栏搜索引擎快捷切换菜单：用抽象的 AppGlassPopup（与其他弹出菜单同一套材质 / 动效），输入时才会打开 ----
         LaunchedEffect(ui.editing) { if (!ui.editing) ui.engineMenuShow = false }
+        // 输入时键盘会盖住屏幕下半部分，而 GlassPopup 只看窗口高度（不含键盘），会误判下方放得下而向下弹被键盘遮住。
+        // 所以图标不在屏幕上部（底栏 / 悬浮栏）时一律向上弹：anchor.top 取页面之外的远值，GlassPopup 判定下方放不下而翻到上方，
+        // 并以 anchor.bottom（图标上沿再留 8dp）为底边；停靠在顶部的栏才向下弹
+        val engineAnchor = ui.engineMenuAnchor
+        val engineScreenH = LocalConfiguration.current.screenHeightDp * LocalDensity.current.density
+        val engineGap = with(LocalDensity.current) { 8.dp.toPx() }
         AppGlassPopup(
             show = ui.engineMenuShow && ui.editing,
             onDismissRequest = { ui.engineMenuShow = false },
-            anchorBounds = ui.engineMenuAnchor,
+            anchorBounds = if (engineAnchor.center.y > engineScreenH * 0.3f) {
+                androidx.compose.ui.geometry.Rect(engineAnchor.left, 1e7f, engineAnchor.right, engineAnchor.top - engineGap)
+            } else {
+                engineAnchor
+            },
             backdrop = if (glassAvailable) glassBackdrop else null,
             alignStart = true,
             sizing = top.yukonga.miuix.kmp.glass.GlassPopupSizing(minWidth = 140.dp, maxWidth = 240.dp),
