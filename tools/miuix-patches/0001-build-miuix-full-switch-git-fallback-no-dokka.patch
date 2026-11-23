@@ -1,4 +1,4 @@
-From d357b4230e1d6a0daa76a3b6008d225e17456055 Mon Sep 17 00:00:00 2001
+From f40d6bb0f716f8dd89e15491367190618bac9fff Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Tue, 17 Nov 2026 19:42:28 +0000
 Subject: [PATCH] =?UTF-8?q?build:=20miuix.full=20=E5=BC=80=E5=85=B3?=
@@ -29,7 +29,7 @@ Content-Transfer-Encoding: 8bit
  15 files changed, 34 insertions(+), 45 deletions(-)
 
 diff --git a/build-logic/src/main/kotlin/BuildConfig.kt b/build-logic/src/main/kotlin/BuildConfig.kt
-index ac20933..16ccee3 100644
+index ac20933b..16ccee32 100644
 --- a/build-logic/src/main/kotlin/BuildConfig.kt
 +++ b/build-logic/src/main/kotlin/BuildConfig.kt
 @@ -17,13 +17,22 @@ object BuildConfig {
@@ -62,7 +62,7 @@ index ac20933..16ccee3 100644
 +    }
  }
 diff --git a/build.gradle.kts b/build.gradle.kts
-index 6c0bb4b..51a11f0 100644
+index 6c0bb4b4..51a11f09 100644
 --- a/build.gradle.kts
 +++ b/build.gradle.kts
 @@ -6,25 +6,9 @@ import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
@@ -92,11 +92,11 @@ index 6c0bb4b..51a11f0 100644
      the<YarnRootExtension>().lockFileDirectoryProperty =
          layout.projectDirectory.dir("docs/demo/kotlin-js-store").asFile
 diff --git a/gradle.properties b/gradle.properties
-index 5f1645a..8050ae5 100644
+index 60e8d8c7..27cc7468 100644
 --- a/gradle.properties
 +++ b/gradle.properties
-@@ -4,6 +4,9 @@ org.gradle.caching=true
- org.gradle.configuration-cache=true
+@@ -5,6 +5,9 @@ org.gradle.configuration-cache=true
+ org.gradle.parallel=true
  org.gradle.tooling.parallel=true
  # Android
 +android.useAndroidX=true
@@ -106,7 +106,7 @@ index 5f1645a..8050ae5 100644
  # Kotlin
  kotlin.code.style=official
 diff --git a/miuix-blur/build.gradle.kts b/miuix-blur/build.gradle.kts
-index 1ac617f..b5185f1 100644
+index 1ac617fd..b5185f17 100644
 --- a/miuix-blur/build.gradle.kts
 +++ b/miuix-blur/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -118,7 +118,7 @@ index 1ac617f..b5185f1 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-core/build.gradle.kts b/miuix-core/build.gradle.kts
-index daaee53..fc671df 100644
+index daaee53c..fc671dfa 100644
 --- a/miuix-core/build.gradle.kts
 +++ b/miuix-core/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -130,7 +130,7 @@ index daaee53..fc671df 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-glass-icons/build.gradle.kts b/miuix-glass-icons/build.gradle.kts
-index cd27a42..3616a2e 100644
+index cd27a42d..3616a2e3 100644
 --- a/miuix-glass-icons/build.gradle.kts
 +++ b/miuix-glass-icons/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -142,7 +142,7 @@ index cd27a42..3616a2e 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-glass/build.gradle.kts b/miuix-glass/build.gradle.kts
-index bd2fb09..49a7e68 100644
+index bd2fb09a..49a7e686 100644
 --- a/miuix-glass/build.gradle.kts
 +++ b/miuix-glass/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -154,7 +154,7 @@ index bd2fb09..49a7e68 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-icons/build.gradle.kts b/miuix-icons/build.gradle.kts
-index e4c1917..ef72a47 100644
+index e4c19174..ef72a47f 100644
 --- a/miuix-icons/build.gradle.kts
 +++ b/miuix-icons/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -166,7 +166,7 @@ index e4c1917..ef72a47 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-material/build.gradle.kts b/miuix-material/build.gradle.kts
-index 2850d9c..8380444 100644
+index 2850d9c7..83804440 100644
 --- a/miuix-material/build.gradle.kts
 +++ b/miuix-material/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -178,7 +178,7 @@ index 2850d9c..8380444 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-nav/build.gradle.kts b/miuix-nav/build.gradle.kts
-index c2f9791..84c4816 100644
+index c2f97918..84c4816e 100644
 --- a/miuix-nav/build.gradle.kts
 +++ b/miuix-nav/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -190,7 +190,7 @@ index c2f9791..84c4816 100644
      alias(libs.plugins.kotlinSerialization)
      id("module.kotlin-jvm-toolchain")
 diff --git a/miuix-preference/build.gradle.kts b/miuix-preference/build.gradle.kts
-index c857c82..9804152 100644
+index c857c82c..98041522 100644
 --- a/miuix-preference/build.gradle.kts
 +++ b/miuix-preference/build.gradle.kts
 @@ -7,7 +7,6 @@ plugins {
@@ -202,7 +202,7 @@ index c857c82..9804152 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-squircle/build.gradle.kts b/miuix-squircle/build.gradle.kts
-index b4048b4..6e8f060 100644
+index 88935bcb..8344caf7 100644
 --- a/miuix-squircle/build.gradle.kts
 +++ b/miuix-squircle/build.gradle.kts
 @@ -9,7 +9,6 @@ plugins {
@@ -214,7 +214,7 @@ index b4048b4..6e8f060 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/miuix-ui/build.gradle.kts b/miuix-ui/build.gradle.kts
-index 8e2523c..878148f 100644
+index 8e2523c5..878148fe 100644
 --- a/miuix-ui/build.gradle.kts
 +++ b/miuix-ui/build.gradle.kts
 @@ -8,7 +8,6 @@ plugins {
@@ -234,7 +234,7 @@ index 8e2523c..878148f 100644
 +    rootProject.findProject(":baselineprofile")?.let { "baselineProfile"(it) }
  }
 diff --git a/miuix-window/build.gradle.kts b/miuix-window/build.gradle.kts
-index 7a66c97..f37023f 100644
+index 7a66c976..f37023f2 100644
 --- a/miuix-window/build.gradle.kts
 +++ b/miuix-window/build.gradle.kts
 @@ -4,7 +4,6 @@
@@ -246,7 +246,7 @@ index 7a66c97..f37023f 100644
      id("module.kotlin-jvm-toolchain")
      id("module.publication")
 diff --git a/settings.gradle.kts b/settings.gradle.kts
-index ff4c0c9..8f37092 100644
+index 57ed34ae..5f7a8095 100644
 --- a/settings.gradle.kts
 +++ b/settings.gradle.kts
 @@ -54,14 +54,17 @@ include(":miuix-icons")
@@ -278,6 +278,3 @@ index ff4c0c9..8f37092 100644
 +    include(":docs:demo")
 +    include(":docs:iconGen")
 +}
--- 
-2.43.0
-

@@ -1,4 +1,4 @@
-From 30f3be509abf8f82715a73a453f083a1806ef740 Mon Sep 17 00:00:00 2001
+From 345ca850d19ddbd3d01c4ef7e4773303a722f456 Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Sun, 22 Nov 2026 21:03:11 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20GlassDialog=20=E6=94=AF=E6=8C=81?=
@@ -12,7 +12,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt
-index 5523c0a..f959ca7 100644
+index 5523c0aa..f959ca72 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialog.kt
 @@ -11,6 +11,7 @@ import androidx.compose.ui.unit.DpSize
@@ -48,6 +48,3 @@ index 5523c0a..f959ca7 100644
          content = content,
      )
  }
--- 
-2.43.0
-

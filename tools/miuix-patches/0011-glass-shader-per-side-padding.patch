@@ -1,4 +1,4 @@
-From 842d786a89615e6677f8fac220518c40446f968e Mon Sep 17 00:00:00 2001
+From cc0e300b27b3e40e21ccba1709d088fe42048f53 Mon Sep 17 00:00:00 2001
 From: a <a@a>
 Date: Mon, 23 Nov 2026 11:11:33 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20=E6=8A=98=E5=B0=84=20shader=20?=
@@ -18,7 +18,7 @@ Content-Transfer-Encoding: 8bit
  2 files changed, 22 insertions(+), 3 deletions(-)
 
 diff --git a/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/BackdropEffectScope.kt b/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/BackdropEffectScope.kt
-index 4e3e96c..2009caa 100644
+index 4e3e96c4..2009caa8 100644
 --- a/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/BackdropEffectScope.kt
 +++ b/miuix-blur/src/commonMain/kotlin/top/yukonga/miuix/kmp/blur/BackdropEffectScope.kt
 @@ -34,6 +34,17 @@ sealed interface BackdropEffectScope :
@@ -51,7 +51,7 @@ index 4e3e96c..2009caa 100644
      override var downscaleFactor: Float = 1f
      override var noiseCoefficient: Float = 0f
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/internal/GlassUniforms.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/internal/GlassUniforms.kt
-index eab6281..dc7bac5 100644
+index eab6281b..dc7bac5f 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/internal/GlassUniforms.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/internal/GlassUniforms.kt
 @@ -40,8 +40,12 @@ internal fun BackdropEffectScope.glassEffect(
@@ -78,6 +78,3 @@ index eab6281..dc7bac5 100644
          setFloatUniform("in_maxCoord", textureWidth - 0.5f, textureHeight - 0.5f)
          setFloatUniform(
              "in_alphaEdge",
--- 
-2.43.0
-

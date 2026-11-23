@@ -1,4 +1,4 @@
-From bc558950577e40cdaab15fb9ded8dd880d5975ea Mon Sep 17 00:00:00 2001
+From 90f486878bd89bcf53436faee59015c369db1437 Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Sun, 22 Nov 2026 20:51:07 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20=E6=A8=A1=E7=B3=8A=E5=8D=8A=E5=BE=84?=
@@ -13,7 +13,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
-index 8ed912d..c79c20b 100644
+index 8ed912d2..c79c20be 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/Glass.kt
 @@ -213,7 +213,9 @@ private class GlassPipeline(
@@ -27,6 +27,3 @@ index 8ed912d..c79c20b 100644
              if (underlayMaterial != null) {
                  val underlay = cachedUnderlayBlendEffect ?: buildColorBlendEffect(
                      underlayMaterial,
--- 
-2.43.0
-

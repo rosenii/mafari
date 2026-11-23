@@ -1,4 +1,4 @@
-From 3856e32c10bbef9381df1aaadb05a2a40112429f Mon Sep 17 00:00:00 2001
+From 8703099e73b30ce8bde831dc0d61344a226c6f5a Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Tue, 17 Nov 2026 19:43:31 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20GlassBottomSheet=20=E5=A2=9E=E5=8A=A0?=
@@ -12,7 +12,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
-index 27b2095..f3df6f0 100644
+index 4676afa5..6039d4b4 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 @@ -10,6 +10,7 @@ import androidx.compose.ui.unit.Dp
@@ -48,6 +48,3 @@ index 27b2095..f3df6f0 100644
          content = content,
      )
  }
--- 
-2.43.0
-

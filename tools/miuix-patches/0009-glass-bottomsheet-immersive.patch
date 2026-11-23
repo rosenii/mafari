@@ -1,4 +1,4 @@
-From fa5beceb06f09f104aa199af04c093876ac448b8 Mon Sep 17 00:00:00 2001
+From 2669f32239cb3ff20e68a494d08e48c6f24c3768 Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Sun, 22 Nov 2026 20:51:07 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20bottom=20sheet=20immersive=EF=BC=88?=
@@ -18,7 +18,7 @@ Content-Transfer-Encoding: 8bit
  create mode 100644 miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
-index f75525f..8abafb5 100644
+index f75525fc..8abafb5f 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheet.kt
 @@ -33,6 +33,8 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -47,7 +47,7 @@ index f75525f..8abafb5 100644
          surface = surface ?: glassBottomSheetSurface(backdrop, material, stroke, containerColor, shading, style),
          content = content,
 diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
-index d4cf1fa..2e3884c 100644
+index d4cf1fae..2e3884c8 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetContentLayout.kt
 @@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
@@ -228,7 +228,7 @@ index d4cf1fa..2e3884c 100644
   * drags past the top of its contents (negative `dragOffsetY`). Lives in its own
 diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
 new file mode 100644
-index 0000000..d744eda
+index 00000000..d744edae
 --- /dev/null
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/BottomSheetInsets.kt
 @@ -0,0 +1,31 @@
@@ -264,7 +264,7 @@ index 0000000..d744eda
 + */
 +val LocalBottomSheetInsets = staticCompositionLocalOf { BottomSheetInsets() }
 diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
-index dad7143..a4094bf 100644
+index dad71433..a4094bfe 100644
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayBottomSheet.kt
 @@ -44,6 +44,9 @@ import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.DialogLayoutImpl
@@ -293,6 +293,3 @@ index dad7143..a4094bf 100644
          dimColor = dimColor,
          surface = surface,
          content = content,
--- 
-2.43.0
-

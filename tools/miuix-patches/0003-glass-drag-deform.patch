@@ -1,4 +1,4 @@
-From 02d1a3810af355905d3059f5bb06e0c518a3a3f0 Mon Sep 17 00:00:00 2001
+From 498dfa8f98979b7a4db7ac92ea71db5a9dc77519 Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Tue, 17 Nov 2026 19:43:24 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20=E6=8B=96=E6=8B=BD=E5=BD=A2=E5=8F=98?=
@@ -19,10 +19,10 @@ Content-Transfer-Encoding: 8bit
  create mode 100644 miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-index eee2d42..122b677 100644
+index f1729732..f55c5fbb 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
-@@ -86,7 +86,9 @@ fun glassBottomSheetSurface(
+@@ -90,7 +90,9 @@ fun glassBottomSheetSurface(
      val shape = remember(cornerRadius) {
          GlassShape(topStart = cornerRadius, topEnd = cornerRadius, bottomEnd = 0.dp, bottomStart = 0.dp)
      }
@@ -34,7 +34,7 @@ index eee2d42..122b677 100644
          shape = shape,
          material = material,
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
-index 75dc696..03e50ab 100644
+index 75dc696a..03e50ab6 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
 @@ -77,7 +77,8 @@ fun glassDialogSurface(
@@ -49,7 +49,7 @@ index 75dc696..03e50ab 100644
          material = material,
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt
 new file mode 100644
-index 0000000..a953b53
+index 00000000..a953b531
 --- /dev/null
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt
 @@ -0,0 +1,126 @@
@@ -180,7 +180,7 @@ index 0000000..a953b53
 +    return remember(scope) { GlassDragDeform(scope) }
 +}
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
-index 3fca00a..56a66ae 100644
+index 3fca00a3..56a66aeb 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
 @@ -201,6 +201,8 @@ internal fun BoxScope.GlassDropdownPopupContent(
@@ -193,10 +193,10 @@ index 3fca00a..56a66ae 100644
      )
  }
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-index 9be53d4..0919eec 100644
+index 86e4eb27..db3f4a56 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-@@ -194,6 +194,8 @@ internal fun rememberGlassWindowBounds(): IntRect {
+@@ -201,6 +201,8 @@ internal fun rememberGlassWindowBounds(): IntRect {
   * @param onMeasured Called with the final panel size on each measurement.
   * @param interactive Whether the panel's rows can receive input and accessibility actions.
   * @param scrollable Whether rows scroll within the safe-area-constrained viewport.
@@ -205,7 +205,7 @@ index 9be53d4..0919eec 100644
   * @param content The rows.
   */
  // The full-page dismiss layer and positioned panel must be siblings in the popup host.
-@@ -214,6 +216,7 @@ internal fun GlassPopupSurface(
+@@ -222,6 +224,7 @@ internal fun GlassPopupSurface(
      onMeasured: ((Size) -> Unit)? = null,
      interactive: Boolean = true,
      scrollable: Boolean = false,
@@ -213,7 +213,7 @@ index 9be53d4..0919eec 100644
      content: @Composable ColumnScope.() -> Unit,
  ) {
      val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
-@@ -254,6 +257,7 @@ internal fun GlassPopupSurface(
+@@ -262,6 +265,7 @@ internal fun GlassPopupSurface(
          with(density) { popupShadowOutsets(visuals.shadow) }
      }
      val measured = remember { MeasuredPanel() }
@@ -221,7 +221,7 @@ index 9be53d4..0919eec 100644
      // Intrinsic traversals depend only on content, constraints and child count, not on the
      // animated bounds that re-measure the panel each frame.
      val intrinsics = remember { PopupIntrinsicCache() }
-@@ -276,6 +280,7 @@ internal fun GlassPopupSurface(
+@@ -284,6 +288,7 @@ internal fun GlassPopupSurface(
                      )
                  }
              }
@@ -229,7 +229,7 @@ index 9be53d4..0919eec 100644
              .graphicsLayer {
                  panelLayer()
                  // Include shadow pixels in the offscreen buffer used when alpha is below one.
-@@ -311,9 +316,19 @@ internal fun GlassPopupSurface(
+@@ -319,9 +324,19 @@ internal fun GlassPopupSurface(
                      GlassPopupBackground(backdrop, shape, visuals)
                  }
              }
@@ -250,6 +250,3 @@ index 9be53d4..0919eec 100644
                      .padding(contentPadding),
                  content = content,
              )
--- 
-2.43.0
-

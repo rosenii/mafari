@@ -1,4 +1,4 @@
-From b2c2b2036da6683787c0266f80f40011434e6528 Mon Sep 17 00:00:00 2001
+From 42d9bb1a553503c2e28dcd59c5cc9fd4946cdae4 Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Sun, 22 Nov 2026 20:50:43 +0000
 Subject: [PATCH] =?UTF-8?q?glass:=20=E5=BC=B9=E7=AA=97=20surface/alignStar?=
@@ -10,13 +10,12 @@ Content-Transfer-Encoding: 8bit
 
 ---
  .../miuix/kmp/glass/GlassDropdownPopup.kt     |  3 +
- .../kmp/glass/GlassDropdownPreference.kt      |  8 ++
- .../top/yukonga/miuix/kmp/glass/GlassPopup.kt | 74 ++++++++++++++++---
- .../miuix/kmp/glass/GlassPopupSurface.kt      |  5 +-
- 4 files changed, 78 insertions(+), 12 deletions(-)
+ .../kmp/glass/GlassDropdownPreference.kt      |  8 +++
+ .../top/yukonga/miuix/kmp/glass/GlassPopup.kt | 63 ++++++++++++++++---
+ 3 files changed, 66 insertions(+), 8 deletions(-)
 
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
-index 8b399cb..3fca00a 100644
+index 8b399cb6..3fca00a3 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
 @@ -26,6 +26,7 @@ import androidx.compose.ui.unit.Dp
@@ -44,7 +43,7 @@ index 8b399cb..3fca00a 100644
          scrollable = true,
          content = content,
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt
-index 4404487..0367720 100644
+index 4404487e..03677203 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPreference.kt
 @@ -6,6 +6,7 @@ package top.yukonga.miuix.kmp.glass
@@ -96,7 +95,7 @@ index 4404487..0367720 100644
                              hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                              setExpanded(false)
 diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
-index 26d9607..91ec20a 100644
+index 4f31edac..80c1d9e7 100644
 --- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
 +++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopup.kt
 @@ -4,6 +4,10 @@
@@ -131,38 +130,15 @@ index 26d9607..91ec20a 100644
  import androidx.compose.ui.platform.LocalLayoutDirection
  import androidx.compose.ui.text.font.FontWeight
  import androidx.compose.ui.text.style.TextOverflow
-@@ -196,6 +206,8 @@ object GlassPopupDefaults {
-  * @param sizing Panel size limits and window margin.
-  * @param visuals Panel surface appearance.
-  * @param cornerRadius Expanded panel corner radius.
-+ * @param alignStart Align the panel to the anchor's start edge instead of its end edge. Use it for
-+ *   an anchor on the start side of the page, so the panel opens inward rather than off-screen.
-  * @param secondary Whether to use [GlassSecondaryPopup] geometry. Use that component directly
-  *   to share the primary popup's appearance through `materialAnchor`.
-  * @param contentPadding Padding around the items.
-@@ -211,8 +223,10 @@ fun BoxScope.GlassPopup(
-     sizing: GlassPopupSizing = GlassPopupSizing(),
-     visuals: GlassPopupVisuals = GlassPopupDefaults.visuals(),
-     cornerRadius: Dp = GlassPopupDefaults.CornerRadius,
-+    alignStart: Boolean = false,
+@@ -216,6 +226,7 @@ fun BoxScope.GlassPopup(
      secondary: Boolean = false,
+     horizontalAlignment: Alignment.Horizontal = Alignment.End,
      contentPadding: PaddingValues = PaddingValues(vertical = GlassPopupDefaults.ContentPaddingVertical),
 +    surface: (@Composable BoxScope.(GlassShape) -> Unit)? = null,
      content: @Composable ColumnScope.() -> Unit,
  ) {
      if (secondary) {
-@@ -269,8 +283,8 @@ fun BoxScope.GlassPopup(
-         panelLayer = {},
-         overlay = {},
-         frame = { end, windowBounds ->
--            val settled = placeGlassPopup(anchorBounds, end, sizing.safeMargin.toPx(), windowBounds, layoutDirection)
--            directionFrame(settled, end, progress.value, startRadius, cornerRadius, layoutDirection)
-+            val settled = placeGlassPopup(anchorBounds, end, sizing.safeMargin.toPx(), windowBounds, layoutDirection, alignStart)
-+            directionFrame(settled, end, progress.value, startRadius, cornerRadius, layoutDirection, alignStart)
-         },
-         contentLayer = { _, _ ->
-             val t = progress.value.coerceAtLeast(0f)
-@@ -282,6 +296,7 @@ fun BoxScope.GlassPopup(
+@@ -285,6 +296,7 @@ fun BoxScope.GlassPopup(
              alpha = fade.value
          },
          modifier = modifier,
@@ -170,25 +146,7 @@ index 26d9607..91ec20a 100644
          scrollable = true,
          content = content,
      )
-@@ -295,6 +310,7 @@ private fun directionFrame(
-     startRadius: Dp,
-     endRadius: Dp,
-     layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-+    alignStart: Boolean = false,
- ): GlassPopupFrame {
-     // Keep the spring's overshoot so the silhouette and rows rebound together.
-     val t = progress.coerceAtLeast(0f)
-@@ -302,7 +318,8 @@ private fun directionFrame(
-     val endRatio = if (end.width > 0f) end.height / end.width else 1f
-     val ratio = GlassMotion.POPUP_START_RATIO + (endRatio - GlassMotion.POPUP_START_RATIO) * t
-     val height = width * ratio
--    val left = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Ltr) {
-+    val rightEdgeFixed = (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Ltr) != alignStart
-+    val left = if (rightEdgeFixed) {
-         placement.rect.right - width
-     } else {
-         placement.rect.left
-@@ -331,7 +348,9 @@ private fun directionFrame(
+@@ -331,7 +343,9 @@ private fun directionFrame(
   * @param summaryColor Colour of the second line.
   * @param selectedContentColor Colour of a selected row's label and its tick.
   * @param pressedColor Pressed background color.
@@ -198,7 +156,7 @@ index 26d9607..91ec20a 100644
  @Composable
  fun GlassPopupItem(
      text: String,
-@@ -347,7 +366,9 @@ fun GlassPopupItem(
+@@ -347,7 +361,9 @@ fun GlassPopupItem(
      summaryColor: Color = MiuixTheme.colorScheme.onSurfaceContainerVariant,
      selectedContentColor: Color = MiuixTheme.colorScheme.primary,
      pressedColor: Color = GlassPopupDefaults.itemPressedColor(),
@@ -208,7 +166,7 @@ index 26d9607..91ec20a 100644
      val interactionSource = remember { MutableInteractionSource() }
      val itemShape = remember { RoundedCornerShape(GlassPopupDefaults.ItemPressRadius) }
      val itemIndication = remember(pressedColor) {
-@@ -366,6 +387,18 @@ fun GlassPopupItem(
+@@ -366,6 +382,18 @@ fun GlassPopupItem(
              .fillMaxWidth()
              .heightIn(min = GlassPopupDefaults.ItemMinHeight)
              .padding(horizontal = GlassPopupDefaults.ItemPressInset)
@@ -227,7 +185,7 @@ index 26d9607..91ec20a 100644
              .clip(itemShape)
              .selectable(
                  selected = selected,
-@@ -393,14 +426,33 @@ fun GlassPopupItem(
+@@ -393,14 +421,33 @@ fun GlassPopupItem(
              )
          }
          Column(modifier = Modifier.weight(1f)) {
@@ -269,23 +227,3 @@ index 26d9607..91ec20a 100644
              if (summary != null) {
                  Text(
                      text = summary,
-diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-index c51350a..9be53d4 100644
---- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-+++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
-@@ -131,8 +131,11 @@ internal fun placeGlassPopup(
-     margin: Float,
-     window: Rect,
-     direction: LayoutDirection,
-+    alignStart: Boolean = false,
- ): GlassPopupPlacement {
--    val endAlignedLeft = if (direction == LayoutDirection.Ltr) {
-+    // 默认与锚点的末端对齐；alignStart 用于位于起始侧的锚点（如左上角按钮），与锚点起始边对齐。
-+    val rightEdgeFixed = (direction == LayoutDirection.Ltr) != alignStart
-+    val endAlignedLeft = if (rightEdgeFixed) {
-         anchor.right - size.width
-     } else {
-         anchor.left
--- 
-2.43.0
-

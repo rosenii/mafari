@@ -1,4 +1,4 @@
-From 121a4dd53864a712ad79ef5f2508086f63d5f888 Mon Sep 17 00:00:00 2001
+From dd0716022b5a5a361d458ef959601668c9320fcc Mon Sep 17 00:00:00 2001
 From: Mafari <mafari@local>
 Date: Tue, 17 Nov 2026 19:43:47 +0000
 Subject: [PATCH] =?UTF-8?q?preference:=20SwitchPreference=20=E7=82=B9?=
@@ -12,7 +12,7 @@ Content-Transfer-Encoding: 8bit
  1 file changed, 15 insertions(+), 1 deletion(-)
 
 diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
-index 13f3b03..b07a5cd 100644
+index 55004583..977904ff 100644
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
 @@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
@@ -46,6 +46,3 @@ index 13f3b03..b07a5cd 100644
      }
      BasicComponent(
          modifier = modifier,
--- 
-2.43.0
-
