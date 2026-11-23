@@ -45,6 +45,7 @@ import top.yukonga.miuix.kmp.blur.textureBlurEffect
  * - [tint] 叠在模糊之上的主题色雾化（默认跟随当前主题的 surface，深色模式下是深色而不是白色）；
  *   传 [Color.Unspecified] 表示不叠色，只做纯模糊（例如首页壁纸之上）。
  * - [rampExtra] 栏下沿以下的渐隐余量（默认 20dp；状态栏带用更小的值，避免盖住太多网页内容）。
+ * - [heightFactor] 带高放大系数（默认 1.2；状态栏带用 1，渐隐正好在状态栏下沿结束）。
  * - [alpha] 在绘制阶段读取，用来跟随滚动淡入淡出。
  */
 @Composable
@@ -56,6 +57,7 @@ fun TopProgressiveBlurBand(
     tint: Color = MiuixTheme.colorScheme.surface.copy(alpha = 0.3f),
     blurRadius: Float = GlassTopAppBarDefaults.ProgressiveBlurRadius.value,
     rampExtra: Dp = 20.dp,
+    heightFactor: Float = 1.2f,
 ) {
     val statusInsets = WindowInsets.statusBars
     val colors = BlurDefaults.blurColors(
@@ -65,7 +67,7 @@ fun TopProgressiveBlurBand(
         modifier = modifier
             .layout { measurable, constraints ->
                 val barPx = statusInsets.getTop(this) + barHeight.toPx()
-                val blurHeight = ((barPx + rampExtra.toPx()) * 1.2f).roundToInt()
+                val blurHeight = ((barPx + rampExtra.toPx()) * heightFactor).roundToInt()
                 val placeable = measurable.measure(
                     constraints.copy(minHeight = blurHeight, maxHeight = blurHeight),
                 )

@@ -708,6 +708,17 @@ fun BrowserScreen(
             )
         }
 
+        // ---- 悬浮三段式沉到底部、网页在它上面结束时，那一行的背景：miuix 渐进模糊（direction = Bottom）----
+        // 行高 = 栏高 + 导航栏，随「让位比例 / 栏收起」动画；采样镜像后的网页底部内容；仅 WebView
+        if (webGlassAvailable && settings.blurEnabled && barLayout.style.splitPills && barLayout.reservesBottom) {
+            val navBarsForBand = WindowInsets.navigationBars
+            BottomBarProgressiveBand(
+                backdrop = browserBackdrop,
+                heightPx = { (navBarsForBand.getBottom(this) * bottomReserveFactor().coerceIn(0f, 1f)).toInt() + contentBottomPx() },
+                alpha = { bottomReserveFactor().coerceIn(0f, 1f) * (1f - hide).coerceIn(0f, 1f) },
+            )
+        }
+
         // ---- 新建标签页：顶部渐进模糊（与子页面顶栏同款 miuix 渐进模糊）----
         // 放在采集层之外，只采样首页内容；仅在内容滚到状态栏下方时淡入。
         if (homeBlurAvailable && settings.blurEnabled &&

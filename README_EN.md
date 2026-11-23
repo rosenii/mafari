@@ -12,9 +12,9 @@
 
 ---
 
-Mafari is an Android browser built on the **miuix** design language: clean, smooth, and still fully featured. Userscripts, ad blocking, reader mode, a password manager, and encrypted backups are all built in.
+Mafari is an Android browser built on the **miuix** design language: clean, smooth, and still fully featured. Userscripts, ad blocking, reader mode, a password manager, and encrypted backups are all built in — and the system WebView engine can run browser extensions too (experimental).
 
-It comes in three editions — **lite, sync_lite, and gecko**. Pick lite for a small footprint, sync_lite if you also want cross-device sync, or gecko if you want the Firefox engine and Firefox extensions (including **Floccus bookmark sync**).
+It comes in three editions — **lite, sync_lite, and gecko**. Pick lite for a small footprint, sync_lite if you also want cross-device sync, or gecko if you want the Firefox engine and native Firefox extensions (including **Floccus bookmark sync**). WebView tabs in all three editions can install extensions (experimental, see below).
 
 Free, ad-free, and maintained by an individual developer in their spare time.
 
@@ -35,7 +35,8 @@ Free, ad-free, and maintained by an individual developer in their spare time.
 | APK size | Small | Small | Larger |
 | Supported devices | arm64-v8a / armeabi-v7a / x86_64 | arm64 only | arm64 only |
 | Userscripts | ✅ | ✅ | ✅ |
-| Firefox extensions | — | — | ✅ |
+| WebView extensions (experimental) | ✅ | ✅ | ✅ (WebView tabs) |
+| Firefox extensions (native Gecko) | — | — | ✅ |
 | Floccus bookmark sync | — | — | ✅ |
 | Firefox Account sync | — | ✅ | ✅ |
 | Ad blocking | Built-in rule engine | Built-in rule engine | Built-in rules on WebView tabs; tracking protection or uBlock Origin on Gecko tabs |
@@ -90,11 +91,25 @@ Enhanced Tracking Protection (off / standard / strict), tracking-parameter remov
 ## Features in all three editions
 
 **Interface and browsing**
-- A single floating bottom bar with four selectable materials under "Advanced material": soft glass (refraction and edge highlights), frosted (no refraction, steadier and lighter), liquid glass, or solid color. It makes room as you scroll down and returns at the top; swipe it sideways to collapse it into a round search button. Bar position can be set to "Top / Bottom / Always minimized".
+- On web pages, the status bar background uses the same **miuix progressive blur** as sub-page top bars (strongest at the top, fading downward, sampling a mirrored copy of the page top). It shows while the page is in its initial state and fades out once you scroll into immersive mode; it applies to the default floating bar, the floating three-segment bar, and the bottom-fixed bar.
+- When the floating three-segment bar detects a bottom bar or input box on the page (chat composers, comment boxes, checkout bars), it sinks to the bottom and reserves a row. That row's background is now a progressive blur too (strongest at the bottom edge, fading upward), sampling a mirrored copy of the page bottom.
+- A single floating bottom bar with four selectable materials under "Advanced material": soft glass (refraction and edge highlights), frosted (no refraction, steadier and lighter), liquid glass, or solid color. It makes room as you scroll down and returns at the top; swipe it sideways to collapse it into a round search button. Bar style can be set to "Top / Bottom / Always minimized / Fixed / Floating three-segment".
 - Multiple tabs, in either a text list or a card layout; the address bar can show the page title, the main domain, or the full domain.
 - Home page sections (favorites, bookmark groups, privacy report, recent visits, downloads) can be shown, hidden, and reordered by dragging. The start page can be the default home, a new tab, or a specific URL.
 - Tapping a bookmark group on the home page opens a small popup below its icon, so you can browse subgroups and bookmarks without leaving the page.
 - Pull to refresh, find in page, translate, share, link long-press menu, and the other everyday essentials.
+
+**WebView extensions (experimental)**
+The system WebView can run extensions too: Mafari ships its own WebExtensions adapter that maps `browser.*` / `chrome.*` onto WebView, and both MV2 and MV3 extensions can be tried. It works on WebView tabs in lite, sync_lite, and gecko; Gecko tabs keep using native Firefox extensions.
+
+- **Install and manage**: in **Settings → Extensions**, search the Firefox add-on store (AMO) or import a store page link, a `.zip` / `.crx` / `.xpi` direct link, or a local package. A permission dialog is shown before install and grant; enable / disable, uninstall, options pages, and automatic update checks are supported. The "Page enhancements" master switch stops all userscripts, ad blocking, and extensions at once — nothing is loaded at cold start while it is off.
+- **Quick menu**: More → Extensions opens the running list with per-extension toggles; extensions that declare a popup open it inside the sheet, and a long-press goes to the extension manager.
+- **Isolation**: each extension gets its own WebView Profile, so its storage is invisible to tabs and other extensions; where the system WebView supports it, content scripts run in a separate isolated world. Incognito tabs do not run extensions.
+- **No cold-start cost**: extensions load after the first page finishes, and background pages are started staggered.
+- **Adapted APIs** (permission-checked; anything not implemented rejects with `UNSUPPORTED` instead of pretending to succeed): `runtime` messaging / Ports / `getContexts`, `storage`, `alarms`, `permissions`, `tabs`, `scripting` and dynamic content scripts, `webNavigation`, `webRequest` (including `onBeforeRequest` cancel / redirect), `declarativeNetRequest` dynamic rules, `userScripts`, `bookmarks`, `cookies`, `downloads`, `history`, `contextMenus`, `notifications`, `action` / `browserAction`, `offscreen`, `i18n`, plus Mafari-specific `clipboard` and `mafari.userscripts`.
+- **Known limits**: single window; `scripting` / `webNavigation` handle the main frame only; the MV3 service worker is a hidden-page emulation without real sleep / wake; `storage.sync` is local only; header rewriting in `webRequest` is limited by WebView.
+
+> Userscripts are built in — please don't install Tampermonkey-style extensions. Details: [docs/WEBEXT_WEBVIEW.md](docs/WEBEXT_WEBVIEW.md), [docs/MAFARI_WEBEXT_API.md](docs/MAFARI_WEBEXT_API.md), and the [compatibility matrix](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md).
 
 **Reader mode**
 On article pages, a reader icon appears at the left of the address bar. Tap it and the page is reduced to the title, author, text, and images, following the app's light / dark theme. Tap again or press Back to return to the original page and scroll position.

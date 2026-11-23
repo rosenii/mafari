@@ -12,9 +12,9 @@
 
 ---
 
-Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简洁、动效细腻，同时没有牺牲功能——油猴脚本、广告拦截、阅读模式、密码管理、加密备份都已内置。
+Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简洁、动效细腻，同时没有牺牲功能——油猴脚本、广告拦截、阅读模式、密码管理、加密备份都已内置，系统 WebView 内核也能安装并运行浏览器拓展（实验性）。
 
-提供 **lite、sync_lite、gecko** 三个版本：想要轻巧，选 lite；想要轻巧又要跨设备同步，选 sync_lite；想要 Firefox 内核、Firefox 扩展（包括 **Floccus 书签同步**），选 gecko。
+提供 **lite、sync_lite、gecko** 三个版本：想要轻巧，选 lite；想要轻巧又要跨设备同步，选 sync_lite；想要 Firefox 内核、原生 Firefox 扩展（包括 **Floccus 书签同步**），选 gecko。三个版本的 WebView 内核都可以安装拓展（实验性，见下文）。
 
 免费、无广告，由个人开发者维护。
 
@@ -35,7 +35,8 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 | 安装包体积 | 小 | 小 | 较大 |
 | 适用设备 | arm64-v8a / armeabi-v7a / x86_64 | 仅 arm64 | 仅 arm64 |
 | 油猴脚本 | ✅ | ✅ | ✅ |
-| Firefox 扩展 | — | — | ✅ |
+| WebView 拓展（实验性） | ✅ | ✅ | ✅（WebView 标签） |
+| Firefox 扩展（Gecko 原生） | — | — | ✅ |
 | Floccus 书签同步 | — | — | ✅ |
 | Firefox 帐户同步 | — | ✅ | ✅ |
 | 广告拦截 | 内置规则引擎 | 内置规则引擎 | WebView 标签用内置规则；Gecko 标签用跟踪保护或 uBlock Origin |
@@ -90,11 +91,25 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 ## 三个版本都有的功能
 
 **界面与浏览**
+- 网页态顶部状态栏使用与子页面顶栏同款的 **miuix 渐进模糊**（自上而下由强到弱，镜像采样网页顶部）：页面处于初始状态时显示，下滑沉浸后淡出；悬浮默认栏、悬浮三段式、固定在底部的栏都适用。
+- 悬浮三段式识别到网页自带底栏 / 输入框（聊天输入框、评论框、结算栏等）时，会沉到屏幕底部让出一行；这一行的背景同样是渐进模糊（贴底最强、向上渐隐），采样镜像后的网页底部内容。
 - 单条悬浮底栏，「高级材质」可选柔光玻璃（带折射与边缘高光）、磨砂（无折射，更稳更省）、液态玻璃或纯色；向下滚动时自动让出空间，回到顶部再恢复；底栏可左右滑动缩成圆形搜索钮，导航栏样式可选「靠上 / 靠下 / 始终最小化 / 固定 / 悬浮三段式」。
 - 多标签，可在文字列表与卡片两种样式间切换；地址栏可显示网站标题、主域名或完整域名。
 - 主页内容（收藏、书签分组、隐私报告、最近浏览、下载项）可显示 / 隐藏并拖动排序；起始页可设为默认主页、新标签页或指定网页。
 - 点击主页的书签分组，会在图标下方弹出小窗，直接浏览子分组与书签，不用跳转页面。
 - 下拉刷新、页内查找、翻译、分享、长按链接菜单等常用功能一应俱全。
+
+**WebView 拓展（实验性）**
+系统 WebView 内核也能装拓展：Mafari 自研了一层 WebExtensions 适配器，把 `browser.*` / `chrome.*` 接口接到 WebView 上，MV2 / MV3 拓展都可以尝试。lite、sync_lite 和 gecko 的 WebView 标签均可使用，Gecko 标签仍走 Firefox 原生扩展。
+
+- **安装与管理**：在 **设置 → 拓展** 里搜索 Firefox 拓展商店（AMO），或导入拓展商店页面链接、`.zip` / `.crx` / `.xpi` 直链、本地拓展包；安装和授权前有中文权限确认框，支持启用 / 停用、卸载、选项页和自动检查更新。「网页增强」总开关可一键停用全部油猴脚本、去广告和拓展，关闭后冷启动也不再加载。
+- **快捷菜单**：底栏「更多」→「拓展」打开运行列表，可单独启停；声明了 popup 的拓展点一下就在面板内打开，长按进入拓展管理页。
+- **隔离与安全**：每个拓展使用独立的 WebView Profile，存储与标签页、其他拓展互不可见；系统 WebView 支持时，content script 运行在各自独立的隔离世界里。无痕标签不运行拓展。
+- **冷启动不拖慢**：拓展在首页加载完成后才晚加载，后台页错开拉起，不影响第一屏。
+- **已适配的接口**（均有权限校验，未实现的接口明确返回 `UNSUPPORTED`，不会假装成功）：`runtime` 消息 / Port / `getContexts`、`storage`、`alarms`、`permissions`、`tabs`、`scripting` 与动态 content script、`webNavigation`、`webRequest`（含 `onBeforeRequest` 的取消 / 重定向）、`declarativeNetRequest` 动态规则、`userScripts`、`bookmarks`、`cookies`、`downloads`、`history`、`contextMenus`、`notifications`、`action` / `browserAction`、`offscreen`、`i18n`；另有 Mafari 专有的 `clipboard` 与 `mafari.userscripts` 接口。
+- **已知限制**：单窗口；`scripting` / `webNavigation` 目前只支持主框架；MV3 Service Worker 是隐藏页面模拟，没有真正的休眠 / 唤醒；`storage.sync` 只是本地存储，不跨设备同步；请求头改写等 `webRequest` 能力受 WebView 限制。
+
+> 应用已原生支持油猴脚本，请不要再安装 Tampermonkey 等油猴类拓展。详细进度与限制见 [docs/WEBEXT_WEBVIEW.md](docs/WEBEXT_WEBVIEW.md)、[docs/MAFARI_WEBEXT_API.md](docs/MAFARI_WEBEXT_API.md) 和 [兼容性矩阵](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md)。
 
 **阅读模式**
 遇到文章类页面，地址栏左侧会出现阅读图标。点一下，页面只留下标题、作者、正文和图片，并跟随应用深浅色；再点一下或按返回键即可回到原页面和原来的位置。
@@ -171,6 +186,6 @@ Mafari 由个人业余时间开发维护，完全免费、无广告。如果它�
 - 找不到译文时回退为简体中文原文，不会崩溃。新增文案只需在代码里写 `tr("…")`，再往 en.tsv 补一行。
 - 系统级字符串（应用名、自动填充服务名）在 `res/values*/strings.xml`，跟随系统语言。
 
-## WebExtension adapter additions
+## WebExtension adapter
 
-The WebView adapter's partial `webRequestBlocking` support and Mafari-native Userscript bridge are documented in [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md). Dynamic DNR rules and the standard `userScripts` subset are documented in [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md). The compatibility matrix is in [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md).
+The WebView extension adapter (experimental) is documented in [`docs/WEBEXT_WEBVIEW.md`](docs/WEBEXT_WEBVIEW.md). Mafari-specific APIs (clipboard, native userscript bridge, partial `webRequestBlocking`) are in [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md) and [`docs/MAFARI_WEBEXT_API.md`](docs/MAFARI_WEBEXT_API.md); dynamic DNR rules and the `userScripts` subset are in [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md). The compatibility matrix is in [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md).
