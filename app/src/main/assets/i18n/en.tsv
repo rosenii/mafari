@@ -197,6 +197,9 @@ Keystore 里的包裹密钥已丢失	The wrapping key in Keystore is missing
 本页数据已使用加密套件保护	Data on this page is protected by a cipher suite
 加密套件	Cipher suite
 （后量子混合）	 (post-quantum hybrid)
+（本机对称加密）	 (on-device symmetric)
+无非对称运算：256 位主密钥由 Android Keystore 保护；AES-256 对量子计算机同样安全	No asymmetric operations: the 256-bit master key is protected by Android Keystore; AES-256 is also secure against quantum computers
+该算法套件加密时需要密钥	This cipher suite needs its key to encrypt
 密钥派生	Key derivation
 数据加密	Data encryption
 密钥保护	Key protection

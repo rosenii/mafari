@@ -10,7 +10,8 @@ import android.os.SystemClock
  * 冷启动预热：把「首帧之前主线程必然要等」的加密库打开，提前到进程一创建就在后台开始。
  *
  * 为什么需要：BrowserState / FavoritesStore / ExtensionStore 在首次组合时都会同步调用 [AppDatabase.get]。
- * 打开加密库要依次经过：Keystore 解包私钥 → BouncyCastle ML-KEM 解封装库密钥 → SQLCipher 派生密钥（PBKDF2）
+ * 打开加密库要依次经过：Keystore 解包主密钥 → 对称套件（HKDF + AES-256-GCM）解开库密钥 → SQLCipher 派生密钥（PBKDF2）
+ * （2.1.77 前是 ML-KEM 解封装，这一步在低端机上是毫秒级的大数运算，且要加载 ML-KEM 相关类；见 CipherSuite.kt 的套件 3）
  * → 十几张表的建表 / 迁移（密码库、Firefox 同步引入后表更多）。这一串耗时 1~2 秒，
  * 而首帧要等 setContent 的首次组合完成才会画出，期间系统启动画面（纯色、无图标）一直停着，就是「白屏」。
  *
@@ -34,10 +35,10 @@ internal object StartupWarmup {
         }
         val app = context.applicationContext
 
-        // 与「取库密钥 / 打开库」互不依赖的两件事并行做：加载 SQLCipher 的 so、初始化加密套件（触发 BouncyCastle 类加载）
+        // 与「取库密钥 / 打开库」互不依赖的两件事并行做：加载 SQLCipher 的 so、初始化本机落盘用的加密套件（对称套件，不再触发 BouncyCastle ML-KEM 类加载）
         Thread({
             runCatching { System.loadLibrary("sqlcipher") }
-            runCatching { CipherSuites.default }
+            runCatching { CipherSuites.deviceDefault }
         }, "mafari-prewarm-crypto").apply { isDaemon = true }.start()
 
         // 每个 WebView 标签创建时都要用到的注入脚本全文：提前在后台读进缓存，首个标签在主线程创建时直接命中，不再打开 asset

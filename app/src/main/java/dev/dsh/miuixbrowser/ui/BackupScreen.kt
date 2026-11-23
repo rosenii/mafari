@@ -496,6 +496,7 @@ fun BackupScreen(onBack: () -> Unit, onOpenFxa: () -> Unit = {}, blurEnabled: Bo
                 backdrop = backdrop,
                 liquid = liquid,
                 scope = tr("备份文件：Argon2id 口令 + 套件加密；同步凭据：套件加密"),
+                suite = CipherSuites.default,
             )
             Column(
                 modifier = Modifier

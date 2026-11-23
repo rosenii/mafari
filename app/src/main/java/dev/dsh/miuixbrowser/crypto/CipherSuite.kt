@@ -42,6 +42,12 @@ import javax.crypto.spec.SecretKeySpec
  *   5. 在 CryptoEngineTest 里它会被自动覆盖（测试遍历 CipherSuites.all）。
  *
  * 被淘汰的套件：不要从注册表里删除，只改 DEFAULT_ID 即可——否则这个套件加密过的数据就永远打不开了。
+ *
+ * ── 两个默认值，面向两种场景 ──────────────────────────────────────────────
+ *   DEVICE_DEFAULT_ID  本机落盘数据（库密钥、书签、密码逐条加密、同步凭据…）。加密者与解密者是同一台设备、同一把 Keystore，
+ *                      不需要「只有公钥就能加密」，所以用对称套件（3）：每次启动 / 每条记录都快、信封只多 46 字节。
+ *   DEFAULT_ID         要离开设备的数据（备份文件 .mfbak）。保持后量子混合套件（1）；备份私钥再由口令（Argon2id）包裹。
+ *   对称套件的「私钥」就是主密钥，「公钥」只是它的公开指纹（用于 key_id），所以 [CipherSuite.sealNeedsPrivateKey] = true。
  */
 
 /** 套件的公钥：[bytes] 的内部布局由套件定义，外层只把它当不透明字节。 */
@@ -98,16 +104,34 @@ interface CipherSuite {
     /** 信封的固定额外开销（字节）：密文长度 = 明文长度 + overhead */
     val overhead: Int
 
+    /** 界面上附在简称后面的一句话，如「（后量子混合）」。 */
+    val note: String get() = ""
+
+    /**
+     * 加密时是否也需要私钥。公钥套件（默认）只要公钥就能加密；对称套件的密钥即私钥，加密同样要它。
+     * 为 true 时 [EncryptionEngine] 调用 [sealWithPrivate]，否则调用 [seal]。
+     */
+    val sealNeedsPrivateKey: Boolean get() = false
+
     fun generateKeyPair(rng: SecureRandom): SuiteKeyPair
 
     /** 返回完整信封（含公共前缀）。 */
     fun seal(pub: SuitePublicKey, plaintext: ByteArray, context: String, rng: SecureRandom): ByteArray
 
+    /** 仅 [sealNeedsPrivateKey] 为 true 的套件使用；公钥套件直接转给 [seal]。 */
+    fun sealWithPrivate(
+        pub: SuitePublicKey,
+        priv: SuitePrivateKey,
+        plaintext: ByteArray,
+        context: String,
+        rng: SecureRandom,
+    ): ByteArray = seal(pub, plaintext, context, rng)
+
     /** [envelope] 的公共前缀已由引擎校验过（魔数 / 版本 / 套件号 / key_id）。 */
     fun open(pub: SuitePublicKey, priv: SuitePrivateKey, envelope: ByteArray, context: String): ByteArray
 }
 
-/** 套件注册表。新增套件在这里登记；[DEFAULT_ID] 决定新数据用哪个套件。 */
+/** 套件注册表。新增套件在这里登记；[DEFAULT_ID] / [DEVICE_DEFAULT_ID] 决定新数据用哪个套件。 */
 object CipherSuites {
     /** X25519 + ML-KEM-768 · HKDF-SHA-384 · AES-256-GCM（已发布，格式永不改动） */
     const val HYBRID_768 = 1
@@ -115,47 +139,76 @@ object CipherSuites {
     /** X25519 + ML-KEM-1024 · HKDF-SHA-512 · AES-256-GCM */
     const val HYBRID_1024 = 2
 
-    /** 新写入的数据使用的套件。切换它即「升级」：旧数据读出后保存时会自动重新加密。 */
+    /** 对称：HKDF-SHA-256 逐条派生密钥 · AES-256-GCM（主密钥由 Keystore 保护）。本机落盘数据专用，信封只多 46 字节。 */
+    const val SYM_AES256 = 3
+
+    /** 要离开设备的数据（备份文件）使用的套件。切换它即「升级」：新备份用新套件，旧备份按文件头里的套件号读取。 */
     const val DEFAULT_ID = HYBRID_768
 
-    private val registry: Map<Int, CipherSuite> = listOf<CipherSuite>(
-        HybridSuite(
-            id = HYBRID_768,
-            name = "X25519+ML-KEM-768 / HKDF-SHA-384 / AES-256-GCM",
-            shortName = "X25519 + ML-KEM-768",
-            kemDescription = tr("X25519 + ML-KEM-768 混合 KEM（后量子）；两个共享密钥拼接后派生，任一算法被攻破仍安全"),
-            kdfDescription = "HKDF-SHA-384 → KEK",
-            pq = MLKEMParameters.ml_kem_768,
-            pqPkLen = 1184,
-            pqSkLen = 2400,
-            pqCtLen = 1088,
-            digestAlg = "SHA-384",
-            hmacAlg = "HmacSHA384",
-            infoLabel = "Mafari/HybridKEM/X25519+ML-KEM-768/HKDF-SHA384/v1",
-        ),
-        HybridSuite(
-            id = HYBRID_1024,
-            name = "X25519+ML-KEM-1024 / HKDF-SHA-512 / AES-256-GCM",
-            shortName = "X25519 + ML-KEM-1024",
-            kemDescription = tr("X25519 + ML-KEM-1024 混合 KEM（后量子，更高安全等级）；两个共享密钥拼接后派生"),
-            kdfDescription = "HKDF-SHA-512 → KEK",
-            pq = MLKEMParameters.ml_kem_1024,
-            pqPkLen = 1568,
-            pqSkLen = 3168,
-            pqCtLen = 1568,
-            digestAlg = "SHA-512",
-            hmacAlg = "HmacSHA512",
-            infoLabel = "Mafari/HybridKEM/X25519+ML-KEM-1024/HKDF-SHA512/v1",
-        ),
-    ).associateBy { it.id }
+    /**
+     * 本机落盘数据使用的套件。切换它即「升级」：旧数据读出后保存时会自动重新加密。
+     * 注意：旧版应用读不了新套件的数据（库密钥读不出会触发删库重建），所以降级安装前请先导出备份。
+     */
+    const val DEVICE_DEFAULT_ID = SYM_AES256
 
-    val all: List<CipherSuite> get() = registry.values.sortedBy { it.id }
+    // 懒创建：冷启动只用对称套件时，不必初始化 ML-KEM / X25519 相关类
+    private val registry: Map<Int, Lazy<CipherSuite>> = mapOf(
+        HYBRID_768 to lazy {
+            HybridSuite(
+                id = HYBRID_768,
+                name = "X25519+ML-KEM-768 / HKDF-SHA-384 / AES-256-GCM",
+                shortName = "X25519 + ML-KEM-768",
+                kemDescription = tr("X25519 + ML-KEM-768 混合 KEM（后量子）；两个共享密钥拼接后派生，任一算法被攻破仍安全"),
+                kdfDescription = "HKDF-SHA-384 → KEK",
+                pq = MLKEMParameters.ml_kem_768,
+                pqPkLen = 1184,
+                pqSkLen = 2400,
+                pqCtLen = 1088,
+                digestAlg = "SHA-384",
+                hmacAlg = "HmacSHA384",
+                infoLabel = "Mafari/HybridKEM/X25519+ML-KEM-768/HKDF-SHA384/v1",
+            )
+        },
+        HYBRID_1024 to lazy {
+            HybridSuite(
+                id = HYBRID_1024,
+                name = "X25519+ML-KEM-1024 / HKDF-SHA-512 / AES-256-GCM",
+                shortName = "X25519 + ML-KEM-1024",
+                kemDescription = tr("X25519 + ML-KEM-1024 混合 KEM（后量子，更高安全等级）；两个共享密钥拼接后派生"),
+                kdfDescription = "HKDF-SHA-512 → KEK",
+                pq = MLKEMParameters.ml_kem_1024,
+                pqPkLen = 1568,
+                pqSkLen = 3168,
+                pqCtLen = 1568,
+                digestAlg = "SHA-512",
+                hmacAlg = "HmacSHA512",
+                infoLabel = "Mafari/HybridKEM/X25519+ML-KEM-1024/HKDF-SHA512/v1",
+            )
+        },
+        SYM_AES256 to lazy {
+            SymmetricSuite(
+                id = SYM_AES256,
+                name = "Keystore-wrapped master key / HKDF-SHA-256 per-message key / AES-256-GCM",
+                shortName = "AES-256-GCM",
+                kemDescription = tr("无非对称运算：256 位主密钥由 Android Keystore 保护；AES-256 对量子计算机同样安全"),
+                kdfDescription = "HKDF-SHA-256 → 每条独立密钥",
+                note = tr("（本机对称加密）"),
+                infoLabel = "Mafari/SymAEAD/AES-256-GCM/HKDF-SHA256/v1",
+            )
+        },
+    )
 
+    val all: List<CipherSuite> get() = registry.keys.sorted().map { get(it) }
+
+    /** 备份 / 对外数据用的套件 */
     val default: CipherSuite get() = get(DEFAULT_ID)
 
-    fun find(id: Int): CipherSuite? = registry[id]
+    /** 本机落盘数据用的套件 */
+    val deviceDefault: CipherSuite get() = get(DEVICE_DEFAULT_ID)
 
-    fun get(id: Int): CipherSuite = registry[id] ?: throw CryptoException(tr("不支持的算法套件：{0}", id))
+    fun find(id: Int): CipherSuite? = registry[id]?.value
+
+    fun get(id: Int): CipherSuite = find(id) ?: throw CryptoException(tr("不支持的算法套件：{0}", id))
 }
 
 /** 信封公共前缀：所有套件共用，其后的布局由套件自己决定。 */
@@ -212,6 +265,8 @@ internal class HybridSuite(
     private val hmacAlg: String,
     infoLabel: String,
 ) : CipherSuite {
+
+    override val note: String get() = tr("（后量子混合）")
 
     private val hashLen = MessageDigest.getInstance(digestAlg).digestLength
     private val infoLabelBytes = infoLabel.toByteArray(Charsets.UTF_8)
@@ -340,6 +395,117 @@ internal class HybridSuite(
         const val NONCE_LEN = 12
         const val TAG_LEN = 16
         const val WRAPPED_DEK_LEN = DEK_LEN + TAG_LEN
+    }
+}
+
+/**
+ * 对称套件（本机落盘数据专用）：主密钥 → HKDF（随机盐）→ 每条独立的 AES-256-GCM 密钥与随机数。
+ *
+ *   okm = HKDF-SHA-256(ikm = 主密钥, salt = 随机 16 字节, info = 标签 ‖ 公开指纹 ‖ context, L = 44)
+ *   密钥 = okm[0..32)，GCM 随机数 = okm[32..44)；密钥每条都不同，所以随机数无需另存。
+ *
+ * 信封（公共前缀之后）：盐(16) | 数据密文 + 16 字节标签；前缀与盐同时是 GCM 的 AAD（再接 context）。
+ * 固定开销 14 + 16 + 16 = 46 字节（混合套件 1 是 1222 字节）。
+ *
+ * 密钥对的含义：私钥 = 32 字节随机主密钥；公钥 = HKDF(主密钥, "key-tag") 得到的 32 字节公开指纹，
+ * 只用来算 key_id、并入派生，不能反推主密钥。保险库照常「公钥明文落盘、私钥经 Keystore 包裹落盘」。
+ *
+ * 为什么本机数据不需要非对称 / 后量子 KEM：加密者与解密者是同一台设备、同一把 Keystore 密钥，没有「只持公钥的一方」；
+ * 而 AES-256 对量子计算机（Grover）仍有约 128 位安全。去掉 ML-KEM 解封装后，冷启动打开加密库、
+ * 密码库逐条解密都不再有毫秒级的大数运算，且不必加载 ML-KEM 相关类。
+ */
+internal class SymmetricSuite(
+    override val id: Int,
+    override val name: String,
+    override val shortName: String,
+    override val kemDescription: String,
+    override val kdfDescription: String,
+    override val note: String,
+    infoLabel: String,
+) : CipherSuite {
+
+    private val infoLabelBytes = infoLabel.toByteArray(Charsets.UTF_8)
+    private val tagInfo = (infoLabel + "/key-tag").toByteArray(Charsets.UTF_8)
+    private val headerLen = Envelope.PREFIX_LEN + SALT_LEN
+
+    override val publicKeyLen = KEY_LEN
+    override val privateKeyLen = KEY_LEN
+    override val overhead = headerLen + TAG_LEN
+    override val sealNeedsPrivateKey: Boolean get() = true
+
+    override fun generateKeyPair(rng: SecureRandom): SuiteKeyPair {
+        val master = ByteArray(KEY_LEN).also { rng.nextBytes(it) }
+        val tag = hkdf(HMAC_ALG, HASH_LEN, master, ByteArray(0), tagInfo, KEY_LEN)
+        return SuiteKeyPair(SuitePublicKey(id, tag), SuitePrivateKey(id, master))
+    }
+
+    override fun seal(pub: SuitePublicKey, plaintext: ByteArray, context: String, rng: SecureRandom): ByteArray =
+        throw CryptoException(tr("该算法套件加密时需要密钥"))
+
+    override fun sealWithPrivate(
+        pub: SuitePublicKey,
+        priv: SuitePrivateKey,
+        plaintext: ByteArray,
+        context: String,
+        rng: SecureRandom,
+    ): ByteArray {
+        requireKey(pub.suiteId, pub.bytes.size)
+        requireKey(priv.suiteId, priv.bytes.size)
+        val salt = ByteArray(SALT_LEN).also { rng.nextBytes(it) }
+        val head = ByteArrayOutputStream(headerLen).also {
+            Envelope.writePrefix(it, id, pub.keyId)
+            it.write(salt)
+        }.toByteArray()
+        check(head.size == headerLen)
+
+        val ctx = context.toByteArray(Charsets.UTF_8)
+        val okm = deriveMessageKey(priv.bytes, pub.bytes, salt, ctx)
+        val key = okm.copyOfRange(0, KEY_LEN)
+        val nonce = okm.copyOfRange(KEY_LEN, KEY_LEN + NONCE_LEN)
+        try {
+            return head + aesGcm(true, key, nonce, head + ctx, plaintext)
+        } finally {
+            okm.fill(0)
+            key.fill(0)
+        }
+    }
+
+    override fun open(pub: SuitePublicKey, priv: SuitePrivateKey, envelope: ByteArray, context: String): ByteArray {
+        requireKey(pub.suiteId, pub.bytes.size)
+        requireKey(priv.suiteId, priv.bytes.size)
+        if (envelope.size < overhead) throw CryptoException(tr("信封过短"))
+
+        val head = envelope.copyOfRange(0, headerLen)
+        val salt = envelope.copyOfRange(Envelope.PREFIX_LEN, headerLen)
+        val ciphertext = envelope.copyOfRange(headerLen, envelope.size)
+
+        val ctx = context.toByteArray(Charsets.UTF_8)
+        val okm = deriveMessageKey(priv.bytes, pub.bytes, salt, ctx)
+        val key = okm.copyOfRange(0, KEY_LEN)
+        val nonce = okm.copyOfRange(KEY_LEN, KEY_LEN + NONCE_LEN)
+        try {
+            return aesGcm(false, key, nonce, head + ctx, ciphertext)
+        } finally {
+            okm.fill(0)
+            key.fill(0)
+        }
+    }
+
+    /** info 里并入公开指纹与 context：换密钥对、换用途都会得到完全不同的密钥（GCM 的 AAD 再绑一次）。 */
+    private fun deriveMessageKey(master: ByteArray, pub: ByteArray, salt: ByteArray, ctx: ByteArray): ByteArray =
+        hkdf(HMAC_ALG, HASH_LEN, master, salt, infoLabelBytes + pub + ctx, KEY_LEN + NONCE_LEN)
+
+    private fun requireKey(suiteId: Int, size: Int) {
+        if (suiteId != id || size != KEY_LEN) throw CryptoException(tr("密钥与算法套件不匹配"))
+    }
+
+    private companion object {
+        const val HMAC_ALG = "HmacSHA256"
+        const val HASH_LEN = 32
+        const val KEY_LEN = 32
+        const val SALT_LEN = 16
+        const val NONCE_LEN = 12
+        const val TAG_LEN = 16
     }
 }
 

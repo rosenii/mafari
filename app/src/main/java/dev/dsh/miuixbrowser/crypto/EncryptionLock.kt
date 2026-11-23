@@ -56,8 +56,9 @@ fun EncryptionInfoDialog(
     backdrop: Backdrop?,
     liquid: LiquidBackdrop?,
     scope: String,
+    /** 本页数据用的套件：默认是本机落盘数据的套件；备份页传 [CipherSuites.default] */
+    suite: CipherSuite = CipherSuites.deviceDefault,
 ) {
-    val suite = CipherSuites.default
     AppGlassDialog(
         show = show,
         title = tr("加密保护中"),
@@ -66,7 +67,7 @@ fun EncryptionInfoDialog(
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            InfoLine(tr("加密套件"), suite.shortName + tr("（后量子混合）"))
+            InfoLine(tr("加密套件"), suite.shortName + suite.note)
             InfoLine(tr("密钥派生"), suite.kdfDescription.substringBefore(" →"))
             InfoLine(tr("数据加密"), "AES-256-GCM")
             InfoLine(tr("密钥保护"), "Android Keystore")

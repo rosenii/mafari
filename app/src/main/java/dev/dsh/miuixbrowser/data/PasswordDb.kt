@@ -19,7 +19,7 @@ import java.util.Base64
  *
  * 两层加密：
  *  - 整库：SQLCipher AES-256，库密钥由 Android Keystore 保护的加密引擎封装（见 [AppDatabase]）；
- *  - 逐条：密码与备注先合成一个 JSON，再用 [SecureStore]（现有加密套件，当前为 X25519 + ML-KEM-768 混合套件）封进信封，
+ *  - 逐条：密码与备注先合成一个 JSON，再用 [SecureStore]（现有加密套件，本机数据当前为对称套件 AES-256-GCM + 逐条 HKDF 派生密钥，每条只多 46 字节）封进信封，
  *    存在 `secret` 列。AAD 绑定记录 id（[purposeOf]），所以把 A 行的密文拷到 B 行会解不开。
  *    这样即使有人拿到解开后的 .db（或某个备份里的明文库），拿到的也只有站点和用户名，密码仍是密文。
  *  - 旧套件 / 旧信封的行在被读出时自动换成当前套件（见 [reveal]）。

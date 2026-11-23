@@ -5,7 +5,10 @@ import dev.dsh.miuixbrowser.crypto.CipherSuites
 import dev.dsh.miuixbrowser.crypto.CryptoException
 import dev.dsh.miuixbrowser.crypto.EncryptionEngine
 import dev.dsh.miuixbrowser.crypto.KeyProvider
+import dev.dsh.miuixbrowser.crypto.StaticKeyProvider
 import dev.dsh.miuixbrowser.crypto.SuiteKeyPair
+import dev.dsh.miuixbrowser.crypto.SuitePrivateKey
+import dev.dsh.miuixbrowser.crypto.SuitePublicKey
 import dev.dsh.miuixbrowser.crypto.hkdf
 import dev.dsh.miuixbrowser.crypto.hkdfSha384
 import java.security.SecureRandom
@@ -52,6 +55,8 @@ class CryptoEngineTest {
         val ids = CipherSuites.all.map { it.id }
         assertEquals(ids.size, ids.toSet().size)
         assertNotNull(CipherSuites.find(CipherSuites.DEFAULT_ID))
+        assertNotNull(CipherSuites.find(CipherSuites.DEVICE_DEFAULT_ID))
+        assertEquals(CipherSuites.DEVICE_DEFAULT_ID, EncryptionEngine(MemoryKeys()).writeSuiteId)
         assertNull(CipherSuites.find(0))
         assertRejected { CipherSuites.get(99) }
     }
@@ -206,6 +211,85 @@ class CryptoEngineTest {
         // 损坏的密文：无法判断，不要触发重写
         assertFalse(EncryptionEngine.needsUpgrade("mfe1:***", CipherSuites.HYBRID_768))
         assertFalse(EncryptionEngine.needsUpgrade("mfe1:AAAA", CipherSuites.HYBRID_768))
+    }
+
+    // ---- 套件 3：对称（本机落盘数据）----
+
+    private fun hex(s: String) = ByteArray(s.length / 2) { s.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+
+    /** 锁定已发布套件 3 的字节布局与派生方式（向量由独立的 Python 参考实现生成）：变了就意味着旧数据读不出来。 */
+    @Test
+    fun suite3LayoutIsFrozen() {
+        val suite = CipherSuites.get(CipherSuites.SYM_AES256)
+        assertEquals(46, suite.overhead) // 前缀 14 + 盐 16 + 标签 16
+        assertEquals(32, suite.publicKeyLen)
+        assertEquals(32, suite.privateKeyLen)
+        assertTrue(suite.sealNeedsPrivateKey)
+
+        val master = ByteArray(32) { it.toByte() }
+        val pub = hex("765a23564433885262293f5b9eb52a7db43a6cb4d8454ed5a1765880839382d2")
+        val pair = SuiteKeyPair(SuitePublicKey(suite.id, pub), SuitePrivateKey(suite.id, master))
+        // 主密钥 → 公开指纹的派生也要和参考实现一致
+        assertArrayEquals(pub, hkdf("HmacSHA256", 32, master, ByteArray(0), "Mafari/SymAEAD/AES-256-GCM/HKDF-SHA256/v1/key-tag".toByteArray(), 32))
+
+        val fixedSalt = object : SecureRandom() {
+            override fun nextBytes(bytes: ByteArray) = bytes.fill(0x42)
+        }
+        val engine = EncryptionEngine(StaticKeyProvider(pair), fixedSalt, suite.id)
+        val expected = hex(
+            "4d4645010300fd351ba06259125a4242424242424242424242424242424281efb0fe7345a3ad231b9c1a74a1a5805ca19cf31f7c",
+        )
+        assertArrayEquals(expected, engine.seal("mafari".toByteArray(), "test.ctx"))
+        assertArrayEquals("mafari".toByteArray(), engine.open(expected, "test.ctx"))
+    }
+
+    @Test
+    fun suite3NeedsPrivateKeyToSeal() {
+        val suite = CipherSuites.get(CipherSuites.SYM_AES256)
+        val pair = suite.generateKeyPair(SecureRandom())
+        assertRejected { suite.seal(pair.pub, json, "ctx", SecureRandom()) }
+        // 通过引擎（会交出私钥）则正常
+        assertArrayEquals(json, engineFor(suite).let { it.open(it.seal(json, "ctx"), "ctx") })
+    }
+
+    @Test
+    fun suite3PublicFingerprintDoesNotRevealMasterKey() {
+        val pair = CipherSuites.get(CipherSuites.SYM_AES256).generateKeyPair(SecureRandom())
+        assertFalse(pair.pub.bytes.contentEquals(pair.priv.bytes))
+        assertEquals(32, pair.pub.bytes.size)
+    }
+
+    @Test
+    fun suite3SaltMakesEverySealDifferentAndKeysPerMessage() {
+        val engine = engineFor(CipherSuites.get(CipherSuites.SYM_AES256))
+        val a = engine.seal(json, "ctx")
+        val b = engine.seal(json, "ctx")
+        assertFalse(a.contentEquals(b))
+        // 盐不同 → 派生密钥不同：把 A 的盐换进 B 必然解不开
+        val mixed = b.copyOf().also { System.arraycopy(a, 14, it, 14, 16) }
+        assertRejected { engine.open(mixed, "ctx") }
+    }
+
+    /** 本机套件从混合套件升级：旧数据（套件 1）可读、可重新加密成套件 3，套件 3 数据不被误判为旧。 */
+    @Test
+    fun upgradeFromHybridToSymmetric() {
+        val keys = MemoryKeys()
+        val oldEngine = engineFor(CipherSuites.get(CipherSuites.HYBRID_768), keys)
+        val newEngine = engineFor(CipherSuites.get(CipherSuites.SYM_AES256), keys)
+        val old = oldEngine.seal(json, "ctx")
+        assertTrue(old.size > 1000)
+        val upgraded = newEngine.reseal(old, "ctx")
+        assertNotNull(upgraded)
+        assertEquals(CipherSuites.SYM_AES256, upgraded!![4].toInt())
+        assertEquals(json.size + 46, upgraded.size)
+        assertArrayEquals(json, newEngine.open(upgraded, "ctx"))
+        assertNull(newEngine.reseal(upgraded, "ctx"))
+
+        val s1 = oldEngine.sealString("x", "ctx")
+        val s3 = newEngine.sealString("x", "ctx")
+        assertTrue(EncryptionEngine.needsUpgrade(s1, CipherSuites.SYM_AES256))
+        assertFalse(EncryptionEngine.needsUpgrade(s3, CipherSuites.SYM_AES256))
+        assertTrue(EncryptionEngine.needsUpgrade(s3, CipherSuites.HYBRID_768))
     }
 
     @Test

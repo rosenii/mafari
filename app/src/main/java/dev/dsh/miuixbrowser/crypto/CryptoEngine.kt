@@ -23,7 +23,7 @@ import javax.crypto.spec.GCMParameterSpec
  * 加密引擎：把任意字节 / 字符串 / 文件封进版本化信封。
  *
  * 具体算法在「算法套件」里（见 CipherSuite.kt，含新增 / 升级套件的步骤）；引擎只做三件事：
- *   - 加密：用 [writeSuiteId] 指定的套件；
+ *   - 加密：用 [writeSuiteId] 指定的套件（默认 [CipherSuites.DEVICE_DEFAULT_ID]；备份文件用 [CipherSuites.DEFAULT_ID]）；
  *   - 解密：读信封前缀里的套件号，分派给对应套件（所以旧套件加密的数据永远能解开）；
  *   - 升级：[isCurrent] / [reseal] 让调用方把旧套件的数据重新加密成当前套件。
  *
@@ -39,13 +39,19 @@ class KeyUnavailableException(message: String, cause: Throwable? = null) : Crypt
 class EncryptionEngine(
     private val keys: KeyProvider,
     private val rng: SecureRandom = SecureRandom(),
-    /** 新加密的数据使用的套件；解密不受它影响。 */
-    val writeSuiteId: Int = CipherSuites.DEFAULT_ID,
+    /** 新加密的数据使用的套件；解密不受它影响。默认是本机落盘数据的套件（备份文件另行指定）。 */
+    val writeSuiteId: Int = CipherSuites.DEVICE_DEFAULT_ID,
 ) {
 
     fun seal(plaintext: ByteArray, context: String): ByteArray {
         val suite = CipherSuites.get(writeSuiteId)
-        return suite.seal(keys.publicKey(suite), plaintext, context, rng)
+        val pub = keys.publicKey(suite)
+        // 公钥套件只需公钥；对称套件的密钥即私钥（保险库里已缓存，不会每次碰 Keystore）
+        return if (suite.sealNeedsPrivateKey) {
+            suite.sealWithPrivate(pub, keys.privateKey(suite), plaintext, context, rng)
+        } else {
+            suite.seal(pub, plaintext, context, rng)
+        }
     }
 
     fun open(envelope: ByteArray, context: String): ByteArray {
@@ -120,7 +126,7 @@ class EncryptionEngine(
          * 存下来的东西需要重新加密吗？——旧版明文，或者不是 [targetSuiteId] / 当前信封版本。
          * 只看信封前缀，不解密、不碰密钥。无法判断（格式损坏）时返回 false。
          */
-        fun needsUpgrade(stored: String, targetSuiteId: Int = CipherSuites.DEFAULT_ID): Boolean {
+        fun needsUpgrade(stored: String, targetSuiteId: Int = CipherSuites.DEVICE_DEFAULT_ID): Boolean {
             if (!isEncryptedString(stored)) return true
             return try {
                 !isCurrentEnvelope(decodeString(stored, prefixOnly = true), targetSuiteId)

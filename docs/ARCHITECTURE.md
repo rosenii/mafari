@@ -128,11 +128,21 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 
 ## 6. 加密与备份 / 同步
 
-三层可演进结构（详见 `CipherSuite.kt` 顶部注释）：**信封版本**（公共前缀）→ **算法套件**（默认 ML-KEM-768 + X25519 混合、HKDF、AES-256-GCM；BouncyCastle）→ **存储格式**（备份 v1/v2、密钥库）。
+三层可演进结构（详见 `CipherSuite.kt` 顶部注释）：**信封版本**（公共前缀）→ **算法套件**（见下）→ **存储格式**（备份 v1/v2、密钥库）。
+
+算法套件按场景分两个默认值：
+
+| 套件 | 号 | 用途 | 说明 |
+| --- | --- | --- | --- |
+| X25519 + ML-KEM-768 混合 · HKDF-SHA-384 · AES-256-GCM | 1 | **备份文件**（`DEFAULT_ID`） | 后量子混合；每单元信封开销 1222 字节 |
+| X25519 + ML-KEM-1024 混合 · HKDF-SHA-512 · AES-256-GCM | 2 | 已注册、未默认 | 更高安全等级 |
+| Keystore 主密钥 · HKDF-SHA-256 逐条派生 · AES-256-GCM | 3 | **本机落盘数据**（`DEVICE_DEFAULT_ID`） | 对称；信封开销 46 字节；无 ML-KEM 运算与类加载 |
+
+本机数据的加密者与解密者是同一台设备、同一把 Keystore 密钥，不存在「只持公钥的一方」，所以用对称套件（`CipherSuite.sealNeedsPrivateKey = true`，引擎加密时交出私钥即主密钥）。旧套件的数据读出后保存时自动换成套件 3（`SecureStore.needsUpgrade`）。**旧版应用读不了套件 3 的数据，降级前请先导出备份。** 套件 3 的字节布局由 `CryptoEngineTest.suite3LayoutIsFrozen` 锁定。
 
 | 文件 | 职责 |
 | --- | --- |
-| `CipherSuite.kt` | 套件注册表 `CipherSuites`、`Envelope`、`KeyProvider`。**套件号发布后永不复用 / 不改格式；淘汰的套件不删，只改 `DEFAULT_ID`** |
+| `CipherSuite.kt` | 套件注册表 `CipherSuites`、`Envelope`、`KeyProvider`。**套件号发布后永不复用 / 不改格式；淘汰的套件不删，只改 `DEFAULT_ID` / `DEVICE_DEFAULT_ID`** |
 | `CryptoEngine.kt` | `EncryptionEngine`（seal / open / reseal）、`AndroidKeyVault`（Keystore）、`SecureStore`（按 `PURPOSE_*` 加密小字符串：库密钥、WebDAV 密码、Git 令牌 / 私钥、默认口令…） |
 | `Backup.kt` | `BackupFormat`（`.mfbak`，文件头记录套件与 Argon2id 参数，写最新版读所有版本）、`BackupCategory`（书签 / 历史 / 标签列表 / 设置 / 脚本 / 脚本数据 / 去广告 / Cookie）、`BackupManager`（收集与恢复） |
 | `WebDav.kt` / `GitSync.kt` | 云同步：WebDAV（OkHttp，强制 HTTP/1.1，上传后读回大小校验，留 10 份）/ Git（JGit + JSch，令牌或 Deploy key，只留最近 10 个提交并强推） |
