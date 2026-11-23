@@ -43,6 +43,9 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
+import top.yukonga.miuix.kmp.glass.glassBottomSheetSurface
+import top.yukonga.miuix.kmp.material.GlassDefaults
 import dev.dsh.miuixbrowser.data.BLUR_MIUIX
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
@@ -676,14 +679,31 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
     ) {
         val shading = sampling && GlassLook.custom()
         val dark = isAppDarkTheme()
+        val sheetStyle = GlassLook.style(dark)
+        val sheetMaterial = if (shading) GlassLook.largeMaterial(dark) else GlassBottomSheetDefaults.material()
         GlassBottomSheet(
             onDismissRequest = onDismissRequest,
             show = show,
             backdrop = bd(backdrop),
             modifier = modifier,
-            material = if (shading) GlassLook.largeMaterial(dark) else GlassBottomSheetDefaults.material(),
+            material = sheetMaterial,
             shading = shading,
-            style = GlassLook.style(dark),
+            style = sheetStyle,
+            // 柔光折射：通栏 sheet 的左右边缘也会被当成玻璃边缘折射，露出一条清晰的原页面（边缘错位）。
+            // 把玻璃面板向两侧各多铺一段到屏幕外，让折射边缘落在屏幕之外，只保留顶部边缘（见 fullBleedGlassSurface）
+            surface = if (shading) {
+                fullBleedGlassSurface(
+                    base = glassBottomSheetSurface(
+                        backdrop = bd(backdrop),
+                        material = sheetMaterial,
+                        stroke = GlassBottomSheetDefaults.stroke(),
+                        containerColor = GlassBottomSheetDefaults.containerColor(),
+                        shading = true,
+                        style = sheetStyle,
+                    ),
+                    extend = (sheetStyle.edge.width / GlassDefaults.SourceDensity * 3.5f).dp,
+                )
+            } else null,
             enableWindowDim = enableWindowDim,
             title = title,
             startAction = startAction,
@@ -910,6 +930,45 @@ fun AppGlassDialog(
         content = rememberOverlayContent(content),
         preBlurred = preBlurred,
     )
+}
+
+/**
+ * 通栏 sheet 的玻璃面板向左右各多铺 [extend]：面板节点比 sheet 宽，折射 / 边缘光的「边缘带」落在屏幕外，
+ * 屏幕内只剩顶部边缘；顶部两个圆角由外层 clip 按 sheet 本身宽度裁出。
+ * 内容仍按 sheet 原宽度布局（里层 layout 把多出的两侧缩回去）。sheet 没有铺满屏幕宽度时（平板 / 横屏有最大宽度）
+ * 左右边缘是真实可见的玻璃边，不做处理。
+ */
+@Composable
+private fun fullBleedGlassSurface(
+    base: @Composable top.yukonga.miuix.kmp.layout.BottomSheetSurfaceScope.() -> Modifier,
+    extend: Dp,
+): @Composable top.yukonga.miuix.kmp.layout.BottomSheetSurfaceScope.() -> Modifier = {
+    val inner = base(this)
+    val screenPx = LocalContext.current.resources.displayMetrics.widthPixels
+    val extendPx = with(LocalDensity.current) { extend.roundToPx() }
+    val corner = cornerRadius
+    Modifier
+        .clip(RoundedCornerShape(topStart = corner, topEnd = corner))
+        .layout { measurable, constraints ->
+            val e = if (constraints.maxWidth >= screenPx - 1 && constraints.minWidth == constraints.maxWidth) extendPx else 0
+            val w = constraints.maxWidth
+            val p = measurable.measure(
+                constraints.copy(minWidth = constraints.minWidth + 2 * e, maxWidth = constraints.maxWidth + 2 * e),
+            )
+            layout(w, p.height) { p.placeRelative(-e, 0) }
+        }
+        .then(inner)
+        .layout { measurable, constraints ->
+            // 外层放宽过（宽度超出屏幕）才缩回：多出的部分平均分在两侧
+            val e = if (constraints.maxWidth > screenPx) (constraints.maxWidth - screenPx) / 2 else 0
+            val p = measurable.measure(
+                constraints.copy(
+                    minWidth = (constraints.minWidth - 2 * e).coerceAtLeast(0),
+                    maxWidth = (constraints.maxWidth - 2 * e).coerceAtLeast(0),
+                ),
+            )
+            layout(constraints.maxWidth, p.height) { p.placeRelative(e, 0) }
+        }
 }
 
 /** 底部 sheet */
