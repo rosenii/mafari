@@ -1,0 +1,252 @@
+From 498dfa8f98979b7a4db7ac92ea71db5a9dc77519 Mon Sep 17 00:00:00 2001
+From: Mafari <mafari@local>
+Date: Tue, 17 Nov 2026 19:43:24 +0000
+Subject: [PATCH] =?UTF-8?q?glass:=20=E6=8B=96=E6=8B=BD=E5=BD=A2=E5=8F=98?=
+ =?UTF-8?q?=20GlassDragDeform=20=E5=8F=8A=E5=85=B6=E5=9C=A8=E5=BC=B9?=
+ =?UTF-8?q?=E7=AA=97/=E5=AF=B9=E8=AF=9D=E6=A1=86/=E5=BA=95=E9=83=A8?=
+ =?UTF-8?q?=E6=8A=BD=E5=B1=89=E4=B8=AD=E7=9A=84=E6=8E=A5=E5=85=A5?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../kmp/glass/GlassBottomSheetSurface.kt      |   4 +-
+ .../miuix/kmp/glass/GlassDialogSurface.kt     |   3 +-
+ .../miuix/kmp/glass/GlassDragDeform.kt        | 126 ++++++++++++++++++
+ .../miuix/kmp/glass/GlassDropdownPopup.kt     |   2 +
+ .../miuix/kmp/glass/GlassPopupSurface.kt      |  17 ++-
+ 5 files changed, 149 insertions(+), 3 deletions(-)
+ create mode 100644 miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt
+
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
+index f1729732..f55c5fbb 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassBottomSheetSurface.kt
+@@ -90,7 +90,9 @@ fun glassBottomSheetSurface(
+     val shape = remember(cornerRadius) {
+         GlassShape(topStart = cornerRadius, topEnd = cornerRadius, bottomEnd = 0.dp, bottomStart = 0.dp)
+     }
+-    val panel = Modifier.glassPanel(
++    val deform = rememberGlassDragDeform()
++    // The overscroll extension follows the sheet, so only the sheet body deforms.
++    val panel = (if (isOverscroll) Modifier else deform.layer).glassPanel(
+         backdrop = effectiveBackdrop,
+         shape = shape,
+         material = material,
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
+index 75dc696a..03e50ab6 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDialogSurface.kt
+@@ -77,7 +77,8 @@ fun glassDialogSurface(
+         null
+     }
+     val shape = remember(cornerRadius) { GlassShape(cornerRadius) }
+-    Modifier.glassPanel(
++    val deform = rememberGlassDragDeform()
++    deform.layer.glassPanel(
+         backdrop = effectiveBackdrop,
+         shape = shape,
+         material = material,
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt
+new file mode 100644
+index 00000000..a953b531
+--- /dev/null
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDragDeform.kt
+@@ -0,0 +1,126 @@
++// Copyright 2026, compose-miuix-ui contributors
++// SPDX-License-Identifier: Apache-2.0
++
++package top.yukonga.miuix.kmp.glass
++
++import androidx.compose.animation.core.Animatable
++import androidx.compose.animation.core.VectorConverter
++import androidx.compose.animation.core.VisibilityThreshold
++import androidx.compose.animation.core.spring
++import androidx.compose.foundation.gestures.awaitEachGesture
++import androidx.compose.foundation.gestures.awaitFirstDown
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.Stable
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.input.pointer.PointerEventPass
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.util.lerp
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.launch
++import kotlin.math.abs
++import kotlin.math.atan2
++import kotlin.math.cos
++import kotlin.math.sin
++import kotlin.math.tanh
++
++/**
++ * Drag-to-deform press feedback for dialogs, bottom sheets and popup menus.
++ *
++ * The deformation maths and spring specs follow Kyant0/AndroidLiquidGlass's InteractiveHighlight
++ * and its drag-scale layer: press grows the panel, the drag is tanh-damped into a translation, and
++ * the panel stretches along the drag direction. Panels get no touch highlight; only buttons do.
++ *
++ * The gesture only watches the [PointerEventPass.Final] pass and never consumes, so taps, buttons,
++ * text fields and scrolling keep working. It engages after the touch slop, and not at all for
++ * movement a child has already consumed (scroll, sliders, sheet handle).
++ */
++@Stable
++class GlassDragDeform(private val scope: CoroutineScope) {
++
++    private val pressSpec = spring<Float>(0.5f, 300f, 0.001f)
++    private val positionSpec = spring(0.5f, 300f, Offset.VisibilityThreshold)
++    private val press = Animatable(0f, 0.001f)
++    private val position = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
++    private var start = Offset.Zero
++
++    /** Gesture observer plus the deforming layer. Apply before the surface modifiers. */
++    val layer: Modifier = Modifier
++        .pointerInput(Unit) {
++            val slop = viewConfiguration.touchSlop
++            awaitEachGesture {
++                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
++                var engaged = false
++                while (true) {
++                    val event = awaitPointerEvent(PointerEventPass.Final)
++                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
++                    if (!change.pressed) break
++                    if (change.isConsumed) {
++                        if (engaged) break else continue
++                    }
++                    if (!engaged) {
++                        if ((change.position - down.position).getDistance() < slop) continue
++                        engaged = true
++                        begin(down.position)
++                    }
++                    scope.launch { position.snapTo(change.position) }
++                }
++                if (engaged) end()
++            }
++        }
++        .graphicsLayer {
++            val progress = press.value
++            val offset = position.value - start
++            if (progress == 0f && offset == Offset.Zero) return@graphicsLayer
++            val width = size.width
++            val height = size.height
++            if (width <= 0f || height <= 0f) return@graphicsLayer
++            // Panels are much larger than buttons, so the grow/stretch distance is larger than
++            // Kyant's 4dp to stay visible.
++            val grow = GROW_DP.dp.toPx()
++            val scale = lerp(1f, 1f + grow / height, progress)
++
++            val maxOffset = size.minDimension
++            val initialDerivative = 0.05f
++            translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
++            translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
++
++            val maxDragScale = grow / height
++            val offsetAngle = atan2(offset.y, offset.x)
++            scaleX = scale +
++                maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
++                (width / height).coerceAtMost(1f)
++            scaleY = scale +
++                maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
++                (height / width).coerceAtMost(1f)
++        }
++
++    private fun begin(down: Offset) {
++        start = down
++        scope.launch {
++            launch { press.animateTo(1f, pressSpec) }
++            launch { position.snapTo(down) }
++        }
++    }
++
++    private fun end() {
++        scope.launch {
++            launch { press.animateTo(0f, pressSpec) }
++            launch { position.animateTo(start, positionSpec) }
++        }
++    }
++
++    private companion object {
++        const val GROW_DP = 8f
++    }
++}
++
++@Composable
++fun rememberGlassDragDeform(): GlassDragDeform {
++    val scope = rememberCoroutineScope()
++    return remember(scope) { GlassDragDeform(scope) }
++}
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
+index 3fca00a3..56a66aeb 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassDropdownPopup.kt
+@@ -201,6 +201,8 @@ internal fun BoxScope.GlassDropdownPopupContent(
+         surface = surface,
+         interactive = show,
+         scrollable = true,
++        // 默认下拉菜单拖动 = 滚动 / 点按，面板不跟手；换成自定义 surface（液态玻璃）时开启拖拽形变（已消费的滚动手势不会触发）
++        dragDeform = surface != null,
+         content = content,
+     )
+ }
+diff --git a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
+index 86e4eb27..db3f4a56 100644
+--- a/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
++++ b/miuix-glass/src/commonMain/kotlin/top/yukonga/miuix/kmp/glass/GlassPopupSurface.kt
+@@ -201,6 +201,8 @@ internal fun rememberGlassWindowBounds(): IntRect {
+  * @param onMeasured Called with the final panel size on each measurement.
+  * @param interactive Whether the panel's rows can receive input and accessibility actions.
+  * @param scrollable Whether rows scroll within the safe-area-constrained viewport.
++ * @param dragDeform Whether dragging on the panel stretches and moves it. Off for dropdowns, where a drag
++ *   means scrolling or a tap and the panel must stay put under the finger.
+  * @param content The rows.
+  */
+ // The full-page dismiss layer and positioned panel must be siblings in the popup host.
+@@ -222,6 +224,7 @@ internal fun GlassPopupSurface(
+     onMeasured: ((Size) -> Unit)? = null,
+     interactive: Boolean = true,
+     scrollable: Boolean = false,
++    dragDeform: Boolean = true,
+     content: @Composable ColumnScope.() -> Unit,
+ ) {
+     val currentOnDismissRequest by rememberUpdatedState(onDismissRequest)
+@@ -262,6 +265,7 @@ internal fun GlassPopupSurface(
+         with(density) { popupShadowOutsets(visuals.shadow) }
+     }
+     val measured = remember { MeasuredPanel() }
++    val deform = rememberGlassDragDeform()
+     // Intrinsic traversals depend only on content, constraints and child count, not on the
+     // animated bounds that re-measure the panel each frame.
+     val intrinsics = remember { PopupIntrinsicCache() }
+@@ -284,6 +288,7 @@ internal fun GlassPopupSurface(
+                     )
+                 }
+             }
++            .then(if (dragDeform) deform.layer else Modifier)
+             .graphicsLayer {
+                 panelLayer()
+                 // Include shadow pixels in the offscreen buffer used when alpha is below one.
+@@ -319,9 +324,19 @@ internal fun GlassPopupSurface(
+                     GlassPopupBackground(backdrop, shape, visuals)
+                 }
+             }
++            // 内容放得下时不挂滚动：verticalScroll 会在越过 touch slop 后消费拖动手势，
++            // 拖拽形变（deform.layer 只看 Final 阶段、跳过已消费的手势）就永远收不到事件。
++            // 真正溢出时才启用滚动，此时拖动仍表示滚动。
++            val scrollState = rememberScrollState()
+             GlassPopupColumn(
+                 modifier = Modifier
+-                    .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
++                    .then(
++                        if (scrollable) {
++                            Modifier.verticalScroll(scrollState, enabled = scrollState.maxValue > 0)
++                        } else {
++                            Modifier
++                        },
++                    )
+                     .padding(contentPadding),
+                 content = content,
+             )

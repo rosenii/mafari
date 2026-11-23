@@ -277,7 +277,7 @@ object LiquidGlassMaterial : AppMaterial {
             anchorBounds = anchorBounds,
             backdrop = backdrop,
             modifier = modifier,
-            alignStart = alignStart,
+            horizontalAlignment = if (alignStart) androidx.compose.ui.Alignment.Start else androidx.compose.ui.Alignment.End,
             sizing = sizing,
             contentPadding = contentPadding,
             surface = liquid?.let { liquidPopupSurface(it) },

@@ -1,0 +1,48 @@
+From dd0716022b5a5a361d458ef959601668c9320fcc Mon Sep 17 00:00:00 2001
+From: Mafari <mafari@local>
+Date: Tue, 17 Nov 2026 19:43:47 +0000
+Subject: [PATCH] =?UTF-8?q?preference:=20SwitchPreference=20=E7=82=B9?=
+ =?UTF-8?q?=E6=95=B4=E8=A1=8C=E6=97=B6=E9=9C=87=E5=8A=A8?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../miuix/kmp/preference/SwitchPreference.kt     | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
+index 55004583..977904ff 100644
+--- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
++++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/SwitchPreference.kt
+@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.hapticfeedback.HapticFeedbackType
++import androidx.compose.ui.platform.LocalHapticFeedback
+ import androidx.compose.ui.semantics.Role
+ import androidx.compose.ui.unit.dp
+ import top.yukonga.miuix.kmp.basic.BasicComponent
+@@ -60,8 +62,20 @@ fun SwitchPreference(
+     val currentOnCheckedChange by rememberUpdatedState(onCheckedChange)
+     val currentChecked by rememberUpdatedState(checked)
+     val currentEnabled by rememberUpdatedState(enabled)
++    val hapticFeedback = LocalHapticFeedback.current
++    val currentHapticFeedback by rememberUpdatedState(hapticFeedback)
+     val onRowClick = remember {
+-        { currentOnCheckedChange.takeIf { currentEnabled }?.invoke(!currentChecked) ?: Unit }
++        {
++            currentOnCheckedChange.takeIf { currentEnabled }?.let { change ->
++                val newChecked = !currentChecked
++                change(newChecked)
++                // 点整行切换时 Switch 自身不会触发震动，这里补上（与 Switch 保持一致）
++                currentHapticFeedback.performHapticFeedback(
++                    if (newChecked) HapticFeedbackType.ToggleOn else HapticFeedbackType.ToggleOff,
++                )
++            }
++            Unit
++        }
+     }
+     BasicComponent(
+         modifier = modifier,

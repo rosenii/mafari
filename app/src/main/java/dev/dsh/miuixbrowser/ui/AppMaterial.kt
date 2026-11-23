@@ -734,7 +734,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
             anchorBounds = anchorBounds,
             backdrop = bd(backdrop),
             modifier = modifier,
-            alignStart = alignStart,
+            horizontalAlignment = if (alignStart) androidx.compose.ui.Alignment.Start else androidx.compose.ui.Alignment.End,
             visuals = visuals,
             sizing = sizing,
             contentPadding = contentPadding,

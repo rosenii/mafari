@@ -98,6 +98,18 @@ Enhanced Tracking Protection (off / standard / strict), tracking-parameter remov
 - Home page sections (favorites, bookmark groups, privacy report, recent visits, downloads) can be shown, hidden, and reordered by dragging. The start page can be the default home, a new tab, or a specific URL.
 - Tapping a bookmark group on the home page opens a small popup below its icon, so you can browse subgroups and bookmarks without leaving the page.
 - Pull to refresh, find in page, translate, share, link long-press menu, and the other everyday essentials.
+- While you type a URL, the left end of the address bar shows the current search engine icon; tap it to switch engines quickly. You can add custom engines at the end of the list (use `%s` for the query in the URL) and delete them later.
+- "Add to home screen" turns a page into a home-screen icon that opens as a standalone window without the bottom bar (a lightweight app). On Gecko tabs, a page with a Web App Manifest (PWA) takes its name, icon, scope, and theme color from the manifest. "Scan" reads QR codes and barcodes (recognition is built in and does not need Google Play services).
+- The home page supports a wallpaper (optionally blurred), and there are 6 launcher icons to choose from.
+- Private (incognito) tabs use a separate WebView Profile: cookies, cache, local storage, and site permissions are isolated from regular tabs, and the whole profile is deleted when it closes.
+
+**External links and default browser**
+- Mafari can be your system default browser: it asks on first launch, and you can set it any time in **Settings → Set as default browser**.
+- **Settings → How external links open** has three options:
+  - **In the app**: opens the Mafari main screen.
+  - **Custom tab**: opens a lightweight web window on top of the calling app; Back returns to that app, and one tap opens the page in Mafari instead. Mafari also provides a Custom Tabs service, so apps that use Custom Tabs recognize it as a browser that supports them.
+  - **Another browser**: shows a chooser that excludes Mafari itself.
+- Home-screen shortcuts always open in the app and ignore this setting.
 
 **WebView extensions (experimental)**
 The system WebView can run extensions too: Mafari ships its own WebExtensions adapter that maps `browser.*` / `chrome.*` onto WebView, and both MV2 and MV3 extensions can be tried. It works on WebView tabs in lite, sync_lite, and gecko; Gecko tabs keep using native Firefox extensions.
@@ -128,6 +140,7 @@ Supports the `GM_*` APIs and script menu commands, with import from a URL or fil
 **Backup**
 - Choose what to back up, then save it as a passphrase-encrypted local file or push it to **WebDAV / a Git repository**, optionally on a schedule.
 - When restoring, pick exactly which items to bring back — switching phones is painless.
+- Backup files are protected by your passphrase (Argon2id key derivation) and use post-quantum hybrid encryption (ML-KEM + X25519 + AES-256-GCM). Data on the device is encrypted too: the history database uses SQLCipher (whole-database AES-256), and bookmarks, passwords, and similar records are encrypted per entry.
 
 ## Download and install
 
@@ -139,7 +152,7 @@ Get the APK from [Releases](https://github.com/rosenii/mafari/releases). **Andro
 | `Mafari-<version>-sync_lite-arm64.apk` | **sync_lite**, arm64 only |
 | `Mafari-<version>-gecko.apk` | **gecko**, arm64 only |
 
-In **About → Version** you can choose an **update channel**; update checks then pick the matching package automatically.
+In **About → Version** you can choose an **update channel**; update checks then pick the matching package automatically. Releases include `SHA256SUMS.txt`; after an in-app update downloads, its SHA-256 is verified, and when the official digest is available a mismatching package is discarded.
 
 ## Community
 
@@ -150,7 +163,7 @@ Questions or suggestions are welcome in the group, or open an Issue on GitHub.
 
 ## Build it yourself
 
-Requires JDK 17+, the Android SDK and git. miuix is not vendored: fetch the upstream and apply the local patches first, then build (lite as an example):
+Requires JDK 21+, the Android SDK and git. miuix is not vendored: fetch the upstream and apply the local patches first, then build (lite as an example):
 
 ```bash
 bash tools/miuix-sync.sh   # clones miuix into third_party/miuix and applies tools/miuix-patches (version in miuix.ref)
@@ -160,7 +173,7 @@ bash tools/miuix-sync.sh   # clones miuix into third_party/miuix and applies too
 It follows miuix `main` by default. To pin a version, set `commit=` in `miuix.ref` (or run `bash tools/miuix-sync.sh --pin` to write the current commit).
 
 For full build instructions, build variants, the release pipeline, and code structure, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in Chinese).
-l
+
 ## Donate
 
 Mafari is developed and maintained in the author's spare time. It is completely free and ad-free. If it helps you, consider buying the developer a coffee ☕ — it helps the project last longer.
@@ -174,3 +187,17 @@ Scan with WeChat "Scan" (in the app: Settings / About → Donate, where you can 
 </div>
 
 Can't donate? No problem — a ⭐ Star, a bug report, or a recommendation to a friend is just as valuable.
+
+## Localization
+
+Settings → Appearance → first row "Language": follow system / English / 简体中文 / 繁體中文 (the app restarts automatically after switching). The first onboarding screen has a language picker too.
+
+- UI strings in the source use Simplified Chinese as the key: `tr("设置")`; with arguments use `{0}` `{1}`: `tr("共 {0} 项", n)` (`i18n/I18n.kt`).
+- English: `app/src/main/assets/i18n/en.tsv` (`Chinese<TAB>English`; `\n` `\t` `\\` are escapes).
+- Traditional Chinese: converted at runtime from `zh-TW-phrases.tsv` (Taiwan wording) plus `s2t.txt` (character-by-character table); add a line to the phrases file for any awkward word.
+- A missing translation falls back to the Simplified Chinese source text instead of crashing. For new strings, write `tr("…")` in code and add one line to `en.tsv`.
+- System-level strings (app name, autofill service name) live in `res/values*/strings.xml` and follow the system language.
+
+## WebExtension adapter docs
+
+The WebView extension adapter (experimental) is documented in [`docs/WEBEXT_WEBVIEW.md`](docs/WEBEXT_WEBVIEW.md). Mafari-specific APIs (clipboard, native userscript bridge, partial `webRequestBlocking`) are in [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md) and [`docs/MAFARI_WEBEXT_API.md`](docs/MAFARI_WEBEXT_API.md); dynamic DNR rules and the `userScripts` subset are in [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md). The compatibility matrix is in [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md).

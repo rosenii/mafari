@@ -1,6 +1,6 @@
 # miuix 上游来源（由 tools/miuix-sync.sh 读取）
-# 已验证可用的上游提交：44f1d315（main；9 个补丁全部干净应用；0008 已适配上游对 GlassBottomSheet/GlassDialog 的改动）
-# 上一已验证提交：2b226150
+# 已验证可用的上游提交：583e8723（main；11 个补丁全部干净应用；0002 的 alignStart 已改用上游 horizontalAlignment，仅保留 surface/marqueeItems/marquee）
+# 上一已验证提交：44f1d315
 # 旧基线：6d2554a850b8960e2616c968263ff64beb5ffb03（10 个补丁）
 repo=https://github.com/compose-miuix-ui/miuix.git
 # 分支或 tag；跟随主线就写 main

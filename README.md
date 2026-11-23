@@ -98,6 +98,18 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 - 主页内容（收藏、书签分组、隐私报告、最近浏览、下载项）可显示 / 隐藏并拖动排序；起始页可设为默认主页、新标签页或指定网页。
 - 点击主页的书签分组，会在图标下方弹出小窗，直接浏览子分组与书签，不用跳转页面。
 - 下拉刷新、页内查找、翻译、分享、长按链接菜单等常用功能一应俱全。
+- 输入网址时，地址栏最左侧显示当前搜索引擎图标，点一下即可快速切换；引擎列表末尾可添加自定义引擎（网址里用 `%s` 代表关键词），自定义引擎可删除。
+- 「添加到桌面」把网页做成桌面图标，打开后是没有底栏的独立窗口（轻应用）；Gecko 标签页带 Web App Manifest（PWA）时，名称、图标、范围和主题色取自 manifest。「扫一扫」可识别二维码 / 条码（内置识别，不依赖 Google Play 服务）。
+- 主页可设置壁纸（可选模糊）；桌面图标有 6 种可选。
+- 无痕标签使用独立的 WebView Profile：Cookie、缓存、本地存储和网站权限都与普通标签隔离，关闭后整个 Profile 一并删除。
+
+**外部链接与默认浏览器**
+- 可设为系统默认浏览器：首次启动会询问，也可以在 **设置 → 设为默认浏览器** 里随时设置。
+- **设置 → 外部链接打开方式** 三选一：
+  - **应用内打开**：进入 Mafari 主界面。
+  - **自定义标签页**：在调用方应用上层打开轻量网页窗口，返回即回到原应用，也可以一键转到 Mafari 里打开。Mafari 同时提供 Custom Tabs 服务，使用 Custom Tabs 的应用会把它识别为支持自定义标签页的浏览器。
+  - **其他浏览器**：弹出选择器，并排除 Mafari 自己。
+- 桌面快捷方式固定在应用内打开，不受这项设置影响。
 
 **WebView 拓展（实验性）**
 系统 WebView 内核也能装拓展：Mafari 自研了一层 WebExtensions 适配器，把 `browser.*` / `chrome.*` 接口接到 WebView 上，MV2 / MV3 拓展都可以尝试。lite、sync_lite 和 gecko 的 WebView 标签均可使用，Gecko 标签仍走 Firefox 原生扩展。
@@ -128,6 +140,7 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 **备份**
 - 备份内容可自选，用口令加密后保存为本地文件，或推送到 **WebDAV / Git 仓库**，并可按间隔自动备份。
 - 恢复时可以逐项勾选要还原的内容，换机无忧。
+- 备份文件由口令保护（Argon2id 派生密钥），采用后量子混合加密（ML-KEM + X25519 + AES-256-GCM）；本机数据同样加密保存：历史记录库使用 SQLCipher（AES-256 整库加密），书签、密码等逐条加密。
 
 ## 下载与安装
 
@@ -139,7 +152,7 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 | `Mafari-<版本>-sync_lite-arm64.apk` | **sync_lite**，仅 arm64 |
 | `Mafari-<版本>-gecko.apk` | **gecko**，仅 arm64 |
 
-应用内「关于 → 版本」可以选择**更新通道**，检查更新时会自动匹配对应的安装包。
+应用内「关于 → 版本」可以选择**更新通道**，检查更新时会自动匹配对应的安装包。Releases 附带 `SHA256SUMS.txt`；应用内更新下载完成后会校验 SHA-256，能取到官方摘要时对不上就会丢弃安装包。
 
 ## 社区
 
@@ -150,7 +163,7 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 
 ## 想自己构建？
 
-需要 JDK 17+、Android SDK 和 git。miuix 不随仓库提供，要先拉取上游并打上本地补丁，再构建（以 lite 为例）：
+需要 JDK 21+、Android SDK 和 git。miuix 不随仓库提供，要先拉取上游并打上本地补丁，再构建（以 lite 为例）：
 
 ```bash
 bash tools/miuix-sync.sh   # 拉取 miuix 到 third_party/miuix 并应用 tools/miuix-patches（版本见 miuix.ref）
@@ -178,7 +191,7 @@ Mafari 由个人业余时间开发维护，完全免费、无广告。如果它�
 
 ## 多语言 / Localization
 
-设置 → 外观 → 第一行「语言」：跟随系统 / English / 简体中文 / 繁體中文（切换后自动重启生效）。
+设置 → 外观 → 第一行「语言」：跟随系统 / English / 简体中文 / 繁體中文（切换后自动重启生效）；引导页第一屏也可以选择语言。
 
 - 源码中的界面文案以简体中文为键：`tr("设置")`；带变量用 `{0}` `{1}`：`tr("共 {0} 项", n)`（`i18n/I18n.kt`）。
 - English：`app/src/main/assets/i18n/en.tsv`（`中文原文<TAB>English`，`\n` `\t` `\\` 为转义）。
@@ -186,6 +199,6 @@ Mafari 由个人业余时间开发维护，完全免费、无广告。如果它�
 - 找不到译文时回退为简体中文原文，不会崩溃。新增文案只需在代码里写 `tr("…")`，再往 en.tsv 补一行。
 - 系统级字符串（应用名、自动填充服务名）在 `res/values*/strings.xml`，跟随系统语言。
 
-## WebExtension adapter
+## WebExtension 适配器文档
 
-The WebView extension adapter (experimental) is documented in [`docs/WEBEXT_WEBVIEW.md`](docs/WEBEXT_WEBVIEW.md). Mafari-specific APIs (clipboard, native userscript bridge, partial `webRequestBlocking`) are in [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md) and [`docs/MAFARI_WEBEXT_API.md`](docs/MAFARI_WEBEXT_API.md); dynamic DNR rules and the `userScripts` subset are in [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md). The compatibility matrix is in [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md).
+WebView 拓展适配器（实验性）的说明见 [`docs/WEBEXT_WEBVIEW.md`](docs/WEBEXT_WEBVIEW.md)。Mafari 专有接口（剪贴板、原生油猴桥、部分 `webRequestBlocking`）见 [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md) 和 [`docs/MAFARI_WEBEXT_API.md`](docs/MAFARI_WEBEXT_API.md)；动态 DNR 规则与 `userScripts` 子集见 [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md)；兼容性矩阵见 [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md)。

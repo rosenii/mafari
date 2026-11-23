@@ -1,0 +1,280 @@
+From f40d6bb0f716f8dd89e15491367190618bac9fff Mon Sep 17 00:00:00 2001
+From: Mafari <mafari@local>
+Date: Tue, 17 Nov 2026 19:42:28 +0000
+Subject: [PATCH] =?UTF-8?q?build:=20miuix.full=20=E5=BC=80=E5=85=B3?=
+ =?UTF-8?q?=E3=80=81=E6=97=A0=20.git=20=E5=9B=9E=E9=80=80=E3=80=81?=
+ =?UTF-8?q?=E7=A7=BB=E9=99=A4=20dokka=E3=80=81baselineprofile=20=E6=8C=89?=
+ =?UTF-8?q?=E9=9C=80=E4=BE=9D=E8=B5=96=E3=80=81AndroidX=20=E5=B1=9E?=
+ =?UTF-8?q?=E6=80=A7?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ build-logic/src/main/kotlin/BuildConfig.kt | 21 ++++++++++++------
+ build.gradle.kts                           | 16 --------------
+ gradle.properties                          |  3 +++
+ miuix-blur/build.gradle.kts                |  1 -
+ miuix-core/build.gradle.kts                |  1 -
+ miuix-glass-icons/build.gradle.kts         |  1 -
+ miuix-glass/build.gradle.kts               |  1 -
+ miuix-icons/build.gradle.kts               |  1 -
+ miuix-material/build.gradle.kts            |  1 -
+ miuix-nav/build.gradle.kts                 |  1 -
+ miuix-preference/build.gradle.kts          |  1 -
+ miuix-squircle/build.gradle.kts            |  1 -
+ miuix-ui/build.gradle.kts                  |  4 ++--
+ miuix-window/build.gradle.kts              |  1 -
+ settings.gradle.kts                        | 25 ++++++++++++----------
+ 15 files changed, 34 insertions(+), 45 deletions(-)
+
+diff --git a/build-logic/src/main/kotlin/BuildConfig.kt b/build-logic/src/main/kotlin/BuildConfig.kt
+index ac20933b..16ccee32 100644
+--- a/build-logic/src/main/kotlin/BuildConfig.kt
++++ b/build-logic/src/main/kotlin/BuildConfig.kt
+@@ -17,13 +17,22 @@ object BuildConfig {
+ }
+ 
+ fun org.gradle.api.Project.getGitVersionCode(): Int {
+-    return providers.exec {
+-        commandLine("git", "rev-list", "--count", "HEAD")
+-    }.standardOutput.asText.get().trim().toInt()
++    return try {
++        providers.exec {
++            commandLine("git", "rev-list", "--count", "HEAD")
++        }.standardOutput.asText.get().trim().toInt()
++    } catch (_: Exception) {
++        // 源码包可能不含 .git，回退到固定值
++        1
++    }
+ }
+ 
+ fun org.gradle.api.Project.getGitHashShort(): String {
+-    return providers.exec {
+-        commandLine("git", "rev-parse", "--short", "HEAD")
+-    }.standardOutput.asText.get().trim()
++    return try {
++        providers.exec {
++            commandLine("git", "rev-parse", "--short", "HEAD")
++        }.standardOutput.asText.get().trim().ifBlank { "local" }
++    } catch (_: Exception) {
++        "local"
++    }
+ }
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 6c0bb4b4..51a11f09 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -6,25 +6,9 @@ import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin
+ import org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootExtension
+ 
+ plugins {
+-    alias(libs.plugins.dokka)
+     id("module.spotless")
+ }
+ 
+-// One documentation site covering every published Miuix module.
+-dependencies {
+-    dokka(project(":miuix-core"))
+-    dokka(project(":miuix-ui"))
+-    dokka(project(":miuix-preference"))
+-    dokka(project(":miuix-icons"))
+-    dokka(project(":miuix-glass-icons"))
+-    dokka(project(":miuix-material"))
+-    dokka(project(":miuix-blur"))
+-    dokka(project(":miuix-squircle"))
+-    dokka(project(":miuix-glass"))
+-    dokka(project(":miuix-nav"))
+-    dokka(project(":miuix-window"))
+-}
+-
+ plugins.withType<YarnPlugin> {
+     the<YarnRootExtension>().lockFileDirectoryProperty =
+         layout.projectDirectory.dir("docs/demo/kotlin-js-store").asFile
+diff --git a/gradle.properties b/gradle.properties
+index 60e8d8c7..27cc7468 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -5,6 +5,9 @@ org.gradle.configuration-cache=true
+ org.gradle.parallel=true
+ org.gradle.tooling.parallel=true
+ # Android
++android.useAndroidX=true
++android.nonTransitiveRClass=true
++android.r8.gradual.support=true
+ android.r8.maxWorkers=4
+ # Kotlin
+ kotlin.code.style=official
+diff --git a/miuix-blur/build.gradle.kts b/miuix-blur/build.gradle.kts
+index 1ac617fd..b5185f17 100644
+--- a/miuix-blur/build.gradle.kts
++++ b/miuix-blur/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-core/build.gradle.kts b/miuix-core/build.gradle.kts
+index daaee53c..fc671dfa 100644
+--- a/miuix-core/build.gradle.kts
++++ b/miuix-core/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-glass-icons/build.gradle.kts b/miuix-glass-icons/build.gradle.kts
+index cd27a42d..3616a2e3 100644
+--- a/miuix-glass-icons/build.gradle.kts
++++ b/miuix-glass-icons/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-glass/build.gradle.kts b/miuix-glass/build.gradle.kts
+index bd2fb09a..49a7e686 100644
+--- a/miuix-glass/build.gradle.kts
++++ b/miuix-glass/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-icons/build.gradle.kts b/miuix-icons/build.gradle.kts
+index e4c19174..ef72a47f 100644
+--- a/miuix-icons/build.gradle.kts
++++ b/miuix-icons/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-material/build.gradle.kts b/miuix-material/build.gradle.kts
+index 2850d9c7..83804440 100644
+--- a/miuix-material/build.gradle.kts
++++ b/miuix-material/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-nav/build.gradle.kts b/miuix-nav/build.gradle.kts
+index c2f97918..84c4816e 100644
+--- a/miuix-nav/build.gradle.kts
++++ b/miuix-nav/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     alias(libs.plugins.kotlinSerialization)
+     id("module.kotlin-jvm-toolchain")
+diff --git a/miuix-preference/build.gradle.kts b/miuix-preference/build.gradle.kts
+index c857c82c..98041522 100644
+--- a/miuix-preference/build.gradle.kts
++++ b/miuix-preference/build.gradle.kts
+@@ -7,7 +7,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-squircle/build.gradle.kts b/miuix-squircle/build.gradle.kts
+index 88935bcb..8344caf7 100644
+--- a/miuix-squircle/build.gradle.kts
++++ b/miuix-squircle/build.gradle.kts
+@@ -9,7 +9,6 @@ plugins {
+     alias(libs.plugins.androidKotlinMultiplatformLibrary)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/miuix-ui/build.gradle.kts b/miuix-ui/build.gradle.kts
+index 8e2523c5..878148fe 100644
+--- a/miuix-ui/build.gradle.kts
++++ b/miuix-ui/build.gradle.kts
+@@ -8,7 +8,6 @@ plugins {
+     alias(libs.plugins.baselineprofile)
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+@@ -128,5 +127,6 @@ tasks.matching { it.name == "generateBaselineProfile" }.configureEach {
+ }
+ 
+ dependencies {
+-    baselineProfile(projects.baselineprofile)
++    // 作为 includeBuild 使用时默认不含 baselineprofile；完整开发（-Pmiuix.full=true）才挂上
++    rootProject.findProject(":baselineprofile")?.let { "baselineProfile"(it) }
+ }
+diff --git a/miuix-window/build.gradle.kts b/miuix-window/build.gradle.kts
+index 7a66c976..f37023f2 100644
+--- a/miuix-window/build.gradle.kts
++++ b/miuix-window/build.gradle.kts
+@@ -4,7 +4,6 @@
+ plugins {
+     alias(libs.plugins.composeCompiler)
+     alias(libs.plugins.composeMultiplatform)
+-    alias(libs.plugins.dokka)
+     alias(libs.plugins.kotlinMultiplatform)
+     id("module.kotlin-jvm-toolchain")
+     id("module.publication")
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index 57ed34ae..5f7a8095 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -54,14 +54,17 @@ include(":miuix-icons")
+ include(":miuix-nav")
+ include(":miuix-window")
+ 
+-include(":example:shared")
+-include(":example:android")
+-include(":example:desktop")
+-include(":example:desktop-nucleus")
+-include(":example:web")
+-include(":example:macos")
+-
+-include(":baselineprofile")
+-
+-include(":docs:demo")
+-include(":docs:iconGen")
++// Mafari 以 includeBuild 方式使用本仓库，只需要库模块；
++// example / docs / baselineprofile 配置很重，默认不加载。完整开发：./gradlew -Pmiuix.full=true ...
++val miuixFull = providers.gradleProperty("miuix.full").orNull == "true"
++if (miuixFull) {
++    include(":example:shared")
++    include(":example:android")
++    include(":example:desktop")
++    include(":example:desktop-nucleus")
++    include(":example:web")
++    include(":example:macos")
++    include(":baselineprofile")
++    include(":docs:demo")
++    include(":docs:iconGen")
++}
