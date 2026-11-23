@@ -117,6 +117,11 @@ internal fun SafariSplitBar(
     onSwitchTab: (Int) -> Unit,
     /** 上滑地址栏：打开标签页列表 */
     onOpenTabs: () -> Unit,
+    /** 右边圆钮的图标 / 无障碍描述（默认「更多」；自定义标签页用「在 Mafari 中打开」） */
+    endIcon: ImageVector = MiuixIcons.Glass.More,
+    endDescription: String = tr("更多"),
+    /** false：地址栏不响应拖动切换标签 / 上滑 / 长按起始页（自定义标签页没有这些操作） */
+    gesturesEnabled: Boolean = true,
 ) {
     // 三段式 ↔ 小胶囊是同一套布局的连续变形（不是两套界面交叉淡入淡出）：
     //   p: 0 = 三段式，1 = 小胶囊。后退 / 更多 两个圆钮宽度收到 0、淡出并缩小，
@@ -232,12 +237,13 @@ internal fun SafariSplitBar(
                 onHome = onHome,
                 onSwitchTab = onSwitchTab,
                 onOpenTabs = onOpenTabs,
+                gesturesEnabled = gesturesEnabled,
             )
             if (!editing) {
                 CollapseSlot(progress = morph, gap = SafariGap, gapAtStart = true) {
                     SafariCircleButton(
-                        icon = MiuixIcons.Glass.More,
-                        description = tr("更多"),
+                        icon = endIcon,
+                        description = endDescription,
                         enabled = true,
                         size = metrics.buttonSize,
                         side = 1,
@@ -456,6 +462,7 @@ private fun SafariAddressPill(
     onHome: () -> Unit,
     onSwitchTab: (Int) -> Unit,
     onOpenTabs: () -> Unit,
+    gesturesEnabled: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
     // 图标显示条件与原样式一致：翻译 > 下载 > 阅读 > 脚本，同占地址栏最左侧
@@ -530,8 +537,8 @@ private fun SafariAddressPill(
                 scaleY = pop.value
             }
             // 输入网址时不挂手势：横向拖动要留给输入框（移动光标 / 选词）
-            .pointerInput(editing, compact) {
-                if (editing || compact) return@pointerInput
+            .pointerInput(editing, compact, gesturesEnabled) {
+                if (editing || compact || !gesturesEnabled) return@pointerInput
                 val switchPx = 48.dp.toPx()
                 val openPx = 40.dp.toPx()
                 // 横向拖过切换阈值时「咔」一下：和圆钮的吸附 / 排斥配合，告诉手指松手就会切换
@@ -639,7 +646,7 @@ private fun SafariAddressPill(
                                 if (compact) onExpand() else onAddressTap()
                             },
                             onLongClick = {
-                                if (!compact) {
+                                if (!compact && gesturesEnabled) {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     playHomePop()
                                 }

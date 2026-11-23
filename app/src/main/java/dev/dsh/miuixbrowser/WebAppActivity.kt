@@ -139,6 +139,9 @@ open class WebAppActivity : ComponentActivity() {
     /** 页面标题 / 地址变化（地址取自 WebView 当前网址） */
     protected open fun onPageInfo(title: String?, url: String?) {}
 
+    /** 页面开始 / 结束加载（自定义标签页用它驱动地址栏里的加载小点） */
+    protected open fun onLoadingChanged(loading: Boolean) {}
+
     /** 把网址交给 Mafari 主界面在应用内打开（带固定标记，不再受「外部链接打开方式」影响） */
     protected fun openInMafari(uri: Uri) {
         runCatching {
@@ -555,12 +558,14 @@ open class WebAppActivity : ComponentActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 progress.visibility = View.VISIBLE
+                onLoadingChanged(true)
                 if (!cosmeticDocStart) view.evaluateJavascript(AdBlock.COSMETIC_JS, null)
                 fpInjector.onPageStarted(url)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
                 progress.visibility = View.GONE
+                onLoadingChanged(false)
                 injectMissingUserScripts(view)
                 if (!cosmeticDocStart) view.evaluateJavascript(AdBlock.COSMETIC_JS, null)
                 syncThemeColor()
