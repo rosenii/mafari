@@ -231,6 +231,11 @@ internal fun BrowserTab.setupWebView() {
     var lastVisitedHistoryUrl: String? = url
     webView.webViewClient = object : WebViewClient() {
         override fun onPageStarted(view: WebView, pageUrl: String?, favicon: Bitmap?) {
+            // 换了地址就不再沿用上一个地址的 5xx 重试计数（重试本身重新加载同一地址，不会清零）
+            if (httpRetryUrl != null && !ErrorPages.sameUrl(pageUrl, httpRetryUrl)) {
+                httpRetryUrl = null
+                httpRetryCount = 0
+            }
             if (!incognito) WebViewDebug.logPage("start", pageUrl)
             if (!incognito && !pageUrl.isNullOrBlank()) {
                 val ext = appContext.appContainer.webExtensionsOrNull
@@ -406,6 +411,27 @@ internal fun BrowserTab.setupWebView() {
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
             // 只接管空响应体的 4xx / 5xx；带正文的是网站自己的错误页，照常展示
             if (request.isForMainFrame && ErrorPages.shouldReplaceHttpError(errorResponse.statusCode, errorResponse.responseHeaders)) {
+                // Cloudflare 等 CDN 边缘节点偶发的空响应 5xx（限流 / 节点切换 / 挑战中途）：刷新一下通常就好，
+                // 先静默重试最多 2 次（间隔递增），仍失败才显示错误页
+                val failing = request.url.toString()
+                if (ErrorPages.isTransientCdnError(errorResponse.statusCode, errorResponse.responseHeaders) &&
+                    request.method == "GET"
+                ) {
+                    if (!ErrorPages.sameUrl(httpRetryUrl, failing)) {
+                        httpRetryUrl = failing
+                        httpRetryCount = 0
+                    }
+                    if (httpRetryCount < 2) {
+                        val delay = if (httpRetryCount == 0) 700L else 1800L
+                        httpRetryCount++
+                        mainHandler.postDelayed({
+                            if (!closed && !destroyed && ErrorPages.sameUrl(url, failing)) {
+                                runCatching { view.loadUrl(failing) }
+                            }
+                        }, delay)
+                        return
+                    }
+                }
                 showWebViewErrorPage(view, request.url.toString(), ErrorPages.fromHttp(errorResponse.statusCode, errorResponse.reasonPhrase))
             }
             if (!incognito) WebViewDebug.logHttpError(request, errorResponse)

@@ -376,6 +376,19 @@ object ErrorPages {
         return len == "0"
     }
 
+    /**
+     * 经 Cloudflare 等 CDN 返回的瞬时 5xx：502 / 503 / 504 或 Cloudflare 的 52x，且响应头带 cf-ray / server: cloudflare。
+     * 这类空响应多为边缘节点限流、节点切换或挑战中途，重试一次通常就恢复。
+     */
+    fun isTransientCdnError(status: Int, headers: Map<String, String>?): Boolean {
+        if (status != 502 && status != 503 && status != 504 && status !in 520..530) return false
+        if (headers == null) return false
+        return headers.entries.any {
+            it.key.equals("cf-ray", true) ||
+                (it.key.equals("server", true) && it.value.contains("cloudflare", true))
+        }
+    }
+
     /* ---------- 渲染 ---------- */
 
     fun esc(s: String): String = buildString(s.length + 8) {

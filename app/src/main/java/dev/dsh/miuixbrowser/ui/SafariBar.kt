@@ -68,7 +68,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 悬浮三段式导航栏（[BarStyles.SafariSplit]）：三块分开的玻璃件——左边圆形「后退」、中间地址栏胶囊、右边圆形「更多」。
  *
- * - 处于首页（[atHome]）时后退按钮置灰不可点；
+ * - 后退按钮是否可点只看 canGoBack（与默认底栏一致）：空白首页置灰；点主页按钮回到首页后页面仍被盖在下面，可点后退还原；
  * - 地址栏：点击 = 输入网址，长按 = 打开起始页（跟随「定制主页 → 自定义起始页」，带弹性缩放动画），左右滑动 = 切换标签页，上滑 = 打开标签页列表；
  * - 输入网址时两侧圆钮收起，地址栏占满整行。
  *
@@ -179,8 +179,9 @@ internal fun SafariSplitBar(
                     SafariCircleButton(
                         icon = MiuixIcons.Glass.Back,
                         description = tr("后退"),
-                        // 首页不可点；阅读模式中「后退」= 退出阅读模式，所以即使没有历史也可点
-                        enabled = !atHome && canGoBack,
+                        // 与默认底栏一致：是否可点只看 canGoBack——空白首页为 false；首页盖住了某个页面时为 true（点后退还原该页面）；
+                        // 阅读模式中「后退」= 退出阅读模式，所以即使没有历史也可点
+                        enabled = canGoBack,
                         size = metrics.buttonSize,
                         side = -1,
                         shift = pillShift,

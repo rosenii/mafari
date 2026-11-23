@@ -128,6 +128,10 @@ class BrowserTab(
     /** WebView：已在 onReceivedSslError 里自己渲染过证书错误页的地址与时间，避免随后的 onReceivedError 再渲染一次 */
     @Volatile internal var sslPageShownFor: String? = null
     @Volatile internal var sslPageShownAt = 0L
+
+    /** Cloudflare 等 CDN 的瞬时 5xx（空响应体）自动重试：记录正在重试的地址与已重试次数，页面成功加载后清零 */
+    internal var httpRetryUrl: String? = null
+    internal var httpRetryCount = 0
     /** Gecko：用户点了「继续」后，下一次对该地址的证书错误交给内核自带证书页（它自带「接受风险并继续」） */
     @Volatile private var geckoNativeCertFor: String? = null
     /** 标签卡片用的页面缩略图（页面加载完成后截取） */
@@ -1523,6 +1527,8 @@ class BrowserTab(
     fun goHome() {
         // 已经在主页：不能再覆盖 savedUrl，否则被盖住的页面就丢了
         if (url.isEmpty()) return
+        // 页面被主页盖在下面（引擎仍存活）：切走就要暂停正在播放的媒体
+        pauseMedia()
         savedUrl = url
         fromHome = false
         parked = true
@@ -1559,6 +1565,7 @@ class BrowserTab(
         }
         if (atFirstPage) {
             engineStop()
+            pauseMedia()
             fromHome = false
             parked = true
             url = ""
