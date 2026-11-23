@@ -16,6 +16,7 @@ import dev.dsh.miuixbrowser.browser.DefaultBrowser
 import dev.dsh.miuixbrowser.browser.MenuAction
 import dev.dsh.miuixbrowser.browser.MenuOrderStore
 import dev.dsh.miuixbrowser.browser.pollPageBottomBar
+import dev.dsh.miuixbrowser.browser.pollPageTopBar
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_BOTTOM
 import dev.dsh.miuixbrowser.data.BAR_POS_FIXED_TOP
@@ -481,7 +482,24 @@ fun BrowserScreen(
     val topReserved = statusBarHeight + dockedTopBody
     // 悬浮三段式：栏不隐藏（barHidden 恒为 false），而是缩成小胶囊（barCompact，阈值与自动隐藏一致）；
     // 缩小时与默认导航栏样式的「沉浸浏览」一致：顶部状态栏留白随滑动收起，网页铺到屏幕顶，上滑展开后恢复
-    val topInsetCollapsed = barHidden || (barLayout.style.splitPills && ui.barCompact && tab.url.isNotEmpty())
+    val immersiveScrolled = barHidden || (barLayout.style.splitPills && ui.barCompact && tab.url.isNotEmpty())
+    // 网页态状态栏背景（渐进模糊带）生效的条件：仅 WebView、非顶部停靠栏样式（停靠栏自己的底板已铺到状态栏下）
+    val statusBandActive = webGlassAvailable && settings.blurEnabled && !barLayout.reservesTop
+    // 页面自己带固定顶栏时，上滑沉浸不让网页铺到状态栏下，状态栏区域保持原样；没有时才收起留白、让网页铺到屏幕顶
+    if (statusBandActive) {
+        LaunchedEffect(tab.id, tab.url.isEmpty()) {
+            if (tab.url.isEmpty()) {
+                tab.pageHasTopBar = false
+                return@LaunchedEffect
+            }
+            while (true) {
+                tab.pollPageTopBar()
+                kotlinx.coroutines.delay(800)
+            }
+        }
+    }
+    val keepStatusInset = statusBandActive && tab.pageHasTopBar
+    val topInsetCollapsed = immersiveScrolled && !keepStatusInset
     val animatedTopPadding by animateDpAsState(
         // 顶栏停靠且页面已深入栏下：留白归零，网页铺到屏幕顶（栏的玻璃盖在网页上）
         targetValue = if (topInsetCollapsed || (barLayout.reservesTop && ui.barOverlap)) 0.dp else topReserved,
@@ -702,10 +720,11 @@ fun BrowserScreen(
 
         // ---- 网页态的状态栏背景：高级材质，以网页最顶部一条区域为采样层（仅 WebView；Gecko 保持原样）----
         // 页面处于初始状态（状态栏留白未收起）时显示；下滑沉浸收起后淡出。停靠在顶部的栏自己的底板已经铺到状态栏下，不叠加
-        if (webGlassAvailable && settings.blurEnabled && !barLayout.reservesTop) {
+        // 初始 / 页面带固定顶栏：采样「拉伸的网页顶边」；上滑沉浸后（页面无固定顶栏）：直接采样下层网页（不镜像），避免拉伸残影闪烁
+        if (statusBandActive) {
             StatusBarMaterialBand(
                 backdrop = browserBackdrop,
-                visible = !topInsetCollapsed,
+                stretched = !topInsetCollapsed,
             )
         }
 

@@ -1,9 +1,11 @@
 package dev.dsh.miuixbrowser.ui
 
 import android.os.Build
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
@@ -35,43 +37,67 @@ import top.yukonga.miuix.kmp.glass.GlassTopAppBarDefaults
 import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
 
 /**
- * 网页态的状态栏背景：与子页面顶栏同款的 miuix 渐进模糊（自上而下由强到弱），取代原来的高级材质玻璃。
- * 只在 [visible]（页面处于初始 / 未收起状态）时显示；页面下滑、状态栏留白收起后淡出，网页铺到屏幕顶。
- * 适用于所有「网页不压到状态栏下」的导航栏样式（悬浮默认栏、悬浮三段式、固定在底部的栏）。
- * 需要 RuntimeShader（Android 13+）；不支持时不画，保持原来的纯色底。
- * 放在整页采集层（[backdrop]）之外，只画不接触摸。
+ * 网页态的状态栏背景：与子页面顶栏同款的 miuix 渐进模糊（自上而下由强到弱）。适用于所有「网页不压到状态栏下」的
+ * 导航栏样式（悬浮默认栏、悬浮三段式、固定在底部的栏）。需要 RuntimeShader（Android 13+）；不支持时不画，保持原来的纯色底。
+ * 放在整页采集层（[backdrop]）之外，只画不接触摸。两种采样互斥，靠透明度交接：
+ *
+ * - [stretched] = true（初始 / 页面带固定顶栏）：状态栏这一条在采集层里是空的，以状态栏下沿为轴做边缘拉伸，
+ *   采到网页最顶部的边缘色；轴以下保持原位。这时网页顶部静止，拉伸采样稳定。
+ * - [stretched] = false（上滑沉浸后，页面无固定顶栏）：网页已铺到屏幕顶，直接采样状态栏下的网页（不镜像、不拉伸）。
+ *   不再对滚动中不断变化的顶边做拉伸，也就不会有拉伸残影 / 闪烁。
  */
 @Composable
 internal fun StatusBarMaterialBand(
     backdrop: Backdrop,
-    visible: Boolean,
+    stretched: Boolean,
     modifier: Modifier = Modifier,
 ) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || !isRuntimeShaderSupported()) return
-    val alpha by animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
-        label = "statusBarMaterial",
+    // 拉伸层滑出要快：留白收起的同时顶边内容在滚动，拉伸采样在这段时间里最容易出残影，尽快淡掉
+    val stretchAlpha by animateFloatAsState(
+        targetValue = if (stretched) 1f else 0f,
+        animationSpec = if (stretched) {
+            spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow)
+        } else {
+            tween(durationMillis = 90, easing = LinearEasing)
+        },
+        label = "statusBarStretch",
     )
-    // 完全淡出后不再占用采样 / 着色器
-    if (!visible && alpha < 0.01f) return
+    val plainAlpha by animateFloatAsState(
+        targetValue = if (stretched) 0f else 1f,
+        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow),
+        label = "statusBarPlain",
+    )
     val density = LocalDensity.current
     val statusInsets = WindowInsets.statusBars
-    // 状态栏那一条在整页采集层里是空的：以状态栏下沿为轴做边缘拉伸，这一条采到的是网页最顶部的边缘色；轴以下保持原位
     val mirrored = remember(backdrop) { MirroredBackdrop(backdrop) { statusInsets.getTop(density).toFloat() } }
+    // 完全淡出的那一层不再占用采样 / 着色器
     Box(modifier = modifier.fillMaxSize()) {
-        TopProgressiveBlurBand(
-            backdrop = mirrored,
-            alpha = { alpha },
-            modifier = Modifier.matchParentSize(),
-            // 不叠雾化色（拉伸取到的是不透明网页边缘色，叠色会在与网页的接缝处露出一条线）
-            // 渐隐段比状态栏再向下延伸 StatusBarRampExtra：状态栏下沿与网页之间原本会露出一条没被模糊盖住的浅色分割块，
-            // 延伸出的这一段采样的是真实网页（轴以下保持原位采样），渐隐到清晰时与网页无缝衔接
-            barHeight = 0.dp,
-            rampExtra = StatusBarRampExtra,
-            heightFactor = 1f,
-            tint = Color.Unspecified,
-        )
+        if (plainAlpha >= 0.01f) {
+            TopProgressiveBlurBand(
+                backdrop = backdrop,
+                alpha = { plainAlpha },
+                modifier = Modifier.matchParentSize(),
+                barHeight = 0.dp,
+                rampExtra = StatusBarRampExtra,
+                heightFactor = 1f,
+                tint = Color.Unspecified,
+            )
+        }
+        if (stretchAlpha >= 0.01f) {
+            TopProgressiveBlurBand(
+                backdrop = mirrored,
+                alpha = { stretchAlpha },
+                modifier = Modifier.matchParentSize(),
+                // 不叠雾化色（拉伸取到的是不透明网页边缘色，叠色会在与网页的接缝处露出一条线）
+                // 渐隐段比状态栏再向下延伸 StatusBarRampExtra：盖住状态栏下沿与网页之间的分割块；
+                // 延伸出的这一段采样真实网页（轴以下保持原位），渐隐到清晰时与网页无缝衔接
+                barHeight = 0.dp,
+                rampExtra = StatusBarRampExtra,
+                heightFactor = 1f,
+                tint = Color.Unspecified,
+            )
+        }
     }
 }
 

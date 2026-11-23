@@ -115,6 +115,9 @@ class BrowserTab(
     var canGoForward by mutableStateOf(false)
     /** 页面自己带固定在底部的整宽栏（如 YouTube 的「首页 / 我」）：悬浮三段式据此决定是否让位。WebView 轮询检测，Gecko 由内容脚本回报 */
     var pageHasBottomBar by mutableStateOf(false)
+    /** 页面自己带固定在顶部的整宽栏：网页态状态栏沉浸据此决定收起时是否让网页铺到状态栏下。仅 WebView 轮询检测，见 PageTopBar.kt */
+    var pageHasTopBar by mutableStateOf(false)
+    internal var topBarMisses = 0
     var errorText by mutableStateOf<String?>(null)
     /** 应用当前深浅色：访问失败页按它配色 */
     @Volatile internal var displayDark = false
