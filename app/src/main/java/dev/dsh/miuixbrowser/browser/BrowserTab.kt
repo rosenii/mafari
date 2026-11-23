@@ -178,13 +178,12 @@ class BrowserTab(
 
     /** 标签正显示主页：WebView 里的页面（若有）被盖住，页面侧回调不得再改写 url，否则主页会被页面「顶」出来 */
     internal var parked = false
-        set(value) {
+        internal set(value) {
             if (field == value) return
             field = value
             // 页面被主页盖住期间（同一个标签、引擎仍存活）禁止播放媒体：回到页面前一律保持暂停
             applyMediaBlock(value)
         }
-        internal set
 
     var closed = false
     internal var destroyed = false
