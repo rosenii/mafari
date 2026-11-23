@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -105,6 +106,9 @@ internal fun SafariSplitBar(
     translateVisible: Boolean,
     translateOriginal: Boolean,
     onTranslateToggle: () -> Unit,
+    searchEngines: List<dev.dsh.miuixbrowser.data.SearchEngine> = emptyList(),
+    searchIndex: Int = 0,
+    onPickEngine: (Int) -> Unit = {},
     onBack: () -> Unit,
     onMore: () -> Unit,
     onRefresh: () -> Unit,
@@ -223,6 +227,9 @@ internal fun SafariSplitBar(
                 translateVisible = translateVisible,
                 translateOriginal = translateOriginal,
                 onTranslateToggle = onTranslateToggle,
+                searchEngines = searchEngines,
+                searchIndex = searchIndex,
+                onPickEngine = onPickEngine,
                 onRefresh = onRefresh,
                 onHome = onHome,
                 onSwitchTab = onSwitchTab,
@@ -445,6 +452,9 @@ private fun SafariAddressPill(
     translateVisible: Boolean,
     translateOriginal: Boolean,
     onTranslateToggle: () -> Unit,
+    searchEngines: List<dev.dsh.miuixbrowser.data.SearchEngine> = emptyList(),
+    searchIndex: Int = 0,
+    onPickEngine: (Int) -> Unit = {},
     onRefresh: () -> Unit,
     onHome: () -> Unit,
     onSwitchTab: (Int) -> Unit,
@@ -605,6 +615,10 @@ private fun SafariAddressPill(
                 }
             }
             if (editing) {
+                if (searchEngines.isNotEmpty()) {
+                    AddressEngineButton(engines = searchEngines, current = searchIndex, onPick = onPickEngine)
+                    Spacer(Modifier.width(6.dp))
+                }
                 AddressField(
                     value = address,
                     onChange = onChange,

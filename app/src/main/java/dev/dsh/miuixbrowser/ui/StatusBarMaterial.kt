@@ -76,7 +76,7 @@ internal fun StatusBarMaterialBand(
 }
 
 /** 状态栏渐进模糊在状态栏下沿以下继续向下渐隐的高度，用来盖住状态栏与网页之间的分割白块 */
-private val StatusBarRampExtra = 17.6.dp
+private val StatusBarRampExtra = 17.4.dp
 
 /** 底部下沉背景比让位高度略向上多出的高度：顶边压在网页底边上，避免两者接缝处露出细分割线 */
 private val BottomBandOverlap = 2.dp

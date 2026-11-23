@@ -175,6 +175,7 @@ fun SettingsScreen(
     }
     var showUa by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
+    var showAddEngine by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
     var showGlassParams by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
@@ -397,7 +398,7 @@ fun SettingsScreen(
                     )
                     SettingsRow(
                         title = tr("搜索引擎"),
-                        summary = SEARCH_ENGINES.getOrNull(settings.searchIndex)?.name ?: tr("自定义"),
+                        summary = settings.allSearchEngines.getOrNull(settings.searchIndex)?.name ?: tr("自定义"),
                         onClick = { showSearch = true },
                     )
                     SettingsRow(
@@ -648,16 +649,31 @@ fun SettingsScreen(
             SearchSheet(
                 show = showSearch,
                 current = settings.searchIndex,
-                custom = settings.customSearch,
+                engines = settings.allSearchEngines,
                 backdrop = if (glass) backdrop else null,
                 onDismiss = { showSearch = false },
                 onPick = {
                     settings.updateSearch(it)
                     showSearch = false
                 },
-                onCustom = {
-                    settings.updateCustomSearch(it)
+                onDelete = { settings.removeCustomEngine(it) },
+                onAddCustom = {
                     showSearch = false
+                    showAddEngine = true
+                },
+            )
+
+            AddEngineDialog(
+                show = showAddEngine,
+                backdrop = if (glass) backdrop else null,
+                onDismiss = { showAddEngine = false },
+                onSave = { name, address ->
+                    if (settings.addCustomEngine(name, address)) {
+                        showAddEngine = false
+                        true
+                    } else {
+                        false
+                    }
                 },
             )
 
@@ -1307,13 +1323,13 @@ private fun uaSummary(ua: String): String = when {
 private fun SearchSheet(
     show: Boolean,
     current: Int,
-    custom: String,
+    engines: List<dev.dsh.miuixbrowser.data.SearchEngine>,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     onDismiss: () -> Unit,
     onPick: (Int) -> Unit,
-    onCustom: (String) -> Unit,
+    onDelete: (Int) -> Unit,
+    onAddCustom: () -> Unit,
 ) {
-    var text by remember(show) { mutableStateOf(custom) }
     AppBottomSheet(
         show = show,
         title = tr("搜索引擎"),
@@ -1321,7 +1337,8 @@ private fun SearchSheet(
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
-            SEARCH_ENGINES.forEachIndexed { index, engine ->
+            engines.forEachIndexed { index, engine ->
+                val isCustom = index >= SEARCH_ENGINES.size
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1355,6 +1372,17 @@ private fun SearchSheet(
                         },
                         modifier = Modifier.weight(1f),
                     )
+                    if (isCustom) {
+                        Text(
+                            text = tr("删除"),
+                            fontSize = 13.sp,
+                            color = MiuixTheme.colorScheme.error,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onDelete(index) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
                     if (index == current) {
                         Spacer(Modifier.width(8.dp))
                         Icon(
@@ -1366,21 +1394,94 @@ private fun SearchSheet(
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            // 末尾固定一行「自定义」：点击弹出添加框，保存后固化进上面的引擎列表
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onAddCustom() }
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(text = "+", fontSize = 18.sp, color = MiuixTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = tr("自定义"),
+                    fontSize = 16.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/** 添加自定义搜索引擎：引擎名 + 引擎地址（用 %s 代表关键词）；[onSave] 返回 false 表示输入不合法，弹窗保持打开 */
+@Composable
+private fun AddEngineDialog(
+    show: Boolean,
+    backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, address: String) -> Boolean,
+) {
+    var name by remember(show) { mutableStateOf("") }
+    var address by remember(show) { mutableStateOf("") }
+    var error by remember(show) { mutableStateOf(false) }
+    AppGlassDialog(
+        show = show,
+        title = tr("自定义搜索引擎"),
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             TextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = tr("自定义（用 %s 代表关键词）"),
+                value = name,
+                onValueChange = { name = it; error = false },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = tr("引擎名"),
                 singleLine = true,
             )
-            Spacer(Modifier.height(14.dp))
-            AppTextButton(
-                text = tr("使用自定义"),
-                onClick = { onCustom(text) },
-                modifier = Modifier.fillMaxWidth(),
-                primary = true,
+            TextField(
+                value = address,
+                onValueChange = { address = it; error = false },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                label = tr("引擎地址（用 %s 代表关键词）"),
+                singleLine = true,
             )
+            Text(
+                text = if (error) tr("请填写引擎名，地址需包含 %s（例如 https://www.google.com/search?q=%s）") else tr("例如 https://www.google.com/search?q=%s"),
+                fontSize = 12.sp,
+                color = if (error) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AppDialogButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                    cornerRadius = 14.dp,
+                    minHeight = 44.dp,
+                ) {
+                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                }
+                AppDialogButton(
+                    onClick = { if (!onSave(name, address)) error = true },
+                    modifier = Modifier.weight(1f),
+                    cornerRadius = 14.dp,
+                    minHeight = 44.dp,
+                ) {
+                    Text(text = tr("保存"), style = MiuixTheme.textStyles.button)
+                }
+            }
         }
     }
 }

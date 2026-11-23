@@ -530,29 +530,64 @@ class AppSettings(context: Context) {
         prefs.edit().putInt(KEY_TABS, tabsStyle).apply()
     }
 
-    /** 搜索引擎：预设索引 + 自定义模板（%s 占位） */
+    /**
+     * 搜索引擎：下标 0 until SEARCH_ENGINES.size 是内置预设，之后是用户添加并固化下来的自定义引擎（[customEngines]，按添加顺序）。
+     * 自定义引擎的地址模板用 %s 代表关键词。
+     */
     var searchIndex by mutableStateOf(prefs.getInt(KEY_SEARCH, 0))
         private set
 
-    var customSearch by mutableStateOf(prefs.getString(KEY_SEARCH_CUSTOM, "").orEmpty())
-        private set
+    /** 用户添加的自定义引擎（持久化为 JSON） */
+    val customEngines = androidx.compose.runtime.mutableStateListOf<SearchEngine>().apply {
+        addAll(parseCustomEngines(prefs.getString(KEY_SEARCH_LIST, "").orEmpty()))
+        // 旧版只有一个「自定义模板」：迁移成列表里的第一项（旧的 searchIndex == 预设数 正好指向它）
+        val legacy = prefs.getString(KEY_SEARCH_CUSTOM, "").orEmpty().trim()
+        if (isEmpty() && legacy.isNotBlank()) {
+            add(SearchEngine(tr("自定义"), legacy, searchIconUrlFor(legacy)))
+            prefs.edit().putString(KEY_SEARCH_LIST, serializeCustomEngines(this)).remove(KEY_SEARCH_CUSTOM).apply()
+        }
+    }
+
+    /** 预设 + 自定义，选择弹窗和设置摘要都按这个列表的下标走 */
+    val allSearchEngines: List<SearchEngine>
+        get() = SEARCH_ENGINES + customEngines
 
     val searchTemplate: String
-        get() = when {
-            searchIndex < 0 -> customSearch.ifBlank { SEARCH_ENGINES[0].template }
-            customSearch.isNotBlank() && searchIndex >= SEARCH_ENGINES.size -> customSearch
-            else -> SEARCH_ENGINES.getOrNull(searchIndex)?.template ?: SEARCH_ENGINES[0].template
-        }
+        get() = allSearchEngines.getOrNull(searchIndex)?.template ?: SEARCH_ENGINES[0].template
 
     fun updateSearch(index: Int) {
         searchIndex = index
         prefs.edit().putInt(KEY_SEARCH, index).apply()
     }
 
-    fun updateCustomSearch(template: String) {
-        customSearch = template.trim()
-        prefs.edit().putString(KEY_SEARCH_CUSTOM, customSearch).apply()
-        if (customSearch.isNotBlank()) updateSearch(SEARCH_ENGINES.size)
+    /**
+     * 添加自定义引擎并选中。[address] 必须含 %s；没有 %s 但以 = 结尾（如 https://x.com/s?q=）时自动补上。
+     * 返回 false 表示名称为空或地址不合法。
+     */
+    fun addCustomEngine(name: String, address: String): Boolean {
+        val n = name.trim()
+        var a = address.trim()
+        if (n.isEmpty() || a.isEmpty()) return false
+        if (!a.contains("%s")) {
+            if (a.endsWith("=")) a += "%s" else return false
+        }
+        if (!a.startsWith("http://", true) && !a.startsWith("https://", true)) a = "https://$a"
+        customEngines.add(SearchEngine(n, a, searchIconUrlFor(a)))
+        prefs.edit().putString(KEY_SEARCH_LIST, serializeCustomEngines(customEngines)).apply()
+        updateSearch(SEARCH_ENGINES.size + customEngines.size - 1)
+        return true
+    }
+
+    /** 删除一个自定义引擎（[index] 是 [allSearchEngines] 里的下标）；当前选中的被删时回到第一个预设 */
+    fun removeCustomEngine(index: Int) {
+        val k = index - SEARCH_ENGINES.size
+        if (k !in customEngines.indices) return
+        customEngines.removeAt(k)
+        prefs.edit().putString(KEY_SEARCH_LIST, serializeCustomEngines(customEngines)).apply()
+        when {
+            searchIndex == index -> updateSearch(0)
+            searchIndex > index -> updateSearch(searchIndex - 1)
+        }
     }
 
     /** 0=跟随系统 1=浅色 2=深色 */
@@ -1056,6 +1091,7 @@ class AppSettings(context: Context) {
         const val KEY_LINK_MODE = "link_open_mode"
         const val KEY_TABS = "tabs_style"
         const val KEY_SEARCH_CUSTOM = "search_custom"
+        const val KEY_SEARCH_LIST = "search_custom_list"
         const val KEY_WALL = "wallpaper"
         const val KEY_WALL_BLUR = "wallpaper_blur"
         const val KEY_WALL_GLOBAL = "wallpaper_global"
@@ -1099,6 +1135,28 @@ class AppSettings(context: Context) {
 }
 
 data class SearchEngine(val name: String, val template: String, val iconUrl: String = "")
+
+/** 自定义引擎的图标：取模板所在站点的 favicon（拉取失败时界面用占位色块） */
+fun searchIconUrlFor(template: String): String = runCatching {
+    val u = java.net.URI(template.replace("%s", "x"))
+    if (u.scheme.isNullOrBlank() || u.host.isNullOrBlank()) "" else "${u.scheme}://${u.host}/favicon.ico"
+}.getOrDefault("")
+
+private fun serializeCustomEngines(list: List<SearchEngine>): String {
+    val arr = org.json.JSONArray()
+    list.forEach { arr.put(org.json.JSONObject().put("name", it.name).put("template", it.template).put("icon", it.iconUrl)) }
+    return arr.toString()
+}
+
+private fun parseCustomEngines(json: String): List<SearchEngine> = runCatching {
+    if (json.isBlank()) return emptyList()
+    val arr = org.json.JSONArray(json)
+    (0 until arr.length()).mapNotNull {
+        val o = arr.optJSONObject(it) ?: return@mapNotNull null
+        val name = o.optString("name"); val tpl = o.optString("template")
+        if (name.isBlank() || tpl.isBlank()) null else SearchEngine(name, tpl, o.optString("icon"))
+    }
+}.getOrDefault(emptyList())
 
 val SEARCH_ENGINES = listOf(
     SearchEngine(tr("百度"), "https://www.baidu.com/s?wd=%s", "https://www.baidu.com/favicon.ico"),
