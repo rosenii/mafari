@@ -8,7 +8,7 @@ import android.provider.Settings
 /**
  * 系统默认浏览器：首次启动的询问弹窗与「设置 → 高级 → 设为默认浏览器」共用。
  * 走 RoleManager 的浏览器角色（Android 10+，本应用 minSdk 33）：弹系统自己的确认窗，不需要任何额外权限。
- * 清单里 MainActivity 已声明 VIEW + BROWSABLE + http / https，满足角色资格。
+ * 清单里 LinkDispatchActivity 已声明 VIEW + BROWSABLE + http / https，满足角色资格。
  */
 object DefaultBrowser {
     fun isDefault(context: Context): Boolean = runCatching {

@@ -61,7 +61,16 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MiuixBrowser">
-            <!-- 响应系统里的 http(s) 链接 -->
+        </activity>
+
+        <!-- 响应系统里的 http(s) 链接：无界面的分流入口（原来声明在 MainActivity 上），按「外部链接打开方式」转给主界面 / 自定义标签页 / 其他浏览器。
+             不加 launchMode / affinity：调用方不带 NEW_TASK 时，它和后面的自定义标签页都留在调用方的任务里 -->
+        <activity
+            android:name=".LinkDispatchActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -70,6 +79,23 @@
                 <data android:scheme="https" />
             </intent-filter>
         </activity>
+
+        <!-- 自定义标签页：叠在调用方任务里的轻量网页窗口（标准启动模式，不要 document 模式 / 独立任务） -->
+        <activity
+            android:name=".CustomTabActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.MiuixBrowser" />
+
+        <!-- Custom Tabs 服务：其他应用靠它识别 Mafari 支持自定义标签页 -->
+        <service
+            android:name=".MafariCustomTabsService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.support.customtabs.action.CustomTabsService" />
+            </intent-filter>
+        </service>
 
         <!-- 扫一扫：CameraX + ML Kit 内置版识别，只由菜单里的「扫一扫」启动 -->
         <activity

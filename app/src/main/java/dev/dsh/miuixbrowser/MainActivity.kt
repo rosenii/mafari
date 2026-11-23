@@ -111,20 +111,10 @@ class MainActivity : ComponentActivity() {
         }
         val settings = appContainer.settings
         when (settings.linkOpenMode) {
-            1 -> openWithCustomTab(data)
+            // 1（自定义标签页）由 LinkDispatchActivity 在入口处就分流了；能走到这里的都在应用内打开
             2 -> forwardToOtherBrowser(data)
             else -> incomingUrl.value = data.toString()
         }
-    }
-
-    /** Chrome 自定义标签页 */
-    private fun openWithCustomTab(uri: Uri) {
-        runCatching {
-            val intent = androidx.browser.customtabs.CustomTabsIntent.Builder()
-                .setShowTitle(true)
-                .build()
-            intent.launchUrl(this, uri)
-        }.onFailure { incomingUrl.value = uri.toString() }
     }
 
     /** 设置里选了「交给其他浏览器」时，弹出选择器并排除自己 */
@@ -134,7 +124,10 @@ class MainActivity : ComponentActivity() {
             val chooser = Intent.createChooser(view, tr("打开链接")).apply {
                 putExtra(
                     Intent.EXTRA_EXCLUDE_COMPONENTS,
-                    arrayOf(ComponentName(this@MainActivity, MainActivity::class.java)),
+                    arrayOf(
+                        ComponentName(this@MainActivity, MainActivity::class.java),
+                        ComponentName(this@MainActivity, LinkDispatchActivity::class.java),
+                    ),
                 )
             }
             startActivity(chooser)

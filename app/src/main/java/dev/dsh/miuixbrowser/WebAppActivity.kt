@@ -81,23 +81,23 @@ import androidx.webkit.WebViewFeature
  * - 返回键先回退网页历史，到头后退出；在最近任务里作为独立任务显示（标题 + 网站图标）。
  * - 不含油猴脚本、元素隐藏、标签页、下载页等浏览器功能；下载仍交给 Mafari 的下载器。
  */
-class WebAppActivity : ComponentActivity() {
+open class WebAppActivity : ComponentActivity() {
 
-    private lateinit var root: FrameLayout
-    private lateinit var webView: WebView
+    protected lateinit var root: FrameLayout
+    protected lateinit var webView: WebView
 
     /** 指纹保护：按 origin 注册 document-start 脚本（见 FingerprintInjector / docs/FINGERPRINT.md） */
     private lateinit var fpInjector: FingerprintInjector
-    private lateinit var progress: ProgressBar
+    protected lateinit var progress: ProgressBar
     private lateinit var settings: AppSettings
     private lateinit var insetsController: WindowInsetsControllerCompat
 
-    private var startUrl = ""
+    protected var startUrl = ""
     private var startHost = ""
     private var pageHost = ""
     private var appTitle = ""
-    private var dark = false
-    private var defaultBg = Color.WHITE
+    protected var dark = false
+    protected var defaultBg = Color.WHITE
 
     // Gecko 内核（PWA）：intent 里 engine = gecko 且本包带了 GeckoView 时，用 BrowserTab 承载 GeckoView，
     // 窗口 / 状态栏 / 返回键 / 最近任务等与 WebView 轻应用共用同一套；WebView 专属的那些（指纹、去广告桥、脚本桥）不走
@@ -118,12 +118,38 @@ class WebAppActivity : ComponentActivity() {
     private var topAnimator: ValueAnimator? = null
 
     // 下拉刷新
-    private lateinit var refreshSpinner: RefreshSpinnerView
+    protected lateinit var refreshSpinner: RefreshSpinnerView
 
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: ((Boolean) -> Unit)? = null
+
+    // ---------------------------------------------------------------- 自定义标签页（CustomTabActivity）扩展点
+
+    /** 自定义标签页模式：跨站跳转不弹到浏览器、不改最近任务描述、不做沉浸收起（见 [CustomTabActivity]） */
+    protected open val customTabMode: Boolean get() = false
+
+    /** 一次导航是否算「站外」。轻应用：与起始站点不同即站外；自定义标签页：任何站点都留在原地 */
+    protected open fun isCrossSite(host: String): Boolean = !isSameSite(host, startHost)
+
+    /** WebView 轻应用界面搭好、开始加载之前（Gecko 模式不会调用） */
+    protected open fun onWebViewReady() {}
+
+    /** 页面标题 / 地址变化（地址取自 WebView 当前网址） */
+    protected open fun onPageInfo(title: String?, url: String?) {}
+
+    /** 把网址交给 Mafari 主界面在应用内打开（带固定标记，不再受「外部链接打开方式」影响） */
+    protected fun openInMafari(uri: Uri) {
+        runCatching {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, uri)
+                    .setClass(this, MainActivity::class.java)
+                    .putExtra(ShortcutHelper.EXTRA_FROM_SHORTCUT, true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
 
     private companion object {
         const val REQ_FILE = 7101
@@ -243,8 +269,9 @@ class WebAppActivity : ComponentActivity() {
         configureWebView()
         setupUserScripts()
         setupCosmeticFilter()
-        setupImmersiveScroll()
+        if (!customTabMode) setupImmersiveScroll()
         setupPullRefresh()
+        onWebViewReady()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -401,7 +428,7 @@ class WebAppActivity : ComponentActivity() {
         tab.geckoNavGate = { target, gesture, redirect ->
             val uri = Uri.parse(target)
             val host = uri.host.orEmpty()
-            val crossSite = host.isNotEmpty() && !isSameSite(host, startHost)
+            val crossSite = host.isNotEmpty() && isCrossSite(host)
             val outOfScope = !crossSite && scopeUrl.isNotEmpty() && sameOrigin(target, scopeUrl) && !target.startsWith(scopeUrl)
             if ((crossSite || outOfScope) && gesture && !redirect) {
                 openInBrowser(uri)
@@ -414,7 +441,7 @@ class WebAppActivity : ComponentActivity() {
         tab.onOpenInNewTab = { u ->
             val uri = Uri.parse(u)
             val host = uri.host.orEmpty()
-            if (host.isNotEmpty() && !isSameSite(host, startHost)) openInBrowser(uri) else tab.loadUrl(u)
+            if (host.isNotEmpty() && isCrossSite(host)) openInBrowser(uri) else tab.loadUrl(u)
         }
         tab.onRequestClose = { finish() }
         // 下载：轻应用没有下载管理，http(s) 交给浏览器处理（带登录态的文件、blob 暂不支持）
@@ -543,6 +570,7 @@ class WebAppActivity : ComponentActivity() {
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
                 fpInjector.onCommitted(url)
                 runCatching { Uri.parse(url).host }.getOrNull()?.takeIf { it.isNotBlank() }?.let { pageHost = it }
+                onPageInfo(null, url)
             }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
@@ -553,7 +581,7 @@ class WebAppActivity : ComponentActivity() {
                 return when (uri.scheme?.lowercase()) {
                     "http", "https" -> {
                         val host = uri.host.orEmpty()
-                        val crossSite = host.isNotEmpty() && !isSameSite(host, startHost)
+                        val crossSite = host.isNotEmpty() && isCrossSite(host)
                         // 只有「用户亲手点的」跨站跳转才弹出到浏览器；登录 / 支付回调等自动跳转原地放行
                         if (crossSite && request.hasGesture() && !request.isRedirect && request.isForMainFrame) {
                             openInBrowser(uri)
@@ -618,7 +646,10 @@ class WebAppActivity : ComponentActivity() {
             }
 
             override fun onReceivedTitle(view: WebView, title: String?) {
-                if (!title.isNullOrBlank() && !title.startsWith("http")) updateTaskDescription(title)
+                if (!title.isNullOrBlank() && !title.startsWith("http")) {
+                    updateTaskDescription(title)
+                    onPageInfo(title, view.url)
+                }
             }
 
             override fun onShowFileChooser(
@@ -1136,6 +1167,8 @@ class WebAppActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun updateTaskDescription(title: String) {
+        // 自定义标签页和调用方在同一个任务里：不能改写任务的标题 / 图标
+        if (customTabMode) return
         val icon = ShortcutHelper.readSavedIcon(this, intent?.getStringExtra(ShortcutHelper.EXTRA_ICON))
         setTaskDescription(ActivityManager.TaskDescription(title, icon))
     }
