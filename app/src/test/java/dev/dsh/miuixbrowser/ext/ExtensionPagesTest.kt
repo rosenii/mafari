@@ -40,7 +40,7 @@ class ExtensionPagesTest {
         assertNotNull(r.file)
     }
 
-    @Test fun serviceWorkerGetsImportScriptsShimUnlessModule() {
+    @Test fun serviceWorkerGetsShimBeforeScript() {
         val classic = ext(
             """{"manifest_version":3,"name":"D","version":"1","background":{"service_worker":"sw.js"}}""",
             "sw.js" to "1",
@@ -50,7 +50,9 @@ class ExtensionPagesTest {
         assertFalse(h1.contains("type=\"module\""))
         val shim = ExtensionPages.open(classic, "/" + ExtensionPages.SW_SHIM)!!
         assertEquals("text/javascript", shim.mime)
-        assertTrue(String(shim.bytes!!, Charsets.UTF_8).contains("importScripts"))
+        val shimJs = String(shim.bytes!!, Charsets.UTF_8)
+        assertTrue(shimJs.contains("importScripts"))
+        assertTrue(shimJs.contains("ServiceWorkerGlobalScope") && shimJs.contains("skipWaiting") && shimJs.contains("activate"))
 
         val module = ext(
             """{"manifest_version":3,"name":"D","version":"1","background":{"service_worker":"sw.js","type":"module"}}""",
@@ -58,7 +60,7 @@ class ExtensionPagesTest {
         )
         val h2 = String(ExtensionPages.open(module, ExtensionPages.GENERATED_BACKGROUND)!!.bytes!!, Charsets.UTF_8)
         assertTrue(h2.contains("<script type=\"module\" src=\"/sw.js\">"))
-        assertFalse(h2.contains("sw_shim"))
+        assertTrue(h2.indexOf("sw_shim.js") in 0 until h2.indexOf("type=\"module\""))
     }
 
     @Test fun noBackgroundMeansNoEntryAndNoGeneratedPage() {

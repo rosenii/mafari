@@ -1003,6 +1003,12 @@ function (CFG, ENTRIES) {
   // 后台页起来后留一行启动摘要：诊断日志里看到它，说明新垫片已加载、后台页脚本开始执行；之后没有 Uncaught 错误才说明启动成功
   if (CFG.background) {
     try { win.console.info('[mafari] shim ready: ' + OK(browser).join(',')); } catch (e) { }
+    // 后台页没注册 runtime.onMessage = 脚本在注册前抛错 / 卡住：其它页面的 runtime.sendMessage 会一直 NO_RECEIVER（Floccus MV3 就是这样转圈）
+    ST(function () {
+      if (!(L['runtime.onMessage'] || []).length) {
+        cerr('[mafari] 后台页启动 3 秒后仍没有 runtime.onMessage 监听器：脚本多半在注册之前抛错或卡住（看上面的 Uncaught / importScripts failed），其它页面的 runtime.sendMessage 会一直 NO_RECEIVER');
+      }
+    }, 3000);
   }
 
   // 拓展自己的页面（后台页 / popup / options）：CFG.page 为 true 时把 browser / chrome 挂到 window 上。

@@ -20,7 +20,8 @@ class BackgroundEntry(val path: String)
  * 后台页：
  * - MV2 `background.page`：直接用它；`background.scripts`：生成一个按顺序引入这些脚本的页面；
  * - MV3 `service_worker`：WebView 对 Service Worker 支持有限，所以当普通脚本在隐藏页面里跑（有 `"type":"module"` 就按模块加载），
- *   并提供一个同步 XHR 实现的 importScripts。事件驱动 / 休眠语义不模拟：脚本一直活着。
+ *   并先加载垫片：同步 XHR 实现的 importScripts、ServiceWorkerGlobalScope 的形状（registration / clients / skipWaiting）、
+ *   页面 load 后触发 install → activate。休眠、fetch 拦截不模拟：脚本一直活着。
  *
  * 已知限制：manifest 里的 content_security_policy 目前不执行（响应不带 CSP 头），importScripts 垫片依赖 eval。
  */
@@ -29,9 +30,17 @@ object ExtensionPages {
     const val SW_SHIM = "_mafari/sw_shim.js"
 
     private const val SW_SHIM_JS = """(function () {
-  self.importScripts = function () {
+  var g = self;
+  var P = Promise;
+  function def(k, v) {
+    try { if (!(k in g)) Object.defineProperty(g, k, { value: v, configurable: true, writable: true, enumerable: false }); } catch (e) { }
+  }
+  function err(m) { try { console.error('[mafari] ' + m); } catch (e) { } }
+
+  // importScripts：同步 XHR + 全局 eval（隐藏页面里没有真正的 worker 作用域）
+  g.importScripts = function () {
     for (var i = 0; i < arguments.length; i++) {
-      var url = new URL(arguments[i], self.location.href).href;
+      var url = new URL(arguments[i], g.location.href).href;
       var x = new XMLHttpRequest();
       x.open('GET', url, false);
       x.send();
@@ -39,6 +48,72 @@ object ExtensionPages {
       (0, eval)(x.responseText + '\n//# sourceURL=' + url);
     }
   };
+
+  // ServiceWorkerGlobalScope 的形状：让 self instanceof ServiceWorkerGlobalScope / self.registration / self.clients 等探测通过。
+  // 休眠、fetch 拦截、clients 窗口管理不模拟：脚本一直活着，clients.matchAll 返回空。
+  function SWGS() { }
+  try { Object.defineProperty(SWGS, Symbol.hasInstance, { value: function (o) { return o === g; } }); } catch (e) { }
+  def('ServiceWorkerGlobalScope', SWGS);
+  var sw = {
+    state: 'activated',
+    scriptURL: String(g.location.href),
+    addEventListener: function () { },
+    removeEventListener: function () { },
+    postMessage: function () { }
+  };
+  def('serviceWorker', sw);
+  def('registration', {
+    scope: g.location.origin + '/',
+    active: sw, installing: null, waiting: null,
+    update: function () { return P.resolve(); },
+    unregister: function () { return P.resolve(false); },
+    addEventListener: function () { },
+    removeEventListener: function () { },
+    navigationPreload: {
+      enable: function () { return P.resolve(); }, disable: function () { return P.resolve(); },
+      setHeaderValue: function () { return P.resolve(); }, getState: function () { return P.resolve({ enabled: false, headerValue: 'true' }); }
+    },
+    showNotification: function () { return P.reject(new Error('registration.showNotification is not supported by Mafari WebView')); },
+    getNotifications: function () { return P.resolve([]); }
+  });
+  def('skipWaiting', function () { return P.resolve(); });
+  def('clients', {
+    claim: function () { return P.resolve(); },
+    matchAll: function () { return P.resolve([]); },
+    get: function () { return P.resolve(undefined); },
+    openWindow: function () { return P.reject(new Error('clients.openWindow is not supported by Mafari WebView')); }
+  });
+
+  // install / activate：脚本顶层注册的监听器记下来，页面 load 之后依次触发（等 waitUntil）。其它事件原样交给浏览器。
+  var swListeners = { install: [], activate: [] };
+  var nativeAdd = g.addEventListener.bind(g);
+  g.addEventListener = function (type, fn, opts) {
+    if ((type === 'install' || type === 'activate') && fn) { swListeners[type].push(fn); return; }
+    return nativeAdd(type, fn, opts);
+  };
+  function fire(type) {
+    var waits = [];
+    var ev = new Event(type);
+    ev.waitUntil = function (p) { waits.push(P.resolve(p)); };
+    var fns = swListeners[type].slice();
+    var h = g['on' + type];
+    if (typeof h === 'function') fns.push(h);
+    fns.forEach(function (f) {
+      try {
+        if (typeof f === 'function') f.call(g, ev);
+        else if (f && typeof f.handleEvent === 'function') f.handleEvent(ev);
+      } catch (e) { err('sw ' + type + ' listener threw: ' + (e && e.stack || e)); }
+    });
+    return P.all(waits).catch(function (e) { err('sw ' + type + ' waitUntil rejected: ' + (e && e.stack || e)); });
+  }
+  var booted = false;
+  function boot() {
+    if (booted) return;
+    booted = true;
+    fire('install').then(function () { return fire('activate'); });
+  }
+  if (document.readyState === 'complete') setTimeout(boot, 0);
+  else nativeAdd('load', function () { setTimeout(boot, 0); });
 })();
 """
 
@@ -85,7 +160,8 @@ object ExtensionPages {
         val sw = bg.serviceWorker
         if (sw != null && bg.scripts.isEmpty()) {
             val module = isModuleWorker(ext)
-            if (!module) sb.append("<script src=\"/").append(attr(SW_SHIM)).append("\"></script>\n")
+            // 模块 worker 里没有 importScripts，但 ServiceWorkerGlobalScope 的形状 / install、activate 事件同样需要，所以都加载垫片
+            sb.append("<script src=\"/").append(attr(SW_SHIM)).append("\"></script>\n")
             sb.append("<script").append(if (module) " type=\"module\"" else "")
                 .append(" src=\"/").append(attr(clean(sw) ?: return null)).append("\"></script>\n")
         } else {
