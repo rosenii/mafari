@@ -39,7 +39,7 @@ Free, ad-free, and maintained by an individual developer in their spare time.
 | Userscripts | ✅ | ✅ | ✅ |
 | WebView extensions (experimental) | ✅ | ✅ | ✅ (WebView tabs) |
 | Firefox extensions (native Gecko) | — | — | ✅ |
-| Floccus bookmark sync | — | — | ✅ |
+| Floccus bookmark sync |  ✅ | ✅ | ✅ |
 | Firefox Account sync | — | ✅ | ✅ |
 | Ad blocking | Built-in rule engine | Built-in rule engine | Built-in rules on WebView tabs; tracking protection or uBlock Origin on Gecko tabs |
 | Encrypted backup to WebDAV / Git | ✅ | ✅ | ✅ |

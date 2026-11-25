@@ -39,7 +39,7 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 | 油猴脚本 | ✅ | ✅ | ✅ |
 | WebView 拓展（实验性） | ✅ | ✅ | ✅（WebView 标签） |
 | Firefox 扩展（Gecko 原生） | — | — | ✅ |
-| Floccus 书签同步 | — | — | ✅ |
+| Floccus 书签同步 | ✅ | ✅ | ✅ |
 | Firefox 帐户同步 | — | ✅ | ✅ |
 | 广告拦截 | 内置规则引擎 | 内置规则引擎 | WebView 标签用内置规则；Gecko 标签用跟踪保护或 uBlock Origin |
 | WebDAV / Git 加密备份 | ✅ | ✅ | ✅ |
