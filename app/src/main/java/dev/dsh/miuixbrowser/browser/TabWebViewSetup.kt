@@ -575,18 +575,22 @@ internal fun BrowserTab.setupWebView() {
             }
             customView = view
             customViewCallback = callback
+            armFullscreenResume()
             lockLandscape()
             this@setupWebView.onShowCustomView?.invoke(view, callback)
+            resumeAfterFullscreenSwitch()
         }
 
         override fun onHideCustomView() {
             val cb = customViewCallback
             customView = null
             customViewCallback = null
+            armFullscreenResume()
             restoreOrientation()
             this@setupWebView.onHideCustomView?.invoke()
             // 界面摘掉 View 后必须通知 WebView
             cb?.onCustomViewHidden()
+            resumeAfterFullscreenSwitch()
         }
 
         override fun onCreateWindow(
@@ -689,5 +693,40 @@ internal fun BrowserTab.setupWebView() {
             // 文字/空白区域交还给系统长按选词与页面内 JS 判定
             else -> false
         }
+    }
+}
+
+
+/**
+ * 进 / 出视频全屏（含 YouTube 转横屏自动全屏）时，页面里正在播放的视频偶尔会被无用户操作地暂停（全屏 View 换宿主 / 窗口尺寸突变），
+ * 用户得再点一次播放。这里在切换前记下「正在播放的视频」，切换后短时间内若它被暂停、且暂停前 600ms 内没有用户的触摸 / 按键，就补一次 play()。
+ * 用户自己点暂停（有可信输入事件）不会被恢复；原生播放器在播 / 主页盖住页面（__mfPark）时也不恢复。
+ */
+private const val FS_ARM_JS =
+    "(function(){try{var w=window;if(!w.__mfFsInit){w.__mfFsInit=true;w.__mfIn=0;" +
+        "['touchstart','pointerdown','mousedown','keydown','click'].forEach(function(n){" +
+        "document.addEventListener(n,function(e){if(e.isTrusted)w.__mfIn=Date.now()},true)});" +
+        "document.addEventListener('pause',function(e){w.__mfPauseAt=Date.now();w.__mfPauseUser=(w.__mfPauseAt-w.__mfIn)<600},true)}" +
+        "var v=[].slice.call(document.querySelectorAll('video')).filter(function(x){return !x.paused&&!x.ended})[0];" +
+        "w.__mfFsVideo=v||null;w.__mfFsAt=Date.now();w.__mfPauseAt=0}catch(e){}})()"
+
+private const val FS_RESUME_JS =
+    "(function(){try{var w=window,v=w.__mfFsVideo;" +
+        "if(v&&v.paused&&!v.ended&&!w.__mfPark&&w.__mfPauseAt>=w.__mfFsAt&&!w.__mfPauseUser&&Date.now()-w.__mfFsAt<5000){" +
+        "var r=v.play();if(r&&r.catch)r.catch(function(){})}}catch(e){}})()"
+
+private fun BrowserTab.armFullscreenResume() {
+    if (PageMediaGate.nativePlaying) return
+    runCatching { webViewOrNull?.evaluateJavascript(FS_ARM_JS, null) }
+}
+
+private fun BrowserTab.resumeAfterFullscreenSwitch() {
+    if (PageMediaGate.nativePlaying) return
+    val wv = webViewOrNull ?: return
+    // 全屏容器挂上 / 窗口尺寸稳定需要一小会儿：分几次检查
+    longArrayOf(250, 800, 1800).forEach { d ->
+        wv.postDelayed({
+            if (!PageMediaGate.nativePlaying) runCatching { wv.evaluateJavascript(FS_RESUME_JS, null) }
+        }, d)
     }
 }

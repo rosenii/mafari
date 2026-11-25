@@ -428,12 +428,27 @@ internal fun PlayerSurface(
                         GlassGlyph(if (fullscreen) MiuixIcons.Glass.ChevronBackward else MiuixIcons.Glass.Close, 22.dp)
                     }
 
-                    // ---- 右上：更多 ----
-                    PlayerGlassButton(36.dp, backdrop, modifier = Modifier.align(Alignment.TopEnd), onClick = {
-                        popup = if (popup == POP_MENU) POP_NONE else POP_MENU
-                        poke++
-                    }) {
-                        GlassGlyph(MiuixIcons.Glass.More, 22.dp)
+                    // ---- 右上：（全屏时）投屏 + 更多。全屏下投屏钮独立放在「更多」左侧，菜单里不再重复 ----
+                    Row(
+                        Modifier.align(Alignment.TopEnd),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (fullscreen) {
+                            PlayerGlassButton(36.dp, backdrop, enabled = onCast != null, onClick = {
+                                onCast?.invoke()
+                                popup = POP_NONE
+                                poke++
+                            }) {
+                                GlassGlyph(dev.dsh.miuixbrowser.ui.AppIcons.ScreenMirror, 22.dp)
+                            }
+                        }
+                        PlayerGlassButton(36.dp, backdrop, onClick = {
+                            popup = if (popup == POP_MENU) POP_NONE else POP_MENU
+                            poke++
+                        }) {
+                            GlassGlyph(MiuixIcons.Glass.More, 22.dp)
+                        }
                     }
 
                     // ---- 倍速弹层：贴在倍速按钮上方，右对齐 ----
@@ -513,9 +528,11 @@ internal fun PlayerSurface(
                                 onCopyLink?.invoke(); popup = POP_NONE
                                 toast = Toast(tr("已复制链接"))
                             }
-                            Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
-                            MenuItem(dev.dsh.miuixbrowser.ui.AppIcons.ScreenMirror, tr("投屏"), enabled = onCast != null, scale = scale) {
-                                onCast?.invoke(); popup = POP_NONE
+                            if (!fullscreen) { // 全屏时投屏钮在顶栏「更多」左侧
+                                Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+                                MenuItem(dev.dsh.miuixbrowser.ui.AppIcons.ScreenMirror, tr("投屏"), enabled = onCast != null, scale = scale) {
+                                    onCast?.invoke(); popup = POP_NONE
+                                }
                             }
                             if (player.qualities.size > 1) {
                                 Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
