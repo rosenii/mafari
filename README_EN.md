@@ -4,11 +4,12 @@
 
 **A good-looking, capable Android browser that supports extensions**
 
-[简体中文](README.md) · **English** · [☕ Donate](#donate)
+[简体中文](README.md) · **English** · [☕ Donate](#donate) · [License](#copyright-and-license)
 
 📢 [Telegram Channel](https://t.me/mafari_a) · 💬 [Telegram Group](https://t.me/Mafari_discuss) · 📦 [Download](https://github.com/rosenii/mafari/releases)
 
 **source-available project**
+
 </div>
 
 ---
@@ -162,19 +163,6 @@ In **About → Version** you can choose an **update channel**; update checks the
 
 Questions or suggestions are welcome in the group, or open an Issue on GitHub.
 
-## Build it yourself
-
-Requires JDK 21+, the Android SDK and git. miuix is not vendored: fetch the upstream and apply the local patches first, then build (lite as an example):
-
-```bash
-bash tools/miuix-sync.sh   # clones miuix into third_party/miuix and applies tools/miuix-patches (version in miuix.ref)
-./gradlew :app:assembleLiteArm64Debug
-```
-
-It follows miuix `main` by default. To pin a version, set `commit=` in `miuix.ref` (or run `bash tools/miuix-sync.sh --pin` to write the current commit).
-
-For full build instructions, build variants, the release pipeline, and code structure, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (written in Chinese).
-
 ## Donate
 
 Mafari is developed and maintained in the author's spare time. It is completely free and ad-free. If it helps you, consider buying the developer a coffee ☕ — it helps the project last longer.
@@ -202,3 +190,23 @@ Settings → Appearance → first row "Language": follow system / English / 简�
 ## WebExtension adapter docs
 
 The WebView extension adapter (experimental) is documented in [`docs/WEBEXT_WEBVIEW.md`](docs/WEBEXT_WEBVIEW.md). Mafari-specific APIs (clipboard, native userscript bridge, partial `webRequestBlocking`) are in [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md) and [`docs/MAFARI_WEBEXT_API.md`](docs/MAFARI_WEBEXT_API.md); dynamic DNR rules and the `userScripts` subset are in [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md). The compatibility matrix is in [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md).
+
+## Copyright and license
+
+Copyright © 2026 rosenii. All rights reserved.
+
+Mafari is **source-available software, not open-source software**. The full terms are in [`licence`](licence) at the repository root (the Chinese text prevails if the two languages conflict); this is only a summary:
+
+| You may | You may not |
+| --- | --- |
+| View and read the source code | Publish the software or a modified version as an executable, installer, app package, or deployed service (free or paid) |
+| Use it for personal study, research, or technical evaluation | Use it for any commercial purpose (selling, charging, ad revenue, part of a paid product) |
+| Modify, run, and test it locally or in a non-public environment you control | Submit it to any app store, distribution platform, or package manager |
+| Fork it to an account you control | Remove or alter copyright notices, the license, or source attribution |
+| Publicly distribute your modified **source**, provided you keep the license and copyright notices, credit [rosenii/mafari](https://github.com/rosenii/mafari), state that you modified it, and do not relicense it under an open-source license | Rename it or swap the icon and present it as your own work |
+
+Installers are published only on this repository's [Releases](https://github.com/rosenii/mafari/releases) page; please do not download them from anywhere else.
+
+Mafari uses third-party components such as miuix, GeckoView, and Kyant's Backdrop. They are **not** covered by the license above and remain under their own licenses. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`third-party-licenses/`](third-party-licenses/) for the full list and license texts.
+
+For permissions beyond these terms, contact the author via a GitHub Issue or Telegram.

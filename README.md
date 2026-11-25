@@ -4,11 +4,12 @@
 
 **一款好看、好用、能装扩展的 Android 浏览器**
 
-**简体中文** · [English](README_EN.md) · [☕ 捐赠](#捐赠)
+**简体中文** · [English](README_EN.md) · [☕ 捐赠](#捐赠) · [版权与许可证](#版权与许可证)
 
 📢 [Telegram 频道](https://t.me/mafari_a) · 💬 [Telegram 交流群](https://t.me/Mafari_discuss) · 📦 [下载](https://github.com/rosenii/mafari/releases)
 
 **源码可见项目**
+
 </div>
 
 ---
@@ -162,20 +163,6 @@ Mafari 是一款基于 **miuix** 设计风格的 Android 浏览器：界面简�
 
 遇到问题或有建议，欢迎到群里聊聊，或者在 GitHub 提 Issue。
 
-## 想自己构建？
-
-需要 JDK 21+、Android SDK 和 git。miuix 不随仓库提供，要先拉取上游并打上本地补丁，再构建（以 lite 为例）：
-
-```bash
-bash tools/miuix-sync.sh   # 拉取 miuix 到 third_party/miuix 并应用 tools/miuix-patches（版本见 miuix.ref）
-./gradlew :app:assembleLiteArm64Debug
-```
-
-默认跟随 miuix 主线；需要固定版本时，在 `miuix.ref` 里填 `commit=`（或运行 `bash tools/miuix-sync.sh --pin` 写入当前提交）。
-
-完整的构建说明、版本变体、自动发布流程与代码结构，请见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
-
 ## 捐赠
 
 Mafari 由个人业余时间开发维护，完全免费、无广告。如果它对你有帮助，欢迎请开发者喝杯咖啡 ☕，这会让项目走得更久。
@@ -203,3 +190,23 @@ Mafari 由个人业余时间开发维护，完全免费、无广告。如果它�
 ## WebExtension 适配器文档
 
 WebView 拓展适配器（实验性）的说明见 [`docs/WEBEXT_WEBVIEW.md`](docs/WEBEXT_WEBVIEW.md)。Mafari 专有接口（剪贴板、原生油猴桥、部分 `webRequestBlocking`）见 [`docs/WEBEXT_MAFARI_APIS.md`](docs/WEBEXT_MAFARI_APIS.md) 和 [`docs/MAFARI_WEBEXT_API.md`](docs/MAFARI_WEBEXT_API.md)；动态 DNR 规则与 `userScripts` 子集见 [`docs/WEBEXT_DNR_USERSCRIPTS.md`](docs/WEBEXT_DNR_USERSCRIPTS.md)；兼容性矩阵见 [`WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md`](WEBEXT_API_COMPATIBILITY_MATRIX_UPDATED.md)。
+
+## 版权与许可证
+
+Copyright © 2026 rosenii. All rights reserved.
+
+Mafari 是**源码可见（source-available）软件，不是开源软件**。完整条款以仓库根目录的 [`licence`](licence) 为准（中英文冲突时以中文为准），下面只是摘要：
+
+| 可以 | 不可以 |
+| --- | --- |
+| 查看、阅读源码 | 发布本软件或其修改版的安装包 / App / 可访问的在线服务（无论是否收费） |
+| 个人学习、研究、技术评估 | 任何商业用途（销售、收费、植入广告、作为收费产品的一部分） |
+| 在本地或个人控制的非公开环境里修改、运行、测试 | 提交到任何应用商店、软件分发平台或包管理器 |
+| Fork 到你个人控制的账户 | 删除或修改版权声明、许可证、来源标注 |
+| 公开发布修改后的**源码**（须保留许可证与版权声明、注明来源 [rosenii/mafari](https://github.com/rosenii/mafari)、声明你做了修改，且不得改用开源许可证） | 改名、换图标后冒充原创 |
+
+安装包只通过本仓库的 [Releases](https://github.com/rosenii/mafari/releases) 发布，请不要从其他渠道下载。
+
+本软件使用了 miuix、GeckoView、Kyant Backdrop 等第三方组件，它们**不适用**上述许可证，各自遵循原始许可证。完整清单与许可证全文见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) 和 [`third-party-licenses/`](third-party-licenses/)。
+
+如需上述条款之外的授权，请通过 GitHub Issue 或 Telegram 联系作者。
