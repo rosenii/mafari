@@ -375,6 +375,23 @@ fun SettingsScreen(
                 ) {
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
+                        title = tr("自定义起始页"),
+                        items = listOf(tr("默认主页"), tr("新建标签页"), tr("指定页面")),
+                        selectedIndex = settings.homeMode.coerceIn(0, 2),
+                        onSelectedIndexChange = {
+                            // 指定页面要先填网址，确认后才切换模式；其它两项立即生效
+                            if (it == HOME_MODE_CUSTOM) showHomeUrlDialog = true else settings.updateHomeMode(it)
+                        },
+                    )
+                    if (settings.homeMode == HOME_MODE_CUSTOM) {
+                        SettingsRow(
+                            title = tr("指定页面地址"),
+                            summary = settings.homeCustomUrl.ifBlank { tr("未设置") },
+                            onClick = { showHomeUrlDialog = true },
+                        )
+                    }
+                    AppDropdownPreference(
+                        backdrop = if (glass) backdrop else null,
                         title = tr("重启恢复标签页"),
                         summary = when (settings.restoreTabsMode) {
                             RestoreMode.KEEP_NEW -> tr("恢复之前的标签页，但不跳转，直接新建一个新标签页")
@@ -899,25 +916,6 @@ fun SettingsScreen(
                 onDismissRequest = { showHomeSheet = false },
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
-                    AppDropdownPreference(
-                        title = tr("自定义起始页"),
-                        items = listOf(tr("默认主页"), tr("新建标签页"), tr("指定页面")),
-                        selectedIndex = settings.homeMode.coerceIn(0, 2),
-                        onSelectedIndexChange = {
-                            // 指定页面要先填网址，确认后才切换模式；其它两项立即生效
-                            if (it == HOME_MODE_CUSTOM) showHomeUrlDialog = true else settings.updateHomeMode(it)
-                        },
-                        backdrop = if (glass) backdrop else null,
-                        visuals = popupVisuals,
-                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                    )
-                    if (settings.homeMode == HOME_MODE_CUSTOM) {
-                        SettingsRow(
-                            title = tr("指定页面地址"),
-                            summary = settings.homeCustomUrl.ifBlank { tr("未设置") },
-                            onClick = { showHomeUrlDialog = true },
-                        )
-                    }
                     AppDropdownPreference(
                         title = tr("LOGO 标识"),
                         items = listOf(tr("显示"), tr("隐藏")),
@@ -1516,10 +1514,6 @@ private fun homeContentSummary(settings: AppSettings): String {
         if (settings.homeShowRecent) add(tr("最近浏览"))
         if (settings.homeShowDownloads) add(tr("下载项"))
     }
-    val mode = when (settings.homeMode) {
-        HOME_MODE_NEW_TAB -> tr("主页按钮：新建标签页 · ")
-        HOME_MODE_CUSTOM -> tr("指定页面 · ")
-        else -> ""
-    }
-    return mode + if (shown.isEmpty()) (if (settings.homeShowLogo) tr("首页只显示标志") else tr("首页无内容")) else shown.joinToString(" · ")
+    // 起始页模式已移到「设置 → 浏览」，这里只概括首页内容
+    return if (shown.isEmpty()) (if (settings.homeShowLogo) tr("首页只显示标志") else tr("首页无内容")) else shown.joinToString(" · ")
 }
