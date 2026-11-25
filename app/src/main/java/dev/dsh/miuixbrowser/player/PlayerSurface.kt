@@ -102,6 +102,8 @@ import top.yukonga.miuix.kmp.material.GlassShape
  *   scrim 暗角 · 中部 后退10 / 播放 / 快进10 · 底部 时间 + 胶囊进度条 + 时间
  *   左下 静音 · 右下 倍速 / 画中画 / 全屏 · 左上 ✕（全屏时 ‹）· 右上 ⋯ 菜单（下载 / 复制 / 清晰度）
  * 手势：单击显隐，双击左 40% / 右 40% 快退 / 快进 10 秒，双击中间播放 / 暂停，长按倍速（默认 2x，设置里可改；松手恢复）。
+ *   全屏时左右滑动快进 / 快退：整屏宽度 ≈ [SWIPE_SPAN_MS]（视频不足这么长就按整段），滑动中屏幕中央显示目标时间，松手跳转；
+ *   直播 / 时长未知 / 长按倍速中 / 弹层开着时不响应；开了「拖动进度时实时预览」就和拖进度条一样边滑边预览。
  *
  * 材质：按钮 / 弹层统一用 miuix-glass（GlassIconButton / glassPanel），采样源是视频层的 LayerBackdrop。
  * 视频必须用 TextureView（画进 View 层级，和 WebView 开硬件层同理）才能被采样；SurfaceView 是独立图层，采不到。
@@ -130,7 +132,13 @@ private const val POP_VOLUME = 3
 private const val HIDE_DELAY_MS = 3800L
 private const val SKIP_MS = 10_000L
 
+/** 全屏左右滑动：滑过整屏宽度对应的时间跨度（视频比它短就按整段时长） */
+private const val SWIPE_SPAN_MS = 180_000L
+
 private class Toast(val text: String)
+
+/** 滑动快进 / 快退进行中：[target] 松手后跳到的位置，[delta] 相对滑动开始时位置的偏移（毫秒，可为负） */
+private class SwipeSeek(val target: Long, val delta: Long)
 
 /**
  * @param fullscreen 是否全屏：全屏时左上角是「‹ 退出全屏」，控件整体内缩（避开刘海 / 圆角）。
@@ -159,6 +167,7 @@ internal fun PlayerSurface(
     var scrub by remember { mutableStateOf<Float?>(null) }
     var poke by remember { mutableIntStateOf(0) } // 每次操作 +1，重置自动隐藏计时
     var toast by remember { mutableStateOf<Toast?>(null) }
+    var swipe by remember { mutableStateOf<SwipeSeek?>(null) } // 全屏滑动快进 / 快退进行中
     var holdPrev by remember { mutableStateOf<Float?>(null) } // 长按 2x 之前的倍速
     val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
     // true = TextureView（可玻璃采样），false = SurfaceView；初值来自设置 → 媒体嗅探与播放 → 渲染方式，菜单里改了会一并保存
@@ -251,6 +260,49 @@ internal fun PlayerSurface(
                                 else -> player.toggle()
                             }
                             poke++
+                        },
+                    )
+                }
+                // 全屏左右滑动快进 / 快退：和上面的点按 / 长按各管各的——滑动一开始（过了 touch slop）点按就自动取消。
+                // 进度条、音量滑条在控件层里自己处理拖动，不会落到这里
+                .pointerInput(player, fullscreen) {
+                    if (!fullscreen) return@pointerInput
+                    var from = 0L
+                    var acc = 0f
+                    var active = false
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            acc = 0f
+                            from = player.positionMs
+                            // 长按倍速中、弹层开着、直播 / 时长未知时不接管这次滑动
+                            active = holdPrev == null && popup == POP_NONE && !player.isLive && player.durationMs > 0
+                        },
+                        onHorizontalDrag = { change, dx ->
+                            if (!active) return@detectHorizontalDragGestures
+                            change.consume()
+                            acc += dx
+                            val dur = player.durationMs
+                            val span = minOf(dur, SWIPE_SPAN_MS)
+                            val target = (from + (acc / size.width.coerceAtLeast(1) * span).toLong()).coerceIn(0L, dur)
+                            swipe = SwipeSeek(target, target - from)
+                            player.scrubTo(target) // 没开「拖动进度时实时预览」时什么也不做
+                        },
+                        onDragEnd = {
+                            val s = swipe
+                            swipe = null
+                            active = false
+                            player.endScrub()
+                            if (s != null) {
+                                player.seekTo(s.target)
+                                poke++
+                            }
+                        },
+                        onDragCancel = {
+                            val s = swipe
+                            swipe = null
+                            active = false
+                            player.endScrub()
+                            if (s != null) player.seekTo(from) // 被打断（如系统手势抢走）：回到滑动前的位置
                         },
                     )
                 },
@@ -526,6 +578,27 @@ internal fun PlayerSurface(
                     .padding(horizontal = 12.dp, vertical = 7.dp),
             ) {
                 Text(text = t.text, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+            }
+        }
+
+        // ---- 全屏滑动快进 / 快退：屏幕中央显示目标时间和偏移 ----
+        swipe?.takeIf { !pip }?.let { s ->
+            val sec = s.delta / 1000
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xD1141420))
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(text = fmt(s.target), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "${fmt(player.durationMs)}  ·  " + tr("{0} 秒", if (sec >= 0) "+$sec" else "$sec"),
+                    color = Color(0xCCFFFFFF),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
 

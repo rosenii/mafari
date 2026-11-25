@@ -24,6 +24,12 @@ import android.util.Rational
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import kotlin.math.roundToInt
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -108,6 +114,7 @@ private const val CARD_SURFACE_ALPHA = 0.95f
  *
  * 形态和脚本一致：竖屏时是顶部一张 16:9 圆角卡片（✕ 关闭），点右下角全屏钮铺满屏幕并转横屏，
  * 全屏里左上角 ‹ 退出。
+ * 卡片态下长按快捷菜单 / 标题区再拖动，可以上下移动整个播放器窗口（松手停在哪就在哪；全屏 / 画中画不受影响，退回卡片后仍在原位置）。
  *
  * 阶段三（同一个 [MafariPlayer] 实例，界面 / 画中画 / 后台共用，切换不重建播放器）：
  *  - 画中画：点右下角 PiP 按钮进入；播放中按 Home / 手势返回桌面自动进入；小窗操作栏 后退 10 秒 / 播放·暂停 / 快进 10 秒。
@@ -131,6 +138,9 @@ class NativePlayerActivity : ComponentActivity() {
     private var pipAt = 0L // 最近一次进入画中画的时间，用来分辨「刚进小窗的过渡性 onStop」和「用户点 ✕ 关了小窗」
     private var pipReceiver: BroadcastReceiver? = null
     private var cast: NativeCast? = null
+
+    /** 卡片态窗口距屏幕顶部的偏移（像素）：长按拖动快捷菜单 / 标题区改它；全屏 / 画中画 / 投屏面板铺满窗口时按 0 摆放，退回卡片后恢复 */
+    private var cardY = 0
 
     /**
      * 「投屏到」底部弹窗的宿主是否在场。抽象层的弹窗（AppBottomSheet）要挂在 miuix Scaffold 的弹窗层上，
@@ -200,6 +210,21 @@ class NativePlayerActivity : ComponentActivity() {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
         }
+        // 只有卡片（WRAP_CONTENT、贴顶）才带偏移；铺满窗口的形态一律 0
+        window.attributes = window.attributes.also { it.y = if (wrap) cardY else 0 }
+    }
+
+    /** 卡片窗口最多能下移多少：屏幕高度减去窗口自己的高度 */
+    private fun cardMaxY(): Int =
+        (windowManager.currentWindowMetrics.bounds.height() - window.decorView.height).coerceAtLeast(0)
+
+    /** 拖动时把卡片窗口移到距顶部 [y] 像素（限制在屏幕内）；只在卡片态生效 */
+    private fun moveCard(y: Int) {
+        if (fullscreen || inPip || castSheetHost) return
+        val v = y.coerceIn(0, cardMaxY())
+        if (v == cardY) return
+        cardY = v
+        window.attributes = window.attributes.also { it.y = v }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -257,6 +282,8 @@ class NativePlayerActivity : ComponentActivity() {
         LaunchedEffect(pickerOpen) { if (pickerOpen) castSheetHost = true }
         LaunchedEffect(castSheetHost) { applyWindowMode() }
 
+        val view = LocalView.current
+        val haptic = LocalHapticFeedback.current
         val dark = isAppDarkTheme()
         val glass = LocalBlurMode.current != BLUR_OFF
         val videoTheme = remember { ThemeController(ColorSchemeMode.Dark) }
@@ -317,7 +344,33 @@ class NativePlayerActivity : ComponentActivity() {
                 }
                 if (!full) {
                     // 快捷菜单 + 标题：同一块材质底色，浅色 / 深色随应用主题
-                    Column(Modifier.fillMaxWidth().background(surfaceColor)) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(surfaceColor)
+                            // 长按再拖动：上下移动整个播放器窗口。窗口跟着手指走，所以不能用控件内的相对坐标（会越拖越抖），
+                            // 一律换成屏幕坐标算偏移：屏幕 y = 控件内 y + 宿主 View 在屏幕上的 y（两者之差里的固定位移会抵消）
+                            .pointerInput(Unit) {
+                                var startRaw = 0f
+                                var startY = 0
+                                val loc = IntArray(2)
+                                fun raw(localY: Float): Float {
+                                    view.getLocationOnScreen(loc)
+                                    return localY + loc[1]
+                                }
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { o ->
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        startY = cardY
+                                        startRaw = raw(o.y)
+                                    },
+                                    onDrag = { change, _ ->
+                                        change.consume()
+                                        moveCard((startY + (raw(change.position.y) - startRaw)).roundToInt())
+                                    },
+                                )
+                            },
+                    ) {
                         QuickActions(p, cast)
                         Text(
                             text = title,

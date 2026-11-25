@@ -36,7 +36,7 @@ GM_mafariHost('play', { url, title, referer: location.href, ua: navigator.userAg
 
 ## 阶段二的结构（`player/`）
 
-- `PlayerSurface`：播放界面本体，一比一对照 `float-player.js` 的 DOM —— scrim 暗角、中部 后退10 / 播放 / 快进10、底部 时间 + 胶囊进度条、左下静音、右下 倍速 / 画中画 / 全屏、左上 ✕（全屏时 ‹）、右上 ⋯ 菜单。手势：单击显隐，双击左 / 右 40% 快退 / 快进，双击中间播放 / 暂停，长按 2x（松手恢复）。3.8 秒无操作自动收起。
+- `PlayerSurface`：播放界面本体，一比一对照 `float-player.js` 的 DOM —— scrim 暗角、中部 后退10 / 播放 / 快进10、底部 时间 + 胶囊进度条、左下静音、右下 倍速 / 画中画 / 全屏、左上 ✕（全屏时 ‹）、右上 ⋯ 菜单。手势：单击显隐，双击左 / 右 40% 快退 / 快进，双击中间播放 / 暂停，长按 2x（松手恢复），全屏时左右滑动快进 / 快退（整屏宽度 ≈ 3 分钟，滑动中屏幕中央显示目标时间，松手跳转；直播不响应）。3.8 秒无操作自动收起。
 - `PlayerIcons`：脚本里的 SVG 路径原样搬过来，用 `PathParser` + Canvas 绘制，不依赖 Material Icons。
 - `NativePlayerActivity`：竖屏是顶部 16:9 圆角卡片（✕ 关闭）+ 下方标题；全屏钮铺满并转横屏，‹ / 返回键退出。只有一处 `PlayerSurface` 调用，切换时界面状态不丢。
 - `MafariPlayer`：新增 `muted` / `toggleMute()`。
