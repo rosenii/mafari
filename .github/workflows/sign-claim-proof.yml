@@ -1,0 +1,68 @@
+name: Sign claim-proof APK
+
+# 用 mafari 同一把 release 密钥给「证明 app」签名。
+# 用法：把未签名 APK 放到仓库 tools/claim-proof/claim-proof-214.apk → Actions 里手动运行本 workflow → 在本次运行的 Artifacts 下载 claim-proof-214-signed.apk
+# 复用 release.yml 里已有的 secrets：KEYSTORE_BASE64 / STORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_path:
+        description: 未签名 APK 在仓库里的路径
+        default: tools/claim-proof/claim-proof-214.apk
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check inputs
+        run: |
+          [ -n "$KEYSTORE_BASE64" ] || { echo "::error::缺少 KEYSTORE_BASE64 secret"; exit 1; }
+          [ -f "${{ inputs.apk_path }}" ] || { echo "::error::找不到 ${{ inputs.apk_path }}"; exit 1; }
+
+      - name: Locate build-tools
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "BT=$BT" >> "$GITHUB_ENV"
+          echo "using $BT"
+
+      - name: Prepare keystore
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/mafari-release.jks"
+
+      - name: Align + sign
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -e
+          IN="${{ inputs.apk_path }}"
+          mkdir -p out
+          # 先对齐，再签（apksigner 签完不能再改包）
+          "$BT/zipalign" -f -p 4 "$IN" out/aligned.apk
+          "$BT/apksigner" sign \
+            --ks "$RUNNER_TEMP/mafari-release.jks" \
+            --ks-pass env:STORE_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass env:KEY_PASSWORD \
+            --out out/claim-proof-214-signed.apk \
+            out/aligned.apk
+          rm -f out/aligned.apk out/*.idsig
+
+      - name: Verify + show cert fingerprint
+        run: |
+          "$BT/apksigner" verify --verbose --print-certs out/claim-proof-214-signed.apk
+          # 对照：应与 mafari 正式包证书的 SHA-256 一致
+
+      - name: Cleanup keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mafari-release.jks"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claim-proof-214-signed
+          path: out/claim-proof-214-signed.apk
