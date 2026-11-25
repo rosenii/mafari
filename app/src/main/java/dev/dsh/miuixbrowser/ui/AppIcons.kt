@@ -229,6 +229,16 @@ object AppIcons {
         )
     }
 
+    /** 外部播放：方框 + 右上角跳出的箭头。 */
+    val External: ImageVector by lazy {
+        stroked(
+            "External",
+            "M14,4H20V10",
+            "M20,4L11,13",
+            "M18,14V18A2,2 0 0 1 16,20H6A2,2 0 0 1 4,18V8A2,2 0 0 1 6,6H10",
+        )
+    }
+
     /** 倍速：仪表盘半圆 + 指针。 */
     val Speed: ImageVector by lazy {
         stroked(

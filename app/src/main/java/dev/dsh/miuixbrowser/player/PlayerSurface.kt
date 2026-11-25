@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -59,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -177,6 +179,8 @@ internal fun PlayerSurface(
     val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
     // true = TextureView（可玻璃采样），false = SurfaceView；初值来自设置 → 媒体嗅探与播放 → 渲染方式，菜单里改了会一并保存
     var textureMode by remember { mutableStateOf(PlayerPrefs.renderMode(appCtx) == PlayerPrefs.RENDER_TEXTURE) }
+    // 画面比例（填充方式）：设置里没有单独入口，⋯ 菜单里改，改了即存，下次打开沿用
+    var aspect by remember { mutableIntStateOf(PlayerPrefs.aspectMode(appCtx)) }
     val longPressSpeed = remember { PlayerPrefs.longPressSpeed(appCtx) } // 长按倍速（设置里可改，默认 2x）
 
     // 进度刷新：暂停时也要刷（拖动后的位置要立刻反映）
@@ -215,13 +219,30 @@ internal fun PlayerSurface(
         // SurfaceView 模式下录不到画面，传 null 让 miuix 玻璃退回不透明底
         val recorded = rememberLayerBackdrop()
         val backdrop: Backdrop? = if (textureMode) recorded else null
-        Box(Modifier.fillMaxSize().layerBackdrop(recorded).background(Color.Black)) {
+        // clipToBounds：「裁剪铺满」时视频 View 比容器大，超出部分要裁掉
+        Box(Modifier.fillMaxSize().clipToBounds().layerBackdrop(recorded).background(Color.Black)) {
+            // 视频 View 的尺寸按画面比例定：
+            //  适应 = 原比例放进容器；拉伸 = 直接拉满；16:9 / 4:3 = 按该比例放进容器；
+            //  裁剪铺满 = 原比例放大到刚好盖住容器（居中，超出的被上面的 clipToBounds 裁掉）
+            val videoModifier = when {
+                ratio <= 0f -> Modifier.fillMaxSize() // 还没拿到视频尺寸
+                aspect == PlayerPrefs.ASPECT_STRETCH -> Modifier.fillMaxSize()
+                aspect == PlayerPrefs.ASPECT_16_9 -> Modifier.align(Alignment.Center).aspectRatio(16f / 9f)
+                aspect == PlayerPrefs.ASPECT_4_3 -> Modifier.align(Alignment.Center).aspectRatio(4f / 3f)
+                aspect == PlayerPrefs.ASPECT_FILL -> {
+                    val containerRatio = boxW.value / boxH.value.coerceAtLeast(1f)
+                    val w = if (ratio > containerRatio) boxH * ratio else boxW
+                    val h = if (ratio > containerRatio) boxH else boxW / ratio
+                    Modifier.align(Alignment.Center).requiredSize(w, h)
+                }
+                else -> Modifier.align(Alignment.Center).aspectRatio(ratio)
+            }
             // key：切换渲染方式时整个 View 重建；旧 View 在 onRelease 里 detach
             key(textureMode) {
                 AndroidView(
                     factory = { ctx -> (if (textureMode) TextureView(ctx) else SurfaceView(ctx)).also { player.attach(it) } },
                     onRelease = { player.detach(it) },
-                    modifier = if (ratio > 0f) Modifier.align(Alignment.Center).aspectRatio(ratio) else Modifier.fillMaxSize(),
+                    modifier = videoModifier,
                 )
             }
         }
@@ -470,7 +491,7 @@ internal fun PlayerSurface(
                         }
                     }
 
-                    // ---- 更多菜单：下载 / 复制链接 / 投屏 / 清晰度 / 后台播放（开关）/ 渲染方式 / 解码方式（只读） ----
+                    // ---- 更多菜单：下载 / 复制链接 / 投屏 / 清晰度 / 后台播放（开关）/ 画面比例 / 渲染方式 / 解码方式（只读） ----
                     if (popup == POP_MENU) {
                         val menuWidth = minOf(180.dp * scale, boxW - 48.dp - fo * 2)
                         GlassPanel(
@@ -528,6 +549,31 @@ internal fun PlayerSurface(
                                     toast = Toast(if (!bgPlay) tr("后台播放：已开启（切到后台继续播放音频）") else tr("后台播放：已关闭（切到后台会暂停）"))
                                     poke++
                                 }
+                            }
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+                            MenuSectionTitle(tr("画面比例"), scale)
+                            Column(Modifier.padding(start = 9.dp * scale, end = 9.dp * scale, top = 4.dp * scale, bottom = 9.dp * scale)) {
+                                ChipGrid(
+                                    labels = listOf(tr("适应"), tr("裁剪铺满"), tr("拉伸"), "16:9", "4:3"),
+                                    isActive = { it == aspect },
+                                    scale = scale,
+                                    chipWidth = (menuWidth - 18.dp * scale - 10.dp * scale) / 3f,
+                                    onPick = { i ->
+                                        aspect = i
+                                        PlayerPrefs.setAspectMode(appCtx, i)
+                                        popup = POP_NONE
+                                        toast = Toast(
+                                            when (i) {
+                                                PlayerPrefs.ASPECT_FILL -> tr("画面比例：裁剪铺满（保持比例，超出部分裁掉）")
+                                                PlayerPrefs.ASPECT_STRETCH -> tr("画面比例：拉伸（铺满，画面会变形）")
+                                                PlayerPrefs.ASPECT_16_9 -> tr("画面比例：16:9")
+                                                PlayerPrefs.ASPECT_4_3 -> tr("画面比例：4:3")
+                                                else -> tr("画面比例：适应（保持原比例）")
+                                            },
+                                        )
+                                        poke++
+                                    },
+                                )
                             }
                             Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
                             MenuSectionTitle(tr("渲染方式"), scale)

@@ -126,7 +126,7 @@ GM_mafariHost('play', { url, title, referer: location.href, ua: navigator.userAg
 
 ## 快捷菜单与截屏
 
-悬浮卡片（非全屏 / 非画中画）下方、标题上方有一排快捷菜单（`NativePlayerActivity.QuickActions`）：投屏 / 下载 / 截屏 / 倍速 / 清晰度。
+悬浮卡片（非全屏 / 非画中画）下方、标题上方有一排快捷菜单（`NativePlayerActivity.QuickActions`）：投屏 / 外部播放 / 下载 / 截屏 / 倍速 / 清晰度 / 视频源。
 设置 → 媒体嗅探与播放 → 快捷菜单 里总开关和各按钮开关（`PlayerPrefs.quickItems`，开页时读一次）。
 - 清晰度：点开后换成「自动 + `MafariPlayer.qualities`」，只有一档时灰掉。
 - 倍速：点开后这一排换成倍速选项（`PlayerPrefs.SPEEDS`），选完恢复；按钮上显示当前倍速。
@@ -189,3 +189,10 @@ fetch / XHR 返回的小 JSON（≤200KB，最多 8 个）里的视频地址。�
 **跟随页面**（`BrowserDialogHost`）：播放器开着（或开了自动悬浮播放）时，用户在页面里手动点播放的视频改由原生播放器播。
 WebView：脚本在 `<video>` 开播、fetch / XHR 拿到清单时带上 userActivation / 5 秒内触摸标记（`ua`），原生看到 `userPlayed` 就切；
 Gecko 没有点击信号，只认「上次拉起播放器之后新出现」的合格正片。已经在播的地址、已经拉起过的地址不重复开。
+
+## 画面比例 / 外部播放
+
+- **画面比例**（⋯ 菜单 → 画面比例，`PlayerPrefs.aspectMode`，改了即存）：适应（默认，保持原比例留黑边）/ 裁剪铺满（保持比例放大到盖住画面，超出部分裁掉）/ 拉伸（不保比例拉满）/ 16:9 / 4:3（强制比例再适应窗口）。实现在 `PlayerSurface`：只改视频 View 的尺寸，容器 `clipToBounds`。
+  - 待真机确认：「裁剪铺满」在 SurfaceView 渲染方式下，View 比容器大时 Compose 的裁剪对 SurfaceView 不一定生效（TextureView 可以）。
+  - 截屏取的是视频 View 的画面，裁剪铺满 / 拉伸下截到的是被放大（或拉伸）后的整幅画面。
+- **外部播放**（快捷菜单第二个按钮，id `external`，设置里可单独关）：`NativePlayerActivity.openExternal` 弹出系统「用其他应用打开」选择器（排除本 App）。网络地址走 `MediaHost.launchExternal`（带 UA / Referer / Cookie / 当前进度）；本地文件走 VIEW + 临时读权限。拉起前暂停本地播放，3 秒内不自动进画中画。

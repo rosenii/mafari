@@ -2319,3 +2319,13 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 已切换，新打开的标签页生效	Switched; applies to newly opened tabs
 无法打开这个文件    Can't open this file
 更多下载记录	More downloads
+画面比例	Aspect ratio
+适应	Fit
+裁剪铺满	Crop to fill
+拉伸	Stretch
+外部播放	External player
+画面比例：裁剪铺满（保持比例，超出部分裁掉）	Aspect ratio: Crop to fill (keeps proportions, edges cropped)
+画面比例：拉伸（铺满，画面会变形）	Aspect ratio: Stretch (fills the screen, may distort)
+画面比例：16:9	Aspect ratio: 16:9
+画面比例：4:3	Aspect ratio: 4:3
+画面比例：适应（保持原比例）	Aspect ratio: Fit (original proportions)

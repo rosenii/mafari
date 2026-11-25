@@ -14,6 +14,7 @@ import android.app.RemoteAction
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -76,7 +77,11 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.Player
 import dev.dsh.miuixbrowser.download.Downloader
+import android.net.Uri
+import dev.dsh.miuixbrowser.MainActivity
 import dev.dsh.miuixbrowser.i18n.tr
+import dev.dsh.miuixbrowser.script.MediaHost
+import org.json.JSONObject
 import top.yukonga.miuix.kmp.icon.glass.Link
 import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -411,7 +416,7 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     /**
-     * 卡片下方、标题上方的快捷菜单（图标 + 文字）：投屏 / 下载 / 截屏 / 倍速 / 清晰度 / 视频源，
+     * 卡片下方、标题上方的快捷菜单（图标 + 文字）：投屏 / 外部播放 / 下载 / 截屏 / 倍速 / 清晰度 / 视频源，
      * 设置 → 媒体嗅探与播放 → 快捷菜单 里可整排关掉或逐个关。
      * 点「倍速」/「清晰度」/「视频源」这一排换成对应的选项，选完（或点返回）恢复。
      */
@@ -452,6 +457,7 @@ class NativePlayerActivity : ComponentActivity() {
                 quickItems.forEach { id ->
                     when (id) {
                         "cast" -> QuickAction(AppIcons.ScreenMirror, tr("投屏"), Modifier.weight(1f), enabled = cast != null) { cast?.openPicker() }
+                        "external" -> QuickAction(AppIcons.External, tr("外部播放"), Modifier.weight(1f)) { openExternal(p) }
                         "download" -> QuickAction(MiuixIcons.Glass.Download, tr("下载"), Modifier.weight(1f), enabled = !p.request.isLocal) {
                             download(p)
                             Toast.makeText(this@NativePlayerActivity, tr("已加入下载"), Toast.LENGTH_SHORT).show()
@@ -669,6 +675,38 @@ class NativePlayerActivity : ComponentActivity() {
             Downloader.startHls(ctx, r.url, ua, name, referer, true, r.gecko)
         } else {
             Downloader.start(ctx, r.url, ua, name, null, null, referer, true, r.gecko)
+        }
+    }
+
+    /**
+     * 交给系统里别的播放器：弹出系统「用其他应用打开」选择器（本 App 自己排除在外）。
+     * 网络地址带 UA / Referer / Cookie / 当前进度（和投屏面板里的「外部打开」同一套，见 [MediaHost.launchExternal]）；
+     * 本地文件（content:// / file://）走普通 VIEW + 临时读权限。拉起前暂停播放，避免两边同时出声；3 秒内不自动进画中画。
+     */
+    private fun openExternal(p: MafariPlayer) {
+        val r = p.currentRequest
+        val wasPlaying = p.exo.isPlaying
+        val ok = if (r.isLocal) {
+            val uri = Uri.parse(r.url)
+            val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "video/*")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .putExtra("title", r.title)
+            val chooser = Intent.createChooser(i, tr("选择播放器 / 投屏 App")).putExtra(
+                Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(ComponentName(this, MainActivity::class.java)),
+            )
+            suppressPip()
+            runCatching { startActivity(chooser) }.isSuccess
+        } else {
+            val o = JSONObject()
+                .put("url", r.url).put("title", r.title).put("type", r.type)
+                .put("ua", r.ua).put("referer", r.referer).put("cookie", r.cookie)
+                .put("pos", (p.exo.currentPosition / 1000).toInt())
+            MediaHost.launchExternal(this, o, beforeLaunch = ::suppressPip)
+        }
+        if (ok) {
+            if (wasPlaying) p.exo.pause()
+        } else {
+            Toast.makeText(this, tr("没有找到可用的播放器"), Toast.LENGTH_SHORT).show()
         }
     }
 

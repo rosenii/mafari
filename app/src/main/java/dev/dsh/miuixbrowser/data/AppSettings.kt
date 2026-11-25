@@ -1015,7 +1015,7 @@ class AppSettings(context: Context) {
         prefs.edit().putFloat(dev.dsh.miuixbrowser.player.PlayerPrefs.KEY_LONG_PRESS, playerLongPressSpeed).apply()
     }
 
-    /** 快捷菜单：悬浮播放器卡片下方的一排按钮（投屏 / 下载 / 截屏 / 倍速 / 清晰度 / 视频源）总开关 */
+    /** 快捷菜单：悬浮播放器卡片下方的一排按钮（投屏 / 外部播放 / 下载 / 截屏 / 倍速 / 清晰度 / 视频源）总开关 */
     var playerQuickMenu by mutableStateOf(prefs.getBoolean(dev.dsh.miuixbrowser.player.PlayerPrefs.KEY_QUICK_MENU, true))
         private set
 

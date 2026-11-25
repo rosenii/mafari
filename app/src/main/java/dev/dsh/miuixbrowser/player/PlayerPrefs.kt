@@ -20,9 +20,10 @@ object PlayerPrefs {
     const val KEY_LONG_PRESS = "player_long_press_speed"
     const val KEY_BG_PLAY = "player_bg_play"
     const val KEY_QUICK_MENU = "player_quick_menu"
+    const val KEY_ASPECT = "player_aspect_mode"
 
     /** 悬浮播放器下方快捷菜单里的按钮（顺序即显示顺序）；每个按钮可在设置里单独关 */
-    val QUICK_IDS = listOf("cast", "download", "shot", "speed", "quality", "source")
+    val QUICK_IDS = listOf("cast", "external", "download", "shot", "speed", "quality", "source")
     fun quickKey(id: String) = "player_quick_$id"
 
     /** 老版本把后台播放存在播放页自己的 prefs 里（mafari_player / bg_play），第一次读时沿用 */
@@ -31,6 +32,16 @@ object PlayerPrefs {
 
     const val RENDER_TEXTURE = 0
     const val RENDER_SURFACE = 1
+
+    /** 画面比例（填充方式）：适应 = 保持原比例留黑边；裁剪铺满 = 保持原比例放大到铺满、超出部分裁掉；拉伸 = 不保比例直接拉满；16:9 / 4:3 = 强制按该比例显示（再适应窗口） */
+    const val ASPECT_FIT = 0
+    const val ASPECT_FILL = 1
+    const val ASPECT_STRETCH = 2
+    const val ASPECT_16_9 = 3
+    const val ASPECT_4_3 = 4
+    const val ASPECT_COUNT = 5
+
+    fun clampAspect(v: Int): Int = if (v in 0 until ASPECT_COUNT) v else ASPECT_FIT
 
     /** 默认倍速可选值（下拉顺序） */
     val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
@@ -51,6 +62,12 @@ object PlayerPrefs {
 
     fun setRenderMode(context: Context, mode: Int) {
         prefs(context).edit().putInt(KEY_RENDER, clampRender(mode)).apply()
+    }
+
+    fun aspectMode(context: Context): Int = clampAspect(prefs(context).getInt(KEY_ASPECT, ASPECT_FIT))
+
+    fun setAspectMode(context: Context, mode: Int) {
+        prefs(context).edit().putInt(KEY_ASPECT, clampAspect(mode)).apply()
     }
 
     fun defaultSpeed(context: Context): Float = snap(prefs(context).getFloat(KEY_SPEED, 1f), SPEEDS, 1f)
