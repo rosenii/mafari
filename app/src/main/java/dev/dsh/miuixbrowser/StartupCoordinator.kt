@@ -116,14 +116,14 @@ internal object StartupCoordinator {
     }
 
     /** 阶段 3：库已就绪（含迁移，或已确定打不开而降级）。界面重建时库早已好，直接组合，不闪占位。 */
-    fun isContentReady(): Boolean = StartupWarmup.isDbReady() && (!WebViewStartup.started || WebViewStartup.isDone())
+    fun isContentReady(): Boolean = StartupWarmup.isDbReady()
 
     /** 阶段 3：挂起直到库就绪（在 IO 线程等，不卡主线程）。 */
     suspend fun awaitContentReady(context: Context) {
         withContext(Dispatchers.IO) {
             StartupWarmup.awaitDb(context)
-            // 第一个 WebView 在闸门放行后才会创建：等 WebView 预热结束（和库预热并行，通常早已好；有超时，等不到照旧放行）
-            WebViewStartup.awaitDone()
+            // 不再在闸门里等 WebView 预热：它只是锦上添花，没好时 WebView 构造自己同步加载。
+            // （实测 startUpWebView 的回调可能始终不来，旧版闸门因此每次冷启动固定白等 1.5 秒。）
             // 顺手把标签列表读好：BrowserState 初始化（主线程）就不必再读库，只管建界面要用的那一个标签
             runCatching {
                 if (context.appContainer.settings.restoreTabsMode != RestoreMode.NONE) {

@@ -44,8 +44,8 @@ object WebViewStartup {
                 Thread(r, "mafari-webview-startup").apply { isDaemon = true }
             }
             val config = WebViewStartUpConfig.Builder(executor)
-                // 主线程上的启动任务也在这里分块做完，而不是留到第一个 WebView 创建时一次做
-                .setShouldRunUiThreadStartUpTasks(true)
+                // 只做后台线程能做的部分；主线程部分留给第一个 WebView 创建时（设为 true 时实测回调始终不来，且会和首帧抢主线程）
+                .setShouldRunUiThreadStartUpTasks(false)
                 .build()
             // 1.19 起 startUpWebView 有两个单参回调重载（WebViewStartUpCallback / WebViewOutcomeReceiver），
             // 直接传 Kotlin lambda 会 overload resolution ambiguity；显式 SAM 构造固定到 StartUpCallback。

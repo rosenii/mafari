@@ -67,8 +67,24 @@ internal object AppDatabase {
             instance = db
             LegacyImports.run(app, db)
             settled = true
+            // 库已就绪、不再卡首屏之后，才把旧套件封装的库密钥换成新套件（之后每次冷启动解包都变快）
+            io.execute { resealKeyIfNeeded(app) }
             return db
         }
+    }
+
+    /** 库密钥若还是旧套件（如 ML-KEM 混合套件）的密文：读出后用当前本机默认套件重封，回读校验一致才写回。后台单写线程执行。 */
+    private fun resealKeyIfNeeded(app: Context) {
+        runCatching {
+            val prefs = app.getSharedPreferences(KEY_PREFS, Context.MODE_PRIVATE)
+            val raw = prefs.getString(KEY_NAME, null) ?: return@runCatching
+            if (!SecureStore.needsUpgrade(raw)) return@runCatching
+            val plain = SecureStore.read(app, raw, SecureStore.PURPOSE_HISTORY_DB) ?: return@runCatching
+            val sealed = SecureStore.write(app, plain, SecureStore.PURPOSE_HISTORY_DB) ?: return@runCatching
+            // 回读校验：新密文必须能解回同一把密钥，才替换旧的
+            if (SecureStore.read(app, sealed, SecureStore.PURPOSE_HISTORY_DB) != plain) return@runCatching
+            if (prefs.edit().putString(KEY_NAME, sealed).commit()) Diag.log("history db key: resealed with current device suite")
+        }.onFailure { Diag.log("history db key: reseal skipped: ${it.message}") }
     }
 
     private fun open(context: Context): SQLiteDatabase {
@@ -86,7 +102,7 @@ internal object AppDatabase {
         val prefs = context.getSharedPreferences(KEY_PREFS, Context.MODE_PRIVATE)
         var pass: String? = prefs.getString(KEY_NAME, null)
             ?.let { SecureStore.read(context, it, SecureStore.PURPOSE_HISTORY_DB) }
-        lap("unwrap db key (keystore + ML-KEM)")
+        lap("unwrap db key")
         if (pass == null) {
             // 首次使用，或旧密钥已丢：旧库打不开，清掉后用新密钥重建
             HistoryDbKey.discard(file)

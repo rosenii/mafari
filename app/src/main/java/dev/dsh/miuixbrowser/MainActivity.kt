@@ -224,9 +224,6 @@ class MainActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
-        }
 
         setContent {
             val context = LocalContext.current
@@ -282,6 +279,15 @@ class MainActivity : ComponentActivity() {
                         }
                         // Firefox 同步预热排在界面真正出来之后（此前是首帧后 3 秒，现在首帧提前了，不能再和加密库打开抢资源）
                         StartupCoordinator.onContentShown(this@MainActivity)
+                        // 通知权限：首屏稳定之后再申请（系统弹窗不再叠在启动画面上，也不占冷启动主线程）
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            kotlinx.coroutines.delay(1_500L)
+                            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                                android.content.pm.PackageManager.PERMISSION_GRANTED
+                            ) {
+                                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+                            }
+                        }
                     }
                 }
             }
