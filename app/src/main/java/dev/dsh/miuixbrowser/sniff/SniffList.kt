@@ -6,8 +6,8 @@ import androidx.compose.runtime.setValue
 
 /**
  * 一个页面嗅探到的视频：去重、有上限，线程安全（WebView 在 IO 线程、Gecko 在主线程写，界面在主线程读）。
- * [items] 是 Compose 状态，界面直接读；[promptedCount] 记录已经提示过的个数：只有出现新地址才再弹，
- * 同一批地址不会重复打扰（关掉之后同页再发现新的源才会再弹）。
+ * [items] 是 Compose 状态，界面直接读；[promptedCount] 记录已经处理过的个数（自动悬浮播放只对新出现的地址判断一次）；
+ * 不会主动弹提示，列表只在用户点地址栏的媒体图标时才打开。
  */
 class SniffList {
     var items by mutableStateOf<List<SniffedMedia>>(emptyList())

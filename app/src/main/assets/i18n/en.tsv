@@ -2226,7 +2226,7 @@ m3u8 下载完成后把 TS 转封装成 MP4（不重新编码；编码不支持�
 全屏播放视频时按 Home / 手势返回桌面，自动进入画中画小窗	When a video is playing full screen, pressing Home or swiping back to the home screen automatically opens a picture-in-picture window
 自动悬浮播放	Auto floating playback
 一键停用：嗅探、原生悬浮播放、自动画中画、自动悬浮播放及相关脚本；关闭后不再拦截 / 弹窗，刷新页面后生效	Turn off in one tap: sniffing, native floating playback, auto picture-in-picture, auto floating playback and related scripts. When off, nothing is intercepted or prompted. Takes effect after refreshing the page
-嗅探到视频后直接用悬浮播放器打开，不再先弹「发现视频」提示；已有播放器开着时不会重复打开	Opens the floating player directly when a video is detected, instead of showing the "Video found" prompt first. Won't open a second player if one is already open
+嗅探到正片后自动用悬浮播放器打开，预览 / 短视频除外；已有播放器开着时不会重复打开。关闭后也不会主动弹窗，可点地址栏的媒体图标手动选择	Automatically opens the main video in the floating player once detected (previews and short clips are skipped). Won't open a second player if one is already open. When off, nothing pops up on its own; tap the media icon in the address bar to pick a video.
 播放器	Player
 渲染方式	Render mode
 TextureView 支持玻璃模糊；SurfaceView 更省电、延迟更低，但没有玻璃模糊。下次打开播放器生效	TextureView supports the glass blur effect; SurfaceView saves more power and has lower latency but no glass blur. Takes effect the next time the player opens

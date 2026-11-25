@@ -431,30 +431,33 @@ BrowserChunk {
             onDismiss = { requestSheetShow = false },
         )
 
-        // 嗅探到网页视频（NATIVE_PLAYER.md 阶段四）：出现新地址弹一次提示，同批地址不重复打扰；点一条用原生播放器打开
+        // 嗅探到网页视频（NATIVE_PLAYER.md 阶段四）：不再主动弹「发现视频」提示，无论有没有开「自动悬浮播放」。
+        //   开了「自动悬浮播放」：自动用原生播放器打开合格的正片；没开：什么都不做。
+        //   想看本页发现的视频，点地址栏的媒体图标手动打开列表（sniffDialogShow 只由图标触发）。
         val sniffList = tab.sniffs
         val sniffItems = sniffList.items
         androidx.compose.runtime.LaunchedEffect(sniffList, sniffItems.size, settings.mediaSniffActive) {
             if (!settings.mediaSniffActive || sniffItems.size <= sniffList.promptedCount) return@LaunchedEffect
+            if (!settings.mediaAutoFloatActive) {
+                // 不自动播也不弹：只记下已经出现过的个数，之后再打开「自动悬浮播放」也不会回头去播这些旧地址
+                sniffList.promptedCount = sniffItems.size
+                return@LaunchedEffect
+            }
             kotlinx.coroutines.delay(900) // 同一时刻到的其他源（多清晰度 / 多线路）一起列出来
             val n = sniffList.items.size
             if (n > sniffList.promptedCount) {
                 sniffList.promptedCount = n
-                if (settings.mediaAutoFloatActive) {
-                    // 自动悬浮播放：只自动播「正片」。预览 / 封面循环 / 页面里的动态小元素不播：
-                    //   先探时长（页面 <video> 报的或后台探测），再按 MediaSniff.pickAutoPlay 选：
-                    //   排除页面标记的预览（循环 / 很小 / 不可见）和短于 AUTO_MIN_MS 的；时长相同取先出现的、不同取最长的。
-                    // 没有合格的就什么都不弹（地址栏的媒体图标里仍能手动点开）；已经有播放器开着就不再拉起第二个
-                    if (!dev.dsh.miuixbrowser.player.NativePlayerActivity.showing) {
-                        tab.probeDurations(sniffList, 4000)
-                        val pick = dev.dsh.miuixbrowser.sniff.MediaSniff.pickAutoPlay(sniffList.items, sniffList.autoPlayedUrls())
-                        if (pick != null && !dev.dsh.miuixbrowser.player.NativePlayerActivity.showing) {
-                            sniffList.markAutoPlayed(pick.url)
-                            tab.playSniffed(context, pick, sniffList.items.toList())
-                        }
+                // 自动悬浮播放：只自动播「正片」。预览 / 封面循环 / 页面里的动态小元素不播：
+                //   先探时长（页面 <video> 报的或后台探测），再按 MediaSniff.pickAutoPlay 选：
+                //   排除页面标记的预览（循环 / 很小 / 不可见）和短于 AUTO_MIN_MS 的；时长相同取先出现的、不同取最长的。
+                // 没有合格的就什么都不弹（地址栏的媒体图标里仍能手动点开）；已经有播放器开着就不再拉起第二个
+                if (!dev.dsh.miuixbrowser.player.NativePlayerActivity.showing) {
+                    tab.probeDurations(sniffList, 4000)
+                    val pick = dev.dsh.miuixbrowser.sniff.MediaSniff.pickAutoPlay(sniffList.items, sniffList.autoPlayedUrls())
+                    if (pick != null && !dev.dsh.miuixbrowser.player.NativePlayerActivity.showing) {
+                        sniffList.markAutoPlayed(pick.url)
+                        tab.playSniffed(context, pick, sniffList.items.toList())
                     }
-                } else {
-                    sniffDialogShow = true
                 }
             }
         }

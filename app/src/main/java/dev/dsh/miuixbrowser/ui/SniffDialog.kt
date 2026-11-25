@@ -32,7 +32,7 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 嗅探到网页视频时的提示（NATIVE_PLAYER.md 阶段四）：列出本页发现的视频地址，点一条就用原生播放器打开，
+ * 点地址栏媒体图标打开的「发现视频」列表（NATIVE_PLAYER.md 阶段四；不会主动弹出）：列出本页发现的视频地址，点一条就用原生播放器打开，
  * 其余地址作为可切换的源一起交给播放页。对话框走材质抽象层，和其它应用内弹窗一致。
  *
  * [items] 为空时（页面已换）自动收起；收起动画期间保留最后一次的内容，避免列表先消失。

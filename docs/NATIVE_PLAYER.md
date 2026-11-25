@@ -68,7 +68,7 @@ GM_mafariHost('play', { url, title, referer: location.href, ua: navigator.userAg
 
 ## 阶段四：嗅探（`sniff/`、`browser/TabSniff.kt`、`engine/gecko/GeckoSniff.kt`）
 
-打开网页后，页面里出现视频就弹「发现视频」提示，点一条用原生播放器打开。不再依赖脚本侧的 `GM_mafariHost('play')`。
+打开网页后，页面里出现视频时地址栏最左侧出现媒体图标，点开「发现视频」列表，点一条用原生播放器打开（不会主动弹窗）。不再依赖脚本侧的 `GM_mafariHost('play')`。
 
 ### 判定（`MediaSniff.classify`，纯函数，有单测）
 
@@ -90,7 +90,7 @@ GM_mafariHost('play', { url, title, referer: location.href, ua: navigator.userAg
 
 ### 界面
 
-- 页面里出现**新的**视频地址 → 等 0.9 秒（让同时到的其他清晰度 / 线路一起列出）→ 弹「发现视频」对话框（`SniffDialog`，走材质抽象层）。
+- 页面里出现**新的**视频地址 → 等 0.9 秒（让同时到的其他清晰度 / 线路一起列出）→ 开了「自动悬浮播放」就自动打开合格的正片，否则什么都不做；「发现视频」对话框（`SniffDialog`，走材质抽象层）只在点地址栏媒体图标时打开，不再主动弹出。
   同一批地址不重复打扰；关掉之后同页又发现新的才会再弹。换页 / 换标签自动收起并清空。
 - 点一条 → `BrowserTab.playSniffed`：Referer = 当前页地址，UA = 当前标签的 UA，Cookie = 该标签 Profile 的 Cookie（无痕用无痕 Profile；Gecko 经后台页取，放后台线程）；
   列表里其余地址作为「视频源」一起交给播放页，可切换。

@@ -143,7 +143,7 @@ fun MediaSniffScreen(
                         )
                         AppSwitchPreference(
                             title = tr("自动悬浮播放"),
-                            summary = tr("嗅探到视频后直接用悬浮播放器打开，不再先弹「发现视频」提示；已有播放器开着时不会重复打开"),
+                            summary = tr("嗅探到正片后自动用悬浮播放器打开，预览 / 短视频除外；已有播放器开着时不会重复打开。关闭后也不会主动弹窗，可点地址栏的媒体图标手动选择"),
                             checked = settings.mediaAutoFloat,
                             onCheckedChange = { settings.updateMediaAutoFloat(it) },
                             enabled = active,

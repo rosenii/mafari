@@ -961,7 +961,7 @@ class AppSettings(context: Context) {
         syncMediaFeatures()
     }
 
-    /** 自动悬浮播放：嗅探到视频后直接用原生悬浮播放器打开，不再先弹「发现视频」提示（默认关） */
+    /** 自动悬浮播放：嗅探到正片后自动用原生悬浮播放器打开（默认关）；无论开关，都不会主动弹「发现视频」提示 */
     var mediaAutoFloat by mutableStateOf(prefs.getBoolean(KEY_MEDIA_AUTO_FLOAT, false))
         private set
 
