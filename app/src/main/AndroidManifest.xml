@@ -94,7 +94,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 系统「打开方式」里的网页 / 纯文本文件：文件管理器 / 聊天 / 邮件等交来的 content:// 或 file:// 本地文件。
+        <!-- 系统「打开方式」/ 分享菜单里的网页 / 纯文本文件：文件管理器 / 聊天 / 邮件等交来的 content:// 或 file:// 本地文件。
              无界面：先把文件拷进应用私有目录（纯文本会包成一页可读的 HTML）再交给 MainActivity 打开（见 LocalHtml）。
              不是 http(s) 链接，所以不影响「默认浏览器」的判定 -->
         <activity
@@ -201,9 +201,23 @@
                 <data android:pathPattern=".*\\..*\\.MD" />
                 <data android:pathPattern=".*\\..*\\..*\\.MD" />
             </intent-filter>
+            <!-- 3) 系统分享菜单（ACTION_SEND）：分享来的网页 / 文本文件（EXTRA_STREAM）。分享菜单没法区分「一个 txt 文件」和「一段文字」，
+                 都是 text/plain，所以分享文字也会出现 Mafari：是链接就直接打开，其余文字包成一页可读文本（见 HtmlOpenActivity）。
+                 分享菜单不看扩展名，只有发送方给了对应的 MIME 才会出现 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/html" />
+                <data android:mimeType="application/xhtml+xml" />
+                <data android:mimeType="multipart/related" />
+                <data android:mimeType="application/x-mimearchive" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+            </intent-filter>
         </activity>
 
-        <!-- 系统「打开方式」里的本地视频：无界面，直接交给原生播放页全屏播放（见 VideoOpenActivity）。
+        <!-- 系统「打开方式」/ 分享菜单里的本地视频：无界面，直接交给原生播放页全屏播放（见 VideoOpenActivity）。
              独立 taskAffinity：返回直接回到调用方应用，不拉起 Mafari 主界面 -->
         <activity
             android:name=".VideoOpenActivity"
@@ -333,6 +347,14 @@
                 <data android:pathPattern=".*\\.VOB" />
                 <data android:pathPattern=".*\\..*\\.VOB" />
                 <data android:pathPattern=".*\\..*\\..*\\.VOB" />
+            </intent-filter>
+            <!-- 系统分享菜单（ACTION_SEND）：分享来的本地视频（EXTRA_STREAM） -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="application/x-matroska" />
+                <data android:mimeType="application/vnd.rn-realmedia" />
             </intent-filter>
         </activity>
 

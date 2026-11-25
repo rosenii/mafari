@@ -125,14 +125,48 @@ object LocalHtml {
         }
         val text = decodeText(buf.toByteArray())
         val title = (rawName ?: "text").substringAfterLast('/').substringAfterLast('\\')
-        val mono = if (title.substringAfterLast('.', "").lowercase() == "log") "ui-monospace,Menlo,Consolas,monospace" else "system-ui,-apple-system,'Segoe UI',sans-serif"
+        val mono = if (title.substringAfterLast('.', "").lowercase() == "log") MONO else SANS
+        target.writeText(textPageHtml(title, text, truncated, mono), Charsets.UTF_8)
+    }
+
+    private const val MONO = "ui-monospace,Menlo,Consolas,monospace"
+    private const val SANS = "system-ui,-apple-system,'Segoe UI',sans-serif"
+
+    /** 纯文本页的 HTML：[text] 全部转义；[truncated] 时末尾加一行提示。 */
+    internal fun textPageHtml(title: String, text: String, truncated: Boolean, font: String = SANS): String {
         val note = if (truncated) "\n\n—— 文件较大，仅显示前 8 MB ——" else ""
-        val html = "<!doctype html><html><head><meta charset=\"utf-8\">" +
+        return "<!doctype html><html><head><meta charset=\"utf-8\">" +
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
             "<meta name=\"color-scheme\" content=\"light dark\"><title>${escape(title)}</title>" +
             "<style>body{margin:0;padding:16px}pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;" +
-            "font:15px/1.65 $mono;tab-size:4}</style></head><body><pre>${escape(text + note)}</pre></body></html>"
-        target.writeText(html, Charsets.UTF_8)
+            "font:15px/1.65 $font;tab-size:4}</style></head><body><pre>${escape(text + note)}</pre></body></html>"
+    }
+
+    /**
+     * 分享菜单交来的一段文字（EXTRA_TEXT）整个就是一条 http(s) 链接时返回它，否则 null。
+     * 文字里夹着别的内容（标题 + 链接）不当链接处理，按文本显示，避免误开。
+     */
+    fun sharedLink(text: String): String? {
+        val s = text.trim()
+        if (s.isEmpty() || s.any { it.isWhitespace() }) return null
+        val lower = s.lowercase()
+        return if ((lower.startsWith("http://") || lower.startsWith("https://")) && s.length > 8) s else null
+    }
+
+    /** 把分享来的一段文字做成本地文本页（和纯文本文件同一套样式）。 */
+    fun importText(context: Context, text: String): Result<File> = runCatching {
+        val app = context.applicationContext
+        val folder = File(dir(app), digest("text:$text")).apply { mkdirs() }
+        val target = File(folder, "shared-text.html")
+        try {
+            val title = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }.orEmpty().take(40).ifEmpty { "text" }
+            target.writeText(textPageHtml(title, text, truncated = false), Charsets.UTF_8)
+        } catch (t: Throwable) {
+            target.delete()
+            throw t
+        }
+        prune(app, keep = folder)
+        target
     }
 
     /** 编码判断：BOM → 严格 UTF-8 → GB18030（兼容 GBK）→ 容错 UTF-8。 */

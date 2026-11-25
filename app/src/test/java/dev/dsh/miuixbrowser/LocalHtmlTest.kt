@@ -53,4 +53,21 @@ class LocalHtmlTest {
     @Test fun escapesHtml() {
         assertEquals("&lt;script&gt;a&amp;b", LocalHtml.escape("<script>a&b"))
     }
+
+    @Test fun sharedLinkOnlyForWholeUrl() {
+        assertEquals("https://example.com/a?b=1", LocalHtml.sharedLink("  https://example.com/a?b=1\n"))
+        assertEquals("HTTP://EXAMPLE.COM", LocalHtml.sharedLink("HTTP://EXAMPLE.COM"))
+        assertEquals(null, LocalHtml.sharedLink("看这个 https://example.com"))
+        assertEquals(null, LocalHtml.sharedLink("example.com"))
+        assertEquals(null, LocalHtml.sharedLink("https://"))
+        assertEquals(null, LocalHtml.sharedLink("   "))
+        assertEquals(null, LocalHtml.sharedLink("javascript:alert(1)"))
+    }
+
+    @Test fun textPageEscapesContent() {
+        val html = LocalHtml.textPageHtml("<t>", "<script>alert(1)</script> & more", truncated = false)
+        assertTrue(html.contains("&lt;script&gt;alert(1)&lt;/script&gt; &amp; more"))
+        assertTrue(html.contains("<title>&lt;t&gt;</title>"))
+        assertTrue(!html.contains("<script>"))
+    }
 }
