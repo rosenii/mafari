@@ -18,6 +18,8 @@ jobs:
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      # AppShare 发版密钥（appKey）；没配置就跳过 AppShare 发布
+      APPSHARE_APP_KEY: ${{ secrets.APPSHARE_APP_KEY }}
       # 版本名（或 tag 名）以 -canary 结尾 → 预发布（canary，只出 3 个包）；没有任何后缀 → 正式发布（全部安装包，标 latest）；
       # 其它后缀一律报错。tag 推送和 dual / gecko 分支推送都按这条规则；main 分支推送构建签名 release 包但不发布（见 IS_MAIN_BRANCH）；其余分支只出 debug
       IS_RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
@@ -294,6 +296,111 @@ jobs:
           # -canary 标预发布且不抢 latest；没有后缀 = 正式发布，标 latest
           prerelease: ${{ env.IS_CANARY == 'true' }}
           make_latest: ${{ env.IS_CANARY == 'true' && 'false' || 'true' }}
+
+      # 发版到 AppShare（OAuth）：generateUploadUrl → PUT 上传 → publishVersion。
+      # 需要 Secret：APPSHARE_APP_KEY；没配就跳过。只发正式版（canary 不推给 AppShare 的更新用户）。
+      # AppShare 一个版本只传一个安装包：默认传 lite-arm64-v8a（绝大多数手机），其它变体通过 link 指到 GitHub Release；
+      # 要换变体改 APPSHARE_VARIANT（gecko / lite-arm64-v8a / lite-armeabi-v7a / lite-x86_64 / sync_lite-arm64）。
+      # 失败不影响 GitHub Release / Telegram（continue-on-error）。
+      - name: Publish to AppShare
+        if: (env.IS_RELEASE_TAG == 'true' || env.IS_PRE_BRANCH == 'true') && env.IS_CANARY != 'true' && env.APPSHARE_APP_KEY != ''
+        continue-on-error: true
+        env:
+          APPSHARE_APP_ID: AC5392163831A9F26A32C0
+          APPSHARE_VARIANT: lite-arm64-v8a
+          APPSHARE_TYPE: "1"
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+        run: |
+          python3 - <<'PY'
+          import glob, hashlib, json, os, subprocess, sys
+
+          BASE = "https://app.sharess.cn/oauth/v1"
+          app_id = os.environ["APPSHARE_APP_ID"]
+          key = os.environ["APPSHARE_APP_KEY"]
+          vtype = os.environ["APPSHARE_TYPE"]
+          variant = os.environ["APPSHARE_VARIANT"]
+
+          files = glob.glob(f"dist/*-{variant}.apk")
+          if not files:
+              sys.exit(f"::error::dist/ 里没有 *-{variant}.apk")
+          path = files[0]
+          name = os.path.basename(path)
+          size = os.path.getsize(path)
+          h = hashlib.md5()
+          with open(path, "rb") as f:
+              for chunk in iter(lambda: f.read(1 << 20), b""):
+                  h.update(chunk)
+          file_sign = h.hexdigest()
+
+          def md5(*parts):
+              return hashlib.md5("".join(str(p) for p in parts).encode()).hexdigest()
+
+          def api(endpoint, params):
+              cmd = ["curl", "-sS", "--fail-with-body", "--max-time", "120", "-G", f"{BASE}/{endpoint}"]
+              for k, v in params.items():
+                  cmd += ["--data-urlencode", f"{k}={v}"]
+              r = subprocess.run(cmd, capture_output=True, text=True)
+              out = r.stdout
+              safe = out
+              try:
+                  pu = (json.loads(out).get("data") or {}).get("presignUrl")
+                  if pu:
+                      safe = out.replace(pu, "<presignUrl>")
+              except ValueError:
+                  pass
+              print(f"{endpoint} -> HTTP rc={r.returncode} {safe[:800]}")
+              if r.returncode != 0:
+                  sys.exit(f"::error::{endpoint} 请求失败")
+              res = json.loads(out)
+              # 统一响应：code=100 成功，其它失败；业务数据在 data
+              if str(res.get("code")) != "100":
+                  sys.exit(f"::error::{endpoint} 失败 code={res.get('code')} message={res.get('message')}")
+              return res.get("data") or {}
+
+          # 1) 申请上传  sign=md5(appId+name+fileSign+appKey)
+          up = api("generateUploadUrl", {
+              "appId": app_id, "name": name, "fileSign": file_sign, "byteSize": size,
+              "sign": md5(app_id, name, file_sign, key),
+          })
+          record_id = up.get("recordId")
+          presign = up.get("presignUrl")
+          reuse = up.get("reuse")
+          if record_id is None:
+              sys.exit("::error::generateUploadUrl 响应里没有 recordId")
+
+          # 2) PUT 上传（reuse=true：服务器已有同 MD5 文件，跳过）
+          if str(reuse).lower() in ("true", "1"):
+              print("reuse=true，跳过上传")
+          else:
+              if not presign:
+                  sys.exit("::error::generateUploadUrl 响应里没有 presignUrl")
+              r = subprocess.run(
+                  ["curl", "-sS", "--fail-with-body", "--max-time", "1200", "-X", "PUT", presign,
+                   "-H", "Content-Type: application/octet-stream", "--data-binary", f"@{path}"],
+                  capture_output=True, text=True,
+              )
+              print("PUT rc=", r.returncode, r.stdout[:300])
+              if r.returncode != 0:
+                  sys.exit("::error::上传安装包失败")
+
+          # 3) 发版  sign=md5(appId+recordId+versionCode+versionName+type+appKey)
+          code = os.environ["APP_VERSION_CODE"]
+          vname = os.environ["APP_VERSION_NAME"]
+          log = ""
+          try:
+              notes = open("dist/RELEASE_NOTES.md", encoding="utf-8").read()
+              log = notes.split("**安装包说明")[0]
+              log = "\n".join(l for l in log.splitlines() if not l.startswith("## ")).strip()
+          except OSError:
+              pass
+          link = os.environ.get("RELEASE_URL") or f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/tag/{os.environ['RELEASE_TAG_NAME']}"
+          api("publishVersion", {
+              "appId": app_id, "recordId": record_id, "versionCode": code, "versionName": vname,
+              "type": vtype, "updateLog": log[:1500], "link": link,
+              "sign": md5(app_id, record_id, code, vname, vtype, key),
+          })
+          print(f"AppShare 发版完成：{vname} ({code}) <- {name}")
+          PY
 
       # 同步推送到 Telegram 频道（正式版 + 预发布）。
       # 需要 Secrets：TELEGRAM_BOT_TOKEN（机器人需是频道管理员）；TELEGRAM_CHAT_ID 可选，默认 @mafari_a。
