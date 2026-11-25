@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // 缓存 URL.createObjectURL 产生的 Blob，供原生 extractBlob 直接读取，
 // 避免对 blob: 再 fetch（WebView 里常报 Failed to fetch / CORS）。
 // 缓存有上限：revoke 后延迟删除，数量超限时淘汰最早的，避免长期占用内存。

@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // 在 Node 里跑 app/src/main/assets/mafari_ext_shim.js：用假的 window / document / 桥模拟 WebView 环境。
 // 用法：node tools/ext-shim-test/run.js
 const fs = require('fs');

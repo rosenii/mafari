@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")

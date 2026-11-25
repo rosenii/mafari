@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * 页面不可见时暂停所有音视频（Gecko）。
  *
  * GeckoSession.setActive(false)（切到别的标签 / 标签列表）和应用退到后台时，页面会变成 document.hidden，

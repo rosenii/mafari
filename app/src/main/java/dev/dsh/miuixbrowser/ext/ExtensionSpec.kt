@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 package dev.dsh.miuixbrowser.ext
 
 /** 与引擎无关的拓展描述：ManifestParser 把 MV2 / MV3 / Firefox 差异归一化到这里。 */

@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * Mafari Fingerprint Protection Engine 3.0
  *
  * 架构：origin-scoped document-start 注入 + 原生内联配置（详见 docs/FINGERPRINT.md）。

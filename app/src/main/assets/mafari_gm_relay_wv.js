@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * WebView 版 ISOLATED 世界中继：页面（MAIN 世界的 mafari_gm_shim.js）⇄ 原生（GmChannel）。
  * 由 Kotlin 经 addJavaScriptOnEvent(DOCUMENT_START, originRules, world) 注入隔离世界；同一个世界里，
  * 用 addWebMessageListener("mafariGmRelay", originRules, world, listener) 装了原生通道对象 mafariGmRelay

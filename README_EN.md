@@ -8,6 +8,7 @@
 
 📢 [Telegram Channel](https://t.me/mafari_a) · 💬 [Telegram Group](https://t.me/Mafari_discuss) · 📦 [Download](https://github.com/rosenii/mafari/releases)
 
+**source-available project**
 </div>
 
 ---

@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // 悬浮媒体播放器 × Mafari 宿主能力（GM_mafariHost）的端到端测试。用法：node media-host.test.js <脚本路径>
 const fs = require('fs');
 const path = require('path');

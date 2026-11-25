@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // 编译运行：kotlinc DlnaFake.kt ../../app/src/main/java/dev/dsh/miuixbrowser/script/DlnaCast.kt -include-runtime -d t.jar && java -jar t.jar
 import dev.dsh.miuixbrowser.script.*
 import com.sun.net.httpserver.HttpServer

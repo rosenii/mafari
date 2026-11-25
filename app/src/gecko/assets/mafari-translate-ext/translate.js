@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * Mafari 页内翻译：遍历页面文本节点 → 分批交给原生（由用户选的翻译源翻译）→ 原地替换文本。WebView / Gecko 共用同一份文件。
  *
  * 为什么翻译请求不在页面里发：页面有 CORS / CSP 限制，也不该把翻译源的 token / key 暴露给页面脚本；

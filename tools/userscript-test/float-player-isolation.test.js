@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // 事件隔离：播放器 / 小球上的点击不能被页面的全局监听（含捕获阶段、onclick 属性）看到
 const fs = require('fs'), path = require('path');
 const { build, BRIDGE, startServer, chromium } = require('./harness');

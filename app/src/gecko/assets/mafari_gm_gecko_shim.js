@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * Gecko 版「MafariGM」桥：提供与 GmBridge（@JavascriptInterface）同名同签名的同步接口，
  * 让 mafari_gm_runtime.js 原样运行。Kotlin（GeckoGm.buildSource）把文末的快照占位符替换成
  * { id, tok, values: { key: rawJsonString }, big: [key…] }，并把本表达式的值作为 __mafariBridge 传给运行时。

@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // Mafari 桌面模式：在 document-start 注入，让页面真正按桌面环境渲染与判断。
 // 1) 重写 / 补上 viewport，使布局宽度 >= 1280px（页面随后由 WebView 缩放以适应屏幕）
 // 2) 伪装 platform / userAgentData / 触控特征 / 指针媒体查询 / screen 尺寸

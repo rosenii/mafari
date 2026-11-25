@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * Mafari 阅读模式：检测「能否进入阅读模式」+ 提取正文 + 渲染阅读视图。WebView / Gecko 共用同一份文件。
  *
  * - WebView：原生侧用 evaluateJavascript 注入本文件（幂等），再调用

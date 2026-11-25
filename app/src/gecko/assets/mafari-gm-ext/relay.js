@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * ISOLATED 世界中继：页面（MAIN 世界的 shim）⇄ 扩展。
  * 由后台页按「所有已启用脚本的匹配范围并集」用 contentScripts.register 动态注册（先于脚本注册），
  * 所以没有任何脚本会运行的页面 / 框架根本不会加载它。

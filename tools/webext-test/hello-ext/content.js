@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // Mafari WebView 拓展自测：content script。
 // 横幅依次显示三项结果：① 注入成功 ② storage.local 计数 ③ 后台页回复（后台页没起来时显示「无响应」，不影响前两项）。
 (function () {

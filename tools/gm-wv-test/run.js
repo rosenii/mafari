@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // WebView 隔离世界通道的协议测试：用 Node vm 模拟
 //   [页面 MAIN：真 mafari_gm_runtime.js + mafari_gm_shim.js] ⇄ [中继 ISOLATED：真 mafari_gm_relay_wv.js]
 //   ⇄ [原生 GmChannel 的 JS 替身：addWebMessageListener 的 postMessage / JavaScriptReplyProxy]

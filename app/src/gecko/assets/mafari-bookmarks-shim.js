@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // Mafari：给 GeckoView 补上 browser.bookmarks（GeckoView 没有这个 API）。
 //
 // 通道：Floccus 是普通安装的拓展（非特权），GeckoView 不给它 runtime.sendNativeMessage / connectNative

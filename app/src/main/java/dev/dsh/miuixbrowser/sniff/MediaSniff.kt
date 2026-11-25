@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 package dev.dsh.miuixbrowser.sniff
 
 /** 嗅探到的一个视频地址。[type]：hls / mp4 / webm / mkv / flv。 */

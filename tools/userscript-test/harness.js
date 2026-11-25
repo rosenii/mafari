@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // Test harness: mimics UserscriptEngine.fill() + a mock MafariGM native bridge.
 const fs = require('fs');
 const http = require('http');

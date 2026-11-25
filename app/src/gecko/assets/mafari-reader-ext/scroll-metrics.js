@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * 回报「距页面底部还剩多少像素」（Gecko）。
  *
  * GeckoSession.ScrollDelegate 只给滚动位置，不给页面总高度；固定在底部的导航栏要在页面滑到底时把位置让出来，

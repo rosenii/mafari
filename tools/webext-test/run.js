@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // 自测拓展 hello-ext 的冒烟测试：把真正的 mafari_ext_shim.js + content.js 放进 vm，用假的原生端应答 storage / sendMessage，
 // 检查横幅文字。用法：node tools/webext-test/run.js
 const fs = require('fs');

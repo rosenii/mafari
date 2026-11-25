@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * 后台页（MV2 持久页）：
  *  1. 与原生保持一条长连接（connectNative 'mafariGmBg'），接收「脚本全量同步」并用 contentScripts.register 注册；
  *  2. GM_xmlhttpRequest：fetch（扩展页不受 CORS 限制）+ webRequest 改写 Cookie/Referer/Origin/UA；

@@ -1,0 +1,118 @@
+Copyright (c) 2026 rosenii
+除本许可证明确授予的权利外，保留所有权利。
+All rights reserved except as expressly granted below.
+
+本许可证适用于本仓库中的源代码及相关文件（以下简称“本软件”）。本软件为“源码可见”软件，并非开源软件。
+This license applies to the source code and related files in this repository (the "Software"). The Software is source-available software, not open-source software.
+
+若中英文版本存在冲突，以中文版本为准。
+In case of any conflict between the Chinese and English versions, the Chinese version shall prevail.
+
+一、许可授予
+1. License Grant
+
+在遵守本许可证全部条款的前提下，你被授予以下有限的、非独占的、不可转让的权利：
+Subject to full compliance with this license, you are granted the following limited, non-exclusive, non-transferable rights:
+
+1. 查看与阅读：你可以查看、阅读本软件的源代码。
+   View and read: You may view and read the source code of the Software.
+
+2. 个人学习与研究：你可以出于个人学习、学术研究或技术评估的目的使用本软件。
+   Personal study and research: You may use the Software for personal study, academic research, or technical evaluation.
+
+3. 本地修改与测试：你可以修改本软件的源代码，并在本地环境或你个人控制的非公开环境中运行、测试修改后的版本。
+   Local modification and testing: You may modify the source code and run or test modified versions in a local environment or a non-public environment controlled by you.
+
+4. Fork 至个人账户：你可以在 GitHub 等平台上将本仓库 Fork 至你个人控制的账户。
+   Forking to a personal account: You may fork this repository to an account controlled by you on GitHub or similar platforms.
+
+5. 源码再分发：你可以公开发布你修改后的源代码，但必须同时满足以下全部条件：
+   Source-code redistribution: You may publicly distribute your modified source code only if all of the following conditions are met:
+
+   (a) 保留本许可证全文，以及原作者的全部版权声明，不得删除或修改；
+       You must retain this license in full and all copyright notices of the original author, without deletion or modification;
+
+   (b) 以显著方式注明该代码来源于 rosenii/mafari，并提供原始仓库链接（https://github.com/rosenii/mafari）；
+       You must prominently identify that the code originates from rosenii/mafari and provide a link to the original repository (https://github.com/rosenii/mafari);
+
+   (c) 以显著方式声明你对原始代码做了修改，并注明修改日期或修改说明；
+       You must prominently state that you have modified the original code and indicate the modification date or a description of the changes;
+
+   (d) 你不得将修改后的源代码以任何开源许可证重新许可。
+       You may not relicense the modified source code under any open-source license.
+
+二、明确禁止的行为
+2. Prohibited Conduct
+
+以下行为未获授权，均被本许可证明确禁止：
+The following conduct is not authorized and is expressly prohibited by this license:
+
+1. 删除、隐藏或修改原作者版权声明、本许可证文本或来源标注。
+   Deleting, concealing, or modifying the original author's copyright notices, this license text, or source attribution.
+
+2. 将本软件或其修改版本改名、更换图标后，作为原创作品对外呈现或声称。
+   Renaming the Software or a modified version, replacing its icon, and presenting or claiming it as an original work.
+
+3. 以任何形式发布本软件的可执行文件、安装包、应用程序包（App）或部署后的可访问服务，无论是否经过修改，无论是否收费。
+   Publishing the Software in any executable form, installer, application package (App), or deployed accessible service, whether modified or not, and whether charged for or not.
+
+4. 将本软件或修改版本用于任何商业目的，包括但不限于销售、收取费用、植入广告获利，或作为收费产品或服务的一部分。
+   Using the Software or a modified version for any commercial purpose, including but not limited to selling, charging fees, generating advertising revenue, or incorporating it into a paid product or service.
+
+5. 将本软件或修改版本提交至任何应用商店、软件分发平台或包管理器进行分发。
+   Submitting the Software or a modified version to any app store, software distribution platform, or package manager for distribution.
+
+三、终止
+3. Termination
+
+你违反本许可证任何条款时，本许可证授予你的全部权利自动终止，无需另行通知。终止后，你必须停止一切依据本许可证获得授权的使用行为，并删除你持有的本软件副本（法律要求保留的除外）。
+If you violate any term of this license, all rights granted to you under this license terminate automatically without further notice. Upon termination, you must cease all use authorized under this license and delete all copies of the Software in your possession, except where retention is required by law.
+
+四、免责声明
+4. Disclaimer
+
+本软件按“现状”提供，不附带任何明示或默示的保证，包括但不限于适销性、特定用途适用性和非侵权保证。在任何情况下，作者均不对因使用或无法使用本软件而产生的任何索赔、损害或其他责任承担责任。
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR IN CONNECTION WITH THE USE OR INABILITY TO USE THE SOFTWARE.
+
+五、第三方组件
+5. Third-Party Components
+
+本软件包含或依赖以下第三方开源组件。这些组件不适用本许可证，而是分别适用其原始许可证。对于第三方组件，其原始许可证条款优先于本许可证；本许可证中的任何限制均不适用于第三方组件在其原始许可证下已获得的权利。
+
+The Software contains or depends on the following third-party open-source components. These components are not licensed under this license but under their respective original licenses. For third-party components, the terms of their original licenses prevail over this license; no restriction in this license shall limit any rights already granted to you under the original license of a third-party component.
+
+第三方组件清单如下：
+The third-party components are listed below:
+
+| 组件名称 / Component | 版权声明 / Copyright Notice | 许可证 / License | 来源链接 / Source |
+|---|---|---|---|
+| miuix（含 miuix-glass、glass-icons 等；本仓库对其打了补丁，见 tools/miuix-patches） | Copyright (c) compose-miuix-ui contributors | Apache-2.0 | https://github.com/compose-miuix-ui/miuix |
+| Backdrop / AndroidLiquidGlass（io.github.kyant0:backdrop；其 catalog 示例代码被移植进 InteractiveHighlight.kt、DampedDragAnimation.kt，液态开关部分在 LiquidGlassComponents.kt） | Copyright (c) Kyant | Apache-2.0 | https://github.com/Kyant0/AndroidLiquidGlass |
+| Kyant Shapes（Backdrop 的传递依赖） | Copyright (c) Kyant | Apache-2.0 | https://github.com/Kyant0/Shapes |
+| Kotlin / kotlinx.coroutines | Copyright (c) JetBrains s.r.o. and Kotlin contributors | Apache-2.0 | https://github.com/JetBrains/kotlin |
+| Compose Multiplatform / Jetpack Compose | Copyright (c) JetBrains s.r.o.; The Android Open Source Project | Apache-2.0 | https://github.com/JetBrains/compose-multiplatform |
+| AndroidX：Activity、Core KTX、WebKit、Credentials、Browser、CameraX、NavigationEvent、Lifecycle、SQLite、Media3（ExoPlayer / HLS） | Copyright (c) The Android Open Source Project | Apache-2.0 | https://developer.android.com/jetpack/androidx |
+| OkHttp（含 logging-interceptor）、Okio | Copyright (c) Square, Inc. | Apache-2.0 | https://github.com/square/okhttp |
+| JavaEWAH（JGit 的传递依赖） | Copyright (c) Daniel Lemire, Cliff Moon, Veronika Zenz and contributors | Apache-2.0 | https://github.com/lemire/javaewah |
+| JNA（Mozilla application-services 的传递依赖；Apache-2.0 / LGPL-2.1 双许可，此处按 Apache-2.0 使用） | Copyright (c) Todd Fast, Timothy Wall and contributors | Apache-2.0 OR LGPL-2.1 | https://github.com/java-native-access/jna |
+| SQLCipher for Android（net.zetetic:sqlcipher-android） | Copyright (c) ZETETIC LLC | BSD-style（见 third-party-licenses/SQLCipher-BSD-style.txt） | https://github.com/sqlcipher/sqlcipher-android |
+| Bouncy Castle（bcprov-jdk18on） | Copyright (c) The Legion of the Bouncy Castle Inc. | MIT-style（Bouncy Castle License） | https://www.bouncycastle.org/ |
+| Eclipse JGit（org.eclipse.jgit、org.eclipse.jgit.ssh.jsch） | Copyright (c) Eclipse Foundation, Inc. and contributors | EDL-1.0（BSD-3-Clause） | https://github.com/eclipse-jgit/jgit |
+| JSch（com.github.mwiede:jsch，JCraft JSch 的维护分支） | Copyright (c) JCraft, Inc.; mwiede/jsch contributors | BSD-3-Clause 风格 | https://github.com/mwiede/jsch |
+| SLF4J API（JGit 的传递依赖） | Copyright (c) QOS.ch Sarl and contributors | MIT | https://www.slf4j.org/ |
+| GeckoView（仅 gecko 版本；libxul.so 内还含 Gecko 自带的众多第三方组件，其声明见 Mozilla 发布的 about:license） | Copyright (c) Mozilla Foundation and contributors | MPL-2.0 | https://www.mozilla.org/MPL/2.0/ · https://firefox-source-docs.mozilla.org/mobile/android/geckoview/ |
+| Mozilla android-components 与 application-services（Firefox 帐户 / Sync / 登录同步 / viaduct / init_rust_components / concept-* / support-* / lib-dataprotect；gecko 与 sync_lite 版本）及其传递的 Glean | Copyright (c) Mozilla Foundation and contributors | MPL-2.0 | https://github.com/mozilla/application-services · https://github.com/mozilla-mobile/firefox-android |
+| Google ML Kit Barcode Scanning（com.google.mlkit:barcode-scanning，内置模型） | Copyright (c) Google LLC | ML Kit Terms of Service（专有，非开源；见 third-party-licenses/MLKit-Terms.md） | https://developers.google.com/ml-kit/terms |
+
+你使用上述第三方组件时，必须遵守其各自的许可证条款，包括但不限于保留版权声明、许可证文本和 NOTICE 文件（如适用）。各第三方组件的完整许可证文本和逐项声明见本仓库 `THIRD_PARTY_NOTICES.md` 与 `third-party-licenses/` 目录，或各组件原始仓库。
+
+When using the above third-party components, you must comply with their respective license terms, including but not limited to retaining copyright notices, license texts, and NOTICE files (if applicable). The full license texts of the third-party components are available in `THIRD_PARTY_NOTICES.md` and the `third-party-licenses/` directory of this repository or in the original repositories of the components.
+
+本许可证仅适用于本仓库中由本软件作者原创的代码。本许可证未授予你对第三方组件的任何额外权利，也未限制你在第三方组件原始许可证下享有的任何权利。
+
+This license applies only to the original code in this repository created by the author of the Software. This license grants no additional rights to third-party components and does not limit any rights you have under the original licenses of those components.
+六、其他
+6. Miscellaneous
+
+本许可证未明确授予的权利，均由作者保留。
+All rights not expressly granted by this license are reserved by the author.

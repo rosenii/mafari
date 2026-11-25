@@ -1,4 +1,9 @@
 /*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
+/*
  * Mafari userscript runtime (v2).
  * Kotlin (UserscriptEngine.buildSource) substitutes three double-underscore placeholders, each exactly once:
  * the metadata JSON object, the inner function keyword (async for @top-level-await),

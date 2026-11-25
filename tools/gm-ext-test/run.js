@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 // 协议测试：用 Node vm 模拟 [页面 MAIN] ⇄ [中继 ISOLATED] ⇄ [后台页] ⇄ [原生(Kotlin 的 JS 替身)]，
 // 页面里跑的是真正的 mafari_gm_runtime.js + shim；中继 / 后台页也是真文件。
 // 不覆盖：真实 GeckoView、contentScripts 注入时序、webRequest 改头、Kotlin 本身（见 docs/GECKO_GM.md 的真机清单）。

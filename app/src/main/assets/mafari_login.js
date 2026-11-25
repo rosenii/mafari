@@ -1,3 +1,8 @@
+/*
+ * Copyright © 2026 rosenii. All rights reserved.
+ * 未经版权所有者书面许可，不得复制、修改或分发。
+ */
+
 /* Mafari：WebView 页面里的登录框检测（只在主框架运行）。
  * 只做两件事：① 聚焦登录框时通知原生「可以列出账号了」；② 表单提交时把账号密码交给原生去问「要不要保存」。
  * 填充由原生调 window.__mafariLoginFill(user, pass) 完成，页面脚本拿不到任何已保存的凭据。
