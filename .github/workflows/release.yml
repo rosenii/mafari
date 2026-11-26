@@ -313,7 +313,7 @@ jobs:
           RELEASE_URL: ${{ steps.release.outputs.url }}
         run: |
           python3 - <<'PY'
-          import glob, hashlib, json, os, subprocess, sys
+          import base64, glob, hashlib, json, os, subprocess, sys
 
           BASE = "https://app.sharess.cn/oauth/v1"
           app_id = os.environ["APPSHARE_APP_ID"]
@@ -377,29 +377,23 @@ jobs:
           else:
               if not presign:
                   sys.exit("::error::generateUploadUrl 响应里没有 presignUrl")
-              # 预签名 URL 的 SignedHeaders 决定 PUT 时哪些请求头必须与签名时一致（Content-Type 最常见），先把非敏感参数打出来方便排查
+              # 预签名 URL 把 content-length、content-md5、host 都签进去了：必须带 Content-MD5（文件 MD5 原始字节的 base64），
+              # Content-Length 由 curl 按文件大小自动带；Content-Type 没参与签名，随便给 octet-stream
               from urllib.parse import urlsplit, parse_qs
               q = parse_qs(urlsplit(presign).query)
-              show = {k: q.get(k) for k in ("X-Amz-Algorithm", "X-Amz-SignedHeaders", "X-Amz-Expires", "X-Amz-Date", "x-amz-acl", "Content-Type") if k in q}
-              print("presign host:", urlsplit(presign).netloc, "| query:", show, "| 其它参数名:", sorted(k for k in q if k not in show))
               signed = (q.get("X-Amz-SignedHeaders") or [""])[0].split(";")
-              # Content-Type 候选：octet-stream（文档示例）→ apk 的 MIME → 不带（去掉 curl 默认的 form-urlencoded）
-              candidates = ["application/octet-stream", "application/vnd.android.package-archive", None]
-              ok = False
-              for ct in candidates:
-                  hdr = ["-H", f"Content-Type: {ct}"] if ct else ["-H", "Content-Type:"]
-                  r = subprocess.run(
-                      ["curl", "-sS", "--fail-with-body", "--max-time", "1200", "-X", "PUT", presign,
-                       "-H", "Expect:", *hdr, "--data-binary", f"@{path}"],
-                      capture_output=True, text=True,
-                  )
-                  print(f"PUT content-type={ct!r} rc={r.returncode} {r.stdout[:200]}")
-                  if r.returncode == 0:
-                      ok = True
-                      break
-                  if "SignatureDoesNotMatch" not in r.stdout:
-                      break  # 不是签名问题（过期 / 网络 / 权限），换 Content-Type 没用
-              if not ok:
+              print("presign host:", urlsplit(presign).netloc, "| SignedHeaders:", signed)
+              content_md5 = base64.b64encode(h.digest()).decode()
+              hdrs = ["-H", "Expect:", "-H", "Content-Type: application/octet-stream"]
+              if "content-md5" in signed:
+                  hdrs += ["-H", f"Content-MD5: {content_md5}"]
+              r = subprocess.run(
+                  ["curl", "-sS", "--fail-with-body", "--max-time", "1200", "-X", "PUT", presign,
+                   *hdrs, "--data-binary", f"@{path}"],
+                  capture_output=True, text=True,
+              )
+              print(f"PUT rc={r.returncode} {r.stdout[:300]}")
+              if r.returncode != 0:
                   sys.exit(f"::error::上传安装包失败（SignedHeaders={signed}）")
 
           # 3) 发版  sign=md5(appId+recordId+versionCode+versionName+type+appKey)
