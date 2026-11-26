@@ -78,12 +78,7 @@ internal fun BrowserTab.onSniffMessage(json: String) {
     val len = o.optLong("len", -1)
     val type = MediaSniff.classify(u, o.optString("ct").ifEmpty { null }, len, o.optBoolean("el")) ?: return
     val d = o.optDouble("d", Double.NaN)
-    val durationMs = when {
-        d.isNaN() || d == -1.0 -> -1L
-        d == -2.0 -> MediaSniff.DURATION_LIVE
-        d >= 0 -> (d * 1000).toLong()
-        else -> -1L
-    }
+    val durationMs = MediaSniff.durationMsOf(d)
     val preview = if (o.has("pv")) o.optBoolean("pv") else null
     // br：X 接口给的各档 mp4 码率（bps），和地址里的分辨率一起做成清晰度标签
     val label = XVideo.label(u, o.optLong("br", 0))

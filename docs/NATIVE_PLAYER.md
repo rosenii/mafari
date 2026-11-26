@@ -83,7 +83,7 @@ GM_mafariHost('play', { url, title, referer: location.href, ua: navigator.userAg
   补充脚本 `assets/mafari_sniff.js`（文档开始注入，只在顶层框架跑）补三种拦截看不到的：没有后缀、靠响应头判断的地址（hook `fetch` / XHR 只读 `content-type`）、`<video>` 实际在播的地址（`loadstart` / `play` 捕获）。
   报告走单向消息桥 `MafariSniff`（`OneWayBridge`，只受理主框架 http(s) 来源，长度有上限）；系统 WebView 不支持 WebMessageListener / 文档开始脚本时只剩请求拦截这一路。
   iframe 里的播放器：请求拦截覆盖（不分框架），页面脚本报告不覆盖（桥只收主框架）。
-- **Gecko**：内置扩展 `mafari-gm-ext`（0.4.4）后台页用 `webRequest.onHeadersReceived`（非阻塞，只读响应头）筛出疑似视频，
+- **Gecko**：内置扩展 `mafari-gm-ext`（0.4.5）后台页用 `webRequest.onHeadersReceived`（非阻塞，只读响应头）筛出疑似视频，
   300ms 一批上报 `{t:"sniff", items:[{top,url,ct,len}]}`；206 分段响应以 `Content-Range` 的总长度为准。
   原生 `GeckoSniff` 按页面顶层 URL 存（和 `GeckoNetLog` 同样的取舍：两个标签打开同一个地址时共用一份）。
   开关关闭时后台页把监听整个卸掉（`sniffRules`，hello 时和开关变化时推送）。
@@ -115,7 +115,12 @@ X 网页端 `<video>` 是 `blob:`（MSE），背后请求 `video.twimg.com` 的 
 - **判定去噪**（`MediaSniff.classify` 先过 `XVideo.isNoise`，两个内核都生效）：`video.twimg.com` 上路径含 `/mp4a/`（音频清单）、`/init/`，或 `/pl/` 下的 `.mp4`（初始化段）不认。WebView 的请求拦截拿不到长度，挡不住初始化段，只能靠路径。
 - **列表去重**（`SniffList.offer`）：同一个媒体 ID（路径里 `ext_tw_video|amplify_video|dm_video/<id>`）的主清单在列表里时，子清单不再收；主清单后到则收掉已列的子清单。列表满（12）时，新的 X 地址挤掉最早的一条 X 地址（时间线自动播放的视频会占满列表）；非 X 地址满了照旧不收。
 - **标签**：`SniffedMedia.label`（`XVideo.label`：地址路径里的分辨率 + 接口给的码率，如「720×1280 · 2.2 Mbps」）显示在「发现视频」行的详情里，也进播放页「视频源」的名字。
-- 取舍：Gecko 没有页面脚本，拿不到接口 JSON，只有请求监听到的 HLS 主清单（去噪 / 去重照常）；`/pl/`、`/init/` 的路径规则按已知的 X 路径布局写，X 改布局后需要跟着调；未带登录态时部分推文（敏感内容、受限账号）接口不返回 `video_info`，此时只剩播放后请求到的主清单。
+- **Gecko**：webRequest 读不到响应体，所以也在页面里跑同一份 `mafari_sniff.js`，只注册在 x.com / twitter.com 上（`background.js` 的 `xSniffSync`）：
+  原生 `GeckoGm.sendSniffRules` 把脚本源码随 `sniffRules`（`xjs`）带给后台页，嗅探开着才注册、关了就卸掉。
+  后台页用 `contentScripts.register` 先注册 ISOLATED 的 `x-sniff-relay.js`，再注册 MAIN 世界的「垫片 + mafari_sniff.js」（垫片提供 `window.MafariSniff.postMessage`，实现为向 `document` 发 CustomEvent）；
+  中继收到事件后 `runtime.sendMessage({t:"xsniff"})` 给后台页，后台页校验发送者（本扩展、顶层框架、标签地址在 X 站点）后并进 `sniff.pending`（和请求监听同一地址时合并），沿用 `{t:"sniff", items}` 上报，条目多带 `d` / `pv` / `br`。
+  Gecko 的嗅探结果本来就按页面地址分开存，站内跳转换了地址就是另一份，所以 `{reset:1}` 不转发。
+- 取舍：Gecko 的这条通道只在 X 上有；其它站点的 Gecko 嗅探仍只有请求监听；`/pl/`、`/init/` 的路径规则按已知的 X 路径布局写，X 改布局后需要跟着调；未带登录态时部分推文（敏感内容、受限账号）接口不返回 `video_info`，此时只剩播放后请求到的主清单。
 
 ## 投屏（`player/NativeCast.kt`）
 

@@ -99,6 +99,14 @@ object MediaSniff {
         return type
     }
 
+    /** 页面脚本报的时长（秒）→ [SniffedMedia.durationMs]：NaN / -1 未知，-2 直播 / 无限，其余按秒转毫秒 */
+    fun durationMsOf(seconds: Double): Long = when {
+        seconds.isNaN() || seconds == -1.0 -> -1L
+        seconds == -2.0 -> DURATION_LIVE
+        seconds >= 0 -> (seconds * 1000).toLong()
+        else -> -1L
+    }
+
     fun hostOf(url: String): String {
         val rest = url.substringAfter("://", "")
         return rest.substringBefore('/').substringBefore('?').substringBefore('#').substringAfterLast('@').substringBefore(':').lowercase()

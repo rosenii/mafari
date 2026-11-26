@@ -71,4 +71,42 @@ class XVideoTest {
         assertEquals("", XVideo.label(master, 0))
         assertEquals("", XVideo.label("https://example.com/720x1280/a.mp4", 2_000_000))
     }
+
+    private fun media(url: String) = SniffedMedia(url, MediaSniff.classify(url)!!, MediaSniff.hostOf(url))
+
+    @Test fun listSkipsVariantsOfAnExistingMaster() {
+        val l = SniffList()
+        assertTrue(l.offer(media(master)))
+        assertFalse(l.offer(media(variant)))
+        assertEquals(listOf(master), l.items.map { it.url })
+    }
+
+    @Test fun listDropsVariantsWhenMasterArrivesLater() {
+        val l = SniffList()
+        l.offer(media(variant))
+        l.offer(media(master))
+        assertEquals(listOf(master), l.items.map { it.url })
+    }
+
+    @Test fun listMergesQualityLabelAndDuration() {
+        val l = SniffList()
+        l.offer(media(mp4))
+        l.offer(media(mp4).copy(label = "720×1280 · 2.2 Mbps", durationMs = 32_500))
+        assertEquals("720×1280 · 2.2 Mbps", l.items[0].label)
+        assertEquals(32_500L, l.items[0].durationMs)
+    }
+
+    @Test fun fullListLetsNewXVideoReplaceOldestXVideoOnly() {
+        val l = SniffList()
+        for (i in 1..MediaSniff.MAX_ITEMS) l.offer(media("https://video.twimg.com/ext_tw_video/9$i/pu/pl/v$i.m3u8"))
+        assertTrue(l.offer(media(master)))
+        assertEquals(MediaSniff.MAX_ITEMS, l.items.size)
+        assertEquals(master, l.items.last().url)
+        assertFalse(l.items.any { it.url.contains("/ext_tw_video/91/") })
+        assertFalse(l.offer(media("https://example.com/a.m3u8")))
+
+        val other = SniffList()
+        for (i in 1..MediaSniff.MAX_ITEMS) other.offer(media("https://example.com/$i.m3u8"))
+        assertFalse(other.offer(media(master)))
+    }
 }

@@ -508,6 +508,7 @@ browser.runtime.onMessage.addListener((m, sender) => {
     }
     case 'cookieList': return cookieList(m, sender);
     case 'cookieSet': return cookieSet(m, sender).then(() => undefined);
+    case 'xsniff': xSniffIngest(m, sender); return undefined;
     default: return undefined;
   }
 });
@@ -687,16 +688,33 @@ function sniffOnHeaders(d) {
   const total = /\/(\d+)\s*$/.exec(sniffHeader(d, 'content-range'));
   if (total) len = parseInt(total[1], 10); // 206 分段响应：以总长度为准
   if (!(len >= 0)) len = -1;
-  if (sniff.pending.size >= SNIFF_MAX_PENDING && !sniff.pending.has(d.url)) return undefined;
-  sniff.pending.set(d.url, { top, url: d.url, ct, len });
-  if (!sniff.timer) sniff.timer = setTimeout(sniffFlush, 300);
+  sniffPut({ top, url: d.url, ct, len });
   return undefined;
+}
+
+/** 放进待上报批次：同一地址在同一批里先后来自请求监听和页面脚本时合并（页面脚本带时长 / 预览 / 码率，请求监听带大小），别互相覆盖 */
+function sniffPut(item) {
+  const old = sniff.pending.get(item.url);
+  if (old) {
+    const merged = Object.assign({}, old);
+    for (const k of Object.keys(item)) {
+      if (item[k] === undefined) continue;
+      if (k === 'len' && !(item.len >= 0)) continue;
+      if (k === 'ct' && !item.ct) continue;
+      merged[k] = item[k];
+    }
+    item = merged;
+  } else if (sniff.pending.size >= SNIFF_MAX_PENDING) return;
+  sniff.pending.set(item.url, item);
+  if (!sniff.timer) sniff.timer = setTimeout(sniffFlush, 300);
 }
 
 function sniffSetRules(m) {
   const on = !!m.on;
   try { browser.webRequest.onHeadersReceived.removeListener(sniffOnHeaders); } catch (e) {}
   sniff.on = false;
+  // X 的页面脚本：开着嗅探且原生给了脚本源码才注册，关了就卸掉
+  xSniffChain = xSniffChain.then(() => xSniffSync(on && typeof m.xjs === 'string' ? m.xjs : '')).catch((e) => post({ t: 'error', where: 'xSniff', msg: String(e) }));
   if (!on) {
     sniff.pending.clear();
     if (sniff.timer) { clearTimeout(sniff.timer); sniff.timer = null; }
@@ -706,4 +724,54 @@ function sniffSetRules(m) {
     browser.webRequest.onHeadersReceived.addListener(sniffOnHeaders, SNIFF_FILTER, ['responseHeaders']);
     sniff.on = true;
   } catch (e) { post({ t: 'error', where: 'sniffApply', msg: String(e) }); }
+}
+
+// ---- X（x.com / twitter.com）：接口 JSON 里的各档 mp4 直链 ----
+// webRequest 读不到响应体，所以和 WebView 一样在页面里跑 mafari_sniff.js（MAIN 世界，原生把源码随 sniffRules 带过来），
+// 它读 X 自己的接口响应里的 video_info；报告经垫片 → CustomEvent → x-sniff-relay.js（ISOLATED）→ 这里。只注册在 X 的站点上。
+const X_MATCHES = ['*://x.com/*', '*://*.x.com/*', '*://twitter.com/*', '*://*.twitter.com/*'];
+const X_HOST = /(^|\.)(x|twitter)\.com$/i;
+const X_SHIM = "(function(){try{if(window.top!==window)return;var E='mafari-sniff-x';" +
+  "window.MafariSniff={postMessage:function(s){try{document.dispatchEvent(new CustomEvent(E,{detail:String(s)}));}catch(e){}}};}catch(e){}})();\n";
+let xSniffReg = null; // { code, handles }
+let xSniffChain = Promise.resolve();
+
+async function xSniffSync(code) {
+  if (xSniffReg && xSniffReg.code === code) return;
+  if (xSniffReg) {
+    for (const h of xSniffReg.handles) { try { await h.unregister(); } catch (e) {} }
+    xSniffReg = null;
+  }
+  if (!code) return;
+  const handles = [];
+  try {
+    // 中继先于页面脚本注册：同为 document_start 时先注册的先执行
+    handles.push(await browser.contentScripts.register({
+      matches: X_MATCHES, js: [{ file: 'x-sniff-relay.js' }], runAt: 'document_start', allFrames: false
+    }));
+    handles.push(await browser.contentScripts.register({
+      matches: X_MATCHES, js: [{ code: X_SHIM + code }], runAt: 'document_start', allFrames: false, world: 'MAIN'
+    }));
+    xSniffReg = { code, handles };
+  } catch (e) {
+    for (const h of handles) { try { await h.unregister(); } catch (e2) {} }
+    post({ t: 'error', where: 'xSniffRegister', msg: String(e) });
+  }
+}
+
+/** 页面脚本的报告：只收本扩展中继从 X 顶层页面发来的；页面地址用标签当前地址（站内跳转后会变） */
+function xSniffIngest(m, sender) {
+  try {
+    if (!sniff.on || !sender || sender.id !== browser.runtime.id || sender.frameId !== 0 || !sender.tab) return;
+    const top = String(sender.tab.url || '');
+    let host;
+    try { host = new URL(top).hostname; } catch (e) { return; }
+    if (!/^https?:/i.test(top) || !X_HOST.test(host)) return;
+    if (typeof m.u !== 'string' || m.u.length > 3500 || !/^https?:/i.test(m.u)) return;
+    const item = { top, url: m.u, ct: typeof m.ct === 'string' ? m.ct.slice(0, 120) : '', len: typeof m.len === 'number' && m.len >= 0 ? m.len : -1 };
+    if (typeof m.d === 'number' && isFinite(m.d)) item.d = m.d;
+    if (typeof m.pv === 'boolean') item.pv = m.pv;
+    if (typeof m.br === 'number' && m.br > 0) item.br = m.br;
+    sniffPut(item);
+  } catch (e) {}
 }

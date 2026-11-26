@@ -160,4 +160,12 @@ class MediaSniffTest {
         l.setProbedDuration("https://x.com/a.mp4", 61_000)
         assertEquals(61_000L, l.items[0].durationMs)
     }
+
+    @Test fun pageReportedDurationToMs() {
+        assertEquals(32_500L, MediaSniff.durationMsOf(32.5))
+        assertEquals(MediaSniff.DURATION_LIVE, MediaSniff.durationMsOf(-2.0))
+        assertEquals(-1L, MediaSniff.durationMsOf(Double.NaN))
+        assertEquals(-1L, MediaSniff.durationMsOf(-1.0))
+        assertEquals(-1L, MediaSniff.durationMsOf(-5.0))
+    }
 }

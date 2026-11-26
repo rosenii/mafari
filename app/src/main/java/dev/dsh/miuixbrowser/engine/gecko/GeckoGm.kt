@@ -532,10 +532,21 @@ internal object GeckoGm {
         val p = bgPort ?: return
         main.post {
             runCatching {
-                p.postMessage(JSONObject().put("t", "sniffRules").put("on", dev.dsh.miuixbrowser.sniff.MediaSniff.enabled))
+                val on = dev.dsh.miuixbrowser.sniff.MediaSniff.enabled
+                val msg = JSONObject().put("t", "sniffRules").put("on", on)
+                // X 页面里的嗅探脚本（和 WebView 同一份 mafari_sniff.js）：后台页只在 X 的站点上注册它，开关关了就卸掉
+                if (on) sniffScript()?.let { msg.put("xjs", it) }
+                p.postMessage(msg)
             }.onFailure { Diag.log("gm: sniffRules push failed $it") }
         }
     }
+
+    private var sniffJs: String? = null
+
+    private fun sniffScript(): String? = sniffJs ?: appContext?.let { app ->
+        runCatching { app.assets.open("mafari_sniff.js").bufferedReader(Charsets.UTF_8).use { it.readText() } }
+            .onFailure { Diag.log("gm: mafari_sniff.js missing $it") }.getOrNull()
+    }?.also { sniffJs = it }
 
     private fun broadcast(id: String, k: String, raw: String?, src: String) {
         val p = bgPort ?: return
