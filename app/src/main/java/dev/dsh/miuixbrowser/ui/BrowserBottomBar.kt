@@ -1377,7 +1377,7 @@ internal fun AddressField(
             val typedAtEnd = sel.collapsed && sel.end == t.length
             val grew = t.length > prevLen
             if (typedAtEnd) prevLen = t.length
-            if (grew && typedAtEnd && editingNow && AddressSuggest.enabled && fieldState.text.composition == null) {
+            if (grew && typedAtEnd && editingNow && AddressSuggest.enabled) {
                 val c = fieldContext.appContainer
                 val full = withContext(kotlinx.coroutines.Dispatchers.IO) {
                     val urls = ArrayList<String>()
