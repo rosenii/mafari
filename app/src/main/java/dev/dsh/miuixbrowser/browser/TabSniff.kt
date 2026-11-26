@@ -80,7 +80,7 @@ internal fun BrowserTab.installMediaSniff() {
 
 /**
  * 页面脚本的报告（主线程；来源 / 主框架 / 长度已在 [OneWayBridge] 校验）：
- * {u, ct, len, el, d?, pv?, ua?}。d = `<video>` 的时长（秒，直播 / 无限为 -2）；pv = 页面判断这是预览 / 装饰
+ * {u, ct, len, el, d?, pv?, ua?, x?}。x = 页面脚本从 X 的推文接口里读到的正式视频地址。d = `<video>` 的时长（秒，直播 / 无限为 -2）；pv = 页面判断这是预览 / 装饰
  * （循环、很小、不可见）；ua = 用户刚点过播放。后几项只有来自 `<video>` 的报告才有，同一地址后到的报告会并进已有那条。
  */
 internal fun BrowserTab.onSniffMessage(json: String) {
@@ -88,7 +88,7 @@ internal fun BrowserTab.onSniffMessage(json: String) {
     val o = runCatching { JSONObject(json) }.getOrNull() ?: return
     val u = o.optString("u")
     val len = o.optLong("len", -1)
-    val type = MediaSniff.classify(u, o.optString("ct").ifEmpty { null }, len, o.optBoolean("el")) ?: return
+    val type = MediaSniff.classify(u, o.optString("ct").ifEmpty { null }, len, o.optBoolean("el"), trusted = o.optBoolean("x")) ?: return
     val d = o.optDouble("d", Double.NaN)
     val durationMs = when {
         d.isNaN() || d == -1.0 -> -1L

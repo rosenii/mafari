@@ -1,0 +1,624 @@
+From 81e1f004f438ddb139fc3a132cacb611a2f33598 Mon Sep 17 00:00:00 2001
+From: x <a@b>
+Date: Thu, 26 Nov 2026 05:26:44 +0000
+Subject: [PATCH] X video sniff
+
+---
+ CHANGELOG.md                                  |   1 +
+ app/src/main/assets/mafari_sniff.js           | 127 ++++++++++++++++
+ .../dev/dsh/miuixbrowser/browser/TabSniff.kt  |   4 +-
+ .../dev/dsh/miuixbrowser/sniff/MediaSniff.kt  |  12 +-
+ .../dev/dsh/miuixbrowser/sniff/SniffList.kt   |  29 +++-
+ .../java/dev/dsh/miuixbrowser/sniff/XVideo.kt |  72 +++++++++
+ .../dsh/miuixbrowser/sniff/MediaSniffTest.kt  |  68 +++++++++
+ docs/NATIVE_PLAYER.md                         |  16 ++
+ tools/userscript-test/x-sniff.test.js         | 138 ++++++++++++++++++
+ 9 files changed, 463 insertions(+), 4 deletions(-)
+ create mode 100644 app/src/main/java/dev/dsh/miuixbrowser/sniff/XVideo.kt
+ create mode 100644 tools/userscript-test/x-sniff.test.js
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2fd62e9..b0d68be 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,6 @@
+ # Changelog
+ ## [2.1.92]
++- 新增：媒体嗅探支持 X（Twitter）视频。X 的 <video> 是 blob: 播放、页面里没有直链，现在读 x.com / twitter.com 的推文接口 JSON（只读）拿到各清晰度的 mp4 直链和时长，进详情页就能在媒体图标里看到（按清晰度列出，如「X · 1280×720」），时间线里静音自动播放的不会刷进列表；HLS 主清单仍由请求拦截抓，同一个视频的子清单、纯音频清单和 fMP4 初始化段不再混进列表，列表一个视频只留一条自适应 HLS。X 是单页应用，列表满了会挤掉最早的一条 X 视频。Gecko 内核没有页面脚本，只能抓到 HLS。
+ - 新增：原生播放器全屏时支持左右滑动快进 / 快退
+ - 新增：原生播放器新增画面比例
+ - 调整：全屏播放时，投屏按钮移至外层
+diff --git a/app/src/main/assets/mafari_sniff.js b/app/src/main/assets/mafari_sniff.js
+index affb044..efb16ef 100644
+--- a/app/src/main/assets/mafari_sniff.js
++++ b/app/src/main/assets/mafari_sniff.js
+@@ -37,6 +37,7 @@
+         if (extra.d !== undefined) msg.d = extra.d;
+         if (extra.pv !== undefined) msg.pv = extra.pv;
+         if (extra.ua) msg.ua = 1;
++        if (extra.x) msg.x = 1;
+         bridge.postMessage(JSON.stringify(msg));
+       } catch (e) {}
+     }
+@@ -127,6 +128,124 @@
+       } catch (e) {}
+     }
+ 
++    // ---- X（Twitter）----
++    // X 的 <video> 是 blob:（MSE），页面里没有直链；但推文接口（/i/api/graphql/…）返回的 JSON 里带着 video_info.variants：
++    // 各清晰度的 mp4 直链 + HLS 清单 + 时长。这里读这些 JSON（只读、只在 x.com / twitter.com），按推文 id 记下来，
++    // 在「详情页 / 用户点播」时才报告——时间线里静音自动播放的视频不报，免得列表被刷满。
++    // HLS 清单本身仍由原生请求拦截抓（video.twimg.com 的 .m3u8），这里补的是它抓不到的 mp4 直链、时长和「没点播放」的详情页。
++    var IS_X = /(^|\.)(x|twitter)\.com$/i.test(location.hostname);
++    var X_API = /\/i\/api\/(graphql|2|1\.1)\//;
++    var xTweets = Object.create(null); // 推文 id -> [{d, gif, mp4:[{u, br}], hls}]
++    var xOrder = [];
++    var xAt = Object.create(null);
++
++    function xRes(u) {
++      var m = /\/(\d{2,4})x(\d{2,4})\//.exec(u);
++      return m ? (+m[1]) * (+m[2]) : 0;
++    }
++    function xTake(id, media) {
++      if (!id || !Array.isArray(media)) return;
++      var list = [];
++      for (var i = 0; i < media.length && i < 4; i++) {
++        var m = media[i], vi = m && m.video_info;
++        if (!vi || !Array.isArray(vi.variants)) continue;
++        var mp4 = [], hls = '';
++        for (var j = 0; j < vi.variants.length; j++) {
++          var v = vi.variants[j];
++          if (!v || typeof v.url !== 'string' || !/^https:\/\/[^\/]*twimg\.com\//i.test(v.url)) continue;
++          if (v.content_type === 'video/mp4') mp4.push({ u: v.url, br: +v.bitrate || 0 });
++          else if (/mpegurl/i.test(v.content_type || '') && !hls) hls = v.url;
++        }
++        mp4.sort(function (a, b) { return (b.br - a.br) || (xRes(b.u) - xRes(a.u)); });
++        if (!mp4.length && !hls) continue;
++        var dm = +vi.duration_millis;
++        list.push({ d: dm > 0 ? Math.round(dm / 100) / 10 : undefined, gif: m.type === 'animated_gif', mp4: mp4.slice(0, 3), hls: hls });
++      }
++      if (!list.length) return;
++      if (!xTweets[id]) { xOrder.push(id); if (xOrder.length > 150) delete xTweets[xOrder.shift()]; }
++      xTweets[id] = list;
++    }
++    // 在接口 JSON 里找 extended_entities.media：归到最近一层带 rest_id 的推文（转推 / 引用推文各有自己的 rest_id）
++    function xWalk(node, tid, depth) {
++      if (!node || typeof node !== 'object' || depth > 40) return;
++      if (Array.isArray(node)) {
++        for (var i = 0; i < node.length; i++) xWalk(node[i], tid, depth + 1);
++        return;
++      }
++      var id = tid;
++      if (typeof node.rest_id === 'string' && node.legacy && typeof node.legacy === 'object') id = node.rest_id;
++      else if (typeof node.id_str === 'string' && node.extended_entities) id = node.id_str;
++      if (node.extended_entities && node.extended_entities.media) xTake(id, node.extended_entities.media);
++      for (var k in node) {
++        if (k === 'extended_entities') continue;
++        var c = node[k];
++        if (c && typeof c === 'object') xWalk(c, id, depth + 1);
++      }
++    }
++    function xFocalId() {
++      var m = /\/status\/(\d+)/.exec(location.pathname);
++      return m ? m[1] : '';
++    }
++    function xReport(id, ua) {
++      var list = xTweets[id];
++      if (!list) return;
++      for (var i = 0; i < list.length; i++) {
++        var md = list[i];
++        var items = md.mp4.length ? md.mp4 : (md.hls ? [{ u: md.hls }] : []);
++        for (var k = 0; k < items.length; k++) {
++          var u = items[k].u, now = Date.now();
++          if (now - (xAt[u] || 0) < 2000) continue;
++          xAt[u] = now;
++          // 换页（SPA）后原生那边可能已把旧条目挤掉：允许同一地址在用户再次看到它时重新报一次
++          delete sig[u];
++          if ((sent[u] || 0) > 3) sent[u] = 3;
++          report(u, md.mp4.length ? 'video/mp4' : 'application/x-mpegurl', -1, false,
++            { d: md.d, pv: md.gif, ua: ua, x: true });
++        }
++      }
++    }
++    function xHarvest(text) {
++      try {
++        if (typeof text !== 'string' || text.length > 8000000 || text.indexOf('"video_info"') < 0) return;
++        // 解析放到下一轮，别占着接口回调
++        setTimeout(function () {
++          try {
++            xWalk(JSON.parse(text), '', 0);
++            var f = xFocalId();
++            if (f) xReport(f, userActive());
++          } catch (e) {}
++        }, 0);
++      } catch (e) {}
++    }
++    // blob: 的 <video> 开播 / 出时长：找它对应的推文。article 里的 /status/<id> 链接（时间戳、引用卡片）+ 当前地址里的 id 都是候选，
++    // 候选里有记录的取一个（有多个就按时长对）。只在详情页（地址里有 /status/<id>）或用户点过 / 已取消静音时报告。
++    function xOnVideo(v) {
++      try {
++        var ids = [];
++        var a = v.closest ? v.closest('article') : null;
++        if (a) {
++          var ls = a.querySelectorAll('a[href*="/status/"]');
++          for (var i = 0; i < ls.length && i < 12; i++) {
++            var m = /\/status\/(\d+)/.exec(ls[i].getAttribute('href') || '');
++            if (m && ids.indexOf(m[1]) < 0) ids.push(m[1]);
++          }
++        }
++        var f = xFocalId();
++        if (f && ids.indexOf(f) < 0) ids.push(f);
++        var have = ids.filter(function (id) { return xTweets[id]; });
++        if (!have.length) return;
++        var pick = have[0];
++        if (have.length > 1 && isFinite(v.duration)) {
++          for (var j = 0; j < have.length; j++) {
++            var d = xTweets[have[j]][0].d;
++            if (d && Math.abs(d - v.duration) < 1.5) { pick = have[j]; break; }
++          }
++        }
++        var ua = userActive() || !v.muted;
++        if (ua || (f && pick === f)) xReport(pick, ua);
++      } catch (e) {}
++    }
++
+     // <video> 实际在播的地址（blob: 是 MSE，没有可直接播的地址，靠请求拦截抓它背后的 m3u8 / 分片清单）。
+     // 同时带上这个元素的特征，原生据此区分「正片」和「预览 / 封面循环 / 页面里的动态小元素」：
+     //   d  时长（秒；直播 / 无限为 -2；还不知道不带）
+@@ -155,6 +274,7 @@
+         var t = e.target;
+         if (!t || t.tagName !== 'VIDEO') return;
+         var u = t.currentSrc || t.src;
++        if (IS_X && u && /^blob:/i.test(u)) { xOnVideo(t); return; }
+         if (u && !/^(blob|data):/i.test(u)) report(u, '', -1, true, vinfo(t));
+       } catch (err) {}
+     }
+@@ -169,6 +289,10 @@
+         x.addEventListener('readystatechange', function () {
+           if (x.readyState === 2) check(x.responseURL, x.getResponseHeader('content-type'), x.getResponseHeader('content-length'));
+           if (x.readyState === 4) {
++            if (IS_X && X_API.test(x.responseURL || '')) {
++              if (x.responseType === '' || x.responseType === 'text') xHarvest(x.responseText);
++              return;
++            }
+             scanJson(x.getResponseHeader('content-type'), x.getResponseHeader('content-length'), function (cb) {
+               if (x.responseType === '' || x.responseType === 'text') cb(x.responseText);
+             });
+@@ -185,6 +309,9 @@
+         try {
+           p.then(function (r) {
+             try { check(r.url, r.headers.get('content-type'), r.headers.get('content-length')); } catch (e) {}
++            try {
++              if (IS_X && X_API.test(r.url || '')) { r.clone().text().then(xHarvest, function () {}); return; }
++            } catch (e) {}
+             try {
+               scanJson(r.headers.get('content-type'), r.headers.get('content-length'), function (cb) {
+                 r.clone().text().then(cb, function () {});
+diff --git a/app/src/main/java/dev/dsh/miuixbrowser/browser/TabSniff.kt b/app/src/main/java/dev/dsh/miuixbrowser/browser/TabSniff.kt
+index 8fb2b1c..8453d77 100644
+--- a/app/src/main/java/dev/dsh/miuixbrowser/browser/TabSniff.kt
++++ b/app/src/main/java/dev/dsh/miuixbrowser/browser/TabSniff.kt
+@@ -65,7 +65,7 @@ internal fun BrowserTab.installMediaSniff() {
+ 
+ /**
+  * 页面脚本的报告（主线程；来源 / 主框架 / 长度已在 [OneWayBridge] 校验）：
+- * {u, ct, len, el, d?, pv?, ua?}。d = `<video>` 的时长（秒，直播 / 无限为 -2）；pv = 页面判断这是预览 / 装饰
++ * {u, ct, len, el, d?, pv?, ua?, x?}。x = 页面脚本从 X 的推文接口里读到的正式视频地址。d = `<video>` 的时长（秒，直播 / 无限为 -2）；pv = 页面判断这是预览 / 装饰
+  * （循环、很小、不可见）；ua = 用户刚点过播放。后几项只有来自 `<video>` 的报告才有，同一地址后到的报告会并进已有那条。
+  */
+ internal fun BrowserTab.onSniffMessage(json: String) {
+@@ -73,7 +73,7 @@ internal fun BrowserTab.onSniffMessage(json: String) {
+     val o = runCatching { JSONObject(json) }.getOrNull() ?: return
+     val u = o.optString("u")
+     val len = o.optLong("len", -1)
+-    val type = MediaSniff.classify(u, o.optString("ct").ifEmpty { null }, len, o.optBoolean("el")) ?: return
++    val type = MediaSniff.classify(u, o.optString("ct").ifEmpty { null }, len, o.optBoolean("el"), trusted = o.optBoolean("x")) ?: return
+     val d = o.optDouble("d", Double.NaN)
+     val durationMs = when {
+         d.isNaN() || d == -1.0 -> -1L
+diff --git a/app/src/main/java/dev/dsh/miuixbrowser/sniff/MediaSniff.kt b/app/src/main/java/dev/dsh/miuixbrowser/sniff/MediaSniff.kt
+index 6a6762d..e7b239f 100644
+--- a/app/src/main/java/dev/dsh/miuixbrowser/sniff/MediaSniff.kt
++++ b/app/src/main/java/dev/dsh/miuixbrowser/sniff/MediaSniff.kt
+@@ -78,14 +78,23 @@ object MediaSniff {
+      * 返回类型，不是视频返回 null。
+      * [contentType] 可带参数（`; charset=`）；[length] 未知传 -1；
+      * [fromMediaElement]：地址来自页面里 `<video>` 的 currentSrc，没有后缀也没有响应头时按 mp4 处理。
++     * [trusted]：地址来自页面脚本从站点接口里读到的正式视频地址（X 推文的 variants），跳过按地址形态猜「是不是初始化段」的排除。
+      */
+-    fun classify(url: String, contentType: String? = null, length: Long = -1, fromMediaElement: Boolean = false): String? {
++    fun classify(
++        url: String,
++        contentType: String? = null,
++        length: Long = -1,
++        fromMediaElement: Boolean = false,
++        trusted: Boolean = false,
++    ): String? {
+         if (!isHttp(url)) return null
+         val path = url.substringBefore('#').substringBefore('?').lowercase()
+         val ct = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+         if (ct in SEGMENT_CT) return null
+         val ext = path.substringAfterLast('/').substringAfterLast('.', "")
+         if (ext == "ts" || ext == "m4s") return null
++        // X：纯音频清单 / HLS 的 fMP4 初始化段（也是 .mp4）不能单独播
++        if (!trusted && XVideo.isXVideoUrl(url) && XVideo.isNonPlayablePath(path)) return null
+ 
+         if (ext == "m3u8" || ext == "m3u" || ct in HLS_CT) return "hls"
+ 
+@@ -103,6 +112,7 @@ object MediaSniff {
+ 
+     /** 列表里显示的名字：文件名（没有就用域名） */
+     fun displayName(m: SniffedMedia): String {
++        XVideo.label(m.url, m.type)?.let { return it }
+         val name = m.url.substringBefore('#').substringBefore('?').substringAfterLast('/')
+         return name.takeIf { it.isNotBlank() && it.length <= 48 } ?: m.host
+     }
+diff --git a/app/src/main/java/dev/dsh/miuixbrowser/sniff/SniffList.kt b/app/src/main/java/dev/dsh/miuixbrowser/sniff/SniffList.kt
+index a90ca6b..ea0a7c9 100644
+--- a/app/src/main/java/dev/dsh/miuixbrowser/sniff/SniffList.kt
++++ b/app/src/main/java/dev/dsh/miuixbrowser/sniff/SniffList.kt
+@@ -51,7 +51,34 @@ class SniffList {
+             if (merged != old) items = cur.toMutableList().also { it[idx] = merged }
+             return false
+         }
+-        if (cur.size >= MediaSniff.MAX_ITEMS) return false
++        // X：同一个视频的 HLS 主清单顶掉它的子清单（子清单先到、主清单后到时替换；主清单已在，子清单不收）
++        if (m.type == "hls") {
++            val role = XVideo.hlsRole(m.url)
++            val xk = if (role != XVideo.ROLE_NONE) XVideo.key(m.url) else null
++            if (xk != null) {
++                if (role == XVideo.ROLE_VARIANT &&
++                    cur.any { it.type == "hls" && XVideo.hlsRole(it.url) == XVideo.ROLE_MASTER && XVideo.key(it.url) == xk }
++                ) return false
++                if (role == XVideo.ROLE_MASTER) {
++                    val rest = cur.filterNot { it.type == "hls" && XVideo.hlsRole(it.url) == XVideo.ROLE_VARIANT && XVideo.key(it.url) == xk }
++                    if (rest.size != cur.size) {
++                        items = rest + m
++                        return true
++                    }
++                }
++            }
++        }
++        if (cur.size >= MediaSniff.MAX_ITEMS) {
++            // X 是单页应用：在时间线里一条条点开看，换「页」不会清空列表。满了就挤掉最早的一条 X 视频，让新看的进来
++            if (XVideo.isXVideoUrl(m.url)) {
++                val old = cur.indexOfFirst { XVideo.isXVideoUrl(it.url) }
++                if (old >= 0) {
++                    items = cur.toMutableList().also { it.removeAt(old); it.add(m) }
++                    return true
++                }
++            }
++            return false
++        }
+         items = cur + m
+         return true
+     }
+diff --git a/app/src/main/java/dev/dsh/miuixbrowser/sniff/XVideo.kt b/app/src/main/java/dev/dsh/miuixbrowser/sniff/XVideo.kt
+new file mode 100644
+index 0000000..68798ef
+--- /dev/null
++++ b/app/src/main/java/dev/dsh/miuixbrowser/sniff/XVideo.kt
+@@ -0,0 +1,72 @@
++/*
++ * Copyright © 2026 rosenii. All rights reserved.
++ * 未经版权所有者书面许可，不得复制、修改或分发。
++ */
++
++package dev.dsh.miuixbrowser.sniff
++
++/**
++ * X（Twitter）视频的地址规则（纯函数，无 Android 依赖，有单测）。
++ *
++ * X 的视频都在 video.twimg.com：
++ *  - 整段 mp4：`/ext_tw_video/<id>/pu/vid/avc1/1280x720/<hash>.mp4`（推文接口里的 variants）；
++ *  - HLS 主清单：`/ext_tw_video/<id>/pu/pl/<hash>.m3u8`；各清晰度的子清单 `/pl/avc1/1280x720/<hash>.m3u8`；
++ *    音频单独一条 `/pl/mp4a/128000/<hash>.m3u8`；
++ *  - HLS 的 fMP4 初始化段 / 分片：`/vid/avc1/0/0/1280x720/<hash>.mp4`、`/vid/avc1/0/3000/1280x720/<hash>.m4s`（后者本来就被排除）；
++ *  - GIF：`/tweet_video/<name>.mp4`。
++ * 请求拦截只看地址，所以这里把「不能单独播的」（纯音频清单 / 初始化段）认出来排掉，
++ * 并让主清单顶掉同一个视频的子清单，列表里一个视频只留一条自适应 HLS。
++ */
++object XVideo {
++
++    /** 初始化段 / 分片的路径形态：…/<起始 ms>/<结束 ms>/<宽>x<高>/<hash>.mp4 */
++    private val SEGMENT_MP4 = Regex("""/\d+/\d+/\d+x\d+/[^/]+\.mp4$""")
++    private val RES = Regex("""/(\d{2,4})x(\d{2,4})(?:/|$)""")
++    private val KEY = Regex("""^/([a-z_]*video)/(\d+)/""")
++
++    const val ROLE_NONE = 0
++    const val ROLE_MASTER = 1
++    const val ROLE_VARIANT = 2
++
++    fun isHost(host: String): Boolean =
++        host == "video.twimg.com" || (host.startsWith("video-") && host.endsWith(".twimg.com"))
++
++    /** 热路径先用这个便宜的判断挡掉绝大多数地址 */
++    fun isXVideoUrl(url: String): Boolean = url.contains("twimg.com") && isHost(MediaSniff.hostOf(url))
++
++    /** 不能单独播的：纯音频清单 / 音频段、HLS 的 fMP4 初始化段（[path] 已小写、不含 query） */
++    fun isNonPlayablePath(path: String): Boolean =
++        path.contains("/aud/") || path.contains("/mp4a/") || SEGMENT_MP4.containsMatchIn(path)
++
++    private fun pathOf(url: String): String = url.substringBefore('#').substringBefore('?').substringAfter("://").substringAfter('/', "").let { "/$it" }.lowercase()
++
++    /** HLS 清单的角色：主清单 `/pl/<hash>.m3u8`，子清单 `/pl/<codec>/<分辨率>/<hash>.m3u8` */
++    fun hlsRole(url: String): Int {
++        if (!isXVideoUrl(url)) return ROLE_NONE
++        val path = pathOf(url)
++        if (!path.endsWith(".m3u8")) return ROLE_NONE
++        val rest = path.substringAfter("/pl/", "")
++        return when {
++            rest.isEmpty() -> ROLE_NONE
++            '/' in rest -> ROLE_VARIANT
++            else -> ROLE_MASTER
++        }
++    }
++
++    /** 同一个视频的标识（`ext_tw_video/<id>`），主清单和它的子清单相同；认不出返回 null */
++    fun key(url: String): String? =
++        KEY.find(pathOf(url))?.let { it.groupValues[1] + "/" + it.groupValues[2] }
++
++    /** 列表里显示的名字（与语言无关）：`X · 1280×720` / `X · HLS` / `X · GIF`；不是 X 的视频返回 null */
++    fun label(url: String, type: String): String? {
++        if (!isXVideoUrl(url)) return null
++        val path = pathOf(url)
++        if (path.startsWith("/tweet_video/")) return "X · GIF"
++        val res = RES.find(path)?.let { "${it.groupValues[1]}×${it.groupValues[2]}" }
++        return when {
++            type == "hls" -> if (res != null) "X · HLS $res" else "X · HLS"
++            res != null -> "X · $res"
++            else -> "X · " + type.uppercase()
++        }
++    }
++}
+diff --git a/app/src/test/java/dev/dsh/miuixbrowser/sniff/MediaSniffTest.kt b/app/src/test/java/dev/dsh/miuixbrowser/sniff/MediaSniffTest.kt
+index 350a2a8..5a068a3 100644
+--- a/app/src/test/java/dev/dsh/miuixbrowser/sniff/MediaSniffTest.kt
++++ b/app/src/test/java/dev/dsh/miuixbrowser/sniff/MediaSniffTest.kt
+@@ -160,4 +160,72 @@ class MediaSniffTest {
+         l.setProbedDuration("https://x.com/a.mp4", 61_000)
+         assertEquals(61_000L, l.items[0].durationMs)
+     }
++
++    // ---- X（Twitter）----
++
++    private val xBase = "https://video.twimg.com/ext_tw_video/1700000000000000000/pu"
++
++    @Test fun xProgressiveMp4AndMasterPlaylistAreAccepted() {
++        assertEquals("mp4", MediaSniff.classify("$xBase/vid/avc1/1280x720/AbCd.mp4?tag=12"))
++        assertEquals("hls", MediaSniff.classify("$xBase/pl/AbCd.m3u8?tag=12&container=fmp4"))
++        assertEquals("hls", MediaSniff.classify("$xBase/pl/avc1/1280x720/AbCd.m3u8"))
++    }
++
++    @Test fun xAudioPlaylistsAndInitSegmentsAreRejected() {
++        assertNull(MediaSniff.classify("$xBase/pl/mp4a/128000/AbCd.m3u8"))
++        assertNull(MediaSniff.classify("$xBase/aud/mp4a/0/0/AbCd.mp4"))
++        assertNull(MediaSniff.classify("$xBase/vid/avc1/0/0/1280x720/AbCd.mp4", "video/mp4"))
++        assertNull(MediaSniff.classify("$xBase/vid/avc1/0/3000/1280x720/AbCd.m4s"))
++        // 页面脚本从推文接口读到的正式地址不按形态排除
++        assertEquals("mp4", MediaSniff.classify("$xBase/vid/avc1/1280x720/AbCd.mp4", trusted = true))
++        // 不是 X 的域名不受影响
++        assertEquals("mp4", MediaSniff.classify("https://cdn.example.com/vid/avc1/0/0/1280x720/a.mp4"))
++    }
++
++    @Test fun xHlsRoleAndKey() {
++        assertEquals(XVideo.ROLE_MASTER, XVideo.hlsRole("$xBase/pl/AbCd.m3u8?tag=12"))
++        assertEquals(XVideo.ROLE_VARIANT, XVideo.hlsRole("$xBase/pl/avc1/1280x720/AbCd.m3u8"))
++        assertEquals(XVideo.ROLE_NONE, XVideo.hlsRole("https://cdn.example.com/pl/a.m3u8"))
++        assertEquals("ext_tw_video/1700000000000000000", XVideo.key("$xBase/pl/AbCd.m3u8"))
++        assertEquals(XVideo.key("$xBase/pl/AbCd.m3u8"), XVideo.key("$xBase/pl/avc1/640x360/Zz.m3u8"))
++        assertEquals("amplify_video/42", XVideo.key("https://video.twimg.com/amplify_video/42/pl/a.m3u8"))
++    }
++
++    @Test fun xDisplayName() {
++        fun name(u: String, t: String) = MediaSniff.displayName(SniffedMedia(u, t, "video.twimg.com"))
++        assertEquals("X · 1280×720", name("$xBase/vid/avc1/1280x720/AbCd.mp4?tag=12", "mp4"))
++        assertEquals("X · HLS", name("$xBase/pl/AbCd.m3u8", "hls"))
++        assertEquals("X · HLS 640×360", name("$xBase/pl/avc1/640x360/AbCd.m3u8", "hls"))
++        assertEquals("X · GIF", name("https://video.twimg.com/tweet_video/Abc.mp4", "mp4"))
++    }
++
++    @Test fun xMasterReplacesVariantsAndBlocksLateOnes() {
++        fun hls(u: String) = SniffedMedia(u, "hls", "video.twimg.com")
++        val variant = "$xBase/pl/avc1/1280x720/AbCd.m3u8"
++        val master = "$xBase/pl/AbCd.m3u8"
++        val l = SniffList()
++        assertTrue(l.offer(hls(variant)))
++        assertTrue(l.offer(hls(master)))
++        assertEquals(listOf(master), l.items.map { it.url })
++        // 主清单已在：之后到的子清单不收
++        assertFalse(l.offer(hls("$xBase/pl/avc1/640x360/AbCd.m3u8")))
++        assertEquals(1, l.items.size)
++        // 另一个视频的子清单不受影响
++        assertTrue(l.offer(hls("https://video.twimg.com/ext_tw_video/1800000000000000000/pu/pl/avc1/640x360/Zz.m3u8")))
++        assertEquals(2, l.items.size)
++    }
++
++    @Test fun xFullListEvictsOldestXVideo() {
++        val l = SniffList()
++        l.offer(SniffedMedia("https://cdn.example.com/keep.mp4", "mp4", "cdn.example.com"))
++        for (i in 1 until MediaSniff.MAX_ITEMS) l.offer(SniffedMedia("$xBase/vid/avc1/1280x720/v$i.mp4", "mp4", "video.twimg.com"))
++        assertEquals(MediaSniff.MAX_ITEMS, l.items.size)
++        // 满了：非 X 的新地址仍然进不来；X 的新地址挤掉最早的 X 视频
++        assertFalse(l.offer(SniffedMedia("https://cdn.example.com/new.mp4", "mp4", "cdn.example.com")))
++        assertTrue(l.offer(SniffedMedia("$xBase/vid/avc1/1280x720/latest.mp4", "mp4", "video.twimg.com")))
++        assertEquals(MediaSniff.MAX_ITEMS, l.items.size)
++        assertEquals("https://cdn.example.com/keep.mp4", l.items.first().url)
++        assertTrue(l.items.none { it.url.endsWith("/v1.mp4") })
++        assertTrue(l.items.last().url.endsWith("/latest.mp4"))
++    }
+ }
+diff --git a/docs/NATIVE_PLAYER.md b/docs/NATIVE_PLAYER.md
+index df3488e..93edb1b 100644
+--- a/docs/NATIVE_PLAYER.md
++++ b/docs/NATIVE_PLAYER.md
+@@ -88,6 +88,22 @@ GM_mafariHost('play', { url, title, referer: location.href, ua: navigator.userAg
+   原生 `GeckoSniff` 按页面顶层 URL 存（和 `GeckoNetLog` 同样的取舍：两个标签打开同一个地址时共用一份）。
+   开关关闭时后台页把监听整个卸掉（`sniffRules`，hello 时和开关变化时推送）。
+ 
++### X（Twitter）视频（`sniff/XVideo.kt`、`mafari_sniff.js` 的 X 部分）
++
++X 的 `<video>` 是 `blob:`（MSE），页面里没有直链，通用的三条路只能抓到 HLS 清单，而且会混进不能单独播的东西。专门处理三件事：
++
++- **地址规则**（`XVideo`，纯函数，有单测）：video.twimg.com 上的纯音频清单（`/pl/mp4a/…`、`/aud/…`）和 HLS 的 fMP4 初始化段（`…/0/0/<宽>x<高>/<hash>.mp4`，也是 .mp4）在 `MediaSniff.classify` 里排掉；
++  `SniffList.offer` 让同一个视频（`ext_tw_video/<id>`）的 HLS 主清单顶掉它的子清单，列表里一个视频只留一条自适应 HLS。列表里的名字不走翻译：`X · 1280×720` / `X · HLS` / `X · GIF`。
++- **推文接口里的直链**（只在 x.com / twitter.com，只读）：hook 的 `fetch` / XHR 对 `/i/api/(graphql|2|1.1)/` 的响应，含 `"video_info"` 就解析 JSON（上限 8MB，放到下一轮宏任务），
++  递归找 `extended_entities.media`，归到最近一层带 `rest_id` 的推文（转推 / 引用推文各用自己的 id），记下 `variants` 里的 mp4（按码率取前 3）、HLS 清单、`duration_millis`，最多缓存 150 条推文。
++  这些地址带 `x:1` 报给原生，`classify` 的 `trusted` 跳过「按形态猜初始化段」的排除。
++- **什么时候报**：详情页（地址里有 `/status/<id>`）接口一回来就报该推文的视频（没点播放也能在媒体图标里看到）；`blob:` 的 `<video>` 开播时，用所在 `article` 里的 `/status/<id>` 链接 + 当前地址的 id 当候选，
++  在缓存里取有记录的一条（多条时按时长对），只有用户点过 / 已取消静音 / 就在这条的详情页时才报——时间线里静音自动播放的不报，免得列表被刷满。GIF（`animated_gif`）标为预览（不自动播）。
++- **取舍**：X 是单页应用，换推文不会触发整页加载，列表不会自动清空；满了（12 条）就挤掉最早的一条 X 视频。同一地址在用户再次看到时允许重新上报（2 秒节流）。
++  Gecko 内核没有页面脚本，只能靠 webRequest 抓到 HLS（音频清单 / 初始化段同样被排掉），拿不到接口里的 mp4 直链。
++  推文接口的字段（`extended_entities` / `video_info.variants`）和 video.twimg.com 的路径形态是按目前的样子写的，X 改版后需要跟着调；`tools/userscript-test/x-sniff.test.js` 用假 DOM 覆盖页面脚本这一段（`node x-sniff.test.js`）。
++  未编译、未真机验证。
++
+ ### 界面
+ 
+ - 页面里出现**新的**视频地址 → 等 0.9 秒（让同时到的其他清晰度 / 线路一起列出）→ 开了「自动悬浮播放」就自动打开合格的正片，否则什么都不做；「发现视频」对话框（`SniffDialog`，走材质抽象层）只在点地址栏媒体图标时打开，不再主动弹出。
+diff --git a/tools/userscript-test/x-sniff.test.js b/tools/userscript-test/x-sniff.test.js
+new file mode 100644
+index 0000000..aa40a73
+--- /dev/null
++++ b/tools/userscript-test/x-sniff.test.js
+@@ -0,0 +1,138 @@
++/*
++ * Copyright © 2026 rosenii. All rights reserved.
++ * 未经版权所有者书面许可，不得复制、修改或分发。
++ */
++
++// mafari_sniff.js 的 X（Twitter）部分：用最小的假 DOM 在 vm 里跑，不需要浏览器。用法：node x-sniff.test.js
++const fs = require('fs');
++const path = require('path');
++const vm = require('vm');
++const code = fs.readFileSync(path.join(__dirname, '../../app/src/main/assets/mafari_sniff.js'), 'utf8');
++let pass = 0, fail = 0;
++const ok = (n, c, x) => { c ? pass++ : fail++; console.log((c ? '  ok   ' : '  FAIL ') + n + (c ? '' : ' -> ' + JSON.stringify(x))); };
++const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
++
++const BASE = 'https://video.twimg.com/ext_tw_video/1700000000000000000/pu';
++function tweetJson(id, dur) {
++  return JSON.stringify({ data: { tweetResult: { result: {
++    __typename: 'Tweet', rest_id: id,
++    legacy: { id_str: id, extended_entities: { media: [{
++      id_str: '999', type: 'video',
++      video_info: { duration_millis: dur, variants: [
++        { content_type: 'application/x-mpegURL', url: BASE + '/pl/AbCd.m3u8?tag=12' },
++        { bitrate: 632000, content_type: 'video/mp4', url: BASE + '/vid/avc1/640x360/low.mp4?tag=12' },
++        { bitrate: 2176000, content_type: 'video/mp4', url: BASE + '/vid/avc1/1280x720/high.mp4?tag=12' },
++        { bitrate: 950000, content_type: 'video/mp4', url: BASE + '/vid/avc1/854x480/mid.mp4?tag=12' },
++      ] },
++    }] } },
++  } } } });
++}
++
++function env(pathname) {
++  const msgs = [];
++  const listeners = {};
++  const sandbox = {
++    console, setTimeout, clearTimeout, Date, JSON, Math, Object, Array, isFinite, parseInt, parseFloat, RegExp, String, Number,
++    unescape, atob: (s) => Buffer.from(s, 'base64').toString('binary'),
++    location: { hostname: 'x.com', pathname, href: 'https://x.com' + pathname },
++    navigator: { userActivation: { isActive: true } },
++    getComputedStyle: () => ({}),
++    XMLHttpRequest: function () {},
++    document: {
++      readyState: 'complete', scripts: [],
++      addEventListener: (n, f) => { (listeners[n] = listeners[n] || []).push(f); },
++      querySelectorAll: () => [],
++    },
++  };
++  sandbox.XMLHttpRequest.prototype.open = function () {};
++  sandbox.window = sandbox; sandbox.window.top = sandbox;
++  sandbox.window.addEventListener = () => {};
++  sandbox.window.MafariSniff = { postMessage: (s) => msgs.push(JSON.parse(s)) };
++  sandbox.fetch = (url) => Promise.resolve({
++    url,
++    headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'application/json' : null) },
++    clone() { return { text: () => Promise.resolve(sandbox.__body) }; },
++  });
++  vm.createContext(sandbox);
++  vm.runInContext(code, sandbox);
++  return { sandbox, msgs, listeners };
++}
++const fakeVideo = (o) => Object.assign({
++  tagName: 'VIDEO', src: 'blob:https://x.com/abc', currentSrc: 'blob:https://x.com/abc', muted: false, duration: 60,
++  closest: () => null, getBoundingClientRect: () => ({ width: 400, height: 700 }),
++}, o);
++
++(async () => {
++  // 1) 详情页：接口 JSON 返回后，没点播放就把 mp4（按码率从高到低，最多 3 条）报给原生，带时长，标 x
++  {
++    const { sandbox, msgs } = env('/someone/status/111');
++    sandbox.__body = tweetJson('111', 61500);
++    await sandbox.fetch('https://x.com/i/api/graphql/abc/TweetResultByRestId');
++    await sleep(30);
++    const urls = msgs.map((m) => m.u);
++    ok('详情页：报 3 条 mp4', urls.length === 3, urls);
++    ok('最高码率在最前', /1280x720\/high\.mp4/.test(urls[0]), urls);
++    ok('带 x 标记 / 时长 / 非预览', msgs.every((m) => m.x === 1 && m.d === 61.5 && m.pv === false), msgs);
++    ok('不重复报 HLS（交给原生请求拦截）', urls.every((u) => !/m3u8/.test(u)), urls);
++  }
++  // 2) 时间线：别的推文的视频不报；用户点开 / 取消静音后才报
++  {
++    const { sandbox, msgs, listeners } = env('/home');
++    sandbox.__body = tweetJson('222', 90000);
++    await sandbox.fetch('https://x.com/i/api/graphql/abc/HomeTimeline');
++    await sleep(30);
++    ok('时间线：只读不报', msgs.length === 0, msgs);
++    const article = { querySelectorAll: () => [{ getAttribute: () => '/someone/status/222' }] };
++    const v = fakeVideo({ muted: true, closest: () => article });
++    sandbox.navigator.userActivation.isActive = false;
++    listeners.playing.forEach((f) => f({ target: v }));
++    ok('静音自动播放：不报', msgs.length === 0, msgs);
++    v.muted = false;
++    listeners.playing.forEach((f) => f({ target: v }));
++    ok('取消静音：报 3 条，ua=1', msgs.length === 3 && msgs.every((m) => m.ua === 1), msgs);
++  }
++  // 3) 引用推文：视频归到引用推文自己的 id；GIF 标为预览
++  {
++    const { sandbox, msgs } = env('/a/status/300');
++    const inner = JSON.parse(tweetJson('301', 5000));
++    const gif = inner.data.tweetResult.result;
++    gif.legacy.extended_entities.media[0].type = 'animated_gif';
++    gif.legacy.extended_entities.media[0].video_info.variants = [{ bitrate: 0, content_type: 'video/mp4', url: 'https://video.twimg.com/tweet_video/G1.mp4' }];
++    sandbox.__body = JSON.stringify({ outer: { rest_id: '300', legacy: { id_str: '300' }, quoted_status_result: { result: gif } } });
++    await sandbox.fetch('https://x.com/i/api/graphql/abc/TweetDetail');
++    await sleep(30);
++    ok('引用推文的视频不算在当前详情页上', msgs.length === 0, msgs);
++  }
++  {
++    const { sandbox, msgs } = env('/a/status/301');
++    const inner = JSON.parse(tweetJson('301', 5000)).data.tweetResult.result;
++    inner.legacy.extended_entities.media[0].type = 'animated_gif';
++    inner.legacy.extended_entities.media[0].video_info.variants = [{ bitrate: 0, content_type: 'video/mp4', url: 'https://video.twimg.com/tweet_video/G1.mp4' }];
++    sandbox.__body = JSON.stringify({ data: inner });
++    await sandbox.fetch('https://x.com/i/api/2/timeline/conversation/301.json');
++    await sleep(30);
++    ok('GIF：报 1 条且 pv=true', msgs.length === 1 && msgs[0].pv === true, msgs);
++  }
++  // 4) 只有 HLS 没有 mp4：报 HLS 主清单
++  {
++    const { sandbox, msgs } = env('/a/status/400');
++    const r = JSON.parse(tweetJson('400', 30000)).data.tweetResult.result;
++    r.legacy.extended_entities.media[0].video_info.variants = r.legacy.extended_entities.media[0].video_info.variants.filter((v) => /mpegurl/i.test(v.content_type));
++    sandbox.__body = JSON.stringify(r);
++    await sandbox.fetch('https://x.com/i/api/graphql/abc/TweetDetail');
++    await sleep(30);
++    ok('只有 HLS：报主清单', msgs.length === 1 && /\/pl\/AbCd\.m3u8/.test(msgs[0].u), msgs);
++  }
++  // 5) 不是 X 的页面：接口 JSON 不走 X 分支；非 twimg 的地址不收
++  {
++    const { sandbox, msgs } = env('/a/status/500');
++    const r = JSON.parse(tweetJson('500', 30000)).data.tweetResult.result;
++    r.legacy.extended_entities.media[0].video_info.variants = [{ bitrate: 1, content_type: 'video/mp4', url: 'https://evil.example.com/a.mp4' }];
++    sandbox.__body = JSON.stringify(r);
++    await sandbox.fetch('https://x.com/i/api/graphql/abc/TweetDetail');
++    await sleep(30);
++    ok('非 twimg 地址不收', msgs.length === 0, msgs);
++  }
++  console.log(`\n${pass} passed, ${fail} failed`);
++  process.exit(fail ? 1 : 0);
++})();
+-- 
+2.43.0
+

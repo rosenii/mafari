@@ -37,6 +37,7 @@
         if (extra.d !== undefined) msg.d = extra.d;
         if (extra.pv !== undefined) msg.pv = extra.pv;
         if (extra.ua) msg.ua = 1;
+        if (extra.x) msg.x = 1;
         bridge.postMessage(JSON.stringify(msg));
       } catch (e) {}
     }
@@ -127,6 +128,124 @@
       } catch (e) {}
     }
 
+    // ---- X（Twitter）----
+    // X 的 <video> 是 blob:（MSE），页面里没有直链；但推文接口（/i/api/graphql/…）返回的 JSON 里带着 video_info.variants：
+    // 各清晰度的 mp4 直链 + HLS 清单 + 时长。这里读这些 JSON（只读、只在 x.com / twitter.com），按推文 id 记下来，
+    // 在「详情页 / 用户点播」时才报告——时间线里静音自动播放的视频不报，免得列表被刷满。
+    // HLS 清单本身仍由原生请求拦截抓（video.twimg.com 的 .m3u8），这里补的是它抓不到的 mp4 直链、时长和「没点播放」的详情页。
+    var IS_X = /(^|\.)(x|twitter)\.com$/i.test(location.hostname);
+    var X_API = /\/i\/api\/(graphql|2|1\.1)\//;
+    var xTweets = Object.create(null); // 推文 id -> [{d, gif, mp4:[{u, br}], hls}]
+    var xOrder = [];
+    var xAt = Object.create(null);
+
+    function xRes(u) {
+      var m = /\/(\d{2,4})x(\d{2,4})\//.exec(u);
+      return m ? (+m[1]) * (+m[2]) : 0;
+    }
+    function xTake(id, media) {
+      if (!id || !Array.isArray(media)) return;
+      var list = [];
+      for (var i = 0; i < media.length && i < 4; i++) {
+        var m = media[i], vi = m && m.video_info;
+        if (!vi || !Array.isArray(vi.variants)) continue;
+        var mp4 = [], hls = '';
+        for (var j = 0; j < vi.variants.length; j++) {
+          var v = vi.variants[j];
+          if (!v || typeof v.url !== 'string' || !/^https:\/\/[^\/]*twimg\.com\//i.test(v.url)) continue;
+          if (v.content_type === 'video/mp4') mp4.push({ u: v.url, br: +v.bitrate || 0 });
+          else if (/mpegurl/i.test(v.content_type || '') && !hls) hls = v.url;
+        }
+        mp4.sort(function (a, b) { return (b.br - a.br) || (xRes(b.u) - xRes(a.u)); });
+        if (!mp4.length && !hls) continue;
+        var dm = +vi.duration_millis;
+        list.push({ d: dm > 0 ? Math.round(dm / 100) / 10 : undefined, gif: m.type === 'animated_gif', mp4: mp4.slice(0, 3), hls: hls });
+      }
+      if (!list.length) return;
+      if (!xTweets[id]) { xOrder.push(id); if (xOrder.length > 150) delete xTweets[xOrder.shift()]; }
+      xTweets[id] = list;
+    }
+    // 在接口 JSON 里找 extended_entities.media：归到最近一层带 rest_id 的推文（转推 / 引用推文各有自己的 rest_id）
+    function xWalk(node, tid, depth) {
+      if (!node || typeof node !== 'object' || depth > 40) return;
+      if (Array.isArray(node)) {
+        for (var i = 0; i < node.length; i++) xWalk(node[i], tid, depth + 1);
+        return;
+      }
+      var id = tid;
+      if (typeof node.rest_id === 'string' && node.legacy && typeof node.legacy === 'object') id = node.rest_id;
+      else if (typeof node.id_str === 'string' && node.extended_entities) id = node.id_str;
+      if (node.extended_entities && node.extended_entities.media) xTake(id, node.extended_entities.media);
+      for (var k in node) {
+        if (k === 'extended_entities') continue;
+        var c = node[k];
+        if (c && typeof c === 'object') xWalk(c, id, depth + 1);
+      }
+    }
+    function xFocalId() {
+      var m = /\/status\/(\d+)/.exec(location.pathname);
+      return m ? m[1] : '';
+    }
+    function xReport(id, ua) {
+      var list = xTweets[id];
+      if (!list) return;
+      for (var i = 0; i < list.length; i++) {
+        var md = list[i];
+        var items = md.mp4.length ? md.mp4 : (md.hls ? [{ u: md.hls }] : []);
+        for (var k = 0; k < items.length; k++) {
+          var u = items[k].u, now = Date.now();
+          if (now - (xAt[u] || 0) < 2000) continue;
+          xAt[u] = now;
+          // 换页（SPA）后原生那边可能已把旧条目挤掉：允许同一地址在用户再次看到它时重新报一次
+          delete sig[u];
+          if ((sent[u] || 0) > 3) sent[u] = 3;
+          report(u, md.mp4.length ? 'video/mp4' : 'application/x-mpegurl', -1, false,
+            { d: md.d, pv: md.gif, ua: ua, x: true });
+        }
+      }
+    }
+    function xHarvest(text) {
+      try {
+        if (typeof text !== 'string' || text.length > 8000000 || text.indexOf('"video_info"') < 0) return;
+        // 解析放到下一轮，别占着接口回调
+        setTimeout(function () {
+          try {
+            xWalk(JSON.parse(text), '', 0);
+            var f = xFocalId();
+            if (f) xReport(f, userActive());
+          } catch (e) {}
+        }, 0);
+      } catch (e) {}
+    }
+    // blob: 的 <video> 开播 / 出时长：找它对应的推文。article 里的 /status/<id> 链接（时间戳、引用卡片）+ 当前地址里的 id 都是候选，
+    // 候选里有记录的取一个（有多个就按时长对）。只在详情页（地址里有 /status/<id>）或用户点过 / 已取消静音时报告。
+    function xOnVideo(v) {
+      try {
+        var ids = [];
+        var a = v.closest ? v.closest('article') : null;
+        if (a) {
+          var ls = a.querySelectorAll('a[href*="/status/"]');
+          for (var i = 0; i < ls.length && i < 12; i++) {
+            var m = /\/status\/(\d+)/.exec(ls[i].getAttribute('href') || '');
+            if (m && ids.indexOf(m[1]) < 0) ids.push(m[1]);
+          }
+        }
+        var f = xFocalId();
+        if (f && ids.indexOf(f) < 0) ids.push(f);
+        var have = ids.filter(function (id) { return xTweets[id]; });
+        if (!have.length) return;
+        var pick = have[0];
+        if (have.length > 1 && isFinite(v.duration)) {
+          for (var j = 0; j < have.length; j++) {
+            var d = xTweets[have[j]][0].d;
+            if (d && Math.abs(d - v.duration) < 1.5) { pick = have[j]; break; }
+          }
+        }
+        var ua = userActive() || !v.muted;
+        if (ua || (f && pick === f)) xReport(pick, ua);
+      } catch (e) {}
+    }
+
     // <video> 实际在播的地址（blob: 是 MSE，没有可直接播的地址，靠请求拦截抓它背后的 m3u8 / 分片清单）。
     // 同时带上这个元素的特征，原生据此区分「正片」和「预览 / 封面循环 / 页面里的动态小元素」：
     //   d  时长（秒；直播 / 无限为 -2；还不知道不带）
@@ -155,6 +274,7 @@
         var t = e.target;
         if (!t || t.tagName !== 'VIDEO') return;
         var u = t.currentSrc || t.src;
+        if (IS_X && u && /^blob:/i.test(u)) { xOnVideo(t); return; }
         if (u && !/^(blob|data):/i.test(u)) report(u, '', -1, true, vinfo(t));
       } catch (err) {}
     }
@@ -169,6 +289,10 @@
         x.addEventListener('readystatechange', function () {
           if (x.readyState === 2) check(x.responseURL, x.getResponseHeader('content-type'), x.getResponseHeader('content-length'));
           if (x.readyState === 4) {
+            if (IS_X && X_API.test(x.responseURL || '')) {
+              if (x.responseType === '' || x.responseType === 'text') xHarvest(x.responseText);
+              return;
+            }
             scanJson(x.getResponseHeader('content-type'), x.getResponseHeader('content-length'), function (cb) {
               if (x.responseType === '' || x.responseType === 'text') cb(x.responseText);
             });
@@ -185,6 +309,9 @@
         try {
           p.then(function (r) {
             try { check(r.url, r.headers.get('content-type'), r.headers.get('content-length')); } catch (e) {}
+            try {
+              if (IS_X && X_API.test(r.url || '')) { r.clone().text().then(xHarvest, function () {}); return; }
+            } catch (e) {}
             try {
               scanJson(r.headers.get('content-type'), r.headers.get('content-length'), function (cb) {
                 r.clone().text().then(cb, function () {});

@@ -70,7 +70,34 @@ class SniffList {
             if (merged != old) items = cur.toMutableList().also { it[idx] = merged }
             return false
         }
-        if (cur.size >= MediaSniff.MAX_ITEMS) return false
+        // X：同一个视频的 HLS 主清单顶掉它的子清单（子清单先到、主清单后到时替换；主清单已在，子清单不收）
+        if (m.type == "hls") {
+            val role = XVideo.hlsRole(m.url)
+            val xk = if (role != XVideo.ROLE_NONE) XVideo.key(m.url) else null
+            if (xk != null) {
+                if (role == XVideo.ROLE_VARIANT &&
+                    cur.any { it.type == "hls" && XVideo.hlsRole(it.url) == XVideo.ROLE_MASTER && XVideo.key(it.url) == xk }
+                ) return false
+                if (role == XVideo.ROLE_MASTER) {
+                    val rest = cur.filterNot { it.type == "hls" && XVideo.hlsRole(it.url) == XVideo.ROLE_VARIANT && XVideo.key(it.url) == xk }
+                    if (rest.size != cur.size) {
+                        items = rest + m
+                        return true
+                    }
+                }
+            }
+        }
+        if (cur.size >= MediaSniff.MAX_ITEMS) {
+            // X 是单页应用：在时间线里一条条点开看，换「页」不会清空列表。满了就挤掉最早的一条 X 视频，让新看的进来
+            if (XVideo.isXVideoUrl(m.url)) {
+                val old = cur.indexOfFirst { XVideo.isXVideoUrl(it.url) }
+                if (old >= 0) {
+                    items = cur.toMutableList().also { it.removeAt(old); it.add(m) }
+                    return true
+                }
+            }
+            return false
+        }
         items = cur + m
         return true
     }
