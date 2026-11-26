@@ -137,6 +137,12 @@ const val READER_LINE_DEFAULT = 180
 const val READER_PAD_H_MIN = 12
 const val READER_PAD_H_MAX = 56
 const val READER_PAD_H_DEFAULT = 26
+/** 阅读器「文字背景」：-1 = 跟随应用深浅色（默认）；其余数值写进 SharedPreferences，不要改 */
+const val READER_THEME_AUTO = -1
+const val READER_THEME_PAPER = 0
+const val READER_THEME_EYE = 1
+const val READER_THEME_LIGHT = 2
+const val READER_THEME_DARK = 3
 const val READER_PAD_V_MIN = 14
 const val READER_PAD_V_MAX = 44
 const val READER_PAD_V_DEFAULT = 26
@@ -353,6 +359,15 @@ class AppSettings(context: Context) {
     var readerPadV by mutableIntStateOf(prefs.getInt(KEY_READER_PAD_V, READER_PAD_V_DEFAULT).coerceIn(READER_PAD_V_MIN, READER_PAD_V_MAX))
         private set
 
+    /** 阅读器文字背景：[READER_THEME_AUTO] 跟随应用深浅色（浅色 = 纸质纹理、深色 = 深色），或 纸质纹理 / 护眼 / 浅色 / 深色。 */
+    var readerTheme by mutableIntStateOf(prefs.getInt(KEY_READER_THEME, READER_THEME_AUTO).coerceIn(READER_THEME_AUTO, READER_THEME_DARK))
+        private set
+
+    fun updateReaderTheme(v: Int) {
+        readerTheme = v.coerceIn(READER_THEME_AUTO, READER_THEME_DARK)
+        prefs.edit().putInt(KEY_READER_THEME, readerTheme).apply()
+    }
+
     fun updateReaderFontSp(v: Int) {
         readerFontSp = v.coerceIn(READER_FONT_MIN, READER_FONT_MAX)
         prefs.edit().putInt(KEY_READER_FONT, readerFontSp).apply()
@@ -379,7 +394,31 @@ class AppSettings(context: Context) {
         readerLinePct = READER_LINE_DEFAULT
         readerPadH = READER_PAD_H_DEFAULT
         readerPadV = READER_PAD_V_DEFAULT
-        prefs.edit().remove(KEY_READER_FONT).remove(KEY_READER_LINE).remove(KEY_READER_PAD_H).remove(KEY_READER_PAD_V).apply()
+        readerTheme = READER_THEME_AUTO
+        prefs.edit().remove(KEY_READER_THEME).remove(KEY_READER_FONT).remove(KEY_READER_LINE).remove(KEY_READER_PAD_H).remove(KEY_READER_PAD_V).apply()
+    }
+
+    /** 书架：true = 网格（默认），false = 列表。 */
+    var bookshelfGrid by mutableStateOf(prefs.getBoolean(KEY_BOOKSHELF_GRID, true))
+        private set
+
+    /** 书架排序方式（[BookSort]，默认按添加时间）。 */
+    var bookshelfSort by mutableStateOf(BookSort.fromId(prefs.getInt(KEY_BOOKSHELF_SORT, BookSort.ADDED.id)))
+        private set
+
+    /** 书架排序方向：true = 降序（默认；配合按添加时间 = 新书在前，与之前的顺序一致）。 */
+    var bookshelfSortDesc by mutableStateOf(prefs.getBoolean(KEY_BOOKSHELF_SORT_DESC, true))
+        private set
+
+    fun updateBookshelfGrid(grid: Boolean) {
+        bookshelfGrid = grid
+        prefs.edit().putBoolean(KEY_BOOKSHELF_GRID, grid).apply()
+    }
+
+    fun updateBookshelfSort(sort: BookSort, desc: Boolean) {
+        bookshelfSort = sort
+        bookshelfSortDesc = desc
+        prefs.edit().putInt(KEY_BOOKSHELF_SORT, sort.id).putBoolean(KEY_BOOKSHELF_SORT_DESC, desc).apply()
     }
 
     fun isHomeShown(kind: Int): Boolean = when (kind) {
@@ -1354,6 +1393,10 @@ class AppSettings(context: Context) {
         const val KEY_READER_LINE = "reader_line_pct"
         const val KEY_READER_PAD_H = "reader_pad_h"
         const val KEY_READER_PAD_V = "reader_pad_v"
+        const val KEY_READER_THEME = "reader_theme"
+        const val KEY_BOOKSHELF_GRID = "bookshelf_grid"
+        const val KEY_BOOKSHELF_SORT = "bookshelf_sort"
+        const val KEY_BOOKSHELF_SORT_DESC = "bookshelf_sort_desc"
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"
         const val KEY_RESTORE_TABS = "restore_tabs_on_launch"
         const val KEY_RESTORE_MODE = "restore_tabs_mode"

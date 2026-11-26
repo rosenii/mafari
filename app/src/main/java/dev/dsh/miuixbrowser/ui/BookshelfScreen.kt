@@ -7,13 +7,16 @@ package dev.dsh.miuixbrowser.ui
 
 import android.graphics.Bitmap
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,14 +31,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -53,8 +61,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
@@ -70,6 +81,9 @@ import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import dev.dsh.miuixbrowser.data.Book
+import dev.dsh.miuixbrowser.data.AppSettings
+import dev.dsh.miuixbrowser.data.BookCategory
+import dev.dsh.miuixbrowser.data.BookSort
 import dev.dsh.miuixbrowser.data.BookShelf
 import dev.dsh.miuixbrowser.i18n.tr
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +102,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.glass.File
 import top.yukonga.miuix.kmp.icon.glass.More
+import top.yukonga.miuix.kmp.icon.glass.Search
 import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
@@ -95,19 +110,52 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 /** 封面比例（宽 : 高 = 3 : 4）。 */
 private const val COVER_RATIO = 0.75f
 
+/** 列表模式下封面宽度；高度按 3:4 算出，右侧文字区和它等高。 */
+private val LIST_COVER_WIDTH = 72.dp
+
 /** 解码好的封面的小缓存（按 书 id + 封面修订号），滚动回来时不用再读盘。 */
 private val coverCache = android.util.LruCache<String, ImageBitmap>(32)
+
+/** 排序图标：三条逐渐变短的横线（miuix 图标库里没有现成的排序图标）。 */
+private val SortIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Sort",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f,
+    ).apply {
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(3f, 6f); horizontalLineTo(21f); verticalLineTo(8f); horizontalLineTo(3f); close()
+            moveTo(3f, 11f); horizontalLineTo(15f); verticalLineTo(13f); horizontalLineTo(3f); close()
+            moveTo(3f, 16f); horizontalLineTo(9f); verticalLineTo(18f); horizontalLineTo(3f); close()
+        }
+    }.build()
+}
+
+private fun sortLabel(sort: BookSort): String = when (sort) {
+    BookSort.ADDED -> tr("添加时间")
+    BookSort.TITLE -> tr("书名")
+    BookSort.AUTHOR -> tr("作者")
+    BookSort.PROGRESS -> tr("阅读进度")
+}
 
 /**
  * 设置 → 浏览 → 书架。
  *
- * 复用其他二级页面的框架（玻璃大标题顶栏 + 右上角「更多」菜单）。目前只做「从本地导入」小说（TXT / EPUB）：
- * 书架里以大封面 + 书名 + 作者的网格展示（读过的书封面右上角有进度角标、底边有进度条），长按封面弹出编辑窗口（改书名、上传封面；左下角删除、右下角保存，
- * 删除前再确认一次）。「订阅网络小说」入口先占位。
+ * 复用其他二级页面的框架（玻璃大标题顶栏 + 右上角按钮）。顶栏三个按钮：搜索（写法同历史页：顶栏下方展开输入框，按书名 / 作者过滤）、
+ * 排序（添加时间 / 书名 / 作者 / 阅读进度，升降序）、更多（选择 / 网格 / 列表 / 创建分类 / 导入）。
+ * 网格 / 列表和排序方式存在 [AppSettings]（与阅读器排版同一套 SharedPreferences）。分类用顶栏下方一行可横滑的标签切换；
+ * 「选择」进入多选，底部「移动到分类 / 删除」；长按封面（非选择模式）弹出编辑窗口。「订阅网络小说」入口先占位。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurEnabled: Boolean = true) {
+fun BookshelfScreen(
+    settings: AppSettings,
+    onBack: () -> Unit,
+    onOpenBook: (String) -> Unit = {},
+    blurEnabled: Boolean = true,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -128,9 +176,41 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
         loaded = true
     }
     val books = BookShelf.books
+    val categories = BookShelf.categories
+
+    // 搜索：写法同历史页（searching 开关 + query，输入框放顶栏 bottomContent）
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+
+    // 当前分类（null = 全部）；分类被删掉后自动回到「全部」
+    var currentCategory by remember { mutableStateOf<String?>(null) }
+    val activeCategory = currentCategory?.takeIf { id -> categories.any { it.id == id } }
+
+    val grid = settings.bookshelfGrid
+    val sort = settings.bookshelfSort
+    val desc = settings.bookshelfSortDesc
+
+    val shown = remember(books, query, activeCategory, sort, desc) {
+        BookShelf.visible(books, query, activeCategory, sort, desc)
+    }
+
+    // 多选
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    // 只算还在书架里的（被别处删掉的书不再计数）
+    val selectedIds = remember(selected, books) {
+        val alive = books.mapTo(HashSet()) { it.id }
+        selected.filterTo(HashSet()) { it in alive }
+    }
+    val allSelected = shown.isNotEmpty() && shown.all { it.id in selectedIds }
+    fun exitSelect() { selecting = false; selected = emptySet() }
+    fun toggle(id: String) { selected = if (id in selected) selected - id else selected + id }
+    BackHandler(enabled = selecting) { exitSelect() }
 
     var showMore by remember { mutableStateOf(false) }
     var moreAnchor by remember { mutableStateOf(Rect.Zero) }
+    var showSort by remember { mutableStateOf(false) }
+    var sortAnchor by remember { mutableStateOf(Rect.Zero) }
     var importing by remember { mutableStateOf(false) }
 
     // 编辑窗口 / 删除确认：书和显示状态分开存，关闭动画期间内容不会突然消失
@@ -139,6 +219,45 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
     var editTitle by remember { mutableStateOf("") }
     var pendingCover by remember { mutableStateOf<Bitmap?>(null) }
     var confirmShow by remember { mutableStateOf(false) }
+
+    // 分类：创建 / 重命名共用一个输入窗口；移动、批量删除、删分类各一个窗口
+    var nameShow by remember { mutableStateOf(false) }
+    var nameRename by remember { mutableStateOf(false) }
+    var nameText by remember { mutableStateOf("") }
+    var moveAfterCreate by remember { mutableStateOf(false) }
+    var moveShow by remember { mutableStateOf(false) }
+    var deleteManyShow by remember { mutableStateOf(false) }
+    var deleteCatShow by remember { mutableStateOf(false) }
+    val activeCategoryName = categories.firstOrNull { it.id == activeCategory }?.name.orEmpty()
+
+    fun submitName() {
+        val text = nameText
+        val renameId = activeCategory
+        val rename = nameRename
+        val ids = selectedIds.toSet()
+        val moving = moveAfterCreate
+        scope.launch {
+            if (rename) {
+                val ok = renameId != null && withContext(Dispatchers.IO) { BookShelf.renameCategory(context, renameId, text) }
+                if (ok) nameShow = false else toast(tr("分类名不能为空，也不能与已有分类重名"))
+            } else {
+                val c = withContext(Dispatchers.IO) { BookShelf.createCategory(context, text) }
+                if (c == null) {
+                    toast(tr("分类名不能为空，也不能与已有分类重名"))
+                } else {
+                    nameShow = false
+                    if (moving) {
+                        withContext(Dispatchers.IO) { BookShelf.setCategory(context, ids, c.id) }
+                        moveAfterCreate = false
+                        exitSelect()
+                        toast(tr("已移入「{0}」", c.name))
+                    } else {
+                        currentCategory = c.id
+                    }
+                }
+            }
+        }
+    }
 
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
@@ -164,6 +283,20 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
         }
     }
 
+    // 点按 / 长按：选择模式下都是勾选；否则点按打开、长按编辑
+    fun onBookClick(book: Book) { if (selecting) toggle(book.id) else onOpenBook(book.id) }
+    fun onBookLongClick(book: Book) {
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (selecting) {
+            toggle(book.id)
+        } else {
+            editBook = book
+            editTitle = book.title
+            pendingCover = null
+            editShow = true
+        }
+    }
+
     CompositionLocalProvider(LocalLiquidBackdrop provides liquid) {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
@@ -171,76 +304,197 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     PageGlassTopBar(
-                        title = tr("书架"),
+                        title = if (selecting) tr("已选 {0} 本", selectedIds.size) else tr("书架"),
                         backdrop = backdrop,
                         glass = glass,
                         scrollBehavior = scrollBehavior,
-                        onBack = onBack,
-                        backButton = { LiquidGlassBackButton(backdrop = liquid, surfaceVisible = topScrolled, onClick = onBack) },
-                        actions = {
-                            LiquidGlassButton(
-                                onClick = { showMore = true },
+                        onBack = { if (selecting) exitSelect() else onBack() },
+                        backButton = {
+                            LiquidGlassBackButton(
                                 backdrop = liquid,
                                 surfaceVisible = topScrolled,
-                                modifier = Modifier
-                                    .padding(end = 8.dp)
-                                    .onGloballyPositioned { moreAnchor = it.boundsInRoot() },
-                            ) {
-                                Icon(
-                                    imageVector = MiuixIcons.Glass.More,
-                                    contentDescription = tr("更多"),
-                                    modifier = Modifier.size(22.dp),
-                                    tint = MiuixTheme.colorScheme.onSurface,
+                                onClick = { if (selecting) exitSelect() else onBack() },
+                            )
+                        },
+                        actions = {
+                            if (selecting) {
+                                AppTextButton(
+                                    text = if (allSelected) tr("取消全选") else tr("全选"),
+                                    onClick = {
+                                        val ids = shown.map { it.id }
+                                        selected = if (allSelected) selected - ids.toSet() else selected + ids
+                                    },
+                                    modifier = Modifier.padding(end = 8.dp),
                                 )
+                            } else {
+                                LiquidGlassButton(
+                                    onClick = {
+                                        searching = !searching
+                                        if (!searching) query = ""
+                                    },
+                                    backdrop = liquid,
+                                    surfaceVisible = topScrolled,
+                                    modifier = Modifier.padding(end = 8.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = MiuixIcons.Glass.Search,
+                                        contentDescription = tr("搜索"),
+                                        modifier = Modifier.size(22.dp),
+                                        tint = MiuixTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                LiquidGlassButton(
+                                    onClick = { showSort = true },
+                                    backdrop = liquid,
+                                    surfaceVisible = topScrolled,
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .onGloballyPositioned { sortAnchor = it.boundsInRoot() },
+                                ) {
+                                    Icon(
+                                        imageVector = SortIcon,
+                                        contentDescription = tr("排序"),
+                                        modifier = Modifier.size(22.dp),
+                                        tint = MiuixTheme.colorScheme.onSurface,
+                                    )
+                                }
+                                LiquidGlassButton(
+                                    onClick = { showMore = true },
+                                    backdrop = liquid,
+                                    surfaceVisible = topScrolled,
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .onGloballyPositioned { moreAnchor = it.boundsInRoot() },
+                                ) {
+                                    Icon(
+                                        imageVector = MiuixIcons.Glass.More,
+                                        contentDescription = tr("更多"),
+                                        modifier = Modifier.size(22.dp),
+                                        tint = MiuixTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        },
+                        bottomContent = {
+                            Column {
+                                if (searching) {
+                                    TextField(
+                                        value = query,
+                                        onValueChange = { query = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        label = tr("搜索书名或作者"),
+                                        singleLine = true,
+                                    )
+                                }
+                                if (categories.isNotEmpty()) {
+                                    CategoryChips(
+                                        categories = categories,
+                                        selectedId = activeCategory,
+                                        onSelect = { currentCategory = it },
+                                    )
+                                }
                             }
                         },
                     )
                 },
             ) { innerPadding ->
-                LazyVerticalGrid(
-                    // 一行固定 3 本（封面 3:4，随屏宽缩放）
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .layerBackdrop(backdrop)
-                        .kyantLayerBackdrop(liquidBackdrop)
-                        .scrollEndHaptic()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection)
-                        .pageBackground(),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = innerPadding.calculateTopPadding() + 8.dp,
-                        bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    if (books.isEmpty() && loaded) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Text(
-                                text = tr("书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说。"),
-                                fontSize = 13.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 48.dp),
+                val listPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 8.dp,
+                    // 选择模式下底部有操作栏，多留一截不挡住最后一行
+                    bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+                        (if (selecting) 72.dp else 0.dp),
+                )
+                val contentModifier = Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(backdrop)
+                    .kyantLayerBackdrop(liquidBackdrop)
+                    .scrollEndHaptic()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    .pageBackground()
+                val emptyHint: String? = when {
+                    !loaded -> null
+                    books.isEmpty() -> tr("书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说。")
+                    shown.isEmpty() && query.isNotBlank() -> tr("没有找到相关书籍")
+                    shown.isEmpty() && activeCategory != null ->
+                        tr("这个分类里还没有书。点右上角「更多」→「选择」勾选书籍，再「移动到分类」。")
+                    else -> null
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (grid) {
+                        LazyVerticalGrid(
+                            // 一行固定 3 本（封面 3:4，随屏宽缩放）
+                            columns = GridCells.Fixed(3),
+                            modifier = contentModifier,
+                            contentPadding = listPadding,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            if (emptyHint != null) {
+                                item(span = { GridItemSpan(maxLineSpan) }) { EmptyHint(emptyHint) }
+                            }
+                            items(shown, key = { it.id }) { book ->
+                                BookItem(
+                                    book = book,
+                                    selecting = selecting,
+                                    checked = book.id in selectedIds,
+                                    onClick = { onBookClick(book) },
+                                    onLongClick = { onBookLongClick(book) },
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = contentModifier,
+                            contentPadding = listPadding,
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            if (emptyHint != null) item { EmptyHint(emptyHint) }
+                            items(shown, key = { it.id }) { book ->
+                                BookRow(
+                                    book = book,
+                                    selecting = selecting,
+                                    checked = book.id in selectedIds,
+                                    onClick = { onBookClick(book) },
+                                    onLongClick = { onBookLongClick(book) },
+                                )
+                            }
+                        }
+                    }
+
+                    // 选择模式的底部操作栏：移动到分类 / 删除
+                    if (selecting) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            LiquidGlassPillButton(
+                                text = tr("移动到分类"),
+                                onClick = { moveShow = true },
+                                backdrop = liquid,
+                                modifier = Modifier.weight(1f),
+                                enabled = selectedIds.isNotEmpty(),
+                            )
+                            LiquidGlassPillButton(
+                                text = tr("删除"),
+                                onClick = { deleteManyShow = true },
+                                backdrop = liquid,
+                                modifier = Modifier.weight(1f),
+                                enabled = selectedIds.isNotEmpty(),
+                                role = LiquidRole.Destructive,
                             )
                         }
                     }
-                    items(books, key = { it.id }) { book ->
-                        BookItem(
-                            book = book,
-                            onClick = { onOpenBook(book.id) },
-                            onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                editBook = book
-                                editTitle = book.title
-                                pendingCover = null
-                                editShow = true
-                            },
-                        )
-                    }
                 }
+
                 // 弹窗 / sheet 必须放在 Scaffold 的内容里：miuix 的 Overlay 弹层由 Scaffold 的弹层宿主渲染，放在 Scaffold 外面会一直不显示
                 // ---- 编辑窗口：左下角删除、右下角保存（删除先弹确认框，此时编辑窗口先收起）
                 AppGlassDialog(
@@ -325,6 +579,179 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
                         ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
                     }
                 }
+
+                // ---- 批量删除确认（选择模式）
+                AppGlassDialog(
+                    show = deleteManyShow,
+                    title = tr("删除选中的 {0} 本书？", selectedIds.size),
+                    summary = tr("书的文件和封面也会一并删除，无法恢复。"),
+                    backdrop = bd,
+                    onDismissRequest = { deleteManyShow = false },
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppDialogButton(onClick = { deleteManyShow = false }, modifier = Modifier.weight(1f)) {
+                            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                val ids = selectedIds.toSet()
+                                deleteManyShow = false
+                                exitSelect()
+                                scope.launch { withContext(Dispatchers.IO) { BookShelf.deleteMany(context, ids) } }
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Destructive,
+                        ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
+                    }
+                }
+
+                // ---- 创建 / 重命名分类
+                AppGlassDialog(
+                    show = nameShow,
+                    title = if (nameRename) tr("重命名分类") else tr("创建分类"),
+                    backdrop = bd,
+                    onDismissRequest = {
+                        nameShow = false
+                        moveAfterCreate = false
+                    },
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        TextField(
+                            value = nameText,
+                            onValueChange = { nameText = it.take(20) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = tr("分类名称"),
+                            singleLine = true,
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            AppDialogButton(
+                                onClick = {
+                                    nameShow = false
+                                    moveAfterCreate = false
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) { Text(text = tr("取消"), style = MiuixTheme.textStyles.button) }
+                            AppDialogButton(
+                                onClick = { submitName() },
+                                modifier = Modifier.weight(1f),
+                                enabled = nameText.isNotBlank(),
+                                role = GlassDialogButtonRole.Primary,
+                            ) { Text(text = tr("确定"), style = MiuixTheme.textStyles.button) }
+                        }
+                    }
+                }
+
+                // ---- 删除分类确认（书不会被删）
+                AppGlassDialog(
+                    show = deleteCatShow,
+                    title = tr("删除分类「{0}」？", activeCategoryName),
+                    summary = tr("分类里的书不会被删除，仍可在「全部」里找到。"),
+                    backdrop = bd,
+                    onDismissRequest = { deleteCatShow = false },
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppDialogButton(onClick = { deleteCatShow = false }, modifier = Modifier.weight(1f)) {
+                            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                val id = activeCategory
+                                deleteCatShow = false
+                                currentCategory = null
+                                if (id != null) scope.launch { withContext(Dispatchers.IO) { BookShelf.deleteCategory(context, id) } }
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Destructive,
+                        ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
+                    }
+                }
+
+                // ---- 移动到分类：列出所有分类 + 「移出分类」；一个分类都没有时引导去创建
+                AppGlassDialog(
+                    show = moveShow,
+                    title = tr("移动到分类"),
+                    summary = if (categories.isEmpty()) tr("还没有分类，先创建一个。") else null,
+                    backdrop = bd,
+                    onDismissRequest = { moveShow = false },
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        if (categories.isNotEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    // 每行 48dp（含「移出分类」那一行）；超过 6 行就固定高度、内部滚动
+                                    .height(minOf(categories.size + 1, 6) * 48.dp)
+                                    .verticalScroll(rememberScrollState()),
+                            ) {
+                                categories.forEach { c ->
+                                    MoveRow(text = c.name) {
+                                        val ids = selectedIds.toSet()
+                                        moveShow = false
+                                        exitSelect()
+                                        scope.launch { withContext(Dispatchers.IO) { BookShelf.setCategory(context, ids, c.id) } }
+                                        toast(tr("已移入「{0}」", c.name))
+                                    }
+                                }
+                                MoveRow(text = tr("移出分类"), dim = true) {
+                                    val ids = selectedIds.toSet()
+                                    moveShow = false
+                                    exitSelect()
+                                    scope.launch { withContext(Dispatchers.IO) { BookShelf.setCategory(context, ids, "") } }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            AppDialogButton(onClick = { moveShow = false }, modifier = Modifier.weight(1f)) {
+                                Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                            }
+                            AppDialogButton(
+                                onClick = {
+                                    moveShow = false
+                                    moveAfterCreate = true
+                                    nameRename = false
+                                    nameText = ""
+                                    nameShow = true
+                                },
+                                modifier = Modifier.weight(1f),
+                                role = GlassDialogButtonRole.Primary,
+                            ) { Text(text = tr("新建分类"), style = MiuixTheme.textStyles.button) }
+                        }
+                    }
+                }
+            }
+
+            // 排序菜单：与 Scaffold 同级、放在最后 → 位于最上层（盖住顶栏）。当前项后面带 ✓；点已选中的排序项不变，方向单独两项
+            AppGlassPopup(
+                show = showSort,
+                onDismissRequest = { showSort = false },
+                anchorBounds = Rect(sortAnchor.left, sortAnchor.bottom, sortAnchor.right, sortAnchor.bottom),
+                backdrop = bd,
+            ) {
+                BookSort.entries.forEach { opt ->
+                    GlassPopupItem(
+                        text = sortLabel(opt) + if (opt == sort) "  ✓" else "",
+                        onClick = {
+                            showSort = false
+                            settings.updateBookshelfSort(opt, desc)
+                        },
+                    )
+                }
+                GlassPopupItem(
+                    text = tr("升序") + if (!desc) "  ✓" else "",
+                    onClick = {
+                        showSort = false
+                        settings.updateBookshelfSort(sort, false)
+                    },
+                )
+                GlassPopupItem(
+                    text = tr("降序") + if (desc) "  ✓" else "",
+                    onClick = {
+                        showSort = false
+                        settings.updateBookshelfSort(sort, true)
+                    },
+                )
             }
 
             // 右上角菜单：与 Scaffold 同级、放在最后 → 位于最上层（盖住顶栏）
@@ -334,6 +761,57 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
                 anchorBounds = Rect(moreAnchor.left, moreAnchor.bottom, moreAnchor.right, moreAnchor.bottom),
                 backdrop = bd,
             ) {
+                GlassPopupItem(
+                    text = tr("选择"),
+                    enabled = books.isNotEmpty(),
+                    onClick = {
+                        showMore = false
+                        selected = emptySet()
+                        selecting = true
+                    },
+                )
+                GlassPopupItem(
+                    text = tr("网格") + if (grid) "  ✓" else "",
+                    onClick = {
+                        showMore = false
+                        settings.updateBookshelfGrid(true)
+                    },
+                )
+                GlassPopupItem(
+                    text = tr("列表") + if (!grid) "  ✓" else "",
+                    onClick = {
+                        showMore = false
+                        settings.updateBookshelfGrid(false)
+                    },
+                )
+                GlassPopupItem(
+                    text = tr("创建分类"),
+                    onClick = {
+                        showMore = false
+                        moveAfterCreate = false
+                        nameRename = false
+                        nameText = ""
+                        nameShow = true
+                    },
+                )
+                if (activeCategory != null) {
+                    GlassPopupItem(
+                        text = tr("重命名当前分类"),
+                        onClick = {
+                            showMore = false
+                            nameRename = true
+                            nameText = activeCategoryName
+                            nameShow = true
+                        },
+                    )
+                    GlassPopupItem(
+                        text = tr("删除当前分类"),
+                        onClick = {
+                            showMore = false
+                            deleteCatShow = true
+                        },
+                    )
+                }
                 GlassPopupItem(
                     text = tr("订阅网络小说"),
                     onClick = {
@@ -357,10 +835,148 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
     }
 }
 
-/** 书架网格里的一格：大封面 + 书名 + 作者；点按打开，长按编辑。 */
+/** 空状态 / 无结果的提示文字。 */
+@Composable
+private fun EmptyHint(text: String) {
+    Text(
+        text = text,
+        fontSize = 13.sp,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 48.dp),
+    )
+}
+
+/** 顶栏下方的分类标签：「全部」+ 各分类，可横向滑动。 */
+@Composable
+private fun CategoryChips(categories: List<BookCategory>, selectedId: String?, onSelect: (String?) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CategoryChip(text = tr("全部"), selected = selectedId == null) { onSelect(null) }
+        categories.forEach { c -> CategoryChip(text = c.name, selected = selectedId == c.id) { onSelect(c.id) } }
+    }
+}
+
+@Composable
+private fun CategoryChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        text = text,
+        fontSize = 14.sp,
+        maxLines = 1,
+        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .clip(CircleShape)
+            .background(if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    )
+}
+
+/** 「移动到分类」窗口里的一行。 */
+@Composable
+private fun MoveRow(text: String, dim: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text = text,
+        fontSize = 16.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        color = if (dim) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clickable(onClick = onClick)
+            .wrapContentHeight(Alignment.CenterVertically)
+            .padding(horizontal = 4.dp),
+    )
+}
+
+/** 选择模式下的勾选圆点。 */
+@Composable
+private fun SelectMark(checked: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .background(if (checked) MiuixTheme.colorScheme.primary else Color.Black.copy(alpha = 0.3f))
+            .border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (checked) Text(text = "✓", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+    }
+}
+
+/** 列表模式的一行：左边封面，右边书名 / 作者，底部是格式标签和阅读进度；点按打开，长按编辑。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun BookItem(book: Book, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun BookRow(book: Book, selecting: Boolean, checked: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (checked) MiuixTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(LIST_COVER_WIDTH)
+                .aspectRatio(COVER_RATIO)
+                .squircleClip(10.dp),
+        ) {
+            BookCover(book = book, override = null, modifier = Modifier.fillMaxSize())
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .height(LIST_COVER_WIDTH / COVER_RATIO)
+                .padding(start = 14.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
+        ) {
+            Text(
+                text = book.title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = book.author.ifBlank { tr("佚名") },
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = book.fileName.substringAfterLast('.', "").uppercase(),
+                    fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+                val label = progressLabel(book)
+                if (label != null) {
+                    Text(text = label, fontSize = 12.sp, color = MiuixTheme.colorScheme.primary)
+                }
+            }
+        }
+        if (selecting) SelectMark(checked = checked, modifier = Modifier.padding(end = 6.dp))
+    }
+}
+
+/** 书架网格里的一格：大封面 + 书名 + 作者；点按打开，长按编辑（选择模式下点按 / 长按都是勾选）。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BookItem(book: Book, selecting: Boolean, checked: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -387,6 +1003,11 @@ private fun BookItem(book: Book, onClick: () -> Unit, onLongClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            // 选择模式：选中的封面压暗，左上角显示勾选圆点
+            if (selecting) {
+                if (checked) Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.25f)))
+                SelectMark(checked = checked, modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
             }
             // 阅读进度：右上角百分比角标 + 封面底边一条细进度条（没开始读的书不显示）
             val label = progressLabel(book)

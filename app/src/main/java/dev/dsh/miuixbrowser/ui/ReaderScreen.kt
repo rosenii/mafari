@@ -5,11 +5,14 @@
 
 package dev.dsh.miuixbrowser.ui
 
+import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -52,12 +55,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -77,6 +87,11 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.kyant.backdrop.backdrops.layerBackdrop as kyantLayerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdrop
 import dev.dsh.miuixbrowser.data.AppSettings
+import dev.dsh.miuixbrowser.data.READER_THEME_AUTO
+import dev.dsh.miuixbrowser.data.READER_THEME_DARK
+import dev.dsh.miuixbrowser.data.READER_THEME_EYE
+import dev.dsh.miuixbrowser.data.READER_THEME_LIGHT
+import dev.dsh.miuixbrowser.data.READER_THEME_PAPER
 import dev.dsh.miuixbrowser.data.Block
 import dev.dsh.miuixbrowser.data.Book
 import dev.dsh.miuixbrowser.data.BookContent
@@ -149,6 +164,55 @@ private class ReaderController(chapter: Int, offset: Int) {
     var jump by mutableStateOf<ReaderJump?>(null)
 }
 
+/* ------------------------------ 文字背景 ------------------------------ */
+
+/** 阅读背景：底色、文字色，以及是否叠加纸张纹理。 */
+@Stable
+private class ReaderTheme(val bg: Color, val ink: Color, val textured: Boolean = false)
+
+private val ReaderPaper = ReaderTheme(Color(0xFFF5F0E6), Color(0xFF2E2A25), textured = true)
+private val ReaderEye = ReaderTheme(Color(0xFFCCE8CF), Color(0xFF243127))
+private val ReaderLight = ReaderTheme(Color(0xFFFFFFFF), Color(0xFF222222))
+private val ReaderDark = ReaderTheme(Color(0xFF141416), Color(0xFFB4B4BA))
+
+private fun readerThemeOf(id: Int): ReaderTheme = when (id) {
+    READER_THEME_EYE -> ReaderEye
+    READER_THEME_LIGHT -> ReaderLight
+    READER_THEME_DARK -> ReaderDark
+    else -> ReaderPaper
+}
+
+/** 「跟随应用」时：应用深色 → 深色，否则纸质纹理（与加这个设置之前的外观一致）。 */
+private fun resolveReaderTheme(saved: Int, appDark: Boolean): ReaderTheme =
+    if (saved == READER_THEME_AUTO) (if (appDark) ReaderDark else ReaderPaper) else readerThemeOf(saved)
+
+/** 纸张纹理：128px 的随机暖褐色细点，平铺。固定种子，每次启动一样。 */
+private val paperTile: ImageBitmap by lazy {
+    val n = 128
+    val rnd = java.util.Random(20260)
+    val px = IntArray(n * n) {
+        val a = rnd.nextInt(26)           // 0..25 的很淡的透明度
+        (a shl 24) or 0x7A5C34            // 暖褐
+    }
+    Bitmap.createBitmap(px, n, n, Bitmap.Config.ARGB_8888).asImageBitmap()
+}
+
+/** 画阅读背景。必须用在被玻璃控件采样的内容层里（见 ReaderBody）。 */
+private fun Modifier.readerBackground(theme: ReaderTheme): Modifier =
+    if (!theme.textured) {
+        background(theme.bg)
+    } else {
+        drawBehind {
+            drawRect(theme.bg)
+            drawRect(
+                object : ShaderBrush() {
+                    override fun createShader(size: androidx.compose.ui.geometry.Size) =
+                        ImageShader(paperTile, TileMode.Repeated, TileMode.Repeated)
+                },
+            )
+        }
+    }
+
 /* ------------------------------ 页面 ------------------------------ */
 
 /**
@@ -175,14 +239,13 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit, settings: AppSettings, blur
         if (r.isNullOrEmpty()) failed = true else chapters = r
     }
 
-    val dark = isAppDarkTheme()
-    val paper = if (dark) Color(0xFF141416) else Color(0xFFF5F0E6)
-    val ink = if (dark) Color(0xFFB4B4BA) else Color(0xFF2E2A25)
+    val theme = resolveReaderTheme(settings.readerTheme, isAppDarkTheme())
+    val ink = theme.ink
 
-    Box(modifier = Modifier.fillMaxSize().background(paper)) {
+    Box(modifier = Modifier.fillMaxSize().readerBackground(theme)) {
         val list = chapters
         if (book != null && list != null) {
-            ReaderBody(book = book, chapters = list, settings = settings, onBack = onBack, blurEnabled = blurEnabled, ink = ink)
+            ReaderBody(book = book, chapters = list, settings = settings, onBack = onBack, blurEnabled = blurEnabled, ink = ink, theme = theme)
         } else {
             Text(
                 text = if (failed) tr("无法读取这本书") else tr("加载中…"),
@@ -198,7 +261,7 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit, settings: AppSettings, blur
 }
 
 @Composable
-private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolean, ink: Color) {
+private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolean, ink: Color, theme: ReaderTheme) {
     val context = LocalContext.current
     val view = LocalView.current
 
@@ -249,12 +312,14 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         ) { _ ->
         Box(modifier = Modifier.fillMaxSize()) {
-            // 内容层：被玻璃控件采样
+            // 内容层：被玻璃控件采样。背景（纸色 / 纹理）必须画在录制层「里面」（同其他页面的 pageBackground 写法）：
+            // 否则采样到的是「透明底 + 文字」，柔光玻璃 / 磨砂模糊时半透明像素被错误混合，控件和 sheet 上就是一块块脏色块
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .layerBackdrop(backdrop)
-                    .kyantLayerBackdrop(liquidBackdrop),
+                    .kyantLayerBackdrop(liquidBackdrop)
+                    .readerBackground(theme),
             ) {
                 ReaderPager(chapters = chapters, bookFile = bookFile, ctl = ctl, ink = ink, settings = settings, onToggleOverlay = { overlay = !overlay })
             }
@@ -317,7 +382,7 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
                 ReaderSettingsPanel(settings)
             }
 
-            // 目录：点章节直接跳转
+            // 目录：顶部章节进度条（左右拖动快速切章，下面的列表跟着滚）；点章节直接跳转
             AppBottomSheet(
                 show = showToc,
                 title = tr("目录"),
@@ -326,21 +391,70 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
                 scrollContent = true,
             ) {
                 val insets = LocalBottomSheetInsets.current
+                val haptic = LocalHapticFeedback.current
                 val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
                 val listState = rememberLazyListState()
+                val last = chapters.lastIndex
+
+                // 进度条的草稿值：拖动时跟手，松手才真正跳转；不拖动时跟着当前阅读的章节走
+                var dragging by remember { mutableStateOf(false) }
+                var draft by remember { mutableFloatStateOf(ctl.chapter.toFloat()) }
+                val draftIdx = draft.roundToInt().coerceIn(0, last)
+                LaunchedEffect(ctl.chapter, showToc) { if (!dragging) draft = ctl.chapter.toFloat() }
+
                 LaunchedEffect(showToc) {
                     if (showToc) listState.scrollToItem((ctl.chapter - 3).coerceAtLeast(0))
                 }
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = insets.top)
-                        .heightIn(max = maxHeight + insets.bottom),
-                    contentPadding = PaddingValues(bottom = insets.bottom + 12.dp),
-                ) {
+                // 拖动时列表跟随：目标章节保持在靠上的位置（和打开时一致，前面留 3 章上下文）；每跨一章轻震一下
+                LaunchedEffect(draftIdx, dragging) {
+                    if (dragging) {
+                        listState.scrollToItem((draftIdx - 3).coerceAtLeast(0))
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                }
+
+                Column(modifier = Modifier.fillMaxWidth().padding(top = insets.top)) {
+                    if (last > 0) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = chapters[draftIdx].title,
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                                )
+                                Text(
+                                    text = "${draftIdx + 1} / ${last + 1}",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                            }
+                            Slider(
+                                value = draft,
+                                onValueChange = { raw ->
+                                    dragging = true
+                                    draft = raw.roundToInt().toFloat().coerceIn(0f, last.toFloat())
+                                },
+                                onValueChangeFinished = {
+                                    dragging = false
+                                    if (draftIdx != ctl.chapter) ctl.jump = ReaderJump(draftIdx)
+                                },
+                                valueRange = 0f..last.toFloat(),
+                            )
+                        }
+                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // 进度条那块占了约 76dp，列表相应矮一点，整个 sheet 高度不变
+                            .heightIn(max = (maxHeight + insets.bottom - (if (last > 0) 76.dp else 0.dp)).coerceAtLeast(120.dp)),
+                        contentPadding = PaddingValues(bottom = insets.bottom + 12.dp),
+                    ) {
                     itemsIndexed(chapters) { i, c ->
-                        val current = i == ctl.chapter
+                        val current = i == (if (dragging) draftIdx else ctl.chapter)
                         Text(
                             text = c.title,
                             fontSize = 15.sp,
@@ -359,6 +473,7 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
                                 .padding(horizontal = 16.dp, vertical = 13.dp),
                         )
                     }
+                    }
                 }
             }
         }
@@ -371,6 +486,7 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
 @Composable
 private fun ReaderSettingsPanel(settings: AppSettings) {
     Column(modifier = Modifier.fillMaxWidth()) {
+        ReaderThemeRow(settings)
         ReaderSliderRow(
             name = tr("字号"),
             value = settings.readerFontSp.toFloat(),
@@ -409,6 +525,49 @@ private fun ReaderSettingsPanel(settings: AppSettings) {
 }
 
 /** 一行滑块：拖动时只更新右侧数字，松手才提交（提交会让整本书重新排版，拖动过程中不重排）。 */
+/** 「文字背景」：四个色块可选，当前项描边。 */
+@Composable
+private fun ReaderThemeRow(settings: AppSettings) {
+    val appDark = isAppDarkTheme()
+    val current = settings.readerTheme.let { if (it == READER_THEME_AUTO) (if (appDark) READER_THEME_DARK else READER_THEME_PAPER) else it }
+    val options = listOf(
+        READER_THEME_PAPER to tr("纸质纹理"),
+        READER_THEME_EYE to tr("护眼"),
+        READER_THEME_LIGHT to tr("浅色"),
+        READER_THEME_DARK to tr("深色"),
+    )
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            text = tr("文字背景"),
+            style = MiuixTheme.textStyles.headline1,
+            color = MiuixTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            options.forEach { (id, label) ->
+                val t = readerThemeOf(id)
+                val selected = id == current
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .readerBackground(t)
+                        .border(
+                            width = if (selected) 2.dp else 1.dp,
+                            color = if (selected) MiuixTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .clickable { settings.updateReaderTheme(id) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(text = label, fontSize = 13.sp, maxLines = 1, color = t.ink)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ReaderSliderRow(
     name: String,

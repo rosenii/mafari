@@ -2343,6 +2343,35 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 订阅网络小说	Subscribe to online novels
 网络订阅暂未开放，敬请期待	Online subscription isn't available yet — coming soon
 从本地导入	Import from device
+搜索书名或作者	Search title or author
+没有找到相关书籍	No matching books
+这个分类里还没有书。点右上角「更多」→「选择」勾选书籍，再「移动到分类」。	No books in this category yet. Tap More → Select, pick books, then Move to category.
+添加时间	Date added
+阅读进度	Reading progress
+升序	Ascending
+降序	Descending
+选择	Select
+网格	Grid
+列表	List
+创建分类	Create category
+重命名分类	Rename category
+重命名当前分类	Rename this category
+删除当前分类	Delete this category
+分类名称	Category name
+分类名不能为空，也不能与已有分类重名	The category name can't be empty or match an existing one
+已选 {0} 本	{0} selected
+全选	Select all
+取消全选	Deselect all
+移动到分类	Move to category
+移出分类	Remove from category
+新建分类	New category
+还没有分类，先创建一个。	No categories yet — create one first.
+已移入「{0}」	Moved to "{0}"
+全部	All
+删除选中的 {0} 本书？	Delete {0} selected book(s)?
+书的文件和封面也会一并删除，无法恢复。	The files and covers will be deleted too. This can't be undone.
+删除分类「{0}」？	Delete category "{0}"?
+分类里的书不会被删除，仍可在「全部」里找到。	Books in it won't be deleted; you'll still find them under All.
 已导入 {0} 本	Imported {0} book(s)
 已导入 {0} 本，{1} 个文件无法导入（仅支持 TXT / EPUB）	Imported {0} book(s); {1} file(s) couldn't be imported (TXT / EPUB only)
 无法导入所选文件（仅支持 TXT / EPUB）	Couldn't import the selected files (TXT / EPUB only)
@@ -2364,4 +2393,8 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 左右边距	Side margins
 上下边距	Top & bottom margins
 已读完	Finished
+文字背景	Text background
+纸质纹理	Paper texture
+护眼	Eye care
+浅色	Light
 无法显示这张图片	Can't display this image

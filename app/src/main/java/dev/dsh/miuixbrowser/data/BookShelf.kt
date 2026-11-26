@@ -35,7 +35,21 @@ data class Book(
     val chapter: Int = 0,
     val offset: Int = 0,
     val progress: Float = 0f,
+    /** 所属分类的 id；空串 = 未分类（只出现在「全部」里） */
+    val category: String = "",
 )
+
+/** 书架分类。书只记录分类 id，改名不用动书。 */
+data class BookCategory(val id: String, val name: String)
+
+/** 书架排序方式。[id] 写进 SharedPreferences，不要改。 */
+enum class BookSort(val id: Int) {
+    ADDED(0), TITLE(1), AUTHOR(2), PROGRESS(3);
+
+    companion object {
+        fun fromId(id: Int): BookSort = entries.firstOrNull { it.id == id } ?: ADDED
+    }
+}
 
 /** 一次导入的结果。 */
 class BookImportResult(val added: Int, val skipped: Int)
@@ -53,6 +67,7 @@ class BookMeta(val title: String, val author: String, val cover: ByteArray? = nu
 object BookShelf {
     private const val DIR = "bookshelf"
     private const val INDEX = "index.json"
+    private const val CATEGORIES = "categories.json"
     private const val MAX_COVER_SIDE = 900
     private val SUPPORTED = setOf("txt", "epub")
 
@@ -60,6 +75,10 @@ object BookShelf {
 
     /** 书目（新导入的在前）。界面直接读这个状态；只在主线程之外改完后一次性赋值。 */
     var books by mutableStateOf<List<Book>>(emptyList())
+        private set
+
+    /** 分类（按创建顺序）。 */
+    var categories by mutableStateOf<List<BookCategory>>(emptyList())
         private set
 
     private var loaded = false
@@ -89,6 +108,7 @@ object BookShelf {
         synchronized(lock) {
             if (loaded) return
             books = readIndex(context)
+            categories = readCategories(context)
             loaded = true
         }
     }
@@ -195,6 +215,101 @@ object BookShelf {
         bookDir(context, id).deleteRecursively()
     }
 
+    /** 一次删除多本书（索引 + 正文 + 封面）。在 IO 线程调用。 */
+    fun deleteMany(context: Context, ids: Set<String>) {
+        if (ids.isEmpty()) return
+        load(context)
+        synchronized(lock) {
+            val next = books.filterNot { it.id in ids }
+            writeIndex(context, next)
+            books = next
+        }
+        ids.forEach { bookDir(context, it).deleteRecursively() }
+    }
+
+    // ---- 分类 ----
+
+    /** 分类名是否可用：去掉首尾空白后非空，且不与别的分类重名（忽略大小写）。[exceptId] 是正在改名的那个分类。 */
+    internal fun isCategoryNameFree(existing: List<BookCategory>, name: String, exceptId: String? = null): Boolean {
+        val n = name.trim()
+        return n.isNotEmpty() && existing.none { it.id != exceptId && it.name.equals(n, ignoreCase = true) }
+    }
+
+    /** 新建分类；名字为空或重名返回 null。在 IO 线程调用。 */
+    fun createCategory(context: Context, name: String): BookCategory? {
+        load(context)
+        synchronized(lock) {
+            if (!isCategoryNameFree(categories, name)) return null
+            val c = BookCategory(UUID.randomUUID().toString().replace("-", "").take(12), name.trim())
+            val next = categories + c
+            writeCategories(context, next)
+            categories = next
+            return c
+        }
+    }
+
+    /** 分类改名；名字为空或重名返回 false。在 IO 线程调用。 */
+    fun renameCategory(context: Context, id: String, name: String): Boolean {
+        load(context)
+        synchronized(lock) {
+            if (categories.none { it.id == id } || !isCategoryNameFree(categories, name, exceptId = id)) return false
+            val next = categories.map { if (it.id == id) it.copy(name = name.trim()) else it }
+            writeCategories(context, next)
+            categories = next
+            return true
+        }
+    }
+
+    /** 删除分类：里面的书不删，回到「未分类」。在 IO 线程调用。 */
+    fun deleteCategory(context: Context, id: String) {
+        load(context)
+        synchronized(lock) {
+            val nextCats = categories.filterNot { it.id == id }
+            writeCategories(context, nextCats)
+            categories = nextCats
+            if (books.any { it.category == id }) {
+                val nextBooks = books.map { if (it.category == id) it.copy(category = "") else it }
+                writeIndex(context, nextBooks)
+                books = nextBooks
+            }
+        }
+    }
+
+    /** 把一批书移进分类 [categoryId]；传空串 = 移出分类。分类不存在时按「移出」处理。在 IO 线程调用。 */
+    fun setCategory(context: Context, ids: Set<String>, categoryId: String) {
+        if (ids.isEmpty()) return
+        load(context)
+        synchronized(lock) {
+            val target = if (categories.any { it.id == categoryId }) categoryId else ""
+            val next = books.map { if (it.id in ids && it.category != target) it.copy(category = target) else it }
+            writeIndex(context, next)
+            books = next
+        }
+    }
+
+    // ---- 搜索 / 排序（纯函数，单测覆盖） ----
+
+    /**
+     * 书架实际显示的列表：先按分类过滤（[categoryId] 为 null = 全部），再按书名 / 作者搜索（忽略大小写，空白查询不过滤），最后排序。
+     * 书名 / 作者排序按中文拼音序；相同的再按添加时间，保证顺序稳定。
+     */
+    fun visible(all: List<Book>, query: String, categoryId: String?, sort: BookSort, desc: Boolean): List<Book> {
+        val q = query.trim()
+        val filtered = all.filter { b ->
+            (categoryId == null || b.category == categoryId) &&
+                (q.isEmpty() || b.title.contains(q, ignoreCase = true) || b.author.contains(q, ignoreCase = true))
+        }
+        val collator = java.text.Collator.getInstance(java.util.Locale.CHINA)
+        val primary: Comparator<Book> = when (sort) {
+            BookSort.ADDED -> compareBy { it.addedAt }
+            BookSort.TITLE -> Comparator { a, b -> collator.compare(a.title, b.title) }
+            BookSort.AUTHOR -> Comparator { a, b -> collator.compare(a.author, b.author) }
+            BookSort.PROGRESS -> compareBy { it.progress }
+        }
+        val cmp = if (desc) primary.reversed() else primary
+        return filtered.sortedWith(cmp.thenByDescending { it.addedAt })
+    }
+
     // ---- 封面 ----
 
     /** 解码用户选的图片（只解到长边 ≤ [MAX_COVER_SIDE]）。在 IO 线程调用。 */
@@ -259,6 +374,7 @@ object BookShelf {
                     chapter = o.optInt("chapter"),
                     offset = o.optInt("offset"),
                     progress = o.optDouble("progress", 0.0).toFloat(),
+                    category = o.optString("category"),
                 )
             }
         }.getOrDefault(emptyList())
@@ -272,11 +388,36 @@ object BookShelf {
                     .put("id", it.id).put("title", it.title).put("author", it.author)
                     .put("file", it.fileName).put("addedAt", it.addedAt)
                     .put("hasCover", it.hasCover).put("coverRev", it.coverRev)
-                    .put("chapter", it.chapter).put("offset", it.offset).put("progress", it.progress.toDouble()),
+                    .put("chapter", it.chapter).put("offset", it.offset).put("progress", it.progress.toDouble())
+                    .put("category", it.category),
             )
         }
         val f = File(root(context), INDEX)
         val tmp = File(f.parentFile, "$INDEX.tmp")
+        tmp.writeText(arr.toString())
+        if (f.exists()) f.delete()
+        tmp.renameTo(f)
+    }
+
+    private fun readCategories(context: Context): List<BookCategory> {
+        val f = File(root(context), CATEGORIES)
+        if (!f.isFile) return emptyList()
+        return runCatching {
+            val arr = JSONArray(f.readText())
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val id = o.optString("id")
+                val name = o.optString("name")
+                if (id.isEmpty() || name.isBlank()) null else BookCategory(id, name)
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun writeCategories(context: Context, list: List<BookCategory>) {
+        val arr = JSONArray()
+        list.forEach { arr.put(JSONObject().put("id", it.id).put("name", it.name)) }
+        val f = File(root(context), CATEGORIES)
+        val tmp = File(f.parentFile, "$CATEGORIES.tmp")
         tmp.writeText(arr.toString())
         if (f.exists()) f.delete()
         tmp.renameTo(f)

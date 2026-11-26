@@ -110,6 +110,7 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
         }
         AppRoute.Bookshelf -> {
             BookshelfScreen(
+                settings = settings,
                 onBack = { popPage() },
                 onOpenBook = { pushPage(AppRoute.Reader(it)) },
                 blurEnabled = settings.blurEnabled,
