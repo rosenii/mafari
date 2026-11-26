@@ -118,9 +118,10 @@ object YouTube {
     )
 
     /** 解析结果：[streams] 为空时 [reason] 是 playabilityStatus 给的原因（登录 / 年龄 / 地区 / 儿童内容等）。 */
-    data class Parsed(val streams: List<Stream>, val title: String = "", val reason: String = "")
+    /** [visitorData]：响应里的 responseContext.visitorData，后续请求带上同一个访客身份，降低被当成机器人的概率 */
+    data class Parsed(val streams: List<Stream>, val title: String = "", val reason: String = "", val visitorData: String = "")
 
-    fun playerBody(videoId: String, client: Client): String {
+    fun playerBody(videoId: String, client: Client, visitorData: String = ""): String {
         val c = JSONObject()
             .put("clientName", client.name)
             .put("clientVersion", client.version)
@@ -129,6 +130,7 @@ object YouTube {
             .put("utcOffsetMinutes", 0)
         client.extra.forEach { (k, v) -> c.put(k, v) }
         if (client.userAgentInContext) c.put("userAgent", client.userAgent)
+        if (visitorData.isNotBlank()) c.put("visitorData", visitorData)
         return JSONObject()
             .put("context", JSONObject().put("client", c))
             .put("videoId", videoId)
@@ -147,13 +149,14 @@ object YouTube {
     fun parse(json: String): Parsed {
         val root = runCatching { JSONObject(json) }.getOrNull() ?: return Parsed(emptyList(), reason = "bad json")
         val title = root.optJSONObject("videoDetails")?.optString("title").orEmpty()
+        val vd = root.optJSONObject("responseContext")?.optString("visitorData").orEmpty()
         val ps = root.optJSONObject("playabilityStatus")
         val status = ps?.optString("status").orEmpty()
         if (status != "OK") {
             val reason = ps?.optString("reason").orEmpty().ifBlank { status.ifBlank { "unknown" } }
-            return Parsed(emptyList(), title, reason)
+            return Parsed(emptyList(), title, reason, vd)
         }
-        val sd = root.optJSONObject("streamingData") ?: return Parsed(emptyList(), title, "no streamingData")
+        val sd = root.optJSONObject("streamingData") ?: return Parsed(emptyList(), title, "no streamingData", vd)
         val lengthMs = root.optJSONObject("videoDetails")?.optString("lengthSeconds")?.toLongOrNull()?.let { it * 1000 } ?: -1L
         val out = ArrayList<Stream>()
         sd.optString("hlsManifestUrl").takeIf { it.startsWith("http", true) }?.let {
@@ -175,6 +178,8 @@ object YouTube {
             muxed += height to Stream(url, type, label, f.optString("contentLength").toLongOrNull() ?: -1, dur)
         }
         out += muxed.sortedByDescending { it.first }.map { it.second }
-        return Parsed(out, title)
+        val reason = if (out.isNotEmpty()) "" else
+            "OK but nothing playable (muxed ${formats.length()}, adaptive ${sd.optJSONArray("adaptiveFormats")?.length() ?: 0}, hls ${if (sd.has("hlsManifestUrl")) "yes" else "no"}, sabr ${if (sd.has("serverAbrStreamingUrl")) "yes" else "no"})"
+        return Parsed(out, title, reason, vd)
     }
 }

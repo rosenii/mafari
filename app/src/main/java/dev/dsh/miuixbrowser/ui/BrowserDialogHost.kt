@@ -448,12 +448,27 @@ BrowserChunk {
             val id = if (settings.mediaSniffActive) dev.dsh.miuixbrowser.sniff.YouTube.videoId(tab.url) else null
             tab.sniffs.dropSourcesExcept(prefix, if (id == null) "" else prefix + id)
             if (id == null || tab.sniffs.items.any { it.source == prefix + id }) return@LaunchedEffect
-            // 页面里 youtube.com 的 Cookie（登录 / 受信任会话能放出更多格式）：WebView 在主线程取，Gecko 不带
-            val ytCookie = if (tab.isGecko) "" else runCatching {
-                dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.cookieManagerFor(tab.webView).getCookie("https://www.youtube.com").orEmpty()
-            }.getOrDefault("")
+            // 页面里 youtube.com 的 Cookie 和 visitorData（同一个访客身份，降低被判成机器人的概率）：
+            // WebView 在主线程取；Gecko 的 Cookie 要一来一回，放进 IO 里取，页面脚本取不到 visitorData
+            var ytCookie = ""
+            var ytVisitor = ""
+            if (!tab.isGecko) {
+                ytCookie = runCatching {
+                    dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.cookieManagerFor(tab.webView).getCookie("https://www.youtube.com").orEmpty()
+                }.getOrDefault("")
+                ytVisitor = kotlinx.coroutines.withTimeoutOrNull(1000) {
+                    kotlinx.coroutines.suspendCancellableCoroutine<String> { k ->
+                        tab.evaluateJs("(function(){try{return (window.ytcfg&&ytcfg.get&&ytcfg.get('VISITOR_DATA'))||''}catch(e){return ''}})()") { raw ->
+                            if (k.isActive) k.resume(raw.orEmpty().trim('"')) {}
+                        }
+                    }
+                }.orEmpty()
+            }
+            val isGeckoTab = tab.isGecko
             val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { dev.dsh.miuixbrowser.sniff.YouTubeResolver.resolve(id, ytCookie) }
+                if (isGeckoTab) ytCookie = runCatching { dev.dsh.miuixbrowser.engine.gecko.GeckoGm.cookieHeader("https://www.youtube.com/") }.getOrNull().orEmpty()
+                dev.dsh.miuixbrowser.util.Diag.log("youtube cookies=${if (ytCookie.isBlank()) "none" else "${ytCookie.length}B"} visitorData=${if (ytVisitor.isBlank()) "none" else "yes"}")
+                runCatching { dev.dsh.miuixbrowser.sniff.YouTubeResolver.resolve(id, ytCookie, ytVisitor) }
                     .onFailure { dev.dsh.miuixbrowser.util.Diag.log("youtube resolve crashed: ${it.message}") }.getOrNull()
             } ?: return@LaunchedEffect
             // 解析期间用户已经换了页面 / 视频：丢弃

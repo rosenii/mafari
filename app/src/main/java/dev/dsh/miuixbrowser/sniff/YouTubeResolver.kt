@@ -29,15 +29,21 @@ object YouTubeResolver {
     @Synchronized private fun remember(id: String, r: Result) { cache[id] = System.currentTimeMillis() to r }
 
     /** [cookie]：页面里 youtube.com 的 Cookie（WebView 取得到，Gecko 传空）；只有 [YouTube.Client.withCookies] 的客户端会带 */
-    fun resolve(videoId: String, cookie: String = ""): Result? {
+    fun resolve(videoId: String, cookie: String = "", visitorData0: String = ""): Result? {
         cached(videoId)?.let { Diag.log("youtube $videoId: cache hit (${it.clientName})"); return it }
         Diag.log("youtube $videoId: resolving")
-        for (client in YouTube.CLIENTS) {
-            val parsed = runCatching { fetch(videoId, client, cookie) }
-                .onFailure { Diag.log("youtube ${client.name}: ${it.message}") }
+        // 依次试各客户端；沿用第一次响应里的 visitorData（同一个访客身份）；都被拒且有页面 Cookie 时，免 PO Token 的几个再带 Cookie 试一轮
+        var visitor = visitorData0
+        val attempts = YouTube.CLIENTS.map { it to false } +
+            if (cookie.isNotBlank()) YouTube.CLIENTS.filter { !it.withCookies }.map { it to true } else emptyList()
+        for ((client, useCookie) in attempts) {
+            val tag = client.name + if (useCookie && !client.withCookies) "+cookie" else ""
+            val parsed = runCatching { fetch(videoId, client, if (useCookie || client.withCookies) cookie else "", visitor) }
+                .onFailure { Diag.log("youtube $tag: ${it.message}") }
                 .getOrNull() ?: continue
+            if (parsed.visitorData.isNotBlank()) visitor = parsed.visitorData
             if (parsed.streams.isEmpty()) {
-                Diag.log("youtube ${client.name}: no streams (${parsed.reason})")
+                Diag.log("youtube $tag: no streams (${parsed.reason})")
                 continue
             }
             val items = parsed.streams.map { s ->
@@ -51,14 +57,14 @@ object YouTubeResolver {
                     manualOnly = true,
                 )
             }
-            Diag.log("youtube ${client.name}: ${items.size} streams (${items.joinToString { it.type + (if (it.label.isNotBlank()) ":" + it.label.removePrefix("YouTube · ") else "") }})")
+            Diag.log("youtube $tag: ${items.size} streams (${items.joinToString { it.type + (if (it.label.isNotBlank()) ":" + it.label.removePrefix("YouTube · ") else "") }})")
             return Result(items, parsed.title, client.name).also { remember(videoId, it) }
         }
         Diag.log("youtube $videoId: all clients failed")
         return null
     }
 
-    private fun fetch(videoId: String, client: YouTube.Client, cookie: String): YouTube.Parsed {
+    private fun fetch(videoId: String, client: YouTube.Client, cookie: String, visitor: String): YouTube.Parsed {
         val c = URL(YouTube.PLAYER_ENDPOINT).openConnection() as HttpURLConnection
         try {
             c.requestMethod = "POST"
@@ -71,8 +77,9 @@ object YouTubeResolver {
             c.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             c.setRequestProperty("X-YouTube-Client-Name", client.clientId.toString())
             c.setRequestProperty("X-YouTube-Client-Version", client.version)
-            if (client.withCookies && cookie.isNotBlank()) c.setRequestProperty("Cookie", cookie)
-            c.outputStream.use { it.write(YouTube.playerBody(videoId, client).toByteArray(Charsets.UTF_8)) }
+            if (cookie.isNotBlank()) c.setRequestProperty("Cookie", cookie)
+            if (visitor.isNotBlank()) c.setRequestProperty("X-Goog-Visitor-Id", visitor)
+            c.outputStream.use { it.write(YouTube.playerBody(videoId, client, visitor).toByteArray(Charsets.UTF_8)) }
             if (c.responseCode !in 200..299) error("${client.name} HTTP ${c.responseCode}")
             val text = c.inputStream.use { it.readNBytes(4 * 1024 * 1024).toString(Charsets.UTF_8) }
             return YouTube.parse(text)
