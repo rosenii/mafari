@@ -300,6 +300,7 @@ jobs:
       # 发版到 AppShare（OAuth）：generateUploadUrl → PUT 上传 → publishVersion。
       # 需要 Secret：APPSHARE_APP_KEY；没配就跳过。只发正式版（canary 不推给 AppShare 的更新用户）。
       # AppShare 一个版本只传一个安装包：默认传 lite-arm64-v8a（绝大多数手机），其它变体通过 link 指到 GitHub Release；
+      # 预发布分支（IS_PRE_BRANCH）发为「测试版」type=2（必须带 source）；正式 tag 发 type=1。
       # 要换变体改 APPSHARE_VARIANT（gecko / lite-arm64-v8a / lite-armeabi-v7a / lite-x86_64 / sync_lite-arm64）。
       # 失败不影响 GitHub Release / Telegram（continue-on-error）。
       - name: Publish to AppShare
@@ -317,7 +318,9 @@ jobs:
           BASE = "https://app.sharess.cn/oauth/v1"
           app_id = os.environ["APPSHARE_APP_ID"]
           key = os.environ["APPSHARE_APP_KEY"]
-          vtype = os.environ["APPSHARE_TYPE"]
+          # 版本类型：1 正式 / 2 测试（测试版必须带 source）。预发布分支走测试版，避免推给正式版的更新用户
+          is_pre = os.environ.get("IS_PRE_BRANCH") == "true"
+          vtype = "2" if is_pre else os.environ["APPSHARE_TYPE"]
           variant = os.environ["APPSHARE_VARIANT"]
 
           files = glob.glob(f"dist/*-{variant}.apk")
@@ -374,14 +377,30 @@ jobs:
           else:
               if not presign:
                   sys.exit("::error::generateUploadUrl 响应里没有 presignUrl")
-              r = subprocess.run(
-                  ["curl", "-sS", "--fail-with-body", "--max-time", "1200", "-X", "PUT", presign,
-                   "-H", "Content-Type: application/octet-stream", "--data-binary", f"@{path}"],
-                  capture_output=True, text=True,
-              )
-              print("PUT rc=", r.returncode, r.stdout[:300])
-              if r.returncode != 0:
-                  sys.exit("::error::上传安装包失败")
+              # 预签名 URL 的 SignedHeaders 决定 PUT 时哪些请求头必须与签名时一致（Content-Type 最常见），先把非敏感参数打出来方便排查
+              from urllib.parse import urlsplit, parse_qs
+              q = parse_qs(urlsplit(presign).query)
+              show = {k: q.get(k) for k in ("X-Amz-Algorithm", "X-Amz-SignedHeaders", "X-Amz-Expires", "X-Amz-Date", "x-amz-acl", "Content-Type") if k in q}
+              print("presign host:", urlsplit(presign).netloc, "| query:", show, "| 其它参数名:", sorted(k for k in q if k not in show))
+              signed = (q.get("X-Amz-SignedHeaders") or [""])[0].split(";")
+              # Content-Type 候选：octet-stream（文档示例）→ apk 的 MIME → 不带（去掉 curl 默认的 form-urlencoded）
+              candidates = ["application/octet-stream", "application/vnd.android.package-archive", None]
+              ok = False
+              for ct in candidates:
+                  hdr = ["-H", f"Content-Type: {ct}"] if ct else ["-H", "Content-Type:"]
+                  r = subprocess.run(
+                      ["curl", "-sS", "--fail-with-body", "--max-time", "1200", "-X", "PUT", presign,
+                       "-H", "Expect:", *hdr, "--data-binary", f"@{path}"],
+                      capture_output=True, text=True,
+                  )
+                  print(f"PUT content-type={ct!r} rc={r.returncode} {r.stdout[:200]}")
+                  if r.returncode == 0:
+                      ok = True
+                      break
+                  if "SignatureDoesNotMatch" not in r.stdout:
+                      break  # 不是签名问题（过期 / 网络 / 权限），换 Content-Type 没用
+              if not ok:
+                  sys.exit(f"::error::上传安装包失败（SignedHeaders={signed}）")
 
           # 3) 发版  sign=md5(appId+recordId+versionCode+versionName+type+appKey)
           code = os.environ["APP_VERSION_CODE"]
@@ -397,12 +416,15 @@ jobs:
           api("publishVersion", {
               "appId": app_id, "recordId": record_id, "versionCode": code, "versionName": vname,
               "type": vtype, "updateLog": log[:1500], "link": link,
+              **({"source": "GitHub Actions 预发布构建"} if vtype == "2" else {}),
               "sign": md5(app_id, record_id, code, vname, vtype, key),
           })
           print(f"AppShare 发版完成：{vname} ({code}) <- {name}")
           PY
 
-      # 同步推送到 Telegram 频道（正式版 + 预发布）。
+      # 同步推送到 Telegram 频道（正式版 + 预发布）：只发安装包文件，不加文字说明。
+      # 安装包逐个 sendDocument（不用相册：相册整体请求体超限会 413 Request Entity Too Large）；
+      # 只有超过 Bot API 50MB 上限、传不上去的安装包，才额外发一条提示 + 下载链接。
       # 需要 Secrets：TELEGRAM_BOT_TOKEN（机器人需是频道管理员）；TELEGRAM_CHAT_ID 可选，默认 @mafari_a。
       # 没配 token 就跳过；推送失败不影响发布（continue-on-error）。
       - name: Notify Telegram
@@ -414,20 +436,19 @@ jobs:
           TAG_NAME: ${{ env.RELEASE_TAG_NAME }}
         run: |
           python3 - <<'PY'
-          import glob, html, json, os, pathlib, re, subprocess
+          import glob, html, json, os, subprocess, sys, time
+          from urllib.parse import quote
 
           token = os.environ["TG_TOKEN"]
           chat = os.environ["TG_CHAT"]
           tag = os.environ["TAG_NAME"]
-          is_gecko = os.environ.get("IS_CANARY") == "true"  # -canary 是预发布；没有后缀是正式发布
           repo = os.environ.get("GITHUB_REPOSITORY", "")
-          url = os.environ.get("RELEASE_URL") or f"https://github.com/{repo}/releases/tag/{tag}"
           api = f"https://api.telegram.org/bot{token}"
           LIMIT = 49 * 1024 * 1024  # Bot API 上传上限 50 MB，留一点余量
 
           def call(method, fields, files=None):
               """用 curl 调 Bot API（不把 token 打进日志）；返回解析后的 JSON"""
-              cmd = ["curl", "-sS", "--max-time", "600", f"{api}/{method}"]
+              cmd = ["curl", "-sS", "--max-time", "900", f"{api}/{method}"]
               for k, v in fields.items():
                   cmd += ["--form-string", f"{k}={v}"]
               for k, path in (files or {}).items():
@@ -438,94 +459,40 @@ jobs:
               except Exception:
                   return {"ok": False, "description": (r.stderr or r.stdout)[:200]}
 
-          # 正文：取 RELEASE_NOTES.md，去掉标题行，简单转成 Telegram 支持的 HTML
-          notes = ""
-          p = pathlib.Path("dist/RELEASE_NOTES.md")
-          if p.exists():
-              lines = p.read_text(encoding="utf-8").splitlines()
-              notes = "\n".join(l for l in lines if not l.startswith("## ")).strip()
-
-          def to_html(md):
-              out = html.escape(md)
-              out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out)
-              out = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", out)
-              return out
-
-          def clip(text, n):
-              if len(text) <= n:
-                  return text
-              cut = text[:n].rsplit("\n", 1)[0]
-              return cut + "\n…"
-
-          app_name = os.environ.get("APP_VERSION_NAME") or tag
-          title = f"🧪 Mafari 预发布 {app_name} ({os.environ.get('APP_VERSION_CODE', '')})" if is_gecko else f"🚀 Mafari {tag}"
-          # 概述 + 安装包放在同一条消息里：安装包作为一组文档（相册）发出，概述作为第一个文档的 caption（上限 1024 字符）。
-          # 超过 Bot API 上限的安装包不上传，只在 caption 里给下载链接
           apks = sorted(glob.glob("dist/*.apk"))
           sendable = [a for a in apks if os.path.getsize(a) <= LIMIT]
-          CAP = 1024
-
-          # 同一条消息：更新日志在上，下载入口（发布页链接 + 超过上传上限的安装包逐个直链）放在文案最底部，
-          # 安装包作为文档附在同一条消息里（Telegram 会把文档放在 caption 上方显示，无法反过来）
-          from urllib.parse import quote
-          dl_base = f"https://github.com/{repo}/releases/download/{quote(tag)}"
           too_big = [os.path.basename(a) for a in apks if a not in sendable]
-          tail_html = f'\n\n<a href="{html.escape(url)}">下载 / Download</a>'
-          tail_raw = f"\n\n下载 / Download: {url}"
-          for name in too_big:
-              link = f"{dl_base}/{quote(name)}"
-              tail_html += f'\n<a href="{html.escape(link)}">{html.escape(name)}</a>'
-              tail_raw += f"\n{name}: {link}"
-          if too_big:
-              note = "\n（以上安装包超过 Telegram 50MB 限制，请从链接下载）"
-              tail_html += note
-              tail_raw += note
+          failed = []
 
-          def build_caption(parse_html):
-              tail = tail_html if parse_html else tail_raw
-              body = notes
-              while True:
-                  text = to_html(body) if parse_html else body
-                  head = text or (f"<b>{html.escape(title)}</b>" if parse_html else title)
-                  cap = head + tail
-                  if len(cap) <= CAP or not body:
-                      return cap
-                  # 逐步缩短更新日志直到连同底部链接放得下
-                  body = clip(body, max(0, int(len(body) * 0.8) - 1))
-                  if len(body) < 20:
-                      body = ""
-
-          def send_group(caption, parse_html):
-              """一条消息发出所有安装包（多个用相册，单个用 sendDocument）"""
-              fields = {"chat_id": chat, "caption": caption}
-              if parse_html:
-                  fields["parse_mode"] = "HTML"
-              if len(sendable) == 1:
-                  return call("sendDocument", fields, {"document": sendable[0]})
-              media, files = [], {}
-              for i, apk in enumerate(sendable):
-                  item = {"type": "document", "media": f"attach://f{i}"}
-                  if i == 0:
-                      item["caption"] = caption
-                      if parse_html:
-                          item["parse_mode"] = "HTML"
-                  media.append(item)
-                  files[f"f{i}"] = apk
-              return call("sendMediaGroup", {"chat_id": chat, "media": json.dumps(media)}, files)
-
-          if sendable:
-              res = send_group(build_caption(True), True)
+          # 1) 安装包：一个一个发，纯文件，无 caption；失败重试一次
+          for apk in sendable:
+              name = os.path.basename(apk)
+              res = call("sendDocument", {"chat_id": chat}, {"document": apk})
               if not res.get("ok"):
-                  print("HTML 消息失败，改发纯文本：", res.get("description"))
-                  res = send_group(build_caption(False), False)
-              print("send apks:", [os.path.basename(a) for a in sendable], res.get("ok"), res.get("description", ""))
-          else:
-              # 没有可上传的安装包：只发概述 + 链接
+                  print(f"{name} 发送失败，重试一次：", res.get("description"))
+                  time.sleep(5)
+                  res = call("sendDocument", {"chat_id": chat}, {"document": apk})
+              print("send", name, res.get("ok"), res.get("description", ""))
+              if not res.get("ok"):
+                  failed.append(name)
+
+          # 2) 超过 50MB 的安装包：只发提示文字 + 下载链接
+          if too_big:
+              dl_base = f"https://github.com/{repo}/releases/download/{quote(tag)}"
+              lines = ["以下安装包超过 Telegram 50MB 限制，请从链接下载："]
+              for name in too_big:
+                  link = html.escape(dl_base + "/" + quote(name))
+                  lines.append(f'<a href="{link}">{html.escape(name)}</a>')
               res = call("sendMessage", {
-                  "chat_id": chat, "text": build_caption(True), "parse_mode": "HTML",
+                  "chat_id": chat, "text": "\n".join(lines), "parse_mode": "HTML",
                   "disable_web_page_preview": "true",
               })
-              print("sendMessage:", res.get("ok"), res.get("description", ""))
-          if not res.get("ok"):
-              raise SystemExit(1)
+              print("sendMessage(too big):", res.get("ok"), res.get("description", ""))
+              if not res.get("ok"):
+                  failed.append("(大文件提示)")
+
+          if not apks:
+              print("dist/ 里没有 apk，跳过")
+          if failed:
+              sys.exit(f"::error::Telegram 发送失败：{failed}")
           PY
