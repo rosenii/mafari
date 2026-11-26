@@ -198,7 +198,8 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
                 },
             ) { innerPadding ->
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
+                    // 一行固定 3 本（封面 3:4，随屏宽缩放）
+                    columns = GridCells.Fixed(3),
                     modifier = Modifier
                         .fillMaxSize()
                         .layerBackdrop(backdrop)
@@ -212,8 +213,8 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
                         top = innerPadding.calculateTopPadding() + 8.dp,
                         bottom = 24.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     ),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     if (books.isEmpty() && loaded) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -238,6 +239,90 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
                                 editShow = true
                             },
                         )
+                    }
+                }
+                // 弹窗 / sheet 必须放在 Scaffold 的内容里：miuix 的 Overlay 弹层由 Scaffold 的弹层宿主渲染，放在 Scaffold 外面会一直不显示
+                // ---- 编辑窗口：左下角删除、右下角保存（删除先弹确认框，此时编辑窗口先收起）
+                AppGlassDialog(
+                    show = editShow && !confirmShow,
+                    title = tr("编辑书籍"),
+                    backdrop = bd,
+                    onDismissRequest = { editShow = false },
+                ) {
+                    val b = editBook
+                    if (b != null) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(130.dp)
+                                    .aspectRatio(COVER_RATIO)
+                                    .squircleClip(12.dp)
+                                    .clickable { coverPicker.launch(arrayOf("image/*")) },
+                            ) {
+                                BookCover(book = b, override = pendingCover, modifier = Modifier.fillMaxSize())
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            AppTextButton(
+                                text = tr("上传封面"),
+                                onClick = { coverPicker.launch(arrayOf("image/*")) },
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            TextField(
+                                value = editTitle,
+                                onValueChange = { editTitle = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = tr("书名"),
+                                singleLine = true,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                AppDialogButton(
+                                    onClick = { confirmShow = true },
+                                    modifier = Modifier.weight(1f),
+                                    role = GlassDialogButtonRole.Destructive,
+                                ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
+                                AppDialogButton(
+                                    onClick = {
+                                        val title = editTitle
+                                        val cover = pendingCover
+                                        editShow = false
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) { BookShelf.update(context, b.id, title, newCover = cover) }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    role = GlassDialogButtonRole.Primary,
+                                ) { Text(text = tr("保存"), style = MiuixTheme.textStyles.button) }
+                            }
+                        }
+                    }
+                }
+
+                // ---- 删除确认
+                AppGlassDialog(
+                    show = confirmShow,
+                    title = tr("删除这本书？"),
+                    summary = tr("《{0}》会从书架移除，书的文件和封面也会一并删除，无法恢复。", editBook?.title.orEmpty()),
+                    backdrop = bd,
+                    onDismissRequest = { confirmShow = false },
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppDialogButton(onClick = { confirmShow = false }, modifier = Modifier.weight(1f)) {
+                            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                val id = editBook?.id
+                                confirmShow = false
+                                editShow = false
+                                if (id != null) scope.launch { withContext(Dispatchers.IO) { BookShelf.delete(context, id) } }
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Destructive,
+                        ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
                     }
                 }
             }
@@ -268,89 +353,6 @@ fun BookshelfScreen(onBack: () -> Unit, onOpenBook: (String) -> Unit = {}, blurE
                 )
             }
 
-            // ---- 编辑窗口：左下角删除、右下角保存（删除先弹确认框，此时编辑窗口先收起）
-            AppGlassDialog(
-                show = editShow && !confirmShow,
-                title = tr("编辑书籍"),
-                backdrop = bd,
-                onDismissRequest = { editShow = false },
-            ) {
-                val b = editBook
-                if (b != null) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(130.dp)
-                                .aspectRatio(COVER_RATIO)
-                                .squircleClip(12.dp)
-                                .clickable { coverPicker.launch(arrayOf("image/*")) },
-                        ) {
-                            BookCover(book = b, override = pendingCover, modifier = Modifier.fillMaxSize())
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        AppTextButton(
-                            text = tr("上传封面"),
-                            onClick = { coverPicker.launch(arrayOf("image/*")) },
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        TextField(
-                            value = editTitle,
-                            onValueChange = { editTitle = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = tr("书名"),
-                            singleLine = true,
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            AppDialogButton(
-                                onClick = { confirmShow = true },
-                                modifier = Modifier.weight(1f),
-                                role = GlassDialogButtonRole.Destructive,
-                            ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
-                            AppDialogButton(
-                                onClick = {
-                                    val title = editTitle
-                                    val cover = pendingCover
-                                    editShow = false
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) { BookShelf.update(context, b.id, title, newCover = cover) }
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                                role = GlassDialogButtonRole.Primary,
-                            ) { Text(text = tr("保存"), style = MiuixTheme.textStyles.button) }
-                        }
-                    }
-                }
-            }
-
-            // ---- 删除确认
-            AppGlassDialog(
-                show = confirmShow,
-                title = tr("删除这本书？"),
-                summary = tr("《{0}》会从书架移除，书的文件和封面也会一并删除，无法恢复。", editBook?.title.orEmpty()),
-                backdrop = bd,
-                onDismissRequest = { confirmShow = false },
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AppDialogButton(onClick = { confirmShow = false }, modifier = Modifier.weight(1f)) {
-                        Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
-                    }
-                    AppDialogButton(
-                        onClick = {
-                            val id = editBook?.id
-                            confirmShow = false
-                            editShow = false
-                            if (id != null) scope.launch { withContext(Dispatchers.IO) { BookShelf.delete(context, id) } }
-                        },
-                        modifier = Modifier.weight(1f),
-                        role = GlassDialogButtonRole.Destructive,
-                    ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
-                }
-            }
         }
     }
 }

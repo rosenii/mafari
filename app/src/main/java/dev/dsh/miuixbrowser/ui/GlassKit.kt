@@ -53,15 +53,23 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun rememberGlassActive(userEnabled: Boolean): Boolean = userEnabled && isRuntimeShaderSupported()
 
 
-/** 顶栏里的玻璃返回键。必须放在 GlassTopAppBar 的 navigationIcon 里，才会继承顶栏材质。 */
+/**
+ * 页面里「浮在内容上、不在顶栏 / sheet 里」的 miuix 玻璃控件的采样源（如阅读器的返回 / Aa / 上一章 / 目录 / 下一章）。
+ * 这些控件没有顶栏可继承，miuix 的 GlassIconButton 拿不到 backdrop 就退回平底色（看起来是透明的）；
+ * 由页面在「内容录制层之外」提供，MiuixGlassMaterial 的按钮读它。sheet / 弹窗是另一棵 composition，读不到，不受影响。
+ */
+val LocalPageGlassBackdrop = androidx.compose.runtime.compositionLocalOf<Backdrop?> { null }
+
+/** 顶栏里的玻璃返回键。放在 GlassTopAppBar 的 navigationIcon 里继承顶栏材质；放在顶栏之外时传 [backdrop]。 */
 @Composable
-fun GlassBackButton(onClick: () -> Unit) {
+fun GlassBackButton(onClick: () -> Unit, backdrop: Backdrop? = null) {
     val haptic = LocalHapticFeedback.current
     GlassIconButton(
         onClick = {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         },
+        backdrop = backdrop,
     ) {
         Icon(
             imageVector = MiuixIcons.Glass.ChevronBackward,

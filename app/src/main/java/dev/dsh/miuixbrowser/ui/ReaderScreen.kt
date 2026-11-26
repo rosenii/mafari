@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -94,6 +95,7 @@ import dev.dsh.miuixbrowser.i18n.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.blur.layerBackdrop
@@ -237,7 +239,15 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
         onDispose { window?.let { WindowCompat.getInsetsController(it, view).show(WindowInsetsCompat.Type.systemBars()) } }
     }
 
-    CompositionLocalProvider(LocalLiquidBackdrop provides liquid) {
+    // LocalPageGlassBackdrop：返回 / Aa / 上一章 / 目录 / 下一章 不在顶栏里，miuix 材质下要显式给采样源，否则退回平底色（透明）
+    CompositionLocalProvider(LocalLiquidBackdrop provides liquid, LocalPageGlassBackdrop provides bd) {
+        // 阅读器没有顶栏，但 sheet（目录 / 阅读设置）是 miuix 的 Overlay 弹层，由 Scaffold 的弹层宿主渲染；
+        // 没有 Scaffold 就一直不显示。所以用一个不画任何东西的 Scaffold 当宿主（透明底、无 insets），整页放在它的内容里
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        ) { _ ->
         Box(modifier = Modifier.fillMaxSize()) {
             // 内容层：被玻璃控件采样
             Box(
@@ -351,6 +361,7 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
                     }
                 }
             }
+        }
         }
     }
 }

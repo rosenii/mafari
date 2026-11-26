@@ -8,6 +8,9 @@ package dev.dsh.miuixbrowser.ui
 import dev.dsh.miuixbrowser.data.BLUR_LIQUID
 import dev.dsh.miuixbrowser.data.BLUR_OFF
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import top.yukonga.miuix.kmp.glass.glassPanel
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -843,6 +846,8 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
         HapticGlassIconButton(
             onClick = { if (enabled) onClick() },
             modifier = modifier.alpha(if (enabled) 1f else 0.4f),
+            // 顶栏里为 null（继承顶栏）；页面里浮在内容上的按钮（阅读器）由页面提供采样源
+            backdrop = bd(LocalPageGlassBackdrop.current),
             content = content,
         )
     }
@@ -885,7 +890,7 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
 
     @Composable
     override fun NavBackButton(backdrop: LiquidBackdrop?, surfaceVisible: Boolean, onClick: () -> Unit) {
-        GlassBackButton(onClick = onClick)
+        GlassBackButton(onClick = onClick, backdrop = bd(LocalPageGlassBackdrop.current))
     }
 
     @Composable
@@ -893,6 +898,40 @@ open class MiuixGlassMaterialBase(private val sampling: Boolean) : AppMaterial {
         text: String, onClick: () -> Unit, backdrop: LiquidBackdrop?, modifier: Modifier,
         role: LiquidRole, enabled: Boolean,
     ) {
+        // 页面里的胶囊（阅读器的上一章 / 目录 / 下一章）：miuix 的 GlassDialogButton 只是一层 6% 灰的平底，
+        // 不采样背景，放在页面上就像透明的。有页面采样源时画成玻璃胶囊，材质与顶栏按钮一致
+        val pageBackdrop = bd(LocalPageGlassBackdrop.current)
+        if (pageBackdrop != null && role != LiquidRole.Primary) {
+            val dark = isAppDarkTheme()
+            val shape = remember { top.yukonga.miuix.kmp.material.GlassShape(GlassDialogButtonDefaults.MinHeight / 2) }
+            val colors = GlassDialogButtonDefaults.buttonColors(
+                if (role == LiquidRole.Destructive) GlassDialogButtonRole.Destructive else GlassDialogButtonRole.Normal,
+            )
+            Box(
+                modifier = modifier
+                    .heightIn(min = GlassDialogButtonDefaults.MinHeight)
+                    .alpha(if (enabled) 1f else 0.4f)
+                    .glassPanel(
+                        backdrop = pageBackdrop,
+                        shape = shape,
+                        style = GlassLook.barStyle(dark),
+                        material = if (GlassLook.custom()) GlassLook.barMaterial(dark) else GlassTopAppBarDefaults.buttonMaterial(),
+                        stroke = GlassTopAppBarDefaults.buttonStroke(),
+                        shading = false,
+                        fallback = Modifier.clip(shape).background(GlassTopAppBarDefaults.buttonFill()),
+                    )
+                    .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = text,
+                    style = MiuixTheme.textStyles.button,
+                    color = if (enabled) colors.contentColor else colors.disabledContentColor,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+            }
+            return
+        }
         GlassDialogButton(
             onClick = onClick,
             modifier = modifier,
