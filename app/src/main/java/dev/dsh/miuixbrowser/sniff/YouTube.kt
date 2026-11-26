@@ -35,6 +35,8 @@ object YouTube {
         val extra: Map<String, Any>,
         /** context.client 里是否带 userAgent 字段（visionOS 要带） */
         val userAgentInContext: Boolean = false,
+        /** 请求带不带页面里 youtube.com 的 Cookie（登录 / 受信任会话能放出更多格式；其余客户端带了反而可能被拒） */
+        val withCookies: Boolean = false,
     )
 
     /** 按优先级排列：能否使用以 YouTube 当前的放行情况为准（见类注释）。 */
@@ -60,6 +62,18 @@ object YouTube {
             name = "IOS", version = "21.26.4", clientId = 5,
             userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
             extra = mapOf("deviceMake" to "Apple", "deviceModel" to "iPhone16,2", "osName" to "iPhone", "osVersion" to "18.3.2.22D82"),
+        ),
+        // 网页端（Safari UA）：只取 HLS 清单（HLS 不要 PO Token；2026.07 起只有登录 / 受信任会话才会返回，所以带上页面 Cookie）
+        Client(
+            name = "WEB", version = "2.20260708.00.00", clientId = 1,
+            userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)",
+            extra = emptyMap(), withCookies = true,
+        ),
+        // 手机网页端：同样只取 HLS
+        Client(
+            name = "MWEB", version = "2.20260708.05.00", clientId = 2,
+            userAgent = "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)",
+            extra = emptyMap(), withCookies = true,
         ),
     )
 

@@ -28,10 +28,12 @@ object YouTubeResolver {
 
     @Synchronized private fun remember(id: String, r: Result) { cache[id] = System.currentTimeMillis() to r }
 
-    fun resolve(videoId: String): Result? {
-        cached(videoId)?.let { return it }
+    /** [cookie]：页面里 youtube.com 的 Cookie（WebView 取得到，Gecko 传空）；只有 [YouTube.Client.withCookies] 的客户端会带 */
+    fun resolve(videoId: String, cookie: String = ""): Result? {
+        cached(videoId)?.let { Diag.log("youtube $videoId: cache hit (${it.clientName})"); return it }
+        Diag.log("youtube $videoId: resolving")
         for (client in YouTube.CLIENTS) {
-            val parsed = runCatching { fetch(videoId, client) }
+            val parsed = runCatching { fetch(videoId, client, cookie) }
                 .onFailure { Diag.log("youtube ${client.name}: ${it.message}") }
                 .getOrNull() ?: continue
             if (parsed.streams.isEmpty()) {
@@ -49,12 +51,14 @@ object YouTubeResolver {
                     manualOnly = true,
                 )
             }
+            Diag.log("youtube ${client.name}: ${items.size} streams (${items.joinToString { it.type + (if (it.label.isNotBlank()) ":" + it.label.removePrefix("YouTube · ") else "") }})")
             return Result(items, parsed.title, client.name).also { remember(videoId, it) }
         }
+        Diag.log("youtube $videoId: all clients failed")
         return null
     }
 
-    private fun fetch(videoId: String, client: YouTube.Client): YouTube.Parsed {
+    private fun fetch(videoId: String, client: YouTube.Client, cookie: String): YouTube.Parsed {
         val c = URL(YouTube.PLAYER_ENDPOINT).openConnection() as HttpURLConnection
         try {
             c.requestMethod = "POST"
@@ -67,8 +71,9 @@ object YouTubeResolver {
             c.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
             c.setRequestProperty("X-YouTube-Client-Name", client.clientId.toString())
             c.setRequestProperty("X-YouTube-Client-Version", client.version)
+            if (client.withCookies && cookie.isNotBlank()) c.setRequestProperty("Cookie", cookie)
             c.outputStream.use { it.write(YouTube.playerBody(videoId, client).toByteArray(Charsets.UTF_8)) }
-            if (c.responseCode !in 200..299) error("HTTP ${c.responseCode}")
+            if (c.responseCode !in 200..299) error("${client.name} HTTP ${c.responseCode}")
             val text = c.inputStream.use { it.readNBytes(4 * 1024 * 1024).toString(Charsets.UTF_8) }
             return YouTube.parse(text)
         } finally {

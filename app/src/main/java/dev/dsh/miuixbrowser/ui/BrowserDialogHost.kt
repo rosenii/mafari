@@ -448,8 +448,13 @@ BrowserChunk {
             val id = if (settings.mediaSniffActive) dev.dsh.miuixbrowser.sniff.YouTube.videoId(tab.url) else null
             tab.sniffs.dropSourcesExcept(prefix, if (id == null) "" else prefix + id)
             if (id == null || tab.sniffs.items.any { it.source == prefix + id }) return@LaunchedEffect
+            // 页面里 youtube.com 的 Cookie（登录 / 受信任会话能放出更多格式）：WebView 在主线程取，Gecko 不带
+            val ytCookie = if (tab.isGecko) "" else runCatching {
+                dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.cookieManagerFor(tab.webView).getCookie("https://www.youtube.com").orEmpty()
+            }.getOrDefault("")
             val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { dev.dsh.miuixbrowser.sniff.YouTubeResolver.resolve(id) }.getOrNull()
+                runCatching { dev.dsh.miuixbrowser.sniff.YouTubeResolver.resolve(id, ytCookie) }
+                    .onFailure { dev.dsh.miuixbrowser.util.Diag.log("youtube resolve crashed: ${it.message}") }.getOrNull()
             } ?: return@LaunchedEffect
             // 解析期间用户已经换了页面 / 视频：丢弃
             if (dev.dsh.miuixbrowser.sniff.YouTube.videoId(tab.url) != id) return@LaunchedEffect
