@@ -137,6 +137,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onApplyUserAgent: (String) -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenBookshelf: () -> Unit = {},
     onOpenScripts: () -> Unit,
     onOpenExtensions: () -> Unit = {},
     onOpenGeckoProtection: () -> Unit = {},
@@ -418,6 +419,11 @@ fun SettingsScreen(
                         title = tr("下载"),
                         summary = tr("查看已下载的文件"),
                         onClick = onOpenDownloads,
+                    )
+                    SettingsRow(
+                        title = tr("书架"),
+                        summary = tr("本地导入小说 · 封面与书名管理"),
+                        onClick = onOpenBookshelf,
                     )
                     SettingsRow(
                         title = tr("搜索引擎"),

@@ -2337,3 +2337,24 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 搜索建议	Search suggestions
 搜索建议已开启	Search suggestions on
 搜索建议已关闭	Search suggestions off
+书架	Bookshelf
+本地导入小说 · 封面与书名管理	Import local novels · manage covers and titles
+书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说。	The bookshelf is empty. Tap More → Import from device to add TXT / EPUB novels.
+订阅网络小说	Subscribe to online novels
+网络订阅暂未开放，敬请期待	Online subscription isn't available yet — coming soon
+从本地导入	Import from device
+已导入 {0} 本	Imported {0} book(s)
+已导入 {0} 本，{1} 个文件无法导入（仅支持 TXT / EPUB）	Imported {0} book(s); {1} file(s) couldn't be imported (TXT / EPUB only)
+无法导入所选文件（仅支持 TXT / EPUB）	Couldn't import the selected files (TXT / EPUB only)
+编辑书籍	Edit book
+上传封面	Upload cover
+书名	Title
+删除这本书？	Delete this book?
+《{0}》会从书架移除，书的文件和封面也会一并删除，无法恢复。	"{0}" will be removed from the bookshelf, along with its file and cover. This can't be undone.
+佚名	Anonymous
+无法读取这本书	Couldn't read this book
+上一章	Previous
+下一章	Next
+目录	Contents
+开篇	Prologue
+第 {0} 节	Part {0}

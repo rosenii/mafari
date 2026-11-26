@@ -50,6 +50,7 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
                 onBack = { popPage() },
                 onApplyUserAgent = { state.applyUserAgent(it) },
                 onOpenDownloads = { pushPage(AppRoute.Downloads) },
+                onOpenBookshelf = { pushPage(AppRoute.Bookshelf) },
                 onOpenScripts = { pushPage(AppRoute.Extensions) },
                 // 「拓展」页：按默认内核进对应的管理页（两个内核共用同一套界面）
                 onOpenExtensions = { pushPage(if (settings.geckoMode) AppRoute.GeckoExtensions else AppRoute.WebViewExtensions) },
@@ -105,6 +106,13 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
                 onExternalDownloaderChange = { settings.updateExternalDownloader(it) },
                 deleteLocal = settings.downloadDeleteLocal,
                 onDeleteLocalChange = { settings.updateDownloadDeleteLocal(it) },
+            )
+        }
+        AppRoute.Bookshelf -> {
+            BookshelfScreen(
+                onBack = { popPage() },
+                onOpenBook = { pushPage(AppRoute.Reader(it)) },
+                blurEnabled = settings.blurEnabled,
             )
         }
         AppRoute.MediaSniffPage -> {
@@ -205,6 +213,13 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
                 onBack = { popPage() },
                 // 拓展集合变了：已打开的 WebView 标签重新装配 content script（对下一次页面加载生效）
                 onChanged = { state.tabs.forEach { it.applyWebExtensions() } },
+                blurEnabled = settings.blurEnabled,
+            )
+        }
+        is AppRoute.Reader -> {
+            ReaderScreen(
+                bookId = route.bookId,
+                onBack = { popPage() },
                 blurEnabled = settings.blurEnabled,
             )
         }

@@ -20,6 +20,12 @@ sealed interface AppRoute : NavKey {
     data object About : AppRoute
     data object Downloads : AppRoute
 
+    /** 设置 → 浏览 → 书架（本地导入的小说：封面 / 书名 / 作者，长按编辑） */
+    data object Bookshelf : AppRoute
+
+    /** 书架 → 阅读器 */
+    data class Reader(val bookId: String) : AppRoute
+
     /** 关于 → 隐私政策 */
     data object PrivacyPolicyPage : AppRoute
     data object Extensions : AppRoute

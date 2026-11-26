@@ -951,6 +951,8 @@ fun BrowserScreen(
     entry<AppRoute.About> { nav.SubPage(AppRoute.About) }
     entry<AppRoute.PrivacyPolicyPage> { nav.SubPage(AppRoute.PrivacyPolicyPage) }
     entry<AppRoute.Downloads> { nav.SubPage(AppRoute.Downloads) }
+    entry<AppRoute.Bookshelf> { nav.SubPage(AppRoute.Bookshelf) }
+    entry<AppRoute.Reader> { route -> nav.SubPage(route) }
     entry<AppRoute.AdBlockPage> { nav.SubPage(AppRoute.AdBlockPage) }
     entry<AppRoute.MediaSniffPage> { nav.SubPage(AppRoute.MediaSniffPage) }
     entry<AppRoute.CookiePage> { nav.SubPage(AppRoute.CookiePage) }
