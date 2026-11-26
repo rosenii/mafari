@@ -38,8 +38,6 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import dev.dsh.miuixbrowser.i18n.tr
 
@@ -87,10 +85,7 @@ class MafariPlayer(context: Context, val request: PlayerRequest) {
 
     /** 当前播放的请求（地址 / 类型随切源变化，请求头不变）：复制链接 / 下载用它 */
     val currentRequest: PlayerRequest
-        get() = sources.getOrNull(sourceIndex)?.let { request.copy(url = it.url, type = it.type, audioUrl = it.audioUrl) } ?: request
-
-    /** 网络 / 本地数据源（和 ExoPlayer 默认工厂用的是同一个）：画面和声音分开的流要自己拼 MediaSource 时用 */
-    private lateinit var mediaDataSource: androidx.media3.datasource.DataSource.Factory
+        get() = sources.getOrNull(sourceIndex)?.let { request.copy(url = it.url, type = it.type) } ?: request
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -160,7 +155,6 @@ class MafariPlayer(context: Context, val request: PlayerRequest) {
             .apply { if (request.ua.isNotBlank()) setUserAgent(request.ua) }
         // 只有 http(s) 走裁剪包装；file / content 等由 DefaultDataSource 处理
         val dataSource = DefaultDataSource.Factory(context, StripImageHeaderDataSource.Factory(http))
-        mediaDataSource = dataSource
 
         // 解码：硬 / 软件优先、解码器回退、MediaCodec 异步队列
         val renderers = DefaultRenderersFactory(context)
@@ -237,7 +231,7 @@ class MafariPlayer(context: Context, val request: PlayerRequest) {
         })
         // 设置里的「默认倍速」：打开就按这个速度起播（播放页里仍可临时改）
         PlayerPrefs.defaultSpeed(context).takeIf { it != 1f }?.let { changeSpeed(it) }
-        setSource(currentRequest, request.startMs.coerceAtLeast(0))
+        exo.setMediaItem(buildItem(currentRequest), request.startMs.coerceAtLeast(0))
         exo.prepare()
         exo.playWhenReady = true
     }
@@ -336,24 +330,9 @@ class MafariPlayer(context: Context, val request: PlayerRequest) {
         selectedQuality = null
         qualities = emptyList()
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO).build()
-        setSource(currentRequest, pos)
+        exo.setMediaItem(buildItem(currentRequest), pos)
         exo.prepare()
         exo.play()
-    }
-
-    /**
-     * 装上 [r] 的媒体：普通地址走 MediaItem；画面和声音是两条独立流（[PlayerRequest.audioUrl]，YouTube 自适应流）时，
-     * 用两个 ProgressiveMediaSource 合并成一个源，进度 / 暂停 / 清晰度选择都照常。
-     */
-    private fun setSource(r: PlayerRequest, startMs: Long) {
-        if (!r.isSplit) {
-            exo.setMediaItem(buildItem(r), startMs)
-            return
-        }
-        val factory = ProgressiveMediaSource.Factory(mediaDataSource)
-        val video = factory.createMediaSource(buildItem(r))
-        val audio = factory.createMediaSource(MediaItem.fromUri(r.audioUrl))
-        exo.setMediaSource(MergingMediaSource(video, audio), startMs)
     }
 
     /**

@@ -5,68 +5,73 @@
 
 package dev.dsh.miuixbrowser.sniff
 
+import java.util.Locale
+
 /**
- * X（Twitter）视频的地址规则（纯函数，无 Android 依赖，有单测）。
+ * X（原 Twitter）视频地址的判定规则（纯函数，无 Android 依赖，有单测）。
  *
- * X 的视频都在 video.twimg.com：
- *  - 整段 mp4：`/ext_tw_video/<id>/pu/vid/avc1/1280x720/<hash>.mp4`（推文接口里的 variants）；
- *  - HLS 主清单：`/ext_tw_video/<id>/pu/pl/<hash>.m3u8`；各清晰度的子清单 `/pl/avc1/1280x720/<hash>.m3u8`；
- *    音频单独一条 `/pl/mp4a/128000/<hash>.m3u8`；
- *  - HLS 的 fMP4 初始化段 / 分片：`/vid/avc1/0/0/1280x720/<hash>.mp4`、`/vid/avc1/0/3000/1280x720/<hash>.m4s`（后者本来就被排除）；
- *  - GIF：`/tweet_video/<name>.mp4`。
- * 请求拦截只看地址，所以这里把「不能单独播的」（纯音频清单 / 初始化段）认出来排掉，
- * 并让主清单顶掉同一个视频的子清单，列表里一个视频只留一条自适应 HLS。
+ * X 网页端用 MSE 播放（`<video>` 是 blob:），背后请求 `video.twimg.com` 上的 HLS：
+ *  - 主清单 `/ext_tw_video/<id>/pu/pl/<name>.m3u8`（带清晰度选择）；
+ *  - 子清单 `/pu/pl/<codec>/<宽x高>/<name>.m3u8`（单档视频）和音频清单 `/pu/pl/mp4a/<码率>/<name>.m3u8`；
+ *  - fMP4 的初始化段 / 分片（`.m4s`、`/init/`）。
+ * 通用的 [MediaSniff.classify] 会把音频清单、初始化段当成视频、把每个子清单单独列出来，所以这里补几条 X 专用规则。
+ * 另外，接口 JSON 里带 `video_info.variants`（各档 mp4 直链 + 主清单），由 `mafari_sniff.js` 读出来上报，
+ * 这里负责给这些直链生成列表里的清晰度标签。
  */
 object XVideo {
 
-    /** 初始化段 / 分片的路径形态：…/<起始 ms>/<结束 ms>/<宽>x<高>/<hash>.mp4 */
-    private val SEGMENT_MP4 = Regex("""/\d+/\d+/\d+x\d+/[^/]+\.mp4$""")
-    private val RES = Regex("""/(\d{2,4})x(\d{2,4})(?:/|$)""")
-    private val KEY = Regex("""^/([a-z_]*video)/(\d+)/""")
+    const val CDN_HOST = "video.twimg.com"
 
-    const val ROLE_NONE = 0
-    const val ROLE_MASTER = 1
-    const val ROLE_VARIANT = 2
+    /** 地址在 X 的视频 CDN 上 */
+    fun isXMedia(url: String): Boolean = MediaSniff.hostOf(url) == CDN_HOST
 
-    fun isHost(host: String): Boolean =
-        host == "video.twimg.com" || (host.startsWith("video-") && host.endsWith(".twimg.com"))
-
-    /** 热路径先用这个便宜的判断挡掉绝大多数地址 */
-    fun isXVideoUrl(url: String): Boolean = url.contains("twimg.com") && isHost(MediaSniff.hostOf(url))
-
-    /** 不能单独播的：纯音频清单 / 音频段、HLS 的 fMP4 初始化段（[path] 已小写、不含 query） */
-    fun isNonPlayablePath(path: String): Boolean =
-        path.contains("/aud/") || path.contains("/mp4a/") || SEGMENT_MP4.containsMatchIn(path)
-
-    private fun pathOf(url: String): String = url.substringBefore('#').substringBefore('?').substringAfter("://").substringAfter('/', "").let { "/$it" }.lowercase()
-
-    /** HLS 清单的角色：主清单 `/pl/<hash>.m3u8`，子清单 `/pl/<codec>/<分辨率>/<hash>.m3u8` */
-    fun hlsRole(url: String): Int {
-        if (!isXVideoUrl(url)) return ROLE_NONE
-        val path = pathOf(url)
-        if (!path.endsWith(".m3u8")) return ROLE_NONE
-        val rest = path.substringAfter("/pl/", "")
-        return when {
-            rest.isEmpty() -> ROLE_NONE
-            '/' in rest -> ROLE_VARIANT
-            else -> ROLE_MASTER
-        }
+    private fun pathOf(url: String): String {
+        val rest = url.substringAfter("://", "")
+        return "/" + rest.substringBefore('?').substringBefore('#').substringAfter('/', "")
     }
 
-    /** 同一个视频的标识（`ext_tw_video/<id>`），主清单和它的子清单相同；认不出返回 null */
-    fun key(url: String): String? =
-        KEY.find(pathOf(url))?.let { it.groupValues[1] + "/" + it.groupValues[2] }
+    private fun extOf(path: String): String = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
 
-    /** 列表里显示的名字（与语言无关）：`X · 1280×720` / `X · HLS` / `X · GIF`；不是 X 的视频返回 null */
-    fun label(url: String, type: String): String? {
-        if (!isXVideoUrl(url)) return null
+    /**
+     * X 视频 CDN 上不是「一条能放的视频」的地址：音频清单（`/mp4a/`）、fMP4 初始化段（`/init/`，
+     * 以及清单目录 `/pl/` 下的 `.mp4`）。WebView 的请求拦截拿不到长度，不能靠 [MediaSniff.MIN_FILE_BYTES] 挡掉它们。
+     */
+    fun isNoise(url: String): Boolean {
+        if (!isXMedia(url)) return false
         val path = pathOf(url)
-        if (path.startsWith("/tweet_video/")) return "X · GIF"
-        val res = RES.find(path)?.let { "${it.groupValues[1]}×${it.groupValues[2]}" }
-        return when {
-            type == "hls" -> if (res != null) "X · HLS $res" else "X · HLS"
-            res != null -> "X · $res"
-            else -> "X · " + type.uppercase()
-        }
+        if (path.contains("/mp4a/") || path.contains("/init/")) return true
+        return extOf(path) == "mp4" && path.contains("/pl/")
+    }
+
+    /** 子清单：`/pl/` 后面还有目录（`/pl/avc1/720x1280/x.m3u8`），只是主清单里的一档 */
+    fun isVariantPlaylist(url: String): Boolean {
+        if (!isXMedia(url)) return false
+        val path = pathOf(url)
+        if (extOf(path) != "m3u8") return false
+        return path.substringAfter("/pl/", "").contains('/')
+    }
+
+    /** 主清单：X 的 m3u8 里不是子清单的那种（带清晰度选择） */
+    fun isMasterPlaylist(url: String): Boolean =
+        isXMedia(url) && extOf(pathOf(url)) == "m3u8" && !isVariantPlaylist(url)
+
+    private val MEDIA_ID = Regex("/(?:ext_tw_video|amplify_video|dm_video)/(\\d+)/")
+
+    /** 同一条视频的各个地址共用的媒体 id（路径里的数字）；`tweet_video`（GIF）这类没有则 null */
+    fun mediaKey(url: String): String? = MEDIA_ID.find(pathOf(url))?.groupValues?.get(1)
+
+    private val RES = Regex("(\\d{3,4})x(\\d{3,4})")
+
+    /**
+     * 列表里的清晰度标签：「720×1280 · 2.2 Mbps」。分辨率取自地址路径（没有就省略），码率来自接口（[bitrate] 单位 bps，未知传 0）。
+     * 不是 X 的地址、或两样都没有时返回空串。
+     */
+    fun label(url: String, bitrate: Long = 0): String {
+        if (!isXMedia(url)) return ""
+        val parts = ArrayList<String>(2)
+        RES.find(pathOf(url))?.let { parts += "${it.groupValues[1]}×${it.groupValues[2]}" }
+        if (bitrate >= 1_000_000) parts += String.format(Locale.ROOT, "%.1f Mbps", bitrate / 1_000_000.0)
+        else if (bitrate > 0) parts += "${bitrate / 1000} kbps"
+        return parts.joinToString(" · ")
     }
 }

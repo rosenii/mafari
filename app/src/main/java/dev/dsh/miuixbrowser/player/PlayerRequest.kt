@@ -11,7 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** 同一个视频的另一个可播放地址（脚本嗅探到多个源 / 多个清晰度的独立地址时用）。 */
-data class PlayerSource(val url: String, val label: String = "", val type: String = "", val audioUrl: String = "")
+data class PlayerSource(val url: String, val label: String = "", val type: String = "")
 
 /**
  * 一次播放请求：地址加上原网页带的请求头。
@@ -34,12 +34,7 @@ data class PlayerRequest(
     val standalone: Boolean = false,
     /** 防盗链用的 Origin；空 = 由 [referer] 推出（浏览器对跨域媒体请求也会带） */
     val origin: String = "",
-    /** 非空 = [url] 只有画面，要和这条音频流合并播放（YouTube 自适应流）；这种请求没有单一的可下载 / 可投屏地址 */
-    val audioUrl: String = "",
 ) {
-    /** 画面和声音是两条流：不能下载 / 复制成一个链接 / 投屏 */
-    val isSplit: Boolean get() = audioUrl.isNotBlank()
-
     /** 本地文件（content:// / file://）：没有可下载的网络地址，也不能投屏 */
     val isLocal: Boolean get() = !url.startsWith("http://", true) && !url.startsWith("https://", true)
 
@@ -64,7 +59,7 @@ data class PlayerRequest(
      * 只有一个源时界面不显示源列表。
      */
     fun allSources(): List<PlayerSource> {
-        val main = PlayerSource(url, label = "", type = type, audioUrl = audioUrl)
+        val main = PlayerSource(url, label = "", type = type)
         return (listOf(main) + sources.filter { it.url.startsWith("http", true) }).distinctBy { it.url }
     }
 
@@ -84,7 +79,7 @@ data class PlayerRequest(
         Intent(context, NativePlayerActivity::class.java)
             .putExtra(K_URL, url).putExtra(K_TITLE, title).putExtra(K_REFERER, referer)
             .putExtra(K_UA, ua).putExtra(K_COOKIE, cookie).putExtra(K_TYPE, type).putExtra(K_START, startMs)
-            .putExtra(K_GECKO, gecko).putExtra(K_STANDALONE, standalone).putExtra(K_ORIGIN, origin).putExtra(K_AUDIO, audioUrl)
+            .putExtra(K_GECKO, gecko).putExtra(K_STANDALONE, standalone).putExtra(K_ORIGIN, origin)
             .apply { if (sources.isNotEmpty()) putExtra(K_SOURCES, encodeSources(sources)) }
 
     companion object {
@@ -99,7 +94,6 @@ data class PlayerRequest(
         private const val K_SOURCES = "sources"
         private const val K_STANDALONE = "standalone"
         private const val K_ORIGIN = "origin"
-        private const val K_AUDIO = "audioUrl"
 
         /** scheme://host[:port]；不是 http(s) 地址返回空 */
         fun originOf(url: String): String {
@@ -130,13 +124,11 @@ data class PlayerRequest(
                 gecko = i.getBooleanExtra(K_GECKO, false),
                 standalone = standalone,
                 origin = i.getStringExtra(K_ORIGIN).orEmpty(),
-                // 音频地址和视频地址一样只认 http(s)
-                audioUrl = i.getStringExtra(K_AUDIO).orEmpty().trim().takeIf { web && (it.startsWith("http://", true) || it.startsWith("https://", true)) }.orEmpty(),
             )
         }
 
         private fun encodeSources(list: List<PlayerSource>): String = JSONArray().also { a ->
-            list.forEach { a.put(JSONObject().put("url", it.url).put("label", it.label).put("type", it.type).put("audioUrl", it.audioUrl)) }
+            list.forEach { a.put(JSONObject().put("url", it.url).put("label", it.label).put("type", it.type)) }
         }.toString()
 
         /** 脚本 `play` 操作的 `sources` 数组（[{url,label,type}…]）和 Intent 里的编码是同一格式；坏数据一律当没有。 */
@@ -147,7 +139,7 @@ data class PlayerRequest(
                 (0 until a.length()).mapNotNull { n ->
                     val o = a.optJSONObject(n) ?: return@mapNotNull null
                     val u = o.optString("url").trim()
-                    if (u.isEmpty()) null else PlayerSource(u, o.optString("label"), o.optString("type"), o.optString("audioUrl").trim().takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }.orEmpty())
+                    if (u.isEmpty()) null else PlayerSource(u, o.optString("label"), o.optString("type"))
                 }
             }.getOrDefault(emptyList())
         }

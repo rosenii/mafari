@@ -286,7 +286,7 @@ class NativePlayerActivity : ComponentActivity() {
 
     @androidx.compose.runtime.Composable
     private fun PlayerPage(p: MafariPlayer, title: String) {
-        val cast = if (p.request.isLocal || p.currentRequest.isSplit) null else cast // 本地文件 / 画面声音分开的流不能投屏
+        val cast = if (p.request.isLocal) null else cast // 本地文件不能投屏
         val pickerOpen = cast?.pickerUi?.show == true
         // 弹窗出现：先挂宿主并撑满窗口；收起动画结束（onDismissFinished）再还原
         LaunchedEffect(pickerOpen) { if (pickerOpen) castSheetHost = true }
@@ -341,8 +341,8 @@ class NativePlayerActivity : ComponentActivity() {
                         onToggleFullscreen = { if (standalone) finish() else applyFullscreen(!fullscreen) },
                         modifier = Modifier.fillMaxSize(),
                         onPip = if (pipSupported()) ({ enterPip() }) else null,
-                        onDownload = if (p.request.isLocal || p.currentRequest.isSplit) null else ({ download(p) }),
-                        onCopyLink = if (p.request.isLocal || p.currentRequest.isSplit) null else ({ copyLink(p) }),
+                        onDownload = if (p.request.isLocal) null else ({ download(p) }),
+                        onCopyLink = if (p.request.isLocal) null else ({ copyLink(p) }),
                         onCast = if (cast != null) ({ cast.openPicker() }) else null,
                         pip = inPip,
                         bgPlay = bgPlay,
@@ -458,7 +458,7 @@ class NativePlayerActivity : ComponentActivity() {
                     when (id) {
                         "cast" -> QuickAction(AppIcons.ScreenMirror, tr("投屏"), Modifier.weight(1f), enabled = cast != null) { cast?.openPicker() }
                         "external" -> QuickAction(AppIcons.External, tr("外部播放"), Modifier.weight(1f)) { openExternal(p) }
-                        "download" -> QuickAction(MiuixIcons.Glass.Download, tr("下载"), Modifier.weight(1f), enabled = !p.request.isLocal && !p.currentRequest.isSplit) {
+                        "download" -> QuickAction(MiuixIcons.Glass.Download, tr("下载"), Modifier.weight(1f), enabled = !p.request.isLocal) {
                             download(p)
                             Toast.makeText(this@NativePlayerActivity, tr("已加入下载"), Toast.LENGTH_SHORT).show()
                         }

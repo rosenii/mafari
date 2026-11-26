@@ -36,26 +36,7 @@ class SniffList {
     @Synchronized
     fun offer(m: SniffedMedia): Boolean {
         val key = keyOf(m.url)
-        val cur = items
-        // 同一个视频的多条候选（YouTube 不同清晰度）：只留一条，更好的后到就升级；已经自动播过的那条不再换，免得同一个视频又拉起一次
-        if (m.groupKey.isNotEmpty()) {
-            val gi = cur.indexOfFirst { it.groupKey == m.groupKey }
-            if (gi >= 0) {
-                val old = cur[gi]
-                if (m.rank > old.rank && keyOf(old.url) !in autoPlayed) {
-                    items = cur.toMutableList().also {
-                        it[gi] = m.copy(
-                            durationMs = if (m.durationMs != -1L) m.durationMs else old.durationMs,
-                            preview = old.preview,
-                            userPlayed = old.userPlayed,
-                            referer = old.referer.ifEmpty { m.referer },
-                            origin = old.origin.ifEmpty { m.origin },
-                        )
-                    }
-                }
-                return false
-            }
-        }
+        var cur = items
         val idx = cur.indexOfFirst { keyOf(it.url) == key }
         if (idx >= 0) {
             val old = cur[idx]
@@ -66,37 +47,27 @@ class SniffList {
                 userPlayed = old.userPlayed || m.userPlayed,
                 referer = old.referer.ifEmpty { m.referer },
                 origin = old.origin.ifEmpty { m.origin },
+                label = old.label.ifEmpty { m.label },
             )
             if (merged != old) items = cur.toMutableList().also { it[idx] = merged }
             return false
         }
-        // X：同一个视频的 HLS 主清单顶掉它的子清单（子清单先到、主清单后到时替换；主清单已在，子清单不收）
-        if (m.type == "hls") {
-            val role = XVideo.hlsRole(m.url)
-            val xk = if (role != XVideo.ROLE_NONE) XVideo.key(m.url) else null
-            if (xk != null) {
-                if (role == XVideo.ROLE_VARIANT &&
-                    cur.any { it.type == "hls" && XVideo.hlsRole(it.url) == XVideo.ROLE_MASTER && XVideo.key(it.url) == xk }
-                ) return false
-                if (role == XVideo.ROLE_MASTER) {
-                    val rest = cur.filterNot { it.type == "hls" && XVideo.hlsRole(it.url) == XVideo.ROLE_VARIANT && XVideo.key(it.url) == xk }
-                    if (rest.size != cur.size) {
-                        items = rest + m
-                        return true
-                    }
-                }
+        // X：子清单只是主清单里的一档，主清单已经在列表里就不单独列；主清单后到时把已列的子清单收掉
+        val xKey = if (XVideo.isMasterPlaylist(m.url) || XVideo.isVariantPlaylist(m.url)) XVideo.mediaKey(m.url) else null
+        if (xKey != null) {
+            if (XVideo.isVariantPlaylist(m.url) &&
+                cur.any { XVideo.isMasterPlaylist(it.url) && XVideo.mediaKey(it.url) == xKey }
+            ) return false
+            if (XVideo.isMasterPlaylist(m.url)) {
+                cur = cur.filterNot { XVideo.isVariantPlaylist(it.url) && XVideo.mediaKey(it.url) == xKey }
             }
         }
         if (cur.size >= MediaSniff.MAX_ITEMS) {
-            // X 是单页应用：在时间线里一条条点开看，换「页」不会清空列表。满了就挤掉最早的一条 X 视频，让新看的进来
-            if (XVideo.isXVideoUrl(m.url)) {
-                val old = cur.indexOfFirst { XVideo.isXVideoUrl(it.url) }
-                if (old >= 0) {
-                    items = cur.toMutableList().also { it.removeAt(old); it.add(m) }
-                    return true
-                }
-            }
-            return false
+            // X 的时间线会自动播放一串视频把列表占满：新来的 X 视频挤掉最早的一条 X 视频，别的站点照旧不收
+            if (!XVideo.isXMedia(m.url)) return false
+            val victim = cur.indexOfFirst { XVideo.isXMedia(it.url) }
+            if (victim < 0) return false
+            cur = cur.toMutableList().also { it.removeAt(victim) }
         }
         items = cur + m
         return true
@@ -141,12 +112,8 @@ class SniffList {
     @Synchronized
     fun autoPlayedUrls(): Set<String> = autoPlayed.toSet()
 
-    /** 本页的 YouTube 流收集器：分离的视频 / 音频流在这里配对（见 [YouTubeSniff]） */
-    val yt = YouTubeSniff.Collector()
-
     @Synchronized
     fun clear() {
-        yt.clear()
         items = emptyList()
         promptedCount = 0
         probing.clear()

@@ -88,22 +88,6 @@ GM_mafariHost('play', { url, title, referer: location.href, ua: navigator.userAg
   原生 `GeckoSniff` 按页面顶层 URL 存（和 `GeckoNetLog` 同样的取舍：两个标签打开同一个地址时共用一份）。
   开关关闭时后台页把监听整个卸掉（`sniffRules`，hello 时和开关变化时推送）。
 
-### X（Twitter）视频（`sniff/XVideo.kt`、`mafari_sniff.js` 的 X 部分）
-
-X 的 `<video>` 是 `blob:`（MSE），页面里没有直链，通用的三条路只能抓到 HLS 清单，而且会混进不能单独播的东西。专门处理三件事：
-
-- **地址规则**（`XVideo`，纯函数，有单测）：video.twimg.com 上的纯音频清单（`/pl/mp4a/…`、`/aud/…`）和 HLS 的 fMP4 初始化段（`…/0/0/<宽>x<高>/<hash>.mp4`，也是 .mp4）在 `MediaSniff.classify` 里排掉；
-  `SniffList.offer` 让同一个视频（`ext_tw_video/<id>`）的 HLS 主清单顶掉它的子清单，列表里一个视频只留一条自适应 HLS。列表里的名字不走翻译：`X · 1280×720` / `X · HLS` / `X · GIF`。
-- **推文接口里的直链**（只在 x.com / twitter.com，只读）：hook 的 `fetch` / XHR 对 `/i/api/(graphql|2|1.1)/` 的响应，含 `"video_info"` 就解析 JSON（上限 8MB，放到下一轮宏任务），
-  递归找 `extended_entities.media`，归到最近一层带 `rest_id` 的推文（转推 / 引用推文各用自己的 id），记下 `variants` 里的 mp4（按码率取前 3）、HLS 清单、`duration_millis`，最多缓存 150 条推文。
-  这些地址带 `x:1` 报给原生，`classify` 的 `trusted` 跳过「按形态猜初始化段」的排除。
-- **什么时候报**：详情页（地址里有 `/status/<id>`）接口一回来就报该推文的视频（没点播放也能在媒体图标里看到）；`blob:` 的 `<video>` 开播时，用所在 `article` 里的 `/status/<id>` 链接 + 当前地址的 id 当候选，
-  在缓存里取有记录的一条（多条时按时长对），只有用户点过 / 已取消静音 / 就在这条的详情页时才报——时间线里静音自动播放的不报，免得列表被刷满。GIF（`animated_gif`）标为预览（不自动播）。
-- **取舍**：X 是单页应用，换推文不会触发整页加载，列表不会自动清空；满了（12 条）就挤掉最早的一条 X 视频。同一地址在用户再次看到时允许重新上报（2 秒节流）。
-  Gecko 内核没有页面脚本，只能靠 webRequest 抓到 HLS（音频清单 / 初始化段同样被排掉），拿不到接口里的 mp4 直链。
-  推文接口的字段（`extended_entities` / `video_info.variants`）和 video.twimg.com 的路径形态是按目前的样子写的，X 改版后需要跟着调；`tools/userscript-test/x-sniff.test.js` 用假 DOM 覆盖页面脚本这一段（`node x-sniff.test.js`）。
-  未编译、未真机验证。
-
 ### 界面
 
 - 页面里出现**新的**视频地址 → 等 0.9 秒（让同时到的其他清晰度 / 线路一起列出）→ 开了「自动悬浮播放」就自动打开合格的正片，否则什么都不做；「发现视频」对话框（`SniffDialog`，走材质抽象层）只在点地址栏媒体图标时打开，不再主动弹出。
@@ -120,6 +104,18 @@ X 的 `<video>` 是 `blob:`（MSE），页面里没有直链，通用的三条�
 - 页面脚本 hook 了 `fetch` / `XHR.open`，函数的 `toString()` 不再是 `[native code]`；指纹保护 / 反检测要求高的站点可以关掉「嗅探网页视频」。
 - 脚本侧的悬浮播放器（`float-player.js`）没有动，两边可能同时出现提示；阶段五删脚本时一并处理。
 - 未编译、未真机验证：Kotlin 里只编译检查了 `MediaSniff`（纯逻辑），其余按现有 API 对照写；`tools/gm-ext-test` 通过，扩展里的嗅探监听用 Node 模拟过。
+
+### X（x.com / twitter.com）视频（`sniff/XVideo.kt`、`mafari_sniff.js` 的「X」一节）
+
+X 网页端 `<video>` 是 `blob:`（MSE），背后请求 `video.twimg.com` 的 HLS（主清单 `/pu/pl/<name>.m3u8`、子清单 `/pu/pl/<codec>/<宽x高>/…`、音频清单 `/pu/pl/mp4a/…`、fMP4 的 `/init/` 与 `.m4s` 分片）。各档 mp4 直链只在接口 JSON 里。
+
+- **直链来源**（仅 WebView）：页面脚本 hook 的 `fetch` / XHR 在响应属于 X 自己的接口（`/i/api/graphql|2|1.1/`）、当前在状态页、响应是 JSON 且含 `"video_info"` 时才 `JSON.parse`（上限 6MB），取 `rest_id == 当前 status ID` 的那条推文的 `legacy.extended_entities.media[].video_info`（转推取被转推文）；时间线 / 回复里别的推文不上报。
+  上报顺序：HLS 主清单，再按码率从高到低的各档 mp4（消息带 `d` 时长、`pv`（`animated_gif` 为 true）、`br` 码率）。同一页通用的「接口 JSON 找视频地址」和内联脚本扫描在 X 上关掉（里面是整条时间线，会把没在看的视频都报上来）。
+- **站内跳转**：X 是单页应用，不会触发「页面开始加载」。接口响应到来时发现 `location.pathname` 变了（以及 `popstate`）→ 脚本重置自己的去重状态并发 `{reset:1}`，`onSniffMessage` 清空本页嗅探列表。
+- **判定去噪**（`MediaSniff.classify` 先过 `XVideo.isNoise`，两个内核都生效）：`video.twimg.com` 上路径含 `/mp4a/`（音频清单）、`/init/`，或 `/pl/` 下的 `.mp4`（初始化段）不认。WebView 的请求拦截拿不到长度，挡不住初始化段，只能靠路径。
+- **列表去重**（`SniffList.offer`）：同一个媒体 ID（路径里 `ext_tw_video|amplify_video|dm_video/<id>`）的主清单在列表里时，子清单不再收；主清单后到则收掉已列的子清单。列表满（12）时，新的 X 地址挤掉最早的一条 X 地址（时间线自动播放的视频会占满列表）；非 X 地址满了照旧不收。
+- **标签**：`SniffedMedia.label`（`XVideo.label`：地址路径里的分辨率 + 接口给的码率，如「720×1280 · 2.2 Mbps」）显示在「发现视频」行的详情里，也进播放页「视频源」的名字。
+- 取舍：Gecko 没有页面脚本，拿不到接口 JSON，只有请求监听到的 HLS 主清单（去噪 / 去重照常）；`/pl/`、`/init/` 的路径规则按已知的 X 路径布局写，X 改布局后需要跟着调；未带登录态时部分推文（敏感内容、受限账号）接口不返回 `video_info`，此时只剩播放后请求到的主清单。
 
 ## 投屏（`player/NativeCast.kt`）
 

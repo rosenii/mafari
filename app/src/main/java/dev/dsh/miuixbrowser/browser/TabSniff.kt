@@ -22,7 +22,7 @@ import dev.dsh.miuixbrowser.player.PlayerSource
 import dev.dsh.miuixbrowser.sniff.MediaSniff
 import dev.dsh.miuixbrowser.sniff.SniffList
 import dev.dsh.miuixbrowser.sniff.SniffedMedia
-import dev.dsh.miuixbrowser.sniff.YouTubeSniff
+import dev.dsh.miuixbrowser.sniff.XVideo
 import dev.dsh.miuixbrowser.util.Diag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
@@ -42,23 +42,9 @@ import org.json.JSONObject
 /** shouldInterceptRequest（IO 线程）里调用：地址像视频就记下来。主框架请求不看（页面本身不是视频文件）。 */
 internal fun BrowserTab.sniffRequest(request: WebResourceRequest) {
     val u = request.url.toString()
+    val type = MediaSniff.classify(u) ?: return
     // 页面加载这条地址时带的 Referer / Origin：iframe 播放器的防盗链按它校验，播放时原样带上
     val h = runCatching { request.requestHeaders }.getOrNull()
-    // YouTube：自适应流是 googlevideo.com/videoplayback 分片请求，要单独配对音视频（见 YouTubeSniff）
-    if (YouTubeSniff.isVideoPlayback(u)) {
-        val stream = YouTubeSniff.parse(u)
-        if (stream == null) {
-            // 取不到直链（SABR / UMP / 直播分段）：只在每个页面第一次遇到时记一行原因，方便判断是不是 YouTube 改了协议
-            YouTubeSniff.unsupportedReason(u)?.let { r ->
-                webSniffs.yt.firstUnsupported(r)?.let { Diag.log("youtube sniff: videoplayback without direct stream ($it)") }
-            }
-            return
-        }
-        val media = webSniffs.yt.add(stream) ?: return
-        webSniffs.offer(media.copy(referer = h?.get("Referer").orEmpty(), origin = h?.get("Origin").orEmpty()))
-        return
-    }
-    val type = MediaSniff.classify(u) ?: return
     webSniffs.offer(
         SniffedMedia(
             u, type, MediaSniff.hostOf(u),
@@ -80,15 +66,17 @@ internal fun BrowserTab.installMediaSniff() {
 
 /**
  * 页面脚本的报告（主线程；来源 / 主框架 / 长度已在 [OneWayBridge] 校验）：
- * {u, ct, len, el, d?, pv?, ua?, x?}。x = 页面脚本从 X 的推文接口里读到的正式视频地址。d = `<video>` 的时长（秒，直播 / 无限为 -2）；pv = 页面判断这是预览 / 装饰
+ * {u, ct, len, el, d?, pv?, ua?}。d = `<video>` 的时长（秒，直播 / 无限为 -2）；pv = 页面判断这是预览 / 装饰
  * （循环、很小、不可见）；ua = 用户刚点过播放。后几项只有来自 `<video>` 的报告才有，同一地址后到的报告会并进已有那条。
  */
 internal fun BrowserTab.onSniffMessage(json: String) {
     if (!MediaSniff.enabled) return
     val o = runCatching { JSONObject(json) }.getOrNull() ?: return
+    // X 是单页应用：站内跳转不会触发「页面开始加载」，页面脚本发现路径变了就发 {reset:1}，本页嗅探结果重新统计
+    if (o.optBoolean("reset")) { webSniffs.clear(); return }
     val u = o.optString("u")
     val len = o.optLong("len", -1)
-    val type = MediaSniff.classify(u, o.optString("ct").ifEmpty { null }, len, o.optBoolean("el"), trusted = o.optBoolean("x")) ?: return
+    val type = MediaSniff.classify(u, o.optString("ct").ifEmpty { null }, len, o.optBoolean("el")) ?: return
     val d = o.optDouble("d", Double.NaN)
     val durationMs = when {
         d.isNaN() || d == -1.0 -> -1L
@@ -97,7 +85,9 @@ internal fun BrowserTab.onSniffMessage(json: String) {
         else -> -1L
     }
     val preview = if (o.has("pv")) o.optBoolean("pv") else null
-    webSniffs.offer(SniffedMedia(u, type, MediaSniff.hostOf(u), len, durationMs, preview, o.optBoolean("ua")))
+    // br：X 接口给的各档 mp4 码率（bps），和地址里的分辨率一起做成清晰度标签
+    val label = XVideo.label(u, o.optLong("br", 0))
+    webSniffs.offer(SniffedMedia(u, type, MediaSniff.hostOf(u), len, durationMs, preview, o.optBoolean("ua"), label = label))
 }
 
 /**
@@ -180,7 +170,7 @@ internal fun BrowserTab.playSniffed(context: Context, selected: SniffedMedia, al
     val gecko = isGecko
     sniffs.markLaunched()
     val others = all.filter { it.url != selected.url }.map {
-        PlayerSource(it.url, label = "${it.type.uppercase()} · ${MediaSniff.displayName(it)}", type = hintOf(it), audioUrl = it.audioUrl)
+        PlayerSource(it.url, label = sourceLabel(it), type = hintOf(it))
     }
     fun launch(ua: String, cookie: String) {
         val req = PlayerRequest(
@@ -192,7 +182,6 @@ internal fun BrowserTab.playSniffed(context: Context, selected: SniffedMedia, al
             ua = ua,
             cookie = cookie,
             type = hintOf(selected),
-            audioUrl = selected.audioUrl,
             sources = others,
             gecko = gecko,
         )
@@ -219,3 +208,7 @@ internal fun BrowserTab.playSniffed(context: Context, selected: SniffedMedia, al
 
 /** 播放器的类型提示：只有 HLS 明确声明，其余让播放器按地址 / 响应判断 */
 private fun hintOf(m: SniffedMedia): String = if (m.type == "hls") "hls" else ""
+
+/** 播放页「视频源」里的名字：类型 · 清晰度（有的话）· 文件名 */
+private fun sourceLabel(m: SniffedMedia): String =
+    listOfNotNull(m.type.uppercase(), m.label.ifBlank { null }, MediaSniff.displayName(m)).joinToString(" · ")

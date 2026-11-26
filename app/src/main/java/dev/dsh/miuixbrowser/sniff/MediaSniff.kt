@@ -24,14 +24,8 @@ data class SniffedMedia(
      */
     val referer: String = "",
     val origin: String = "",
-    /** 音频流地址：非空表示 [url] 只有画面，要和这条音频合并播放（YouTube 的自适应流，见 [YouTubeSniff]） */
-    val audioUrl: String = "",
-    /** 列表里显示的名字；空 = 用地址里的文件名 */
+    /** 清晰度标签（如「720×1280 · 2.2 Mbps」），目前只有 X 的各档 mp4 直链带；空 = 没有 */
     val label: String = "",
-    /** 同一个视频的多条候选（清晰度不同）共用的标识；空 = 不分组 */
-    val groupKey: String = "",
-    /** 同组候选的排序：数值大的更好，后到的更高才会替换已有那条 */
-    val rank: Int = 0,
 )
 
 /**
@@ -86,23 +80,15 @@ object MediaSniff {
      * 返回类型，不是视频返回 null。
      * [contentType] 可带参数（`; charset=`）；[length] 未知传 -1；
      * [fromMediaElement]：地址来自页面里 `<video>` 的 currentSrc，没有后缀也没有响应头时按 mp4 处理。
-     * [trusted]：地址来自页面脚本从站点接口里读到的正式视频地址（X 推文的 variants），跳过按地址形态猜「是不是初始化段」的排除。
      */
-    fun classify(
-        url: String,
-        contentType: String? = null,
-        length: Long = -1,
-        fromMediaElement: Boolean = false,
-        trusted: Boolean = false,
-    ): String? {
+    fun classify(url: String, contentType: String? = null, length: Long = -1, fromMediaElement: Boolean = false): String? {
         if (!isHttp(url)) return null
+        if (XVideo.isNoise(url)) return null // X：音频清单 / fMP4 初始化段不是视频
         val path = url.substringBefore('#').substringBefore('?').lowercase()
         val ct = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
         if (ct in SEGMENT_CT) return null
         val ext = path.substringAfterLast('/').substringAfterLast('.', "")
         if (ext == "ts" || ext == "m4s") return null
-        // X：纯音频清单 / HLS 的 fMP4 初始化段（也是 .mp4）不能单独播
-        if (!trusted && XVideo.isXVideoUrl(url) && XVideo.isNonPlayablePath(path)) return null
 
         if (ext == "m3u8" || ext == "m3u" || ct in HLS_CT) return "hls"
 
@@ -120,11 +106,6 @@ object MediaSniff {
 
     /** 列表里显示的名字：文件名（没有就用域名） */
     fun displayName(m: SniffedMedia): String {
-<<<<<<< ours
-        if (m.label.isNotBlank()) return m.label
-=======
-        XVideo.label(m.url, m.type)?.let { return it }
->>>>>>> theirs
         val name = m.url.substringBefore('#').substringBefore('?').substringAfterLast('/')
         return name.takeIf { it.isNotBlank() && it.length <= 48 } ?: m.host
     }
