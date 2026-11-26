@@ -46,23 +46,29 @@ object YouTubeResolver {
                 Diag.log("youtube $tag: no streams (${parsed.reason})")
                 continue
             }
-            val items = parsed.streams.map { s ->
-                SniffedMedia(
-                    url = s.url, type = s.type, host = MediaSniff.hostOf(s.url),
-                    size = s.size, durationMs = s.durationMs,
-                    referer = YouTube.ORIGIN + "/", origin = YouTube.ORIGIN,
-                    label = "YouTube · " + s.label,
-                    ua = client.userAgent,
-                    source = YouTube.SOURCE_PREFIX + videoId,
-                    manualOnly = true,
-                )
-            }
+            val items = toItems(videoId, parsed, client.userAgent)
             Diag.log("youtube $tag: ${items.size} streams (${items.joinToString { it.type + (if (it.label.isNotBlank()) ":" + it.label.removePrefix("YouTube · ") else "") }})")
             return Result(items, parsed.title, client.name).also { remember(videoId, it) }
         }
         Diag.log("youtube $videoId: all clients failed")
         return null
     }
+
+    /** [ua] 空 = 播放时用当前页的 UA（页面自己的播放器响应 / 页内请求） */
+    fun toItems(videoId: String, parsed: YouTube.Parsed, ua: String): List<SniffedMedia> = parsed.streams.map { s ->
+        SniffedMedia(
+            url = s.url, type = s.type, host = MediaSniff.hostOf(s.url),
+            size = s.size, durationMs = s.durationMs,
+            referer = YouTube.ORIGIN + "/", origin = YouTube.ORIGIN,
+            label = "YouTube · " + s.label,
+            ua = ua,
+            source = YouTube.SOURCE_PREFIX + videoId,
+            manualOnly = true,
+        )
+    }
+
+    fun remember(videoId: String, items: List<SniffedMedia>, title: String, name: String): Result =
+        Result(items, title, name).also { remember(videoId, it) }
 
     private fun fetch(videoId: String, client: YouTube.Client, cookie: String, visitor: String): YouTube.Parsed {
         val c = URL(YouTube.PLAYER_ENDPOINT).openConnection() as HttpURLConnection

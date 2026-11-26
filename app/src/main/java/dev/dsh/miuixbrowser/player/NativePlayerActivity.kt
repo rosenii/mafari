@@ -59,6 +59,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import android.view.MotionEvent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.getValue
@@ -151,6 +155,16 @@ class NativePlayerActivity : ComponentActivity() {
 
     /** 卡片态窗口距屏幕顶部的偏移（像素）：长按拖动快捷菜单 / 标题区改它；全屏 / 画中画 / 投屏面板铺满窗口时按 0 摆放，退回卡片后恢复 */
     private var cardY = 0
+
+    /** 最近一次触摸事件的屏幕 y（MotionEvent.rawY）：拖动时窗口自己在动，控件内坐标会跟着漂，只有屏幕坐标是稳定的 */
+    private var lastRawY = 0f
+
+    private var topInsetPx by mutableStateOf(0)
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        lastRawY = ev.rawY // 先于 Compose 处理本事件，onDrag 里读到的就是当前这一次的手指位置
+        return super.dispatchTouchEvent(ev)
+    }
 
     /**
      * 「投屏到」底部弹窗的宿主是否在场。抽象层的弹窗（AppBottomSheet）要挂在 miuix Scaffold 的弹窗层上，
@@ -295,6 +309,9 @@ class NativePlayerActivity : ComponentActivity() {
         val view = LocalView.current
         val haptic = LocalHapticFeedback.current
         val dark = isAppDarkTheme()
+        // 窗口贴顶时的上方 inset（状态栏 / 刘海）；窗口不在顶部时不更新，沿用上一次的值
+        val liveTop = WindowInsets.safeDrawing.getTop(LocalDensity.current)
+        LaunchedEffect(liveTop) { if (cardY == 0 && !fullscreen && !inPip) topInsetPx = liveTop }
         val glass = LocalBlurMode.current != BLUR_OFF
         val videoTheme = remember { ThemeController(ColorSchemeMode.Dark) }
         val surfaceColor = MiuixTheme.colorScheme.surfaceContainer.let { if (glass) it.copy(alpha = CARD_SURFACE_ALPHA) else it }
@@ -308,7 +325,13 @@ class NativePlayerActivity : ComponentActivity() {
             Modifier.fillMaxSize().background(Color.Black)
         } else {
             // 不 fillMaxHeight：窗口是 WRAP_CONTENT，铺满会把整屏变成透明的挡触摸层（投屏面板打开时窗口已铺满，卡片仍贴顶）
+            // 上边距用「窗口在顶部（y=0）时量到的状态栏 / 刘海高度」固定住，左右边距跟随系统；下边不再吃系统栏。
+            // 窗口被拖离顶部后，系统给它的 inset 会随位置变化（状态栏不再重叠），若还用实时 inset，
+            // 卡片高度 / 窗口高度跟着变，位置再被反馈回去 -> 抖动闪烁
             Modifier.fillMaxWidth().then(if (castSheetHost) Modifier.fillMaxHeight() else Modifier)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                .padding(top = with(LocalDensity.current) { (if (cardY == 0) liveTop else topInsetPx).toDp() })
+                .padding(12.dp)
                 .windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp)
         }
         val panel = if (full) {
@@ -363,20 +386,15 @@ class NativePlayerActivity : ComponentActivity() {
                             .pointerInput(Unit) {
                                 var startRaw = 0f
                                 var startY = 0
-                                val loc = IntArray(2)
-                                fun raw(localY: Float): Float {
-                                    view.getLocationOnScreen(loc)
-                                    return localY + loc[1]
-                                }
                                 detectDragGesturesAfterLongPress(
-                                    onDragStart = { o ->
+                                    onDragStart = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         startY = cardY
-                                        startRaw = raw(o.y)
+                                        startRaw = lastRawY
                                     },
                                     onDrag = { change, _ ->
                                         change.consume()
-                                        moveCard((startY + (raw(change.position.y) - startRaw)).roundToInt())
+                                        moveCard((startY + (lastRawY - startRaw)).roundToInt())
                                     },
                                 )
                             },

@@ -77,6 +77,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardActions
@@ -1351,6 +1353,12 @@ internal fun AddressField(
     val latestValue by rememberUpdatedState(value)
     val fieldContext = LocalContext.current
     val editingNow by rememberUpdatedState(editing)
+    // 搜索建议的补全部分（只画在文字后面、不写进输入框的文字）：之前把补全直接 replace 进 TextFieldState，
+    // 输入法（Gboard 等）还在拼写「a」这个组合串，文字被应用整段改写后它会把 a 再提交一次 → 打 a 变成 aa。
+    // 现在文字 / 光标 / 组合串全由输入法独占，补全只是 OutputTransformation 的视觉后缀，回车时才真正并入
+    var suggestion by remember { mutableStateOf("") }
+    val ghostColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val ghostBg = MiuixTheme.colorScheme.primary.copy(alpha = 0.22f)
     LaunchedEffect(Unit) { AddressSuggest.load(fieldContext) }
     fun TextFieldState.setTo(text: String, selection: TextRange) {
         edit {
@@ -1368,6 +1376,7 @@ internal fun AddressField(
     LaunchedEffect(fieldState) {
         var prevLen = fieldState.text.length
         snapshotFlow { fieldState.text.toString() }.collect { t ->
+            suggestion = "" // 文字一变，旧的补全立刻作废（继续打字 = 覆盖补全，退格 = 删掉补全）
             if (t != latestValue) {
                 onChange(t)
                 // 预连接：用户在打字，停顿后若已是完整网址就提前建连（纯搜索词不处理）
@@ -1376,7 +1385,7 @@ internal fun AddressField(
             val sel = fieldState.selection
             val typedAtEnd = sel.collapsed && sel.end == t.length
             val grew = t.length > prevLen
-            if (typedAtEnd) prevLen = t.length
+            prevLen = t.length
             if (grew && typedAtEnd && editingNow && AddressSuggest.enabled) {
                 val c = fieldContext.appContainer
                 val full = withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1385,16 +1394,37 @@ internal fun AddressField(
                     runCatching { c.history.query(t, 40) }.getOrDefault(emptyList()).forEach { urls.add(it.url) }
                     AddressSuggest.complete(t, urls)
                 }
-                // 查询期间用户又改了文字 / 关了开关 / 退出输入：丢弃结果
-                if (full != null && fieldState.text.toString() == t && AddressSuggest.enabled && editingNow) {
-                    fieldState.setTo(full, TextRange(t.length, full.length))
+                // 查询期间用户又改了文字 / 移了光标 / 关了开关 / 退出输入：丢弃结果
+                val nowSel = fieldState.selection
+                if (full != null && full.length > t.length && fieldState.text.toString() == t &&
+                    nowSel.collapsed && nowSel.end == t.length && AddressSuggest.enabled && editingNow
+                ) {
+                    suggestion = full.substring(t.length)
                 }
             }
         }
     }
+    // 光标挪走 / 选中了文字：补全不再成立
+    LaunchedEffect(fieldState) {
+        snapshotFlow { fieldState.selection }.collect { sel ->
+            if (suggestion.isNotEmpty() && !(sel.collapsed && sel.end == fieldState.text.length)) suggestion = ""
+        }
+    }
+    // 回车：把补全并入文字再提交（只在末尾追加，不改动已输入的部分）
+    fun commitSuggestion() {
+        val sfx = suggestion
+        if (sfx.isEmpty()) return
+        suggestion = ""
+        fieldState.edit {
+            append(sfx)
+            selection = TextRange(length)
+        }
+        onChange(fieldState.text.toString())
+    }
     // 进入编辑态（点击地址栏 / 圆形搜索钮）：先全选当前网址，再拿焦点，用户可以直接输入替换或粘贴；
     // 退出编辑态时选区收起并滚回开头。失焦时通知外部退出编辑态。
     LaunchedEffect(editing) {
+        suggestion = ""
         if (editing) {
             fieldState.setTo(value, TextRange(0, value.length))
             runCatching { focusRequester.requestFocus() }
@@ -1423,7 +1453,15 @@ internal fun AddressField(
             textStyle = TextStyle(fontSize = 15.sp, color = color),
             cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            onKeyboardAction = { onGo() },
+            onKeyboardAction = { commitSuggestion(); onGo() },
+            outputTransformation = OutputTransformation {
+                val sfx = suggestion
+                if (sfx.isNotEmpty()) {
+                    val from = length
+                    append(sfx)
+                    addStyle(SpanStyle(color = ghostColor, background = ghostBg), from, length)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester)

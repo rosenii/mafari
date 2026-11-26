@@ -470,7 +470,11 @@ BrowserChunk {
                 dev.dsh.miuixbrowser.util.Diag.log("youtube cookies=${if (ytCookie.isBlank()) "none" else "${ytCookie.length}B"} visitorData=${if (ytVisitor.isBlank()) "none" else "yes"}")
                 runCatching { dev.dsh.miuixbrowser.sniff.YouTubeResolver.resolve(id, ytCookie, ytVisitor) }
                     .onFailure { dev.dsh.miuixbrowser.util.Diag.log("youtube resolve crashed: ${it.message}") }.getOrNull()
-            } ?: return@LaunchedEffect
+            } ?: (if (isGeckoTab) null else runCatching {
+                // 原生请求被判机器人：改用页面自己的环境兜底（页面播放器的响应 / 页内 fetch）
+                dev.dsh.miuixbrowser.sniff.YouTubePageFallback.resolve(id, ytVisitor) { js, cb -> tab.evaluateJs(js, cb) }
+            }.onFailure { dev.dsh.miuixbrowser.util.Diag.log("youtube page fallback crashed: ${it.message}") }.getOrNull())
+                ?: return@LaunchedEffect
             // 解析期间用户已经换了页面 / 视频：丢弃
             if (dev.dsh.miuixbrowser.sniff.YouTube.videoId(tab.url) != id) return@LaunchedEffect
             r.items.forEach { tab.sniffs.offer(it) }
