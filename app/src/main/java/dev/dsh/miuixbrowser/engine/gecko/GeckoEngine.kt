@@ -451,6 +451,7 @@ class GeckoTabEngine(
     /** Activity.onStop：应用退到后台，暂停媒体 */
     fun onAppStopped() {
         appStopped = true
+        cancelPendingResume()
         pauseMedia()
     }
 
@@ -512,20 +513,50 @@ class GeckoTabEngine(
             frozenBitmap?.let { runCatching { it.recycle() } }
             frozenBitmap = null
             // 切回前台时确保合成器恢复渲染，避免长时间后台后画面不刷新
+            resumeRenderingWhenSurfaceReady()
+            return
+        }
+        // 轻推一下：恢复渲染 / 焦点，并让 TextureView 重新布局重绘
+        resumeRenderingWhenSurfaceReady()
+        view.requestLayout()
+        view.invalidate()
+        scheduleFreezeRemoval()
+    }
+
+    private var resumeRunnable: Runnable? = null
+
+    /**
+     * 回前台时不要在 onResume 里立刻 setActive / setFocused：此时 SurfaceView 的 Surface 还在重建、
+     * 布局也可能正在因键盘 / insets 变化而改尺寸，Gecko 的 syncResumeResizeCompositor 会在主线程同步等待合成器，
+     * 合成器恢复和 Surface 改尺寸撞在一起就会卡死（ANR：Waited 5000ms for FocusEvent）。
+     * 这里等 Surface 有效且已布局，再下发；最多等 1 秒，超时仍然下发，保证画面能恢复。
+     */
+    private fun resumeRenderingWhenSurfaceReady() {
+        cancelPendingResume()
+        val deadline = SystemClock.uptimeMillis() + 1_000
+        lateinit var step: Runnable
+        step = Runnable {
+            if (tab.closed || appStopped) return@Runnable
+            val sv = findSurfaceView(view)
+            val ready = sv == null || (sv.holder.surface.isValid && sv.width > 0 && sv.height > 0 && sv.isLaidOut)
+            if (!ready && SystemClock.uptimeMillis() < deadline) {
+                view.postDelayed(step, 50)
+                return@Runnable
+            }
+            resumeRunnable = null
             if (sessionActive) {
                 runCatching { session.setActive(true) }
                 runCatching { session.setFocused(true) }
             }
-            return
         }
-        // 轻推一下：恢复渲染 / 焦点，并让 TextureView 重新布局重绘
-        if (sessionActive) {
-            runCatching { session.setActive(true) }
-            runCatching { session.setFocused(true) }
-        }
-        view.requestLayout()
-        view.invalidate()
-        scheduleFreezeRemoval()
+        resumeRunnable = step
+        // 先让出一帧：onResume 同一轮里的布局 / insets 变化先落定
+        view.postOnAnimation(step)
+    }
+
+    private fun cancelPendingResume() {
+        resumeRunnable?.let { view.removeCallbacks(it) }
+        resumeRunnable = null
     }
 
     private fun scheduleFreezeRemoval() {

@@ -54,6 +54,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.dsh.miuixbrowser.engine.gecko.findActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -1931,6 +1932,21 @@ internal fun FavoriteEditorDialog(
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
+        // 退到后台时收起键盘并清掉输入焦点：回前台时键盘不再和 Surface 重建同时恢复（输入内容保留）
+        val stopFocus = androidx.compose.ui.platform.LocalFocusManager.current
+        val stopKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        val stopContext = androidx.compose.ui.platform.LocalContext.current
+        androidx.compose.runtime.DisposableEffect(stopContext) {
+            val lifecycle = (stopContext.findActivity() as? androidx.lifecycle.LifecycleOwner)?.lifecycle
+            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                    runCatching { stopFocus.clearFocus(force = true) }
+                    runCatching { stopKeyboard?.hide() }
+                }
+            }
+            lifecycle?.addObserver(observer)
+            onDispose { lifecycle?.removeObserver(observer) }
+        }
         // 宿主 Box：GlassPopup 把它的父 Box 当整个页面，所以弹窗叠在表单上、被限制在对话框内部
         Box(
             modifier = Modifier

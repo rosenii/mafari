@@ -89,7 +89,12 @@ internal fun BrowserUiState.BrowserContentLayer(
                 // 地址栏输入时不收缩，避免每次唤起键盘都让网页整体重排。
                 // 注意：不能用 imePadding()——它每帧跟着键盘动画变化，Gecko 的 Surface 会在
                 // 动画期间被连续重排（窗口抖动）。这里用动画「目标」高度，只在动画开始时变一次。
-                .then(if (editing) Modifier else Modifier.windowInsetsPadding(rememberImeTargetInsets()))
+                .then(
+                    // 书签弹窗 / 编辑弹窗是独立窗口，自己处理键盘；网页区域不跟着缩放，
+                    // 否则切后台再回来时「键盘恢复 → GeckoView 改尺寸」会和 Surface 重建 / 合成器恢复撞在一起
+                    if (editing || showBookmarkCreate || showFavEditor) Modifier
+                    else Modifier.windowInsetsPadding(rememberImeTargetInsets()),
+                )
                 // 停靠在底部的栏：网页在栏上面结束。导航栏那一段算进栏里（栏的底板铺到屏幕边缘），
                 // 键盘弹出时键盘高度已经包含导航栏，windowInsetsPadding 只补差额，不会重复留白。
                 // 页面深入栏下时导航栏那一段也还给网页，所以它的留白要跟着 bottomReserveFactor 缩放。
