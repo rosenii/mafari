@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,6 +36,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -47,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -99,7 +102,7 @@ private val coverCache = android.util.LruCache<String, ImageBitmap>(32)
  * 设置 → 浏览 → 书架。
  *
  * 复用其他二级页面的框架（玻璃大标题顶栏 + 右上角「更多」菜单）。目前只做「从本地导入」小说（TXT / EPUB）：
- * 书架里以大封面 + 书名 + 作者的网格展示，长按封面弹出编辑窗口（改书名、上传封面；左下角删除、右下角保存，
+ * 书架里以大封面 + 书名 + 作者的网格展示（读过的书封面右上角有进度角标、底边有进度条），长按封面弹出编辑窗口（改书名、上传封面；左下角删除、右下角保存，
  * 删除前再确认一次）。「订阅网络小说」入口先占位。
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -383,6 +386,37 @@ private fun BookItem(book: Book, onClick: () -> Unit, onLongClick: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            // 阅读进度：右上角百分比角标 + 封面底边一条细进度条（没开始读的书不显示）
+            val label = progressLabel(book)
+            if (label != null) {
+                Text(
+                    text = label,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .background(Color.White.copy(alpha = 0.3f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(book.progress.coerceIn(0f, 1f))
+                            .background(MiuixTheme.colorScheme.primary),
+                    )
+                }
+            }
         }
         Text(
             text = book.title,
@@ -394,6 +428,13 @@ private fun BookItem(book: Book, onClick: () -> Unit, onLongClick: () -> Unit) {
             modifier = Modifier.padding(top = 8.dp),
         )
     }
+}
+
+/** 封面角标文字：没开始读返回 null；读完「已读完」；否则向下取整的百分比（至少 1%，99% 以内）。 */
+private fun progressLabel(book: Book): String? = when {
+    book.progress >= 0.999f -> tr("已读完")
+    book.progress > 0f -> "${(book.progress * 100).toInt().coerceIn(1, 99)}%"
+    else -> null
 }
 
 /**

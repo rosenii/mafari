@@ -127,6 +127,20 @@ fun readPageEnhancements(context: Context): Boolean =
     context.getSharedPreferences("mafari_settings", Context.MODE_PRIVATE)
         .getBoolean("page_enhancements", true)
 
+/** 阅读器排版（书架 → 阅读）：字号 sp、行距（占字号的百分比）、左右 / 上下页边距 dp。默认值与最初的固定排版一致 */
+const val READER_FONT_MIN = 14
+const val READER_FONT_MAX = 32
+const val READER_FONT_DEFAULT = 18
+const val READER_LINE_MIN = 120
+const val READER_LINE_MAX = 260
+const val READER_LINE_DEFAULT = 180
+const val READER_PAD_H_MIN = 12
+const val READER_PAD_H_MAX = 56
+const val READER_PAD_H_DEFAULT = 26
+const val READER_PAD_V_MIN = 14
+const val READER_PAD_V_MAX = 44
+const val READER_PAD_V_DEFAULT = 26
+
 /** 「重启恢复标签页」的三种方式（[AppSettings.restoreTabsMode]） */
 object RestoreMode {
     const val ALL = 0
@@ -321,6 +335,51 @@ class AppSettings(context: Context) {
     fun updateHomePinBottom(pin: Boolean) {
         homePinBottom = pin
         prefs.edit().putBoolean(KEY_HOME_PIN_BOTTOM, pin).apply()
+    }
+
+    /** 阅读器排版：字号 sp。 */
+    var readerFontSp by mutableIntStateOf(prefs.getInt(KEY_READER_FONT, READER_FONT_DEFAULT).coerceIn(READER_FONT_MIN, READER_FONT_MAX))
+        private set
+
+    /** 阅读器排版：行距，占字号的百分比（180 = 1.8 倍）。 */
+    var readerLinePct by mutableIntStateOf(prefs.getInt(KEY_READER_LINE, READER_LINE_DEFAULT).coerceIn(READER_LINE_MIN, READER_LINE_MAX))
+        private set
+
+    /** 阅读器排版：左右页边距 dp。 */
+    var readerPadH by mutableIntStateOf(prefs.getInt(KEY_READER_PAD_H, READER_PAD_H_DEFAULT).coerceIn(READER_PAD_H_MIN, READER_PAD_H_MAX))
+        private set
+
+    /** 阅读器排版：上下页边距 dp。 */
+    var readerPadV by mutableIntStateOf(prefs.getInt(KEY_READER_PAD_V, READER_PAD_V_DEFAULT).coerceIn(READER_PAD_V_MIN, READER_PAD_V_MAX))
+        private set
+
+    fun updateReaderFontSp(v: Int) {
+        readerFontSp = v.coerceIn(READER_FONT_MIN, READER_FONT_MAX)
+        prefs.edit().putInt(KEY_READER_FONT, readerFontSp).apply()
+    }
+
+    fun updateReaderLinePct(v: Int) {
+        readerLinePct = v.coerceIn(READER_LINE_MIN, READER_LINE_MAX)
+        prefs.edit().putInt(KEY_READER_LINE, readerLinePct).apply()
+    }
+
+    fun updateReaderPadH(v: Int) {
+        readerPadH = v.coerceIn(READER_PAD_H_MIN, READER_PAD_H_MAX)
+        prefs.edit().putInt(KEY_READER_PAD_H, readerPadH).apply()
+    }
+
+    fun updateReaderPadV(v: Int) {
+        readerPadV = v.coerceIn(READER_PAD_V_MIN, READER_PAD_V_MAX)
+        prefs.edit().putInt(KEY_READER_PAD_V, readerPadV).apply()
+    }
+
+    /** 阅读排版恢复默认。 */
+    fun resetReaderLayout() {
+        readerFontSp = READER_FONT_DEFAULT
+        readerLinePct = READER_LINE_DEFAULT
+        readerPadH = READER_PAD_H_DEFAULT
+        readerPadV = READER_PAD_V_DEFAULT
+        prefs.edit().remove(KEY_READER_FONT).remove(KEY_READER_LINE).remove(KEY_READER_PAD_H).remove(KEY_READER_PAD_V).apply()
     }
 
     fun isHomeShown(kind: Int): Boolean = when (kind) {
@@ -1291,6 +1350,10 @@ class AppSettings(context: Context) {
         const val KEY_HOME_QUICK_ITEMS = "home_quick_items"
         const val KEY_HOME_ORDER = "home_order"
         const val KEY_HOME_PIN_BOTTOM = "home_pin_bottom"
+        const val KEY_READER_FONT = "reader_font_sp"
+        const val KEY_READER_LINE = "reader_line_pct"
+        const val KEY_READER_PAD_H = "reader_pad_h"
+        const val KEY_READER_PAD_V = "reader_pad_v"
         const val KEY_SAME_SITE_TAB = "same_site_new_tab"
         const val KEY_RESTORE_TABS = "restore_tabs_on_launch"
         const val KEY_RESTORE_MODE = "restore_tabs_mode"

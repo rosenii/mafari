@@ -6,6 +6,8 @@
 package dev.dsh.miuixbrowser.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import dev.dsh.miuixbrowser.i18n.tr
 import java.io.File
 import java.net.URLDecoder
@@ -14,8 +16,19 @@ import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.util.zip.ZipFile
 
-/** 一章。[text] 已经整理好：段落用 \n 分隔，每段以两个全角空格开头（首行缩进）。 */
-class Chapter(val title: String, val text: String)
+/** 章节里的一块内容：一段文字，或 EPUB 里的一张图（[path] 是 EPUB 压缩包内的条目名）。 */
+sealed interface Block {
+    class Text(val text: String) : Block
+    class Image(val path: String) : Block
+}
+
+/**
+ * 一章。[text] 是章内全部文字，已经整理好：段落用 \n 分隔，每段以两个全角空格开头（首行缩进）。
+ * [blocks] 是按出现顺序排好的文字块 / 图片块；纯文字的章节只有一个文字块（TXT 就是这样）。
+ */
+class Chapter(val title: String, val text: String, val blocks: List<Block> = listOf(Block.Text(text))) {
+    val hasImages: Boolean get() = blocks.any { it is Block.Image }
+}
 
 /**
  * 把书架里的 TXT / EPUB 读成章节列表（给阅读器用）。
@@ -24,12 +37,18 @@ class Chapter(val title: String, val text: String)
  *   单章超过 [LONG_CHAPTER] 字的再切成几段，避免一次排版过长的文本。
  * - EPUB：按 spine 顺序读每个 XHTML，章名取自目录（nav / ncx），没有就取正文里的标题；
  *   没有章名也没有标题的文件并入上一章（很多 EPUB 把一章拆成了几个文件）。
+ *   页面里的图片（`<img>` / SVG `<image>`）按出现顺序保留为图片块：只有图片的页面（封面、插图页、漫画）整页显示；
+ *   正文里夹的图只保留较大的（≥ [INLINE_IMAGE_MIN]），避免分隔线、小图标变成整页空白。
  */
 object BookContent {
     private const val INDENT = "\u3000\u3000"
     private const val CHUNK = 4000
     private const val LONG_CHAPTER = 20000
     private const val LONG_PART = 10000
+
+    /** 页面里有文字时，图片至少这么大（压缩包内字节数）才算插图；纯图片页不受此限制。 */
+    internal const val INLINE_IMAGE_MIN = 16L * 1024
+    private const val MAX_IMAGE_BYTES = 40L * 1024 * 1024
 
     /** 在 IO 线程调用；读不出任何内容时返回空列表。 */
     fun load(context: Context, book: Book): List<Chapter> {
@@ -121,7 +140,7 @@ object BookContent {
 
     /** 超长章节按段落切成几段：第一段保留原章名，后面的加「（2）」「（3）」。 */
     internal fun splitLong(chapter: Chapter): List<Chapter> {
-        if (chapter.text.length <= LONG_CHAPTER) return listOf(chapter)
+        if (chapter.text.length <= LONG_CHAPTER || chapter.hasImages) return listOf(chapter)
         val out = ArrayList<Chapter>()
         val cur = ArrayList<String>()
         var len = 0
@@ -174,28 +193,117 @@ object BookContent {
                 }
             }
 
-            val out = ArrayList<Chapter>()
-            val bodies = ArrayList<StringBuilder>()
+            fun lookupImage(name: String): Pair<String, Long>? =
+                (zip.getEntry(name) ?: zip.getEntry(urlDecode(name)))?.let { e ->
+                    e.name to (if (e.size >= 0) e.size else e.compressedSize)
+                }
+
+            val out = ArrayList<ChapterBuilder>()
             for (path in spine) {
                 val html = text(path) ?: continue
                 val heading = firstHeading(html)
-                val tocTitle = titles[urlDecode(path)]
-                val title = tocTitle ?: heading
-                var paragraphs = htmlToParagraphs(html)
-                if (title != null && paragraphs.firstOrNull()?.trim { it.isWhitespace() } == title) paragraphs = paragraphs.drop(1)
-                if (paragraphs.isEmpty()) continue
-                val bodyText = paragraphs.joinToString("\n") { INDENT + it }
+                val title = titles[urlDecode(path)] ?: heading
+                var pieces = htmlPieces(html, path, ::lookupImage)
+                // 正文第一段就是章名：去掉，免得阅读器里重复
+                val first = pieces.firstOrNull()
+                if (title != null && first is Piece.Paras && first.lines.firstOrNull()?.trim { it.isWhitespace() } == title) {
+                    val rest = first.lines.drop(1)
+                    pieces = (if (rest.isEmpty()) emptyList() else listOf(Piece.Paras(rest))) + pieces.drop(1)
+                }
+                if (pieces.isEmpty()) continue
+                val blocks = pieces.map { piece ->
+                    when (piece) {
+                        is Piece.Paras -> Block.Text(piece.lines.joinToString("\n") { line -> INDENT + line })
+                        is Piece.Img -> Block.Image(piece.path)
+                    }
+                }
                 if (title == null && out.isNotEmpty()) {
                     // 既没有目录项也没有标题：并入上一章
-                    bodies[bodies.size - 1].append('\n').append(bodyText)
+                    out.last().append(blocks)
                 } else {
-                    out.add(Chapter(title ?: tr("第 {0} 节", out.size + 1), ""))
-                    bodies.add(StringBuilder(bodyText))
+                    out.add(ChapterBuilder(title ?: tr("第 {0} 节", out.size + 1), blocks.toMutableList()))
                 }
             }
-            out.indices.map { Chapter(out[it].title, bodies[it].toString()) }
+            out.map { it.build() }
         }
     }.getOrDefault(emptyList())
+
+    private class ChapterBuilder(val title: String, val blocks: MutableList<Block>) {
+        fun append(more: List<Block>) {
+            for (b in more) {
+                val last = blocks.lastOrNull()
+                if (b is Block.Text && last is Block.Text) blocks[blocks.lastIndex] = Block.Text(last.text + "\n" + b.text)
+                else blocks.add(b)
+            }
+        }
+
+        fun build() = Chapter(
+            title,
+            blocks.filterIsInstance<Block.Text>().joinToString("\n") { it.text },
+            blocks.toList(),
+        )
+    }
+
+    /** XHTML 拆出来的一段：若干段文字（未缩进），或一张图（[Img.path] 是压缩包内真实存在的条目名）。 */
+    internal sealed interface Piece {
+        class Paras(val lines: List<String>) : Piece
+        class Img(val path: String) : Piece
+    }
+
+    private val IMG_TAG = Regex("<(?:img|image)\\b[^>]*>", RegexOption.IGNORE_CASE)
+    private val IMG_SRC = Regex("(?<![\\w-])src\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE)
+    private val IMG_HREF = Regex("(?<![\\w-])(?:xlink:)?href\\s*=\\s*[\"']([^\"']*)[\"']", RegexOption.IGNORE_CASE)
+
+    /**
+     * XHTML → 按顺序排好的文字段 / 图片。[docPath] 是这个 XHTML 在压缩包里的路径（用来解析图片的相对路径）；
+     * [lookup] 按路径查压缩包条目，返回（真实条目名，字节数），不存在返回 null。
+     * 没有文字的页面保留所有图；有文字的页面只保留 ≥ [INLINE_IMAGE_MIN] 的图。
+     */
+    internal fun htmlPieces(html: String, docPath: String, lookup: (String) -> Pair<String, Long>?): List<Piece> {
+        val cleaned = Regex("<(script|style|head)\\b[\\s\\S]*?</\\1>", RegexOption.IGNORE_CASE).replace(html, "")
+        val hasText = htmlToParagraphs(cleaned).isNotEmpty()
+
+        val kept = ArrayList<Pair<IntRange, String>>()
+        for (m in IMG_TAG.findAll(cleaned)) {
+            val raw = IMG_SRC.find(m.value)?.groupValues?.get(1) ?: IMG_HREF.find(m.value)?.groupValues?.get(1) ?: continue
+            val ref = BookShelf.decodeEntities(raw).substringBefore('#').substringBefore('?').trim()
+            if (ref.isEmpty() || ref.startsWith("data:", ignoreCase = true) || Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").containsMatchIn(ref)) continue
+            val (entry, size) = lookup(BookShelf.resolveEpubPath(docPath, ref)) ?: continue
+            if (size <= 0 || size > MAX_IMAGE_BYTES) continue
+            if (hasText && size < INLINE_IMAGE_MIN) continue
+            kept.add(m.range to entry)
+        }
+
+        val out = ArrayList<Piece>()
+        var last = 0
+        for ((range, entry) in kept) {
+            val lines = htmlToParagraphs(cleaned.substring(last, range.first))
+            if (lines.isNotEmpty()) out.add(Piece.Paras(lines))
+            out.add(Piece.Img(entry))
+            last = range.last + 1
+        }
+        val tail = htmlToParagraphs(cleaned.substring(last))
+        if (tail.isNotEmpty()) out.add(Piece.Paras(tail))
+        return out
+    }
+
+    /**
+     * 读 EPUB 里的一张图，解码到刚好够 [targetW] × [targetH] 的清晰度（不会整张大图解满）。在 IO 线程调用；
+     * 条目不存在 / 格式不支持（如 SVG）/ 解码失败返回 null。
+     */
+    fun loadImage(file: File, entry: String, targetW: Int, targetH: Int): Bitmap? = runCatching {
+        val bytes = ZipFile(file).use { zip ->
+            val e = zip.getEntry(entry) ?: return null
+            if (e.size > MAX_IMAGE_BYTES) return null
+            zip.getInputStream(e).use { it.readBytes() }
+        }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= targetW && bounds.outHeight / (sample * 2) >= targetH) sample *= 2
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+    }.getOrNull()
 
     internal class ManifestItem(val href: String, val mediaType: String, val properties: List<String>)
 

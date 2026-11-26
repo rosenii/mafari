@@ -220,6 +220,7 @@ internal fun BrowserNav.SubPage(route: AppRoute) {
             ReaderScreen(
                 bookId = route.bookId,
                 onBack = { popPage() },
+                settings = settings,
                 blurEnabled = settings.blurEnabled,
             )
         }
