@@ -314,7 +314,8 @@ class NativePlayerActivity : ComponentActivity() {
         LaunchedEffect(liveTop) { if (cardY == 0 && !fullscreen && !inPip) topInsetPx = liveTop }
         val glass = LocalBlurMode.current != BLUR_OFF
         val videoTheme = remember { ThemeController(ColorSchemeMode.Dark) }
-        val surfaceColor = MiuixTheme.colorScheme.surfaceContainer.let { if (glass) it.copy(alpha = CARD_SURFACE_ALPHA) else it }
+        // 快捷菜单 / 标题区：纯色不透明
+        val surfaceColor = MiuixTheme.colorScheme.surfaceContainer
         val edgeColor = MiuixTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.14f else 0.10f)
 
         // 只有一处 PlayerSurface 调用，卡片 <-> 全屏切换时界面状态（弹层、控件显隐）不会丢；
@@ -332,7 +333,6 @@ class NativePlayerActivity : ComponentActivity() {
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                 .padding(top = with(LocalDensity.current) { (if (cardY == 0) liveTop else topInsetPx).toDp() })
                 .padding(12.dp)
-                .windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp)
         }
         val panel = if (full) {
             Modifier.fillMaxSize()

@@ -277,7 +277,7 @@ open class WebAppActivity : ComponentActivity() {
         configureWebView()
         setupUserScripts()
         setupCosmeticFilter()
-        if (!customTabMode) setupImmersiveScroll()
+        setupImmersiveScroll() // 自定义标签页也一样：下滑收起状态栏留白，与应用内浏览一致
         setupPullRefresh()
         onWebViewReady()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -875,11 +875,21 @@ open class WebAppActivity : ComponentActivity() {
 
     // ------------------------------------------------- 沉浸浏览 / 下拉刷新
 
-    private fun applyRootPadding() = root.setPadding(sideLeft, topPad, sideRight, imeBottom)
+    /** 顶部留白（状态栏）当前像素值变化：自定义标签页自己在 Compose 里留白（好让状态栏材质能画在网页上面），根布局不留 */
+    protected open fun onTopPadChanged(px: Int) {}
+
+    /** 沉浸收起 / 回落：自定义标签页据此把底栏缩成小胶囊 / 展开 */
+    protected open fun onImmersiveCollapsed(collapsed: Boolean) {}
+
+    private fun applyRootPadding() {
+        root.setPadding(sideLeft, if (customTabMode) 0 else topPad, sideRight, imeBottom)
+        if (customTabMode) onTopPadChanged(topPad)
+    }
 
     private fun setTopCollapsed(collapsed: Boolean) {
         if (topCollapsed == collapsed) return
         topCollapsed = collapsed
+        onImmersiveCollapsed(collapsed)
         val target = if (collapsed) 0 else topInset
         topAnimator?.cancel()
         topAnimator = ValueAnimator.ofInt(topPad, target).apply {

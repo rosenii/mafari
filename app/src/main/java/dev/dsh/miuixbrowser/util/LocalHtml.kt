@@ -34,7 +34,22 @@ object LocalHtml {
     val HTML_EXT = setOf("html", "htm", "xhtml", "xht", "shtml", "shtm", "mhtml", "mht")
 
     /** 当纯文本打开的后缀（包成一页可读的 HTML 再加载） */
-    val TEXT_EXT = setOf("txt", "text", "log", "md")
+    val TEXT_EXT = setOf("txt", "text", "log", "md", "markdown", "mdown", "mkd")
+
+    /** 按 Markdown 渲染的后缀 */
+    val MARKDOWN_EXT = setOf("md", "markdown", "mdown", "mkd")
+
+    private fun isMarkdownMime(mime: String?): Boolean {
+        val m = mime.orEmpty().lowercase()
+        return m.startsWith("text/markdown") || m.startsWith("text/x-markdown")
+    }
+
+    /** [name] / [mime] 是 Markdown 文件：后缀优先，没有后缀再看 MIME */
+    fun isMarkdown(name: String?, mime: String?): Boolean {
+        val ext = name.orEmpty().substringAfterLast('.', "").lowercase()
+        if (ext in MARKDOWN_EXT) return true
+        return ext.isEmpty() && isMarkdownMime(mime)
+    }
 
     /** 纯文本最多读多少：超出的部分不显示（整页 <pre> 太大会拖垮渲染） */
     private const val MAX_TEXT_BYTES = 8 * 1024 * 1024
@@ -44,7 +59,7 @@ object LocalHtml {
         val ext = name.orEmpty().substringAfterLast('.', "").lowercase()
         if (ext in HTML_EXT) return false
         if (ext in TEXT_EXT) return true
-        return ext.isEmpty() && mime.orEmpty().lowercase().startsWith("text/plain")
+        return ext.isEmpty() && (mime.orEmpty().lowercase().startsWith("text/plain") || isMarkdownMime(mime))
     }
 
     /** 放在 filesDir 而不是 cacheDir：冷启动会清空 cacheDir（见 CacheCleaner），标签恢复时文件就没了 */
@@ -77,7 +92,7 @@ object LocalHtml {
         val target = File(folder, cleanName(rawName))
         try {
             if (isText(rawName, mime)) {
-                writeTextPage(app, src, rawName, target)
+                writeTextPage(app, src, rawName, target, isMarkdown(rawName, mime))
                 prune(app, keep = folder)
                 return@runCatching target
             }
@@ -113,8 +128,8 @@ object LocalHtml {
         }
     }
 
-    /** 纯文本 → 一页可读的 HTML：自动判断编码、保留换行、自动折行、跟随深浅色；文本内容全部转义，不会执行里面的脚本。 */
-    private fun writeTextPage(context: Context, src: Uri, rawName: String?, target: File) {
+    /** 纯文本 → 一页可读的 HTML（.md 走 [MarkdownHtml] 渲染）：自动判断编码、保留换行、自动折行、跟随深浅色；文本内容全部转义，不会执行里面的脚本。 */
+    private fun writeTextPage(context: Context, src: Uri, rawName: String?, target: File, markdown: Boolean) {
         val input = context.contentResolver.openInputStream(src) ?: error("cannot open $src")
         val buf = java.io.ByteArrayOutputStream()
         var truncated = false
@@ -131,7 +146,9 @@ object LocalHtml {
         val text = decodeText(buf.toByteArray())
         val title = (rawName ?: "text").substringAfterLast('/').substringAfterLast('\\')
         val mono = if (title.substringAfterLast('.', "").lowercase() == "log") MONO else SANS
-        target.writeText(textPageHtml(title, text, truncated, mono), Charsets.UTF_8)
+        // Markdown 按语法渲染（原始 HTML 转义、禁脚本）；其余纯文本照原样显示
+        val html = if (markdown) MarkdownHtml.page(title, text, truncated) else textPageHtml(title, text, truncated, mono)
+        target.writeText(html, Charsets.UTF_8)
     }
 
     private const val MONO = "ui-monospace,Menlo,Consolas,monospace"

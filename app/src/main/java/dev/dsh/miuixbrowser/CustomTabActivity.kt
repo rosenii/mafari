@@ -6,15 +6,15 @@
 package dev.dsh.miuixbrowser
 
 import android.net.Uri
-import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import dev.dsh.miuixbrowser.ui.CustomTabBar
+import dev.dsh.miuixbrowser.ui.CustomTabScreen
 import dev.dsh.miuixbrowser.util.hostOf
 
 /**
@@ -22,8 +22,8 @@ import dev.dsh.miuixbrowser.util.hostOf
  * 返回 / 点左边圆钮就回到原来的应用，不跳转到 Mafari 主界面。由 [LinkDispatchActivity] 启动。
  *
  * 复用轻应用 [WebAppActivity] 的 WebView 壳（共用 Cookie / 代理 / 去广告 / 深浅色），区别：
- * - 底部是和浏览器一样的悬浮三段式栏（[CustomTabBar]）：左 = 返回、中 = 地址栏、右 = 在 Mafari 中打开；
- * - 任何站点的跳转都留在窗口内（不会弹到浏览器），不做顶部沉浸收起，也不改调用方任务的标题 / 图标。
+ * - 底部是和浏览器一样的悬浮三段式栏（[CustomTabScreen]，高级材质取样网页）：左 = 返回、中 = 地址栏、右 = 在 Mafari 中打开；
+ * - 任何站点的跳转都留在窗口内（不会弹到浏览器），沉浸式浏览与主界面一致（网页铺到状态栏 / 手势条下，滚动时状态栏留白与底栏收起），也不改调用方任务的标题 / 图标。
  */
 class CustomTabActivity : WebAppActivity() {
 
@@ -34,10 +34,19 @@ class CustomTabActivity : WebAppActivity() {
     private var barTitle by mutableStateOf("")
     private var barUrl by mutableStateOf("")
     private var barLoading by mutableStateOf(false)
+    private var topPadPx by mutableIntStateOf(0)
+    private var barCompact by mutableStateOf(false)
+
+    override fun onTopPadChanged(px: Int) { topPadPx = px }
+
+    override fun onImmersiveCollapsed(collapsed: Boolean) { barCompact = collapsed }
 
     override fun onWebViewReady() {
         barUrl = startUrl
-        val bar = ComposeView(this).apply {
+        // 网页和底栏放进同一棵 Compose 树：WebView 在整页采集层里，底栏的玻璃才能取样到网页（高级材质）；
+        // 网页铺到手势条下面，状态栏留白 / 底栏收起都由 Compose 控制（沉浸式）。插在最底层，下拉刷新指示器等仍在上面
+        (webView.parent as? ViewGroup)?.removeView(webView)
+        val screen = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setContent {
                 val settings = appContainer.settings
@@ -47,8 +56,12 @@ class CustomTabActivity : WebAppActivity() {
                     1 -> hostOf(barUrl)
                     else -> barUrl
                 }
-                CustomTabBar(
+                CustomTabScreen(
                     settings = settings,
+                    webView = webView,
+                    pageBg = defaultBg,
+                    topPadPx = topPadPx,
+                    compact = barCompact,
                     address = shown,
                     loading = barLoading,
                     // 走和系统返回键同一条路径：先退全屏视频，再网页后退，没有历史就关闭
@@ -58,21 +71,11 @@ class CustomTabActivity : WebAppActivity() {
                         finish()
                     },
                     onRefresh = { webView.reload() },
-                    // 网页在栏上面结束（栏高度含手势条留白）
-                    onHeightChanged = { h ->
-                        val lp = webView.layoutParams as FrameLayout.LayoutParams
-                        if (lp.bottomMargin != h) {
-                            lp.bottomMargin = h
-                            webView.layoutParams = lp
-                        }
-                    },
+                    onExpand = { barCompact = false },
                 )
             }
         }
-        root.addView(
-            bar,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM),
-        )
+        root.addView(screen, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     override fun onPageInfo(title: String?, url: String?) {
