@@ -22,6 +22,7 @@ import dev.dsh.miuixbrowser.player.PlayerSource
 import dev.dsh.miuixbrowser.sniff.MediaSniff
 import dev.dsh.miuixbrowser.sniff.SniffList
 import dev.dsh.miuixbrowser.sniff.SniffedMedia
+import dev.dsh.miuixbrowser.sniff.YouTubeSniff
 import dev.dsh.miuixbrowser.util.Diag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
@@ -41,9 +42,23 @@ import org.json.JSONObject
 /** shouldInterceptRequest（IO 线程）里调用：地址像视频就记下来。主框架请求不看（页面本身不是视频文件）。 */
 internal fun BrowserTab.sniffRequest(request: WebResourceRequest) {
     val u = request.url.toString()
-    val type = MediaSniff.classify(u) ?: return
     // 页面加载这条地址时带的 Referer / Origin：iframe 播放器的防盗链按它校验，播放时原样带上
     val h = runCatching { request.requestHeaders }.getOrNull()
+    // YouTube：自适应流是 googlevideo.com/videoplayback 分片请求，要单独配对音视频（见 YouTubeSniff）
+    if (YouTubeSniff.isVideoPlayback(u)) {
+        val stream = YouTubeSniff.parse(u)
+        if (stream == null) {
+            // 取不到直链（SABR / UMP / 直播分段）：只在每个页面第一次遇到时记一行原因，方便判断是不是 YouTube 改了协议
+            YouTubeSniff.unsupportedReason(u)?.let { r ->
+                webSniffs.yt.firstUnsupported(r)?.let { Diag.log("youtube sniff: videoplayback without direct stream ($it)") }
+            }
+            return
+        }
+        val media = webSniffs.yt.add(stream) ?: return
+        webSniffs.offer(media.copy(referer = h?.get("Referer").orEmpty(), origin = h?.get("Origin").orEmpty()))
+        return
+    }
+    val type = MediaSniff.classify(u) ?: return
     webSniffs.offer(
         SniffedMedia(
             u, type, MediaSniff.hostOf(u),
@@ -165,7 +180,7 @@ internal fun BrowserTab.playSniffed(context: Context, selected: SniffedMedia, al
     val gecko = isGecko
     sniffs.markLaunched()
     val others = all.filter { it.url != selected.url }.map {
-        PlayerSource(it.url, label = "${it.type.uppercase()} · ${MediaSniff.displayName(it)}", type = hintOf(it))
+        PlayerSource(it.url, label = "${it.type.uppercase()} · ${MediaSniff.displayName(it)}", type = hintOf(it), audioUrl = it.audioUrl)
     }
     fun launch(ua: String, cookie: String) {
         val req = PlayerRequest(
@@ -177,6 +192,7 @@ internal fun BrowserTab.playSniffed(context: Context, selected: SniffedMedia, al
             ua = ua,
             cookie = cookie,
             type = hintOf(selected),
+            audioUrl = selected.audioUrl,
             sources = others,
             gecko = gecko,
         )

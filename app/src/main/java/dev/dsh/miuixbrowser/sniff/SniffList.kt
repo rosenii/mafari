@@ -37,6 +37,25 @@ class SniffList {
     fun offer(m: SniffedMedia): Boolean {
         val key = keyOf(m.url)
         val cur = items
+        // 同一个视频的多条候选（YouTube 不同清晰度）：只留一条，更好的后到就升级；已经自动播过的那条不再换，免得同一个视频又拉起一次
+        if (m.groupKey.isNotEmpty()) {
+            val gi = cur.indexOfFirst { it.groupKey == m.groupKey }
+            if (gi >= 0) {
+                val old = cur[gi]
+                if (m.rank > old.rank && keyOf(old.url) !in autoPlayed) {
+                    items = cur.toMutableList().also {
+                        it[gi] = m.copy(
+                            durationMs = if (m.durationMs != -1L) m.durationMs else old.durationMs,
+                            preview = old.preview,
+                            userPlayed = old.userPlayed,
+                            referer = old.referer.ifEmpty { m.referer },
+                            origin = old.origin.ifEmpty { m.origin },
+                        )
+                    }
+                }
+                return false
+            }
+        }
         val idx = cur.indexOfFirst { keyOf(it.url) == key }
         if (idx >= 0) {
             val old = cur[idx]
@@ -95,8 +114,12 @@ class SniffList {
     @Synchronized
     fun autoPlayedUrls(): Set<String> = autoPlayed.toSet()
 
+    /** 本页的 YouTube 流收集器：分离的视频 / 音频流在这里配对（见 [YouTubeSniff]） */
+    val yt = YouTubeSniff.Collector()
+
     @Synchronized
     fun clear() {
+        yt.clear()
         items = emptyList()
         promptedCount = 0
         probing.clear()

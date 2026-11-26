@@ -24,6 +24,14 @@ data class SniffedMedia(
      */
     val referer: String = "",
     val origin: String = "",
+    /** 音频流地址：非空表示 [url] 只有画面，要和这条音频合并播放（YouTube 的自适应流，见 [YouTubeSniff]） */
+    val audioUrl: String = "",
+    /** 列表里显示的名字；空 = 用地址里的文件名 */
+    val label: String = "",
+    /** 同一个视频的多条候选（清晰度不同）共用的标识；空 = 不分组 */
+    val groupKey: String = "",
+    /** 同组候选的排序：数值大的更好，后到的更高才会替换已有那条 */
+    val rank: Int = 0,
 )
 
 /**
@@ -103,6 +111,7 @@ object MediaSniff {
 
     /** 列表里显示的名字：文件名（没有就用域名） */
     fun displayName(m: SniffedMedia): String {
+        if (m.label.isNotBlank()) return m.label
         val name = m.url.substringBefore('#').substringBefore('?').substringAfterLast('/')
         return name.takeIf { it.isNotBlank() && it.length <= 48 } ?: m.host
     }
