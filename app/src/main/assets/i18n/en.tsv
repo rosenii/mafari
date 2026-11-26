@@ -2329,3 +2329,11 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 画面比例：16:9	Aspect ratio: 16:9
 画面比例：4:3	Aspect ratio: 4:3
 画面比例：适应（保持原比例）	Aspect ratio: Fit (original proportions)
+当前页面无法下载	This page cannot be downloaded
+开始下载网页	Downloading page
+网页缩放	Page zoom
+缩放所有网页的文字大小（系统 WebView 的文字缩放），立即生效并保存；100% 为不缩放。网页版式不变，只放大 / 缩小字体	Scales text size on all pages (system WebView text zoom). Applies immediately and is saved; 100% means no scaling. Layout is unchanged, only text gets larger / smaller
+整页缩放（写入 layout.css.devPixelsPerPx，文字与布局等比缩放），立即生效并保存；100% 为不缩放。已打开的页面刷新后生效	Whole-page zoom (writes layout.css.devPixelsPerPx; text and layout scale together). Applies immediately and is saved; 100% means no scaling. Open pages take effect after a refresh
+搜索建议	Search suggestions
+搜索建议已开启	Search suggestions on
+搜索建议已关闭	Search suggestions off

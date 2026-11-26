@@ -25,16 +25,23 @@ import kotlin.math.roundToInt
  */
 object WallpaperBlurCache {
     private const val DIR = "wallpaper_blur"
-    // v2：压暗层（SCRIM_ALPHA）已烘进缓存图，显示时不再另盖一层全屏黑色
-    private const val VERSION = 2
-    /** 首页壁纸压暗强度；缓存图里已烘进，未走缓存（模糊关闭 / 缓存未就绪）时由显示层自己盖同样的一层。 */
-    const val SCRIM_ALPHA = 0.28f
+    // v3：明暗层已烘进缓存图，且深色 / 浅色各存一份（浅色提亮、深色压暗），显示时不再另盖一层全屏色
+    private const val VERSION = 3
+    /** 深色模式壁纸压暗强度（黑色）；缓存图里已烘进，未走缓存（模糊关闭 / 缓存未就绪）时由显示层自己盖同样的一层。 */
+    const val SCRIM_ALPHA_DARK = 0.45f
+    /** 浅色模式壁纸提亮强度（白色）。 */
+    const val SCRIM_ALPHA_LIGHT = 0.22f
+
+    /** 当前明暗下显示层要盖的色（黑色压暗 / 白色提亮）。 */
+    fun scrimColor(dark: Boolean): androidx.compose.ui.graphics.Color =
+        if (dark) androidx.compose.ui.graphics.Color.Black.copy(alpha = SCRIM_ALPHA_DARK)
+        else androidx.compose.ui.graphics.Color.White.copy(alpha = SCRIM_ALPHA_LIGHT)
     private const val MAX_SIDE = 360
     /** 模糊半径占短边的比例，约等于原先 28dp 在手机屏宽上的视觉强度。 */
     private const val RADIUS_RATIO = 0.075f
 
-    private fun cacheFile(context: Context, uri: String): File {
-        val md = MessageDigest.getInstance("MD5").digest("$VERSION|$uri".toByteArray())
+    private fun cacheFile(context: Context, uri: String, dark: Boolean): File {
+        val md = MessageDigest.getInstance("MD5").digest("$VERSION|${if (dark) 'd' else 'l'}|$uri".toByteArray())
         val name = md.joinToString("") { "%02x".format(it) }
         return File(File(context.cacheDir, DIR).apply { mkdirs() }, "$name.jpg")
     }
@@ -58,9 +65,9 @@ object WallpaperBlurCache {
      * 用于首帧直接拿到模糊图，避免「先显示未模糊原图再切换」的闪动。
      * 不拿生成锁：主线程调用时不会被后台正在进行的模糊生成卡住。
      */
-    fun peek(context: Context, uri: String): Bitmap? {
+    fun peek(context: Context, uri: String, dark: Boolean): Bitmap? {
         if (uri.isBlank()) return null
-        val file = cacheFile(context, uri)
+        val file = cacheFile(context, uri, dark)
         memGet(file.name)?.let { return it }
         if (!file.exists() || file.length() <= 0) return null
         val bmp = BitmapFactory.decodeFile(file.absolutePath) ?: return null
@@ -69,21 +76,21 @@ object WallpaperBlurCache {
     }
 
     /** 读取缓存；没有则生成并写入。必须在 IO 线程调用；生成过程串行，但不阻塞 [peek]。 */
-    fun getOrCreate(context: Context, uri: String): Bitmap? {
+    fun getOrCreate(context: Context, uri: String, dark: Boolean): Bitmap? {
         if (uri.isBlank()) return null
-        val file = cacheFile(context, uri)
+        val file = cacheFile(context, uri, dark)
         memGet(file.name)?.let { return it }
         return synchronized(genLock) {
-            memGet(file.name) ?: loadOrGenerate(context, uri, file)?.also { memPut(file.name, it) }
+            memGet(file.name) ?: loadOrGenerate(context, uri, file, dark)?.also { memPut(file.name, it) }
         }
     }
 
-    private fun loadOrGenerate(context: Context, uri: String, file: File): Bitmap? {
+    private fun loadOrGenerate(context: Context, uri: String, file: File, dark: Boolean): Bitmap? {
         if (file.exists() && file.length() > 0) {
             BitmapFactory.decodeFile(file.absolutePath)?.let { return it }
             file.delete()
         }
-        val blurred = runCatching { generate(context, uri) }.getOrNull() ?: return null
+        val blurred = runCatching { generate(context, uri, dark) }.getOrNull() ?: return null
         runCatching {
             val tmp = File(file.parentFile, file.name + ".tmp")
             tmp.outputStream().use { blurred.compress(Bitmap.CompressFormat.JPEG, 92, it) }
@@ -99,7 +106,7 @@ object WallpaperBlurCache {
         runCatching { File(context.cacheDir, DIR).listFiles()?.forEach { it.delete() } }
     }
 
-    private fun generate(context: Context, uri: String): Bitmap? {
+    private fun generate(context: Context, uri: String, dark: Boolean): Bitmap? {
         val resolver = context.contentResolver
         val parsed = Uri.parse(uri)
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -131,14 +138,25 @@ object WallpaperBlurCache {
             boxBlurH(px, w, h, radius)
             boxBlurV(px, w, h, radius)
         }
-        // 把壁纸压暗烘进缓存图：等价于显示时再盖一层 Black@SCRIM_ALPHA，却省掉一层全屏绘制
-        val keep = 1f - SCRIM_ALPHA
-        for (i in px.indices) {
-            val c = px[i]
-            val r = (((c shr 16) and 255) * keep).toInt()
-            val g = (((c shr 8) and 255) * keep).toInt()
-            val b = ((c and 255) * keep).toInt()
-            px[i] = (c and (0xFF shl 24)) or (r shl 16) or (g shl 8) or b
+        // 明暗层烘进缓存图：深色 = 叠 Black@SCRIM_ALPHA_DARK（更深），浅色 = 叠 White@SCRIM_ALPHA_LIGHT（更亮）
+        if (dark) {
+            val keep = 1f - SCRIM_ALPHA_DARK
+            for (i in px.indices) {
+                val c = px[i]
+                val r = (((c shr 16) and 255) * keep).toInt()
+                val g = (((c shr 8) and 255) * keep).toInt()
+                val b = ((c and 255) * keep).toInt()
+                px[i] = (c and (0xFF shl 24)) or (r shl 16) or (g shl 8) or b
+            }
+        } else {
+            val a = SCRIM_ALPHA_LIGHT
+            for (i in px.indices) {
+                val c = px[i]
+                val r = (((c shr 16) and 255) * (1f - a) + 255f * a).toInt().coerceAtMost(255)
+                val g = (((c shr 8) and 255) * (1f - a) + 255f * a).toInt().coerceAtMost(255)
+                val b = ((c and 255) * (1f - a) + 255f * a).toInt().coerceAtMost(255)
+                px[i] = (c and (0xFF shl 24)) or (r shl 16) or (g shl 8) or b
+            }
         }
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
     }

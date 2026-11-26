@@ -202,7 +202,7 @@ BrowserChunk {
                         },
                         onMove = { action, toHidden, toIndex -> menuOrder.place(action, toHidden, toIndex) },
                         // 长按 0.65 秒（图标不动）：直接进入管理页；单击保持原有操作
-                        longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.Bookmarks, MenuAction.GeckoExtensions),
+                        longPressActions = setOf(MenuAction.ScriptMenu, MenuAction.Favorite, MenuAction.Bookmarks, MenuAction.GeckoExtensions, MenuAction.Downloads),
                         onLongPressAction = { action ->
                             when (action) {
                                 MenuAction.ScriptMenu -> {
@@ -219,6 +219,11 @@ BrowserChunk {
                                     bookmarkPrefillName = tab.title.ifBlank { hostOf(tab.url) }
                                     bookmarkPrefillUrl = tab.url
                                     showBookmarkCreate = true
+                                }
+                                // 长按「下载」：把当前网页保存到本地（Download/mafari）
+                                MenuAction.Downloads -> {
+                                    sheet = Sheet.None
+                                    saveCurrentPage(context, tab)
                                 }
                                 MenuAction.GeckoExtensions -> {
                                     sheet = Sheet.None

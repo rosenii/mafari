@@ -53,6 +53,11 @@ object GeckoDebug {
     var renderBackend by mutableStateOf(RENDER_SURFACE); private set
     var systemFont by mutableStateOf(true); private set
 
+    /** 网页缩放百分比（100 = 不缩放）：写 layout.css.devPixelsPerPx，整页（文字 + 布局）等比缩放 */
+    var pageZoom by mutableStateOf(100); private set
+
+    val ZOOM_CHOICES = listOf(50, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300)
+
     fun load(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -72,6 +77,7 @@ object GeckoDebug {
         renderBackend = if (p.getInt("render_backend", RENDER_SURFACE) == RENDER_TEXTURE) RENDER_TEXTURE else RENDER_SURFACE
         // 默认开启：从未设置过时跟随系统字体（旧版放在「Gecko 高级保护」里的同名开关不再沿用）
         systemFont = p.getBoolean("system_font", true)
+        pageZoom = p.getInt("page_zoom", 100).coerceIn(25, 500)
     }
 
     private inline fun save(block: SharedPreferences.Editor.() -> Unit) {
@@ -141,6 +147,15 @@ object GeckoDebug {
 
     fun updateNativeImmersive(v: Boolean) {
         nativeImmersive = v; save { putBoolean("native_immersive", v) }
+    }
+
+    fun updatePageZoom(v: Int) {
+        pageZoom = v.coerceIn(25, 500); save { putInt("page_zoom", pageZoom) }
+        applyZoom()
+    }
+
+    private fun applyZoom() {
+        GeckoPrefs.set(ZOOM_PREF, if (pageZoom == 100) GeckoPrefs.CLEAR else "%.2f".format(java.util.Locale.US, pageZoom / 100f))
     }
 
     fun updateSystemFont(v: Boolean) {
@@ -219,6 +234,7 @@ object GeckoDebug {
     fun pushPrefs() {
         if (profiler) GeckoPrefs.set(PROFILER_PREF, true)
         applyFonts()
+        applyZoom()
     }
 
     /** 设备支持的最高刷新率（Hz）；取不到返回 0（= 不声明偏好） */
@@ -262,4 +278,5 @@ object GeckoDebug {
     const val RENDER_TEXTURE = 1
 
     private const val PROFILER_PREF = "gfx.webrender.debug.profiler"
+    private const val ZOOM_PREF = "layout.css.devPixelsPerPx"
 }

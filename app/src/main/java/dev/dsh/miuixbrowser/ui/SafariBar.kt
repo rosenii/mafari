@@ -648,6 +648,8 @@ private fun SafariAddressPill(
                     onFocusLost = onFocusLost,
                     modifier = Modifier.weight(1f),
                 )
+                Spacer(Modifier.width(6.dp))
+                AddressSuggestButton()
             } else {
                 // 标题：居中；点击 = 输入网址，长按 = 打开起始页（只盖标题区，不挡住两侧的小图标）
                 Box(

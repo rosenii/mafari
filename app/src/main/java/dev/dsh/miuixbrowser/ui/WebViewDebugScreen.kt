@@ -139,6 +139,20 @@ fun WebViewDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                         }
                     }
 
+                    item { SmallTitle(text = tr("显示")) }
+                    item {
+                        WebViewDebugGroup {
+                            AppDropdownPreference(
+                                backdrop = if (glass) backdrop else null,
+                                title = tr("网页缩放"),
+                                summary = tr("缩放所有网页的文字大小（系统 WebView 的文字缩放），立即生效并保存；100% 为不缩放。网页版式不变，只放大 / 缩小字体"),
+                                items = d.ZOOM_CHOICES.map { "$it%" },
+                                selectedIndex = d.ZOOM_CHOICES.indexOf(d.pageZoom).let { if (it < 0) d.ZOOM_CHOICES.indexOf(100) else it },
+                                onSelectedIndexChange = { d.updatePageZoom(d.ZOOM_CHOICES[it]) },
+                            )
+                        }
+                    }
+
                     item { SmallTitle(text = tr("页面性能")) }
                     item {
                         WebViewDebugGroup {

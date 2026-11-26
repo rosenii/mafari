@@ -22,7 +22,7 @@ import kotlin.math.roundToInt
 
 /**
  * 「壁纸 → 全局应用」：壁纸同时作为二级页面（设置 / 下载 / 书签历史等）的背景。
- * [scrim] 为 true 表示 [bitmap] 是未压暗的原图（模糊缓存里的图已烘进压暗），绘制时要另盖一层。
+ * [scrim] 为 true 表示 [bitmap] 是未压暗的原图（模糊缓存里的图已烘进明暗层），绘制时要另盖一层。
  */
 @Immutable
 internal class GlobalWallpaper(val bitmap: ImageBitmap, val scrim: Boolean)
@@ -38,6 +38,7 @@ internal val LocalGlobalWallpaper = staticCompositionLocalOf<GlobalWallpaper?> {
 internal fun Modifier.pageBackground(): Modifier {
     val wallpaper = LocalGlobalWallpaper.current
     val surface = MiuixTheme.colorScheme.surface
+    val scrimColor = WallpaperBlurCache.scrimColor(isAppDarkTheme())
     if (wallpaper == null) return background(surface)
     return drawBehind {
         drawRect(surface)
@@ -52,7 +53,7 @@ internal fun Modifier.pageBackground(): Modifier {
                 dstSize = IntSize(dw, dh),
                 filterQuality = FilterQuality.Medium,
             )
-            if (wallpaper.scrim) drawRect(Color.Black.copy(alpha = WallpaperBlurCache.SCRIM_ALPHA))
+            if (wallpaper.scrim) drawRect(scrimColor)
         }
     }
 }

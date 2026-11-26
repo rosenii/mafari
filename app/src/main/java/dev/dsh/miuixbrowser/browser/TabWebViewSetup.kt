@@ -187,6 +187,7 @@ internal fun BrowserTab.setupWebView() {
         builtInZoomControls = true
         displayZoomControls = false
         setSupportZoom(true)
+        textZoom = WebViewDebug.pageZoom
         mediaPlaybackRequiresUserGesture = false
         setSupportMultipleWindows(true)
         javaScriptCanOpenWindowsAutomatically = true

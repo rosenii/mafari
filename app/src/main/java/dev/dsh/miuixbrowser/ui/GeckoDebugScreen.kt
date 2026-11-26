@@ -153,6 +153,14 @@ fun GeckoDebugScreen(onBack: () -> Unit, blurEnabled: Boolean = true) {
                                     Toast.makeText(context, tr("已切换，新打开的标签页生效"), Toast.LENGTH_SHORT).show()
                                 },
                             )
+                            AppDropdownPreference(
+                                backdrop = if (glass) backdrop else null,
+                                title = tr("网页缩放"),
+                                summary = tr("整页缩放（写入 layout.css.devPixelsPerPx，文字与布局等比缩放），立即生效并保存；100% 为不缩放。已打开的页面刷新后生效"),
+                                items = d.ZOOM_CHOICES.map { "$it%" },
+                                selectedIndex = d.ZOOM_CHOICES.indexOf(d.pageZoom).let { if (it < 0) d.ZOOM_CHOICES.indexOf(100) else it },
+                                onSelectedIndexChange = { d.updatePageZoom(d.ZOOM_CHOICES[it]) },
+                            )
                             AppSwitchPreference(
                                 title = tr("请求高刷新率"),
                                 summary = tr("向系统声明屏幕最高刷新率，避免滑动时被降到低刷新率"),

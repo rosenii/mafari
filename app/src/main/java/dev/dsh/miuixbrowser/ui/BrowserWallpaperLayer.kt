@@ -65,7 +65,7 @@ internal fun BrowserWallpaperLayer(
                 )
                 // 压暗层：缓存图里已烘进，只有显示未模糊原图（模糊关闭 / 缓存未就绪）时才另盖
                 if (!wallpaperFromCache) {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = WallpaperBlurCache.SCRIM_ALPHA)))
+                    Box(modifier = Modifier.fillMaxSize().background(WallpaperBlurCache.scrimColor(isAppDarkTheme())))
                 }
             }
         }

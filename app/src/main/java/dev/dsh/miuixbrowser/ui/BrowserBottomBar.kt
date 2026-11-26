@@ -150,6 +150,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import dev.dsh.miuixbrowser.appContainer
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -620,6 +621,23 @@ internal fun BottomBar(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(6.dp))
                         AddressRefreshButton(onClick = onRefresh)
+                    }
+                }
+                // 输入状态：地址栏最右侧是「搜索建议」开关（与刷新图标同一位置，输入时刷新图标不显示）
+                AnimatedVisibility(
+                    visible = editing,
+                    enter = fadeIn(tween(200)) + expandHorizontally(
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+                        expandFrom = Alignment.End,
+                    ),
+                    exit = fadeOut(tween(120)) + shrinkHorizontally(
+                        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium),
+                        shrinkTowards = Alignment.End,
+                    ),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.width(6.dp))
+                        AddressSuggestButton()
                     }
                 }
             }
@@ -1331,6 +1349,9 @@ internal fun AddressField(
     val fieldState = remember { TextFieldState(value, TextRange(value.length)) }
     val scroll = rememberScrollState()
     val latestValue by rememberUpdatedState(value)
+    val fieldContext = LocalContext.current
+    val editingNow by rememberUpdatedState(editing)
+    LaunchedEffect(Unit) { AddressSuggest.load(fieldContext) }
     fun TextFieldState.setTo(text: String, selection: TextRange) {
         edit {
             if (this.toString() != text) replace(0, length, text)
@@ -1342,12 +1363,32 @@ internal fun AddressField(
         if (fieldState.text.toString() != value) fieldState.setTo(value, TextRange(idleCursor))
     }
     // 用户输入：只有文字真的变了才通知外部（光标 / 选区移动不算输入，外部据此判断「用户是否改过地址」）
+    // 搜索建议：用户新打字（文字变长、光标在末尾）时，若匹配到书签 / 历史的网址，把剩余部分补在后面并选中；
+    // 回车使用补全后的地址，继续打字覆盖补全，退格删掉补全（变短时不再补）
     LaunchedEffect(fieldState) {
+        var prevLen = fieldState.text.length
         snapshotFlow { fieldState.text.toString() }.collect { t ->
             if (t != latestValue) {
                 onChange(t)
                 // 预连接：用户在打字，停顿后若已是完整网址就提前建连（纯搜索词不处理）
                 dev.dsh.miuixbrowser.engine.webview.WebViewSpeculative.onAddressInput(t)
+            }
+            val sel = fieldState.selection
+            val typedAtEnd = sel.collapsed && sel.end == t.length
+            val grew = t.length > prevLen
+            if (typedAtEnd) prevLen = t.length
+            if (grew && typedAtEnd && editingNow && AddressSuggest.enabled && fieldState.text.composition == null) {
+                val c = fieldContext.appContainer
+                val full = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val urls = ArrayList<String>()
+                    c.favorites.items.forEach { urls.add(it.url) }
+                    runCatching { c.history.query(t, 40) }.getOrDefault(emptyList()).forEach { urls.add(it.url) }
+                    AddressSuggest.complete(t, urls)
+                }
+                // 查询期间用户又改了文字 / 关了开关 / 退出输入：丢弃结果
+                if (full != null && fieldState.text.toString() == t && AddressSuggest.enabled && editingNow) {
+                    fieldState.setTo(full, TextRange(t.length, full.length))
+                }
             }
         }
     }

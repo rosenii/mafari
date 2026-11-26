@@ -22,16 +22,18 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun rememberBlurredWallpaper(uri: String, enabled: Boolean, version: Int): ImageBitmap? {
     val context = LocalContext.current
+    // 深浅色各一份缓存：切换明暗时换图（浅色更亮、深色更深）
+    val dark = isAppDarkTheme()
     // 首帧同步读缓存（进程内命中免费，否则解码磁盘上那张 360px 小图）：命中时第一帧就是模糊图
-    val first = remember(uri, enabled, version) {
-        if (enabled && uri.isNotBlank()) WallpaperBlurCache.peek(context, uri)?.asImageBitmap() else null
+    val first = remember(uri, enabled, version, dark) {
+        if (enabled && uri.isNotBlank()) WallpaperBlurCache.peek(context, uri, dark)?.asImageBitmap() else null
     }
-    val image by produceState<ImageBitmap?>(initialValue = first, uri, enabled, version) {
+    val image by produceState<ImageBitmap?>(initialValue = first, uri, enabled, version, dark) {
         // 换壁纸 / 开关变化时先清掉上一张的旧图，缓存没命中才去 IO 线程生成
         value = first
         if (first == null && enabled && uri.isNotBlank()) {
             value = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                WallpaperBlurCache.getOrCreate(context, uri)?.asImageBitmap()
+                WallpaperBlurCache.getOrCreate(context, uri, dark)?.asImageBitmap()
             }
         }
     }

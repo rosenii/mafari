@@ -350,6 +350,12 @@ fun BrowserScreen(
         state.tabs.forEach { it.pageEnhancements = settings.pageEnhancements }
     }
 
+    // 网页缩放（WebView 调试 → 网页缩放）→ 所有 WebView 标签页
+    LaunchedEffect(dev.dsh.miuixbrowser.engine.webview.WebViewDebug.pageZoom, state.tabs.size) {
+        val z = dev.dsh.miuixbrowser.engine.webview.WebViewDebug.pageZoom
+        state.tabs.forEach { t -> if (!t.isGecko) runCatching { t.webView.settings.textZoom = z } }
+    }
+
     // 手动标记广告开关 → 所有标签页
     LaunchedEffect(settings.adMarkLongPress, state.tabs.size) {
         state.tabs.forEach { it.adMarkLongPress = settings.adMarkLongPress }

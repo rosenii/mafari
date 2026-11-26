@@ -44,6 +44,11 @@ object WebViewDebug {
     var perfRecord by mutableStateOf(true); private set
     var remoteDebug by mutableStateOf(false); private set
 
+    /** 网页缩放百分比（WebSettings.textZoom，100 = 不缩放）；全局生效，跨启动保存 */
+    var pageZoom by mutableStateOf(100); private set
+
+    val ZOOM_CHOICES = listOf(50, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300)
+
     fun load(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
@@ -51,6 +56,7 @@ object WebViewDebug {
         consoleLog = p.getBoolean("console_log", false)
         pageLog = p.getBoolean("page_log", false)
         perfRecord = p.getBoolean("perf_record", true)
+        pageZoom = p.getInt("page_zoom", 100).coerceIn(25, 500)
         // USB 远程调试只对「当前这次运行」有效：上次开着的，冷启动时自动关掉（忘了关会一直让 USB 另一端读到页面内容）
         if (p.getBoolean("remote_debug", false)) {
             p.edit().putBoolean("remote_debug", false).apply()
@@ -73,6 +79,11 @@ object WebViewDebug {
 
     fun updatePerfRecord(v: Boolean) {
         perfRecord = v; save { putBoolean("perf_record", v) }
+    }
+
+    /** 设置网页缩放；已打开的标签页由 BrowserScreen 监听 [pageZoom] 后统一应用 */
+    fun updatePageZoom(v: Int) {
+        pageZoom = v.coerceIn(25, 500); save { putInt("page_zoom", pageZoom) }
     }
 
     fun updateRemoteDebug(v: Boolean) {
