@@ -510,7 +510,8 @@ internal fun BoxScope.BrowserFloatingBar(
             // 阅读模式中「后退」= 退出阅读模式，所以即使没有历史也可点
             canGoBack = tab.canGoBack || tab.readerActive,
             canGoForward = tab.canGoForward,
-            tabCount = state.tabs.size,
+            // 角标只数与当前标签同类的：无痕里数无痕标签，普通里数普通标签，两类不混在一起
+            tabCount = state.tabs.count { it.incognito == tab.incognito },
             onChange = {
                 address = it
                 addressDirty = true
