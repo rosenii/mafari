@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -58,6 +59,11 @@ internal fun BrowserChunk(content: @Composable () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun rememberImeTargetInsets(): WindowInsets = WindowInsets.imeAnimationTarget
+
+/** 软键盘当前是否可见（跟随系统 insets；键盘动画一开始就变 true，收起动画一开始就变 false） */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun rememberImeVisible(): Boolean = WindowInsets.isImeVisible
 
 @Composable
 internal fun BoxScope.PullSpinnerHost(

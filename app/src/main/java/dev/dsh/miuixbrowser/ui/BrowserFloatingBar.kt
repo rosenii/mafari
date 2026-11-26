@@ -37,6 +37,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -112,6 +114,23 @@ internal fun BoxScope.BrowserFloatingBar(
     var barMinimized by barMinimizedState
     var addressDirty by addressDirtyState
     val addressDownload = SharedAddressDownloadState
+    // 默认样式（悬浮胶囊，顶部 / 底部）：输入地址时地址栏展开盖住其余按钮；键盘收起后退出输入态、按钮恢复。
+    // 只有「键盘出现过又收起」才退出：刚进入输入态、键盘还没弹出来的那一小段不会被误判
+    val expandOnEdit = !style.docked && !style.splitPills
+    if (expandOnEdit) {
+        val imeVisible = rememberImeVisible()
+        var imeSeenWhileEditing by remember { mutableStateOf(false) }
+        LaunchedEffect(editing) { if (!editing) imeSeenWhileEditing = false }
+        LaunchedEffect(editing, imeVisible) {
+            if (!editing) return@LaunchedEffect
+            if (imeVisible) {
+                imeSeenWhileEditing = true
+            } else if (imeSeenWhileEditing) {
+                editing = false
+                focus.clearFocus()
+            }
+        }
+    }
     if (editing && tab.url.isNotEmpty()) {
         Box(
             modifier = Modifier
@@ -197,7 +216,9 @@ internal fun BoxScope.BrowserFloatingBar(
         val readerWidth = if (translateShown || downloadShown || mediaShown || shouldShowAddressReader(readerShown, editing, addressDownload.visible, translateVisible, mediaVisible) || scriptsShown) AddressReaderWidth else 0.dp
         val requestedBarWidth = fixedToolbarWidth + measuredAddressWidth + loadingIndicatorWidth + refreshWidth + readerWidth
         // 显式比较 Dp，避免当前 Kotlin/Compose 版本对 coerceAtMost 的错误重载推断。
-        val targetBarWidth = if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
+        // 默认样式输入地址时胶囊撑满可用宽度（地址栏占满整条，其余按钮被盖住），退出后弹簧收回按文字伸缩的宽度
+        val targetBarWidth = if (expandOnEdit && editing) maxWidth
+        else if (requestedBarWidth < maxWidth) requestedBarWidth else maxWidth
         val animatedBarWidth by animateDpAsState(
             targetValue = targetBarWidth,
             animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
@@ -478,6 +499,7 @@ internal fun BoxScope.BrowserFloatingBar(
             }
         } else BottomBar(
             drawSurface = false,
+            expandOnEdit = expandOnEdit,
             metrics = metrics,
             blurEnabled = settings.blurEnabled,
             liquid = if (settings.liquidGlass) barLiquidBackdrop else null,

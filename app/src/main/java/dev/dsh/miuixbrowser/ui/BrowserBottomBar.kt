@@ -97,6 +97,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.runtime.State
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -409,8 +416,20 @@ internal fun BottomBar(
     metrics: BarMetrics = BarStyles.FloatingCapsule.metrics,
     /** false = 底板由外层通过 [BarStyle.surface] 画（停靠样式的底板要铺到状态栏 / 导航栏下面），这里只放按钮 */
     drawSurface: Boolean = true,
+    /**
+     * true = 输入地址时地址栏展开、盖住其余按钮（后退 / 前进 / 主页 / 标签页 / 更多），收起键盘（退出输入）后再恢复；
+     * 带弹簧动画。默认样式（悬浮胶囊，顶部 / 底部）开启，其余样式保持原样。
+     */
+    expandOnEdit: Boolean = false,
 ) {
     val haptic = LocalHapticFeedback.current
+    // 展开进度 0..1：只在布局 / 绘制阶段读取（State 传下去），弹簧逐帧变化不会让整条栏重组。
+    // 弹簧参数与外层胶囊宽度动画（BrowserFloatingBar 的 dynamicBottomBarWidth）一致，两者同步伸缩
+    val expand = animateFloatAsState(
+        targetValue = if (expandOnEdit && editing) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+        label = "addressExpand",
+    )
     val shape = RoundedCornerShape(29.dp)
     val showRefresh = shouldShowAddressRefresh(address = address, loading = loading, editing = editing)
     val downloadVisible = download?.visible == true
@@ -459,29 +478,35 @@ internal fun BottomBar(
                 .padding(horizontal = metrics.contentPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PressIcon(icon = MiuixIcons.Glass.Back, description = tr("后退"), enabled = canGoBack, buttonSize = metrics.buttonSize, onClick = onBack)
-            if (canGoForward) {
-                PressIcon(
-                    icon = MiuixIcons.Glass.Back,
-                    description = tr("前进"),
-                    enabled = true,
-                    flip = true,
-                    buttonSize = metrics.buttonSize,
-                    onClick = onForward,
-                )
-            } else {
-                PressIcon(
-                    icon = MiuixIcons.Home,
-                    description = tr("主页"),
-                    enabled = true,
-                    buttonSize = metrics.buttonSize,
-                    onClick = onHome,
-                )
+            CollapsibleBarSlot(progress = expand, alignEnd = false) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PressIcon(icon = MiuixIcons.Glass.Back, description = tr("后退"), enabled = canGoBack, buttonSize = metrics.buttonSize, onClick = onBack)
+                    if (canGoForward) {
+                        PressIcon(
+                            icon = MiuixIcons.Glass.Back,
+                            description = tr("前进"),
+                            enabled = true,
+                            flip = true,
+                            buttonSize = metrics.buttonSize,
+                            onClick = onForward,
+                        )
+                    } else {
+                        PressIcon(
+                            icon = MiuixIcons.Home,
+                            description = tr("主页"),
+                            enabled = true,
+                            buttonSize = metrics.buttonSize,
+                            onClick = onHome,
+                        )
+                    }
+                }
             }
 
             Row(
                 modifier = Modifier
                     .weight(1f)
+                    // 展开时盖在其余按钮上面（右侧按钮在 Row 里排在地址栏后面，默认会画在它上面）
+                    .then(if (expandOnEdit) Modifier.zIndex(1f) else Modifier)
                     .height(metrics.addressHeight)
                     .squircleClip(metrics.addressCorner)
                     .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f))
@@ -505,29 +530,63 @@ internal fun BottomBar(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // 输入中：最左侧是当前搜索引擎图标（此时阅读 / 脚本 / 下载 / 翻译图标都不显示），点击切换引擎
-                if (editing && searchEngine != null) {
-                    AddressEngineButton(engine = searchEngine, onClick = onEngineClick)
-                    Spacer(Modifier.width(6.dp))
+                // 进出编辑态时图标横向展开 / 收起 + 淡入淡出，不再突然冒出来
+                val engineMemo = remember { mutableStateOf(searchEngine) }
+                if (searchEngine != null) engineMemo.value = searchEngine
+                AnimatedVisibility(
+                    visible = editing && searchEngine != null,
+                    enter = fadeIn(tween(200)) + expandHorizontally(
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+                        expandFrom = Alignment.Start,
+                    ),
+                    exit = fadeOut(tween(120)) + shrinkHorizontally(
+                        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium),
+                        shrinkTowards = Alignment.Start,
+                    ),
+                ) {
+                    engineMemo.value?.let { engine ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AddressEngineButton(engine = engine, onClick = onEngineClick)
+                            Spacer(Modifier.width(6.dp))
+                        }
+                    }
                 }
-                // 阅读模式图标：地址栏最左侧（比加载小圆点还靠左）
-                if (showDownload && download != null) {
-                    // 下载图标优先级最高（下载 > 媒体 > 翻译 > 阅读 > 脚本）：与它们同一位置、同一尺寸
-                    AddressDownloadButton(state = download, onClick = onDownload)
-                    Spacer(Modifier.width(6.dp))
-                } else if (showMedia) {
-                    // 嗅探到媒体：媒体图标，点击弹出嗅探弹窗
-                    AddressMediaButton(count = mediaCount, onClick = onMedia)
-                    Spacer(Modifier.width(6.dp))
-                } else if (showTranslate) {
-                    AddressTranslateButton(original = translateOriginal, onClick = onTranslateToggle)
-                    Spacer(Modifier.width(6.dp))
-                } else if (showReader) {
-                    AddressReaderButton(active = readerActive, onClick = onReader)
-                    Spacer(Modifier.width(6.dp))
-                } else if (showScripts) {
-                    // 与阅读图标同一位置、同一尺寸；可阅读时上面的分支优先，这里不显示
-                    AddressScriptButton(onClick = onScripts)
-                    Spacer(Modifier.width(6.dp))
+                // 左侧状态图标（下载 > 媒体 > 翻译 > 阅读 > 脚本，共用一个位置）：进出输入态时横向收起 / 展开 + 淡入淡出
+                val leftKind = when {
+                    showDownload && download != null -> 1
+                    showMedia -> 2
+                    showTranslate -> 3
+                    showReader -> 4
+                    showScripts -> 5
+                    else -> 0
+                }
+                // 退出动画期间 leftKind 已经是 0，用「最后一次的种类」把图标留到动画结束
+                val lastKind = remember { mutableIntStateOf(leftKind) }
+                if (leftKind != 0) lastKind.intValue = leftKind
+                AnimatedVisibility(
+                    visible = leftKind != 0,
+                    enter = fadeIn(tween(200)) + expandHorizontally(
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+                        expandFrom = Alignment.Start,
+                    ),
+                    exit = fadeOut(tween(120)) + shrinkHorizontally(
+                        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium),
+                        shrinkTowards = Alignment.Start,
+                    ),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        when (lastKind.intValue) {
+                            // 下载图标优先级最高（下载 > 媒体 > 翻译 > 阅读 > 脚本）：与它们同一位置、同一尺寸
+                            1 -> if (download != null) AddressDownloadButton(state = download, onClick = onDownload)
+                            // 嗅探到媒体：媒体图标，点击弹出嗅探弹窗
+                            2 -> AddressMediaButton(count = mediaCount, onClick = onMedia)
+                            3 -> AddressTranslateButton(original = translateOriginal, onClick = onTranslateToggle)
+                            4 -> AddressReaderButton(active = readerActive, onClick = onReader)
+                            // 与阅读图标同一位置、同一尺寸；可阅读时上面的分支优先，这里不显示
+                            5 -> AddressScriptButton(onClick = onScripts)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
                 }
                 if (loading) {
                     LoadingDot()
@@ -547,15 +606,67 @@ internal fun BottomBar(
                     modifier = Modifier.weight(1f),
                 )
                 // 网页加载完毕（非加载中、非输入中）时，地址栏最右端显示刷新图标
-                if (showRefresh) {
-                    Spacer(Modifier.width(6.dp))
-                    AddressRefreshButton(onClick = onRefresh)
+                AnimatedVisibility(
+                    visible = showRefresh,
+                    enter = fadeIn(tween(200)) + expandHorizontally(
+                        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+                        expandFrom = Alignment.End,
+                    ),
+                    exit = fadeOut(tween(120)) + shrinkHorizontally(
+                        animationSpec = spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMedium),
+                        shrinkTowards = Alignment.End,
+                    ),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.width(6.dp))
+                        AddressRefreshButton(onClick = onRefresh)
+                    }
                 }
             }
 
-            TabIcon(count = tabCount, buttonSize = metrics.buttonSize, onClick = onTabs, onLongClick = onNewTab)
-            PressIcon(icon = MiuixIcons.Glass.More, description = tr("更多"), buttonSize = metrics.buttonSize, onClick = onMore)
+            CollapsibleBarSlot(progress = expand, alignEnd = true) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TabIcon(count = tabCount, buttonSize = metrics.buttonSize, onClick = onTabs, onLongClick = onNewTab)
+                    PressIcon(icon = MiuixIcons.Glass.More, description = tr("更多"), buttonSize = metrics.buttonSize, onClick = onMore)
+                }
+            }
         }
+    }
+}
+
+/**
+ * 工具栏两端的按钮组：[progress] 0 → 1 时宽度收到 0、同时淡出并略微缩小。
+ * 内容停在原位不动，由旁边展开的地址栏（zIndex 更高）把它「盖住」，而不是滑走。
+ * 淡出在前 55% 进度内完成，之后只剩宽度继续收拢，避免半透明按钮在地址栏底下透出来。
+ * 进度只在 layout / graphicsLayer 阶段读取：弹簧逐帧变化不触发重组。
+ * 宽度收到 0 后点击区也随之消失，被盖住的按钮点不到。
+ */
+@Composable
+private fun CollapsibleBarSlot(
+    progress: State<Float>,
+    alignEnd: Boolean,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                val p = progress.value.coerceIn(0f, 1f)
+                val w = (placeable.width * (1f - p)).roundToInt()
+                layout(w, placeable.height) {
+                    // 靠右的一组贴着栏的右缘收拢（内容右对齐），靠左的一组贴着左缘（内容左对齐）
+                    placeable.place(if (alignEnd) w - placeable.width else 0, 0)
+                }
+            }
+            .graphicsLayer {
+                val p = progress.value.coerceIn(0f, 1f)
+                alpha = (1f - p / 0.55f).coerceIn(0f, 1f)
+                val scale = 1f - 0.18f * p
+                scaleX = scale
+                scaleY = scale
+            },
+    ) {
+        content()
     }
 }
 
