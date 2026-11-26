@@ -73,6 +73,14 @@ class SniffList {
         return true
     }
 
+    /** 去掉所有「解析来源」条目（[SniffedMedia.source] 以 [prefix] 开头）里来源不是 [keep] 的：SPA 换视频时清掉上一个视频的流 */
+    @Synchronized
+    fun dropSourcesExcept(prefix: String, keep: String) {
+        val cur = items
+        val next = cur.filterNot { it.source.startsWith(prefix) && it.source != keep }
+        if (next.size != cur.size) items = next
+    }
+
     /** 后台探测到的时长；页面已经报过的（>= 0 或直播）不覆盖 */
     @Synchronized
     fun setProbedDuration(url: String, ms: Long) {

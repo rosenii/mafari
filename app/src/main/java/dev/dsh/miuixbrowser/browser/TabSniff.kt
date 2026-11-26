@@ -174,7 +174,7 @@ internal fun BrowserTab.playSniffed(context: Context, selected: SniffedMedia, al
             // 防盗链：优先用页面加载这条地址时真正带的 Referer / Origin（iframe 播放器是播放器页的地址），没有再退回顶层页
             referer = selected.referer.ifBlank { pageUrl },
             origin = selected.origin,
-            ua = ua,
+            ua = selected.ua.ifBlank { ua },
             cookie = cookie,
             type = hintOf(selected),
             sources = others,

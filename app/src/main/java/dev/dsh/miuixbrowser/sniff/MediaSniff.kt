@@ -26,6 +26,12 @@ data class SniffedMedia(
     val origin: String = "",
     /** 清晰度标签（如「720×1280 · 2.2 Mbps」），目前只有 X 的各档 mp4 直链带；空 = 没有 */
     val label: String = "",
+    /** 播放这条地址要用的 UA（YouTube 的流按解析时的客户端 UA 校验）；空 = 用当前页的 UA */
+    val ua: String = "",
+    /** 来源标记：非空表示不是请求拦截 / 页面脚本嗅探到的，而是解析出来的（如 [YouTube.SOURCE_PREFIX]），换视频时按它整体清掉 */
+    val source: String = "",
+    /** 只在列表里手动点开，不参与自动悬浮播放（页面自己正在播同一个视频，自动开原生播放器会重复播放） */
+    val manualOnly: Boolean = false,
 )
 
 /**
@@ -130,7 +136,7 @@ object MediaSniff {
 
     /** 这一条能不能自动悬浮播放：排除页面标记的预览、短视频，以及时长 / 大小都说不清的小文件 */
     fun isAutoCandidate(m: SniffedMedia): Boolean {
-        if (m.preview == true) return false
+        if (m.preview == true || m.manualOnly) return false
         if (m.userPlayed) return true // 用户自己点了播放：不拦
         return when {
             m.durationMs == DURATION_LIVE -> true

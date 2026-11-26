@@ -441,6 +441,20 @@ BrowserChunk {
         //   想看本页发现的视频，点地址栏的媒体图标手动打开列表（sniffDialogShow 只由图标触发）。
         val sniffList = tab.sniffs
         val sniffItems = sniffList.items
+        // YouTube：网页端用 MSE + PO Token，请求拦截嗅探不到可播的流。认出页面的视频 id，改用其他客户端的接口解析流地址并列进来
+        //（只在列表里手动点开，不自动悬浮播放）；SPA 站内换视频时清掉上一个视频的流。失败只记日志，页面照常播放。
+        androidx.compose.runtime.LaunchedEffect(tab, tab.url, settings.mediaSniffActive) {
+            val prefix = dev.dsh.miuixbrowser.sniff.YouTube.SOURCE_PREFIX
+            val id = if (settings.mediaSniffActive) dev.dsh.miuixbrowser.sniff.YouTube.videoId(tab.url) else null
+            tab.sniffs.dropSourcesExcept(prefix, if (id == null) "" else prefix + id)
+            if (id == null || tab.sniffs.items.any { it.source == prefix + id }) return@LaunchedEffect
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { dev.dsh.miuixbrowser.sniff.YouTubeResolver.resolve(id) }.getOrNull()
+            } ?: return@LaunchedEffect
+            // 解析期间用户已经换了页面 / 视频：丢弃
+            if (dev.dsh.miuixbrowser.sniff.YouTube.videoId(tab.url) != id) return@LaunchedEffect
+            r.items.forEach { tab.sniffs.offer(it) }
+        }
         androidx.compose.runtime.LaunchedEffect(sniffList, sniffItems.size, settings.mediaSniffActive) {
             if (!settings.mediaSniffActive || sniffItems.size <= sniffList.promptedCount) return@LaunchedEffect
             if (!settings.mediaAutoFloatActive) {
