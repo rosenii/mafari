@@ -83,10 +83,15 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop as rememberKyantBackdr
 import dev.dsh.miuixbrowser.data.Book
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.data.BookCategory
+import dev.dsh.miuixbrowser.data.BookFeed
+import dev.dsh.miuixbrowser.data.BookFeedImport
+import dev.dsh.miuixbrowser.data.FeedBook
 import dev.dsh.miuixbrowser.data.BookSort
 import dev.dsh.miuixbrowser.data.BookShelf
 import dev.dsh.miuixbrowser.i18n.tr
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Icon
@@ -146,7 +151,7 @@ private fun sortLabel(sort: BookSort): String = when (sort) {
  * 复用其他二级页面的框架（玻璃大标题顶栏 + 右上角按钮）。顶栏三个按钮：搜索（写法同历史页：顶栏下方展开输入框，按书名 / 作者过滤）、
  * 排序（添加时间 / 书名 / 作者 / 阅读进度，升降序）、更多（选择 / 网格 / 列表 / 创建分类 / 导入）。
  * 网格 / 列表和排序方式存在 [AppSettings]（与阅读器排版同一套 SharedPreferences）。分类用顶栏下方一行可横滑的标签切换；
- * 「选择」进入多选，底部「移动到分类 / 删除」；长按封面（非选择模式）弹出编辑窗口。「订阅网络小说」入口先占位。
+ * 「选择」进入多选，底部「移动到分类 / 删除」；长按封面（非选择模式）弹出编辑窗口。「从订阅源导入」读取通用 JSON 小说订阅源（链接或本地文件，弹窗与脚本页共用），勾选后下载入架。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -213,6 +218,17 @@ fun BookshelfScreen(
     var sortAnchor by remember { mutableStateOf(Rect.Zero) }
     var importing by remember { mutableStateOf(false) }
 
+    // 从订阅源导入：输入弹窗 → 解析出的书目（勾选）→ 逐本下载（带进度、可取消）
+    var feedDialog by remember { mutableStateOf(false) }
+    var feedLoading by remember { mutableStateOf(false) }
+    var feedPick by remember { mutableStateOf<BookFeed?>(null) }
+    var feedPickShow by remember { mutableStateOf(false) }
+    var feedSel by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var feedRunning by remember { mutableStateOf(false) }
+    var feedProgress by remember { mutableStateOf("") }
+    var feedJob by remember { mutableStateOf<Job?>(null) }
+    val shelfKeys = remember(books) { books.mapTo(HashSet()) { it.title.trim() to it.author.trim() } }
+
     // 编辑窗口 / 删除确认：书和显示状态分开存，关闭动画期间内容不会突然消失
     var editBook by remember { mutableStateOf<Book?>(null) }
     var editShow by remember { mutableStateOf(false) }
@@ -272,6 +288,67 @@ fun BookshelfScreen(
                     else -> tr("无法导入所选文件（仅支持 TXT / EPUB）")
                 },
             )
+        }
+    }
+
+    /** 取订阅源并解析（[load] 在 IO 线程跑）；成功后弹出书目勾选窗，已在书架的书默认不勾。 */
+    fun loadFeed(remote: Boolean, load: () -> BookFeed) {
+        if (feedLoading) return
+        feedLoading = true
+        if (remote) toast(tr("正在下载…"))
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching(load) }
+            feedLoading = false
+            r.onSuccess { f ->
+                feedPick = f
+                feedSel = f.books.indices.filter { (f.books[it].title.trim() to f.books[it].author.trim()) !in shelfKeys }.toSet()
+                feedPickShow = true
+            }.onFailure { toast(it.message ?: tr("下载失败，检查链接")) }
+        }
+    }
+
+    val feedFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        loadFeed(remote = false) { BookFeedImport.loadFromUri(context, uri) }
+    }
+
+    /** 逐本下载入架；可取消，取消后已入架的保留。 */
+    fun startFeedImport(picks: List<FeedBook>) {
+        feedPickShow = false
+        feedProgress = ""
+        feedRunning = true
+        importing = true
+        feedJob = scope.launch {
+            var ok = 0
+            var fail = 0
+            var lastErr: String? = null
+            var cancelled = false
+            try {
+                for ((i, b) in picks.withIndex()) {
+                    feedProgress = tr("《{0}》（{1}/{2}）", b.title, i + 1, picks.size)
+                    val r = BookFeedImport.importBook(context, b) { done, total ->
+                        feedProgress = tr("《{0}》（{1}/{2}）· 章节 {3}/{4}", b.title, i + 1, picks.size, done, total)
+                    }
+                    val err = r.exceptionOrNull()
+                    if (err is CancellationException) throw err
+                    if (err == null) ok++ else { fail++; lastErr = err.message }
+                }
+            } catch (e: CancellationException) {
+                cancelled = true
+                throw e
+            } finally {
+                feedRunning = false
+                importing = false
+                feedJob = null
+                toast(
+                    when {
+                        cancelled -> tr("已取消，已导入 {0} 本", ok)
+                        fail == 0 -> tr("已导入 {0} 本", ok)
+                        ok == 0 -> tr("导入失败：{0}", lastErr.orEmpty())
+                        else -> tr("已导入 {0} 本，{1} 本失败：{2}", ok, fail, lastErr.orEmpty())
+                    },
+                )
+            }
         }
     }
 
@@ -642,6 +719,84 @@ fun BookshelfScreen(
                     }
                 }
 
+                // ---- 从订阅源导入：输入链接 / 选本地文件（与脚本页同一个弹窗）
+                ImportDialog(
+                    show = feedDialog,
+                    backdrop = bd,
+                    onDismiss = { feedDialog = false },
+                    onImport = { url ->
+                        feedDialog = false
+                        loadFeed(remote = true) { BookFeedImport.loadFromUrl(url) }
+                    },
+                    onPickFile = {
+                        feedDialog = false
+                        feedFilePicker.launch(arrayOf("application/json", "text/*", "application/octet-stream", "*/*"))
+                    },
+                    title = tr("从订阅源导入"),
+                    summary = tr("支持通用 JSON 小说订阅源：输入链接或选择本地文件，再勾选要导入的书"),
+                    urlLabel = tr("订阅源地址（http / https，JSON）"),
+                )
+
+                // ---- 订阅源书目：勾选要导入的书
+                val pickFeed = feedPick
+                AppGlassDialog(
+                    show = feedPickShow,
+                    title = pickFeed?.name?.ifBlank { null } ?: tr("订阅源"),
+                    summary = pickFeed?.let { tr("共 {0} 本，勾选要导入的书（已在书架的默认不选）", it.books.size) },
+                    backdrop = bd,
+                    onDismissRequest = { feedPickShow = false },
+                ) {
+                    if (pickFeed != null) {
+                        val total = pickFeed.books.size
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            LazyColumn(modifier = Modifier.fillMaxWidth().height(minOf(total, 6) * 56.dp)) {
+                                items(total) { i ->
+                                    val b = pickFeed.books[i]
+                                    FeedRow(
+                                        title = b.title,
+                                        author = b.author,
+                                        checked = i in feedSel,
+                                        onShelf = (b.title.trim() to b.author.trim()) in shelfKeys,
+                                    ) { feedSel = if (i in feedSel) feedSel - i else feedSel + i }
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            AppTextButton(
+                                text = if (feedSel.size == total) tr("取消全选") else tr("全选"),
+                                onClick = { feedSel = if (feedSel.size == total) emptySet() else (0 until total).toSet() },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                AppDialogButton(onClick = { feedPickShow = false }, modifier = Modifier.weight(1f)) {
+                                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                                }
+                                AppDialogButton(
+                                    onClick = {
+                                        if (feedSel.isEmpty()) toast(tr("请先勾选要导入的书"))
+                                        else startFeedImport(feedSel.sorted().map { pickFeed.books[it] })
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    role = GlassDialogButtonRole.Primary,
+                                ) { Text(text = tr("导入 {0} 本", feedSel.size), style = MiuixTheme.textStyles.button) }
+                            }
+                        }
+                    }
+                }
+
+                // ---- 导入进度（可取消）
+                AppGlassDialog(
+                    show = feedRunning,
+                    title = tr("正在导入…"),
+                    summary = feedProgress,
+                    backdrop = bd,
+                    onDismissRequest = {},
+                ) {
+                    AppDialogButton(onClick = { feedJob?.cancel() }, modifier = Modifier.fillMaxWidth()) {
+                        Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                    }
+                }
+
                 // ---- 删除分类确认（书不会被删）
                 AppGlassDialog(
                     show = deleteCatShow,
@@ -813,10 +968,11 @@ fun BookshelfScreen(
                     )
                 }
                 GlassPopupItem(
-                    text = tr("订阅网络小说"),
+                    text = tr("从订阅源导入"),
+                    enabled = !importing && !feedLoading,
                     onClick = {
                         showMore = false
-                        toast(tr("网络订阅暂未开放，敬请期待"))
+                        feedDialog = true
                     },
                     icon = MiuixIcons.Glass.Download,
                 )
@@ -893,6 +1049,45 @@ private fun MoveRow(text: String, dim: Boolean = false, onClick: () -> Unit) {
             .wrapContentHeight(Alignment.CenterVertically)
             .padding(horizontal = 4.dp),
     )
+}
+
+/** 订阅源书目窗口里的一行：勾选圆点 + 书名 / 作者（已在书架的标出来）。 */
+@Composable
+private fun FeedRow(title: String, author: String, checked: Boolean, onShelf: Boolean, onClick: () -> Unit) {
+    val sub = listOf(author, if (onShelf) tr("已在书架") else "").filter { it.isNotEmpty() }.joinToString(" · ")
+    Row(
+        modifier = Modifier.fillMaxWidth().height(56.dp).clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(if (checked) MiuixTheme.colorScheme.primary else Color.Transparent)
+                .border(1.5.dp, if (checked) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) Text(text = "✓", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(
+                text = title,
+                fontSize = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            if (sub.isNotEmpty()) {
+                Text(
+                    text = sub,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+    }
 }
 
 /** 选择模式下的勾选圆点。 */

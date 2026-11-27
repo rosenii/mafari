@@ -85,6 +85,9 @@ object BookContent {
             "|(?:Chapter|CHAPTER)\\s*[0-9IVXLivxl]+.{0,30})$",
     )
 
+    /** 订阅源按章拼出的 TXT 里，章节标题行以它开头（不可见字符）：阅读器据此切章，不依赖标题像不像「第 N 章」。 */
+    const val TITLE_MARK = '\u2063'
+
     private fun isTitleLine(line: String): Boolean =
         line.length <= 40 && TXT_CHAPTER.matches(line) && !line.endsWith("。") && !line.endsWith("，")
 
@@ -104,7 +107,10 @@ object BookContent {
         for (rawLine in lines) {
             val line = rawLine.trim { it.isWhitespace() || it == '\uFEFF' }
             if (line.isEmpty()) continue
-            if (isTitleLine(line)) {
+            if (line[0] == TITLE_MARK) {
+                flush()
+                title = line.substring(1).trim().ifEmpty { null }
+            } else if (isTitleLine(line)) {
                 flush()
                 title = line
             } else {

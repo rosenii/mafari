@@ -2340,8 +2340,25 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 书架	Bookshelf
 本地导入小说 · 封面与书名管理	Import local novels · manage covers and titles
 书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说。	The bookshelf is empty. Tap More → Import from device to add TXT / EPUB novels.
-订阅网络小说	Subscribe to online novels
-网络订阅暂未开放，敬请期待	Online subscription isn't available yet — coming soon
+从订阅源导入	Import from feed
+支持通用 JSON 小说订阅源：输入链接或选择本地文件，再勾选要导入的书	Supports generic JSON novel feeds: enter a link or pick a local file, then choose the books to import
+订阅源地址（http / https，JSON）	Feed URL (http / https, JSON)
+共 {0} 本，勾选要导入的书（已在书架的默认不选）	{0} book(s). Choose what to import (books already on your shelf are unchecked)
+已在书架	On shelf
+导入 {0} 本	Import {0}
+请先勾选要导入的书	Select at least one book first
+《{0}》（{1}/{2}）	"{0}" ({1}/{2})
+《{0}》（{1}/{2}）· 章节 {3}/{4}	"{0}" ({1}/{2}) · chapter {3}/{4}
+已取消，已导入 {0} 本	Cancelled. {0} book(s) imported
+已导入 {0} 本，{1} 本失败：{2}	Imported {0}, {1} failed: {2}
+不是有效的订阅源（需要 JSON 书目列表）	Not a valid feed (a JSON book list is required)
+订阅源里没有可导入的书（每本书需要书名，以及下载链接或章节列表；本地文件里的链接需写完整的 http / https 地址）	No importable books in this feed (each book needs a title plus a download link or chapter list; links in a local file must be full http / https URLs)
+下载到的不是书籍文件	The downloaded file isn't a book
+仅支持 TXT / EPUB	Only TXT / EPUB are supported
+这本书没有可下载的内容	This book has nothing to download
+章节下载失败，检查网络或链接	Chapter download failed. Check the network or the links
+第 {0} 章	Chapter {0}
+（本章下载失败）	(This chapter failed to download)
 从本地导入	Import from device
 搜索书名或作者	Search title or author
 没有找到相关书籍	No matching books

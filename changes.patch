@@ -1,0 +1,916 @@
+diff -ruN a/CHANGELOG.md b/CHANGELOG.md
+--- a/CHANGELOG.md	2026-11-27 07:02:44.000000000 +0000
++++ b/CHANGELOG.md	2026-11-26 23:59:03.225485623 +0000
+@@ -1,6 +1,7 @@
+ # Changelog
+ ## [2.1.94]
+ - 新增：书架和阅读器，支持从本地导入书籍阅读
++- 新增：书架「从订阅源导入」，支持通用 JSON 小说订阅源（书目 + 整本 txt / epub 下载链接，或按章节拼书；兼容 OPDS 2.0），可输入链接或选择本地文件（弹窗与脚本页共用），勾选后下载入架，带进度、可取消
+ - 新增：YouTube视频支持嗅探播放和下载
+ - 新增：长按悬浮播放器标题区域可拖动播放器
+ - 调整：搜索建议补齐逻辑微调
+diff -ruN a/app/src/main/assets/i18n/en.tsv b/app/src/main/assets/i18n/en.tsv
+--- a/app/src/main/assets/i18n/en.tsv	2026-11-26 23:59:03.218149983 +0000
++++ b/app/src/main/assets/i18n/en.tsv	2026-11-26 23:59:03.227846040 +0000
+@@ -2340,8 +2340,25 @@
+ 书架	Bookshelf
+ 本地导入小说 · 封面与书名管理	Import local novels · manage covers and titles
+ 书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说。	The bookshelf is empty. Tap More → Import from device to add TXT / EPUB novels.
+-订阅网络小说	Subscribe to online novels
+-网络订阅暂未开放，敬请期待	Online subscription isn't available yet — coming soon
++从订阅源导入	Import from feed
++支持通用 JSON 小说订阅源：输入链接或选择本地文件，再勾选要导入的书	Supports generic JSON novel feeds: enter a link or pick a local file, then choose the books to import
++订阅源地址（http / https，JSON）	Feed URL (http / https, JSON)
++共 {0} 本，勾选要导入的书（已在书架的默认不选）	{0} book(s). Choose what to import (books already on your shelf are unchecked)
++已在书架	On shelf
++导入 {0} 本	Import {0}
++请先勾选要导入的书	Select at least one book first
++《{0}》（{1}/{2}）	"{0}" ({1}/{2})
++《{0}》（{1}/{2}）· 章节 {3}/{4}	"{0}" ({1}/{2}) · chapter {3}/{4}
++已取消，已导入 {0} 本	Cancelled. {0} book(s) imported
++已导入 {0} 本，{1} 本失败：{2}	Imported {0}, {1} failed: {2}
++不是有效的订阅源（需要 JSON 书目列表）	Not a valid feed (a JSON book list is required)
++订阅源里没有可导入的书（每本书需要书名，以及下载链接或章节列表；本地文件里的链接需写完整的 http / https 地址）	No importable books in this feed (each book needs a title plus a download link or chapter list; links in a local file must be full http / https URLs)
++下载到的不是书籍文件	The downloaded file isn't a book
++仅支持 TXT / EPUB	Only TXT / EPUB are supported
++这本书没有可下载的内容	This book has nothing to download
++章节下载失败，检查网络或链接	Chapter download failed. Check the network or the links
++第 {0} 章	Chapter {0}
++（本章下载失败）	(This chapter failed to download)
+ 从本地导入	Import from device
+ 搜索书名或作者	Search title or author
+ 没有找到相关书籍	No matching books
+diff -ruN a/app/src/main/java/dev/dsh/miuixbrowser/data/BookContent.kt b/app/src/main/java/dev/dsh/miuixbrowser/data/BookContent.kt
+--- a/app/src/main/java/dev/dsh/miuixbrowser/data/BookContent.kt	2026-11-27 05:10:00.000000000 +0000
++++ b/app/src/main/java/dev/dsh/miuixbrowser/data/BookContent.kt	2026-11-26 23:59:03.230987959 +0000
+@@ -85,6 +85,9 @@
+             "|(?:Chapter|CHAPTER)\\s*[0-9IVXLivxl]+.{0,30})$",
+     )
+ 
++    /** 订阅源按章拼出的 TXT 里，章节标题行以它开头（不可见字符）：阅读器据此切章，不依赖标题像不像「第 N 章」。 */
++    const val TITLE_MARK = '\u2063'
++
+     private fun isTitleLine(line: String): Boolean =
+         line.length <= 40 && TXT_CHAPTER.matches(line) && !line.endsWith("。") && !line.endsWith("，")
+ 
+@@ -104,7 +107,10 @@
+         for (rawLine in lines) {
+             val line = rawLine.trim { it.isWhitespace() || it == '\uFEFF' }
+             if (line.isEmpty()) continue
+-            if (isTitleLine(line)) {
++            if (line[0] == TITLE_MARK) {
++                flush()
++                title = line.substring(1).trim().ifEmpty { null }
++            } else if (isTitleLine(line)) {
+                 flush()
+                 title = line
+             } else {
+diff -ruN a/app/src/main/java/dev/dsh/miuixbrowser/data/BookFeed.kt b/app/src/main/java/dev/dsh/miuixbrowser/data/BookFeed.kt
+--- a/app/src/main/java/dev/dsh/miuixbrowser/data/BookFeed.kt	1970-01-01 00:00:00.000000000 +0000
++++ b/app/src/main/java/dev/dsh/miuixbrowser/data/BookFeed.kt	2026-11-26 23:59:03.231246980 +0000
+@@ -0,0 +1,347 @@
++/*
++ * Copyright © 2026 rosenii. All rights reserved.
++ * 未经版权所有者书面许可，不得复制、修改或分发。
++ */
++
++package dev.dsh.miuixbrowser.data
++
++import android.content.Context
++import android.net.Uri
++import dev.dsh.miuixbrowser.i18n.tr
++import dev.dsh.miuixbrowser.net.HttpFetcher
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
++import kotlinx.coroutines.awaitAll
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.sync.Semaphore
++import kotlinx.coroutines.sync.withPermit
++import kotlinx.coroutines.withContext
++import org.json.JSONArray
++import org.json.JSONObject
++import org.json.JSONTokener
++import java.net.URL
++import java.util.concurrent.atomic.AtomicInteger
++
++/** 订阅源里的一章：[url] 指向正文，或直接内嵌 [text]。 */
++class FeedChapter(val title: String, val url: String?, val text: String?)
++
++/**
++ * 订阅源里的一本书。正文来源三选一（按此优先级）：
++ * [url]（整本 txt / epub 文件）→ [chapters]（内嵌章节列表）→ [chaptersUrl]（章节列表的 JSON 链接）。
++ */
++class FeedBook(
++    val title: String,
++    val author: String,
++    val cover: String?,
++    val url: String?,
++    /** "txt" / "epub"；源里没写时为 null，下载后按文件内容判断 */
++    val format: String?,
++    val chapters: List<FeedChapter>,
++    val chaptersUrl: String?,
++)
++
++class BookFeed(val name: String, val books: List<FeedBook>)
++
++/**
++ * 通用 JSON 小说订阅源的解析。不依赖具体站点的规则，只认「书目列表 + 每本书的下载 / 章节链接」，字段名兼容常见写法：
++ *
++ * ```
++ * { "name": "我的书源",
++ *   "books": [
++ *     { "title": "三体", "author": "刘慈欣", "cover": "https://…/c.jpg", "url": "https://…/santi.epub", "format": "epub" },
++ *     { "title": "某某传", "author": "佚名",
++ *       "chapters": [ { "title": "第一章", "url": "https://…/1.txt" }, { "title": "第二章", "text": "正文…" } ] }
++ *   ] }
++ * ```
++ *
++ * 顶层可以直接是数组；书目列表也可以放在 books / novels / items / list / entries / data … 下；
++ * 同时兼容 OPDS 2.0（publications + links 里的 acquisition）。链接可以是相对地址，相对订阅源自己的地址解析。
++ */
++object BookFeedParser {
++    private val LIST_KEYS = listOf("books", "novels", "items", "list", "entries", "results", "result", "publications", "library", "shelf", "data")
++    private val CHAPTER_LIST_KEYS = listOf("chapters", "chapterList", "chapter_list", "list", "items", "toc", "catalog", "contents", "data")
++    private val NAME_KEYS = arrayOf("name", "title", "feedName", "sourceName")
++
++    /** [baseUrl]：订阅源自身的地址（本地文件为 null，此时相对链接无法解析、会被丢弃）。解析失败抛 [IllegalArgumentException]（消息可直接给用户看）。 */
++    fun parse(text: String, baseUrl: String? = null): BookFeed {
++        val root = runCatching { JSONTokener(text.trim().trimStart('\uFEFF')).nextValue() }.getOrNull()
++        var name = ""
++        val arr: JSONArray? = when (root) {
++            is JSONArray -> root
++            is JSONObject -> {
++                name = root.str(*NAME_KEYS) ?: root.optJSONObject("metadata")?.str("title").orEmpty()
++                findList(root, LIST_KEYS, 0)
++            }
++            else -> null
++        }
++        require(arr != null) { tr("不是有效的订阅源（需要 JSON 书目列表）") }
++        val out = ArrayList<FeedBook>()
++        for (i in 0 until arr.length()) parseBook(arr.optJSONObject(i), baseUrl)?.let(out::add)
++        require(out.isNotEmpty()) { tr("订阅源里没有可导入的书（每本书需要书名，以及下载链接或章节列表；本地文件里的链接需写完整的 http / https 地址）") }
++        return BookFeed(name, out)
++    }
++
++    /** 章节列表的 JSON（数组，或放在 chapters / list / data … 下的数组），元素可以是链接字符串或 {title,url|text}。 */
++    fun parseChapterList(text: String, baseUrl: String?): List<FeedChapter> {
++        val root = runCatching { JSONTokener(text.trim().trimStart('\uFEFF')).nextValue() }.getOrNull()
++        val arr = when (root) {
++            is JSONArray -> root
++            is JSONObject -> findList(root, CHAPTER_LIST_KEYS, 0)
++            else -> null
++        } ?: return emptyList()
++        return chapters(arr, baseUrl)
++    }
++
++    private fun findList(o: JSONObject, keys: List<String>, depth: Int): JSONArray? {
++        for (k in keys) {
++            when (val v = o.opt(k)) {
++                is JSONArray -> if (v.length() > 0) return v
++                is JSONObject -> if (depth < 2) findList(v, keys, depth + 1)?.let { return it }
++                else -> Unit
++            }
++        }
++        return null
++    }
++
++    private fun parseBook(o: JSONObject?, base: String?): FeedBook? {
++        o ?: return null
++        val meta = o.optJSONObject("metadata")
++        val title = o.str("title", "name", "bookName", "book_name", "novelName") ?: meta?.str("title") ?: return null
++        val author = authorOf(o.opt("author") ?: o.opt("authors") ?: o.opt("writer") ?: o.opt("bookAuthor") ?: meta?.opt("author") ?: meta?.opt("authors"))
++
++        val links = o.optJSONArray("links")
++        val acquisition = findLink(links) { rel -> rel.contains("acquisition") }
++        val imageLink = findLink(links) { rel -> rel.contains("image") || rel.contains("cover") || rel.contains("thumbnail") }
++
++        val url = resolve(
++            o.str("download", "downloadUrl", "download_url", "fileUrl", "file_url", "file", "epub", "txt", "url", "link", "href")
++                ?: acquisition?.str("href"),
++            base,
++        )
++        val format = normFormat(o.str("format", "fileType", "file_type", "ext", "extension", "type")) ?: normFormat(acquisition?.str("type"))
++        val cover = resolve(
++            o.str("cover", "coverUrl", "cover_url", "img", "image", "thumbnail", "pic", "poster")
++                ?: o.optJSONArray("images")?.optJSONObject(0)?.str("href")
++                ?: imageLink?.str("href"),
++            base,
++        )
++
++        var chapterList: List<FeedChapter> = emptyList()
++        var chaptersUrl: String? = null
++        for (key in arrayOf("chapters", "chapterList", "chapter_list", "toc", "catalog", "contents")) {
++            when (val v = o.opt(key)) {
++                is JSONArray -> if (chapterList.isEmpty()) chapterList = chapters(v, base)
++                is String -> if (chaptersUrl == null) chaptersUrl = resolve(v, base)
++                else -> Unit
++            }
++        }
++        if (url == null && chapterList.isEmpty() && chaptersUrl == null) return null
++        return FeedBook(title, author, cover, url, format, chapterList, chaptersUrl)
++    }
++
++    private fun chapters(arr: JSONArray, base: String?): List<FeedChapter> {
++        val out = ArrayList<FeedChapter>(arr.length())
++        for (i in 0 until arr.length()) {
++            when (val e = arr.opt(i)) {
++                is String -> resolve(e, base)?.let { out.add(FeedChapter("", it, null)) }
++                is JSONObject -> {
++                    val url = resolve(e.str("url", "link", "href", "chapterUrl", "chapter_url"), base)
++                    val text = e.str("content", "text")
++                    if (url != null || text != null) {
++                        out.add(FeedChapter(e.str("title", "name", "chapterName", "chapter_title").orEmpty(), url, text))
++                    }
++                }
++                else -> Unit
++            }
++        }
++        return out
++    }
++
++    private fun findLink(links: JSONArray?, match: (String) -> Boolean): JSONObject? {
++        links ?: return null
++        for (i in 0 until links.length()) {
++            val l = links.optJSONObject(i) ?: continue
++            val rel = when (val r = l.opt("rel")) {
++                is String -> r
++                is JSONArray -> (0 until r.length()).joinToString(" ") { r.optString(it) }
++                else -> ""
++            }.lowercase()
++            if (match(rel)) return l
++        }
++        return null
++    }
++
++    private fun authorOf(v: Any?): String = when (v) {
++        is String -> v.trim()
++        is JSONObject -> v.str("name").orEmpty()
++        is JSONArray -> (0 until v.length()).map { authorOf(v.opt(it)) }.filter { it.isNotEmpty() }.joinToString("、")
++        else -> ""
++    }
++
++    /** 只认 txt / epub；"text/plain"、"application/epub+zip"、".epub" 之类的写法也算。 */
++    internal fun normFormat(raw: String?): String? {
++        val s = raw?.trim()?.lowercase()?.removePrefix(".") ?: return null
++        return when {
++            s == "txt" || s == "text" || s.startsWith("text/plain") -> "txt"
++            s == "epub" || s.contains("epub") -> "epub"
++            else -> null
++        }
++    }
++
++    /** 绝对 http(s) 地址原样返回；相对地址按 [base] 解析；其他协议（file: / javascript: / content: …）一律丢弃。 */
++    internal fun resolve(raw: String?, base: String?): String? {
++        val s = raw?.trim().orEmpty()
++        if (s.isEmpty()) return null
++        val abs = when {
++            s.startsWith("http://", true) || s.startsWith("https://", true) -> s
++            base != null -> runCatching { URL(URL(base), s).toString() }.getOrNull()
++            else -> null
++        }
++        return abs?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
++    }
++
++    private fun JSONObject.str(vararg keys: String): String? {
++        for (k in keys) {
++            val v = opt(k)
++            if (v is String && v.isNotBlank()) return v.trim()
++        }
++        return null
++    }
++}
++
++/** 订阅源的下载与入架：取源文本、下载整本文件或逐章拼成 TXT，再交给 [BookShelf]。 */
++object BookFeedImport {
++    private const val UA = "Mozilla/5.0 mafari"
++    private const val MAX_FEED_BYTES = 8 * 1024 * 1024
++    private const val MAX_BOOK_BYTES = 48 * 1024 * 1024
++    private const val MAX_CHAPTERS = 5000
++    private const val PARALLEL = 4
++
++    private fun options(maxBytes: Int, readTimeoutMs: Int = 20_000) =
++        HttpFetcher.Options(connectTimeoutMs = 10_000, readTimeoutMs = readTimeoutMs, maxBytes = maxBytes, userAgent = UA)
++
++    /** 下载订阅源并解析。阻塞调用，放 IO 线程。 */
++    fun loadFromUrl(url: String): BookFeed {
++        val u = url.trim()
++        require(u.startsWith("http://", true) || u.startsWith("https://", true)) { tr("请输入 http / https 链接") }
++        val res = HttpFetcher.get(u, options(MAX_FEED_BYTES))
++        // 重定向之后以最终地址为准，相对链接才解析得对
++        return BookFeedParser.parse(BookContent.decodeText(res.bytes), res.url)
++    }
++
++    /** 读本地订阅源文件并解析。阻塞调用，放 IO 线程。 */
++    fun loadFromUri(context: Context, uri: Uri): BookFeed {
++        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
++            val out = java.io.ByteArrayOutputStream()
++            val buf = ByteArray(16 * 1024)
++            var total = 0
++            while (true) {
++                val n = input.read(buf)
++                if (n < 0) break
++                total += n
++                if (total > MAX_FEED_BYTES) throw HttpFetcher.TooLargeException()
++                out.write(buf, 0, n)
++            }
++            out.toByteArray()
++        } ?: error(tr("读取文件失败"))
++        return BookFeedParser.parse(BookContent.decodeText(bytes), null)
++    }
++
++    /**
++     * 把订阅源里的一本书下载进书架。[onProgress] 只在按章节拼书时回调（已完成章数, 总章数）。
++     * 失败返回带用户可读消息的 [Result.failure]。协程被取消时失败里装的是 CancellationException，调用方要判断并原样抛出。
++     */
++    suspend fun importBook(context: Context, book: FeedBook, onProgress: (Int, Int) -> Unit = { _, _ -> }): Result<Unit> =
++        withContext(Dispatchers.IO) {
++            runCatching {
++                BookShelf.load(context)
++                // 封面拿不到不影响入架；EPUB 自带封面时源里没写也行
++                val cover = book.cover?.let { runCatching { HttpFetcher.get(it, options(2 * 1024 * 1024)).bytes }.getOrNull() }
++                if (book.url != null) importFile(context, book, book.url, cover) else importChapters(context, book, cover, onProgress)
++            }.recoverCatching {
++                if (it is kotlin.coroutines.cancellation.CancellationException) throw it
++                throw IllegalStateException(it.message ?: tr("下载失败，检查网络或链接"))
++            }
++        }
++
++    private fun importFile(context: Context, book: FeedBook, url: String, cover: ByteArray?) {
++        val res = HttpFetcher.get(url, options(MAX_BOOK_BYTES, readTimeoutMs = 60_000))
++        val ext = pickExt(book.format, res.url, res.contentType, res.bytes)
++        if (ext == "txt" && looksLikeHtml(res.bytes)) error(tr("下载到的不是书籍文件"))
++        val ok = BookShelf.addBook(context, "${book.title}.$ext", ext, book.title, book.author, cover) { it.writeBytes(res.bytes) }
++        if (!ok) error(tr("仅支持 TXT / EPUB"))
++    }
++
++    private suspend fun importChapters(context: Context, book: FeedBook, cover: ByteArray?, onProgress: (Int, Int) -> Unit) {
++        val list = (
++            book.chapters.ifEmpty {
++                val u = book.chaptersUrl ?: error(tr("这本书没有可下载的内容"))
++                BookFeedParser.parseChapterList(BookContent.decodeText(HttpFetcher.get(u, options(MAX_FEED_BYTES)).bytes), u)
++            }
++            ).take(MAX_CHAPTERS)
++        if (list.isEmpty()) error(tr("这本书没有可下载的内容"))
++
++        val done = AtomicInteger(0)
++        val gate = Semaphore(PARALLEL)
++        val bodies: List<String?> = coroutineScope {
++            list.map { ch ->
++                async(Dispatchers.IO) {
++                    gate.withPermit {
++                        val body = ch.text ?: ch.url?.let { fetchChapter(it) }
++                        onProgress(done.incrementAndGet(), list.size)
++                        body
++                    }
++                }
++            }.awaitAll()
++        }
++        if (bodies.all { it == null }) error(tr("章节下载失败，检查网络或链接"))
++
++        val txt = buildTxt(list.map { it.title }, bodies)
++        val ok = BookShelf.addBook(context, "${book.title}.txt", "txt", book.title, book.author, cover) { it.writeText(txt) }
++        if (!ok) error(tr("仅支持 TXT / EPUB"))
++    }
++
++    /** 一章正文；失败重试一次，仍失败返回 null（由 [buildTxt] 填占位文字）。 */
++    private fun fetchChapter(url: String): String? {
++        repeat(2) {
++            val t = runCatching { BookContent.decodeText(HttpFetcher.get(url, options(2 * 1024 * 1024, readTimeoutMs = 15_000)).bytes) }.getOrNull()
++            if (t != null) return t
++        }
++        return null
++    }
++
++    /**
++     * 把各章拼成一个 TXT。章节标题行以 [BookContent.TITLE_MARK] 开头，阅读器据此切章，
++     * 不依赖标题长得像「第 N 章」；标题为空的章按序号补。正文是 HTML 的先转成段落。
++     */
++    internal fun buildTxt(titles: List<String>, bodies: List<String?>): String {
++        val sb = StringBuilder()
++        for (i in bodies.indices) {
++            val title = titles.getOrNull(i).orEmpty().ifBlank { tr("第 {0} 章", i + 1) }
++            sb.append(BookContent.TITLE_MARK).append(title).append('\n')
++            val raw = bodies[i]
++            sb.append(if (raw == null) tr("（本章下载失败）") else chapterText(raw)).append("\n\n")
++        }
++        return sb.toString()
++    }
++
++    private val HTML_HINT = Regex("<(?:p|br|div)\\b", RegexOption.IGNORE_CASE)
++
++    internal fun chapterText(raw: String): String =
++        if (HTML_HINT.containsMatchIn(raw)) BookContent.htmlToParagraphs(raw).joinToString("\n") else raw.trim()
++
++    /** 先看内容（zip 魔数 = EPUB），再看源里写的格式、URL 后缀、Content-Type，都没有就当 TXT。 */
++    internal fun pickExt(format: String?, url: String, contentType: String, bytes: ByteArray): String {
++        if (bytes.size >= 4 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte() && bytes[2] == 3.toByte() && bytes[3] == 4.toByte()) return "epub"
++        BookFeedParser.normFormat(format)?.let { return it }
++        val path = runCatching { URL(url).path }.getOrDefault("")
++        BookFeedParser.normFormat(path.substringAfterLast('.', ""))?.let { return it }
++        BookFeedParser.normFormat(contentType)?.let { return it }
++        return "txt"
++    }
++
++    private fun looksLikeHtml(bytes: ByteArray): Boolean {
++        val head = String(bytes, 0, minOf(bytes.size, 512), Charsets.UTF_8).trimStart('\uFEFF', ' ', '\n', '\r', '\t').lowercase()
++        return head.startsWith("<!doctype html") || head.startsWith("<html")
++    }
++}
+diff -ruN a/app/src/main/java/dev/dsh/miuixbrowser/data/BookShelf.kt b/app/src/main/java/dev/dsh/miuixbrowser/data/BookShelf.kt
+--- a/app/src/main/java/dev/dsh/miuixbrowser/data/BookShelf.kt	2026-11-26 23:59:03.218222785 +0000
++++ b/app/src/main/java/dev/dsh/miuixbrowser/data/BookShelf.kt	2026-11-26 23:59:03.231004527 +0000
+@@ -62,7 +62,7 @@
+  *
+  * 目录结构（应用私有目录）：`bookshelf/index.json` 是书目索引，`bookshelf/<id>/book.<ext>` 是正文副本，
+  * `bookshelf/<id>/cover.img` 是封面（压到长边 ≤ 900px 的 JPEG）。导入时把文件复制进来，
+- * 原文件被移动 / 删除也不影响阅读。目前只管理书目与封面，阅读器之后再接。
++ * 原文件被移动 / 删除也不影响阅读。来源有两种：本地文件（[importUris]）和 JSON 订阅源（见 BookFeed.kt，下载后走 [addBook]）。
+  */
+ object BookShelf {
+     private const val DIR = "bookshelf"
+@@ -130,26 +130,45 @@
+     private fun importOne(context: Context, uri: Uri): Boolean {
+         val displayName = queryDisplayName(context, uri) ?: uri.lastPathSegment ?: return false
+         val ext = displayName.substringAfterLast('.', "").lowercase()
++        return addBook(context, displayName, ext, null, null, null) { target ->
++            val input = context.contentResolver.openInputStream(uri) ?: error("open failed")
++            input.use { src -> target.outputStream().use { dst -> src.copyTo(dst) } }
++        }
++    }
++
++    /**
++     * 新建一本书并入架：[write] 把正文写进给定的文件；书名 / 作者 / 封面默认取自文件名或 EPUB 元数据，
++     * [title] / [author] / [cover] 非空时优先（订阅源给的信息）。不支持的格式返回 false；写盘失败抛异常（已清理半成品）。在 IO 线程调用。
++     */
++    fun addBook(
++        context: Context,
++        displayName: String,
++        ext: String,
++        title: String?,
++        author: String?,
++        cover: ByteArray?,
++        write: (File) -> Unit,
++    ): Boolean {
++        load(context)
+         if (ext !in SUPPORTED) return false
+ 
+         val id = UUID.randomUUID().toString().replace("-", "").take(16)
+         val dir = bookDir(context, id).also { it.mkdirs() }
+         val target = File(dir, "book.$ext")
+         try {
+-            val input = context.contentResolver.openInputStream(uri) ?: error("open failed")
+-            input.use { src -> target.outputStream().use { dst -> src.copyTo(dst) } }
++            write(target)
+             if (target.length() == 0L) error("empty file")
+ 
+             val meta = if (ext == "epub") readEpubMeta(target, displayName) else metaFromTxtName(displayName)
+             var hasCover = false
+-            val coverBytes = meta.cover
++            val coverBytes = cover ?: meta.cover
+             if (coverBytes != null) {
+                 hasCover = runCatching { writeCover(coverFile(context, id), decodeScaled(coverBytes)) }.getOrDefault(false)
+             }
+             val book = Book(
+                 id = id,
+-                title = meta.title,
+-                author = meta.author,
++                title = title?.takeIf { it.isNotBlank() } ?: meta.title,
++                author = author?.takeIf { it.isNotBlank() } ?: meta.author,
+                 fileName = target.name,
+                 addedAt = System.currentTimeMillis(),
+                 hasCover = hasCover,
+diff -ruN a/app/src/main/java/dev/dsh/miuixbrowser/ui/BookshelfScreen.kt b/app/src/main/java/dev/dsh/miuixbrowser/ui/BookshelfScreen.kt
+--- a/app/src/main/java/dev/dsh/miuixbrowser/ui/BookshelfScreen.kt	2026-11-26 23:59:03.218222785 +0000
++++ b/app/src/main/java/dev/dsh/miuixbrowser/ui/BookshelfScreen.kt	2026-11-26 23:59:03.235124475 +0000
+@@ -83,10 +83,15 @@
+ import dev.dsh.miuixbrowser.data.Book
+ import dev.dsh.miuixbrowser.data.AppSettings
+ import dev.dsh.miuixbrowser.data.BookCategory
++import dev.dsh.miuixbrowser.data.BookFeed
++import dev.dsh.miuixbrowser.data.BookFeedImport
++import dev.dsh.miuixbrowser.data.FeedBook
+ import dev.dsh.miuixbrowser.data.BookSort
+ import dev.dsh.miuixbrowser.data.BookShelf
+ import dev.dsh.miuixbrowser.i18n.tr
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlin.coroutines.cancellation.CancellationException
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+ import top.yukonga.miuix.kmp.basic.Icon
+@@ -146,7 +151,7 @@
+  * 复用其他二级页面的框架（玻璃大标题顶栏 + 右上角按钮）。顶栏三个按钮：搜索（写法同历史页：顶栏下方展开输入框，按书名 / 作者过滤）、
+  * 排序（添加时间 / 书名 / 作者 / 阅读进度，升降序）、更多（选择 / 网格 / 列表 / 创建分类 / 导入）。
+  * 网格 / 列表和排序方式存在 [AppSettings]（与阅读器排版同一套 SharedPreferences）。分类用顶栏下方一行可横滑的标签切换；
+- * 「选择」进入多选，底部「移动到分类 / 删除」；长按封面（非选择模式）弹出编辑窗口。「订阅网络小说」入口先占位。
++ * 「选择」进入多选，底部「移动到分类 / 删除」；长按封面（非选择模式）弹出编辑窗口。「从订阅源导入」读取通用 JSON 小说订阅源（链接或本地文件，弹窗与脚本页共用），勾选后下载入架。
+  */
+ @OptIn(ExperimentalFoundationApi::class)
+ @Composable
+@@ -213,6 +218,17 @@
+     var sortAnchor by remember { mutableStateOf(Rect.Zero) }
+     var importing by remember { mutableStateOf(false) }
+ 
++    // 从订阅源导入：输入弹窗 → 解析出的书目（勾选）→ 逐本下载（带进度、可取消）
++    var feedDialog by remember { mutableStateOf(false) }
++    var feedLoading by remember { mutableStateOf(false) }
++    var feedPick by remember { mutableStateOf<BookFeed?>(null) }
++    var feedPickShow by remember { mutableStateOf(false) }
++    var feedSel by remember { mutableStateOf<Set<Int>>(emptySet()) }
++    var feedRunning by remember { mutableStateOf(false) }
++    var feedProgress by remember { mutableStateOf("") }
++    var feedJob by remember { mutableStateOf<Job?>(null) }
++    val shelfKeys = remember(books) { books.mapTo(HashSet()) { it.title.trim() to it.author.trim() } }
++
+     // 编辑窗口 / 删除确认：书和显示状态分开存，关闭动画期间内容不会突然消失
+     var editBook by remember { mutableStateOf<Book?>(null) }
+     var editShow by remember { mutableStateOf(false) }
+@@ -275,6 +291,67 @@
+         }
+     }
+ 
++    /** 取订阅源并解析（[load] 在 IO 线程跑）；成功后弹出书目勾选窗，已在书架的书默认不勾。 */
++    fun loadFeed(remote: Boolean, load: () -> BookFeed) {
++        if (feedLoading) return
++        feedLoading = true
++        if (remote) toast(tr("正在下载…"))
++        scope.launch {
++            val r = withContext(Dispatchers.IO) { runCatching(load) }
++            feedLoading = false
++            r.onSuccess { f ->
++                feedPick = f
++                feedSel = f.books.indices.filter { (f.books[it].title.trim() to f.books[it].author.trim()) !in shelfKeys }.toSet()
++                feedPickShow = true
++            }.onFailure { toast(it.message ?: tr("下载失败，检查链接")) }
++        }
++    }
++
++    val feedFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
++        if (uri == null) return@rememberLauncherForActivityResult
++        loadFeed(remote = false) { BookFeedImport.loadFromUri(context, uri) }
++    }
++
++    /** 逐本下载入架；可取消，取消后已入架的保留。 */
++    fun startFeedImport(picks: List<FeedBook>) {
++        feedPickShow = false
++        feedProgress = ""
++        feedRunning = true
++        importing = true
++        feedJob = scope.launch {
++            var ok = 0
++            var fail = 0
++            var lastErr: String? = null
++            var cancelled = false
++            try {
++                for ((i, b) in picks.withIndex()) {
++                    feedProgress = tr("《{0}》（{1}/{2}）", b.title, i + 1, picks.size)
++                    val r = BookFeedImport.importBook(context, b) { done, total ->
++                        feedProgress = tr("《{0}》（{1}/{2}）· 章节 {3}/{4}", b.title, i + 1, picks.size, done, total)
++                    }
++                    val err = r.exceptionOrNull()
++                    if (err is CancellationException) throw err
++                    if (err == null) ok++ else { fail++; lastErr = err.message }
++                }
++            } catch (e: CancellationException) {
++                cancelled = true
++                throw e
++            } finally {
++                feedRunning = false
++                importing = false
++                feedJob = null
++                toast(
++                    when {
++                        cancelled -> tr("已取消，已导入 {0} 本", ok)
++                        fail == 0 -> tr("已导入 {0} 本", ok)
++                        ok == 0 -> tr("导入失败：{0}", lastErr.orEmpty())
++                        else -> tr("已导入 {0} 本，{1} 本失败：{2}", ok, fail, lastErr.orEmpty())
++                    },
++                )
++            }
++        }
++    }
++
+     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+         if (uri == null) return@rememberLauncherForActivityResult
+         scope.launch {
+@@ -642,6 +719,84 @@
+                     }
+                 }
+ 
++                // ---- 从订阅源导入：输入链接 / 选本地文件（与脚本页同一个弹窗）
++                ImportDialog(
++                    show = feedDialog,
++                    backdrop = bd,
++                    onDismiss = { feedDialog = false },
++                    onImport = { url ->
++                        feedDialog = false
++                        loadFeed(remote = true) { BookFeedImport.loadFromUrl(url) }
++                    },
++                    onPickFile = {
++                        feedDialog = false
++                        feedFilePicker.launch(arrayOf("application/json", "text/*", "application/octet-stream", "*/*"))
++                    },
++                    title = tr("从订阅源导入"),
++                    summary = tr("支持通用 JSON 小说订阅源：输入链接或选择本地文件，再勾选要导入的书"),
++                    urlLabel = tr("订阅源地址（http / https，JSON）"),
++                )
++
++                // ---- 订阅源书目：勾选要导入的书
++                val pickFeed = feedPick
++                AppGlassDialog(
++                    show = feedPickShow,
++                    title = pickFeed?.name?.ifBlank { null } ?: tr("订阅源"),
++                    summary = pickFeed?.let { tr("共 {0} 本，勾选要导入的书（已在书架的默认不选）", it.books.size) },
++                    backdrop = bd,
++                    onDismissRequest = { feedPickShow = false },
++                ) {
++                    if (pickFeed != null) {
++                        val total = pickFeed.books.size
++                        Column(modifier = Modifier.fillMaxWidth()) {
++                            LazyColumn(modifier = Modifier.fillMaxWidth().height(minOf(total, 6) * 56.dp)) {
++                                items(total) { i ->
++                                    val b = pickFeed.books[i]
++                                    FeedRow(
++                                        title = b.title,
++                                        author = b.author,
++                                        checked = i in feedSel,
++                                        onShelf = (b.title.trim() to b.author.trim()) in shelfKeys,
++                                    ) { feedSel = if (i in feedSel) feedSel - i else feedSel + i }
++                                }
++                            }
++                            Spacer(Modifier.height(6.dp))
++                            AppTextButton(
++                                text = if (feedSel.size == total) tr("取消全选") else tr("全选"),
++                                onClick = { feedSel = if (feedSel.size == total) emptySet() else (0 until total).toSet() },
++                                modifier = Modifier.fillMaxWidth(),
++                            )
++                            Spacer(Modifier.height(6.dp))
++                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++                                AppDialogButton(onClick = { feedPickShow = false }, modifier = Modifier.weight(1f)) {
++                                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
++                                }
++                                AppDialogButton(
++                                    onClick = {
++                                        if (feedSel.isEmpty()) toast(tr("请先勾选要导入的书"))
++                                        else startFeedImport(feedSel.sorted().map { pickFeed.books[it] })
++                                    },
++                                    modifier = Modifier.weight(1f),
++                                    role = GlassDialogButtonRole.Primary,
++                                ) { Text(text = tr("导入 {0} 本", feedSel.size), style = MiuixTheme.textStyles.button) }
++                            }
++                        }
++                    }
++                }
++
++                // ---- 导入进度（可取消）
++                AppGlassDialog(
++                    show = feedRunning,
++                    title = tr("正在导入…"),
++                    summary = feedProgress,
++                    backdrop = bd,
++                    onDismissRequest = {},
++                ) {
++                    AppDialogButton(onClick = { feedJob?.cancel() }, modifier = Modifier.fillMaxWidth()) {
++                        Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
++                    }
++                }
++
+                 // ---- 删除分类确认（书不会被删）
+                 AppGlassDialog(
+                     show = deleteCatShow,
+@@ -813,10 +968,11 @@
+                     )
+                 }
+                 GlassPopupItem(
+-                    text = tr("订阅网络小说"),
++                    text = tr("从订阅源导入"),
++                    enabled = !importing && !feedLoading,
+                     onClick = {
+                         showMore = false
+-                        toast(tr("网络订阅暂未开放，敬请期待"))
++                        feedDialog = true
+                     },
+                     icon = MiuixIcons.Glass.Download,
+                 )
+@@ -895,6 +1051,45 @@
+     )
+ }
+ 
++/** 订阅源书目窗口里的一行：勾选圆点 + 书名 / 作者（已在书架的标出来）。 */
++@Composable
++private fun FeedRow(title: String, author: String, checked: Boolean, onShelf: Boolean, onClick: () -> Unit) {
++    val sub = listOf(author, if (onShelf) tr("已在书架") else "").filter { it.isNotEmpty() }.joinToString(" · ")
++    Row(
++        modifier = Modifier.fillMaxWidth().height(56.dp).clickable(onClick = onClick),
++        verticalAlignment = Alignment.CenterVertically,
++    ) {
++        Box(
++            modifier = Modifier
++                .size(22.dp)
++                .clip(CircleShape)
++                .background(if (checked) MiuixTheme.colorScheme.primary else Color.Transparent)
++                .border(1.5.dp, if (checked) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary, CircleShape),
++            contentAlignment = Alignment.Center,
++        ) {
++            if (checked) Text(text = "✓", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
++        }
++        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
++            Text(
++                text = title,
++                fontSize = 16.sp,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++                color = MiuixTheme.colorScheme.onSurface,
++            )
++            if (sub.isNotEmpty()) {
++                Text(
++                    text = sub,
++                    fontSize = 12.sp,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis,
++                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
++                )
++            }
++        }
++    }
++}
++
+ /** 选择模式下的勾选圆点。 */
+ @Composable
+ private fun SelectMark(checked: Boolean, modifier: Modifier = Modifier) {
+diff -ruN a/app/src/main/java/dev/dsh/miuixbrowser/ui/ExtensionsScreen.kt b/app/src/main/java/dev/dsh/miuixbrowser/ui/ExtensionsScreen.kt
+--- a/app/src/main/java/dev/dsh/miuixbrowser/ui/ExtensionsScreen.kt	2026-11-25 00:20:34.000000000 +0000
++++ b/app/src/main/java/dev/dsh/miuixbrowser/ui/ExtensionsScreen.kt	2026-11-26 23:59:03.235977510 +0000
+@@ -631,19 +631,26 @@
+     }
+ }
+ 
++/**
++ * 「输入链接 / 选本地文件」导入弹窗。脚本页和书架的「从订阅源导入」共用；
++ * 标题、说明、输入框提示默认是脚本页的文案，其他入口传自己的。
++ */
+ @Composable
+-private fun ImportDialog(
++internal fun ImportDialog(
+     show: Boolean,
+     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
+     onDismiss: () -> Unit,
+     onImport: (String) -> Unit,
+     onPickFile: () -> Unit,
++    title: String = tr("导入脚本"),
++    summary: String = tr("支持 .user.js 链接或本地文件；去广告规则会自动转交「去广告」"),
++    urlLabel: String = tr("脚本地址（http / https，.user.js）"),
+ ) {
+     var url by remember(show) { mutableStateOf("") }
+     AppGlassDialog(
+         show = show,
+-        title = tr("导入脚本"),
+-        summary = tr("支持 .user.js 链接或本地文件；去广告规则会自动转交「去广告」"),
++        title = title,
++        summary = summary,
+         backdrop = backdrop,
+         onDismissRequest = onDismiss,
+     ) {
+@@ -652,7 +659,7 @@
+                 value = url,
+                 onValueChange = { url = it },
+                 modifier = Modifier.fillMaxWidth(),
+-                label = tr("脚本地址（http / https，.user.js）"),
++                label = urlLabel,
+                 singleLine = true,
+             )
+             Spacer(Modifier.height(10.dp))
+diff -ruN a/app/src/test/java/dev/dsh/miuixbrowser/BookFeedTest.kt b/app/src/test/java/dev/dsh/miuixbrowser/BookFeedTest.kt
+--- a/app/src/test/java/dev/dsh/miuixbrowser/BookFeedTest.kt	1970-01-01 00:00:00.000000000 +0000
++++ b/app/src/test/java/dev/dsh/miuixbrowser/BookFeedTest.kt	2026-11-26 23:59:03.249761207 +0000
+@@ -0,0 +1,130 @@
++/*
++ * Copyright © 2026 rosenii. All rights reserved.
++ * 未经版权所有者书面许可，不得复制、修改或分发。
++ */
++
++package dev.dsh.miuixbrowser
++
++import dev.dsh.miuixbrowser.data.BookContent
++import dev.dsh.miuixbrowser.data.BookFeedImport
++import dev.dsh.miuixbrowser.data.BookFeedParser
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Assert.fail
++import org.junit.Test
++
++/** 通用 JSON 小说订阅源：解析各种写法、相对链接、章节列表，以及按章拼 TXT 后阅读器能切回章节。 */
++class BookFeedTest {
++    @Test fun objectWithBooksAndRelativeUrls() {
++        val feed = BookFeedParser.parse(
++            """{"name":"我的书源","books":[
++                 {"title":"三体","author":"刘慈欣","cover":"c/1.jpg","url":"files/santi.epub","format":"epub"},
++                 {"name":"无链接的书"}
++               ]}""",
++            "https://example.com/feeds/index.json",
++        )
++        assertEquals("我的书源", feed.name)
++        assertEquals(1, feed.books.size)
++        val b = feed.books[0]
++        assertEquals("三体", b.title)
++        assertEquals("刘慈欣", b.author)
++        assertEquals("https://example.com/feeds/files/santi.epub", b.url)
++        assertEquals("https://example.com/feeds/c/1.jpg", b.cover)
++        assertEquals("epub", b.format)
++    }
++
++    @Test fun topLevelArrayWithAliasKeys() {
++        val feed = BookFeedParser.parse(
++            """[{"bookName":"A","authors":["甲","乙"],"downloadUrl":"https://x.test/a.txt","coverUrl":"https://x.test/a.jpg"}]""",
++        )
++        assertEquals("", feed.name)
++        assertEquals("甲、乙", feed.books[0].author)
++        assertEquals("https://x.test/a.txt", feed.books[0].url)
++    }
++
++    @Test fun nestedDataList() {
++        val feed = BookFeedParser.parse("""{"code":0,"data":{"list":[{"title":"B","url":"https://x.test/b.txt"}]}}""")
++        assertEquals("B", feed.books[0].title)
++    }
++
++    @Test fun inlineAndLinkedChapters() {
++        val feed = BookFeedParser.parse(
++            """{"books":[
++                 {"title":"C","chapters":[{"title":"一","url":"1.txt"},{"title":"二","text":"正文"},"3.txt"]},
++                 {"title":"D","chapters":"toc.json"}
++               ]}""",
++            "https://x.test/feed/index.json",
++        )
++        val c = feed.books[0].chapters
++        assertEquals(3, c.size)
++        assertEquals("https://x.test/feed/1.txt", c[0].url)
++        assertEquals("正文", c[1].text)
++        assertEquals("", c[2].title)
++        assertEquals("https://x.test/feed/toc.json", feed.books[1].chaptersUrl)
++    }
++
++    @Test fun chapterListFile() {
++        val l = BookFeedParser.parseChapterList("""{"chapters":[{"title":"一","link":"a"},{"title":"二","link":"b"}]}""", "https://x.test/d/toc.json")
++        assertEquals(listOf("https://x.test/d/a", "https://x.test/d/b"), l.map { it.url })
++    }
++
++    @Test fun opdsPublications() {
++        val feed = BookFeedParser.parse(
++            """{"metadata":{"title":"OPDS 书库"},"publications":[
++                 {"metadata":{"title":"E","author":{"name":"某人"}},
++                  "links":[{"rel":"http://opds-spec.org/acquisition","href":"/e.epub","type":"application/epub+zip"}],
++                  "images":[{"href":"/e.jpg"}]}]}""",
++            "https://lib.test/opds",
++        )
++        assertEquals("OPDS 书库", feed.name)
++        val b = feed.books[0]
++        assertEquals("某人", b.author)
++        assertEquals("https://lib.test/e.epub", b.url)
++        assertEquals("epub", b.format)
++        assertEquals("https://lib.test/e.jpg", b.cover)
++    }
++
++    @Test fun unsafeSchemesAndLocalRelativeAreDropped() {
++        assertNull(BookFeedParser.resolve("file:///sdcard/a.txt", "https://x.test/"))
++        assertNull(BookFeedParser.resolve("javascript:alert(1)", "https://x.test/"))
++        assertNull(BookFeedParser.resolve("a.txt", null))
++        assertEquals("https://x.test/a.txt", BookFeedParser.resolve("//x.test/a.txt", "https://y.test/"))
++    }
++
++    @Test fun invalidFeedsThrowReadableErrors() {
++        for (bad in listOf("not json", """{"foo":1}""", """{"books":[]}""", """{"books":[{"title":"只有书名"}]}""")) {
++            try {
++                BookFeedParser.parse(bad)
++                fail("should reject: $bad")
++            } catch (e: IllegalArgumentException) {
++                assertTrue(e.message!!.isNotBlank())
++            }
++        }
++    }
++
++    @Test fun extPrefersContentOverHints() {
++        val zip = byteArrayOf('P'.code.toByte(), 'K'.code.toByte(), 3, 4, 0)
++        assertEquals("epub", BookFeedImport.pickExt("txt", "https://x.test/a.txt", "text/plain", zip))
++        val text = "正文".toByteArray()
++        assertEquals("txt", BookFeedImport.pickExt(null, "https://x.test/dl.php?id=1", "", text))
++        assertEquals("epub", BookFeedImport.pickExt(null, "https://x.test/a.EPUB", "", text))
++        assertEquals("epub", BookFeedImport.pickExt(null, "https://x.test/dl", "application/epub+zip", text))
++    }
++
++    @Test fun builtTxtSplitsBackIntoChaptersEvenWithOddTitles() {
++        val txt = BookFeedImport.buildTxt(
++            listOf("Prologue", "", "1. 开始"),
++            listOf("第一段\n第二段", "<p>甲</p><p>乙</p>", null),
++        )
++        val ch = BookContent.parseTxt(txt)
++        assertEquals(3, ch.size)
++        assertEquals("Prologue", ch[0].title)
++        assertEquals("第 2 章", ch[1].title)
++        assertEquals("1. 开始", ch[2].title)
++        assertTrue(ch[1].text.contains("甲") && ch[1].text.contains("乙"))
++        assertFalse(ch[1].text.contains("<p>"))
++        assertTrue(ch[2].text.contains("下载失败"))
++    }
++}

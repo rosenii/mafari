@@ -62,7 +62,7 @@ class BookMeta(val title: String, val author: String, val cover: ByteArray? = nu
  *
  * 目录结构（应用私有目录）：`bookshelf/index.json` 是书目索引，`bookshelf/<id>/book.<ext>` 是正文副本，
  * `bookshelf/<id>/cover.img` 是封面（压到长边 ≤ 900px 的 JPEG）。导入时把文件复制进来，
- * 原文件被移动 / 删除也不影响阅读。目前只管理书目与封面，阅读器之后再接。
+ * 原文件被移动 / 删除也不影响阅读。来源有两种：本地文件（[importUris]）和 JSON 订阅源（见 BookFeed.kt，下载后走 [addBook]）。
  */
 object BookShelf {
     private const val DIR = "bookshelf"
@@ -130,26 +130,45 @@ object BookShelf {
     private fun importOne(context: Context, uri: Uri): Boolean {
         val displayName = queryDisplayName(context, uri) ?: uri.lastPathSegment ?: return false
         val ext = displayName.substringAfterLast('.', "").lowercase()
+        return addBook(context, displayName, ext, null, null, null) { target ->
+            val input = context.contentResolver.openInputStream(uri) ?: error("open failed")
+            input.use { src -> target.outputStream().use { dst -> src.copyTo(dst) } }
+        }
+    }
+
+    /**
+     * 新建一本书并入架：[write] 把正文写进给定的文件；书名 / 作者 / 封面默认取自文件名或 EPUB 元数据，
+     * [title] / [author] / [cover] 非空时优先（订阅源给的信息）。不支持的格式返回 false；写盘失败抛异常（已清理半成品）。在 IO 线程调用。
+     */
+    fun addBook(
+        context: Context,
+        displayName: String,
+        ext: String,
+        title: String?,
+        author: String?,
+        cover: ByteArray?,
+        write: (File) -> Unit,
+    ): Boolean {
+        load(context)
         if (ext !in SUPPORTED) return false
 
         val id = UUID.randomUUID().toString().replace("-", "").take(16)
         val dir = bookDir(context, id).also { it.mkdirs() }
         val target = File(dir, "book.$ext")
         try {
-            val input = context.contentResolver.openInputStream(uri) ?: error("open failed")
-            input.use { src -> target.outputStream().use { dst -> src.copyTo(dst) } }
+            write(target)
             if (target.length() == 0L) error("empty file")
 
             val meta = if (ext == "epub") readEpubMeta(target, displayName) else metaFromTxtName(displayName)
             var hasCover = false
-            val coverBytes = meta.cover
+            val coverBytes = cover ?: meta.cover
             if (coverBytes != null) {
                 hasCover = runCatching { writeCover(coverFile(context, id), decodeScaled(coverBytes)) }.getOrDefault(false)
             }
             val book = Book(
                 id = id,
-                title = meta.title,
-                author = meta.author,
+                title = title?.takeIf { it.isNotBlank() } ?: meta.title,
+                author = author?.takeIf { it.isNotBlank() } ?: meta.author,
                 fileName = target.name,
                 addedAt = System.currentTimeMillis(),
                 hasCover = hasCover,

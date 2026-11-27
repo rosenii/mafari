@@ -631,19 +631,26 @@ private fun ScriptDialog(
     }
 }
 
+/**
+ * 「输入链接 / 选本地文件」导入弹窗。脚本页和书架的「从订阅源导入」共用；
+ * 标题、说明、输入框提示默认是脚本页的文案，其他入口传自己的。
+ */
 @Composable
-private fun ImportDialog(
+internal fun ImportDialog(
     show: Boolean,
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     onDismiss: () -> Unit,
     onImport: (String) -> Unit,
     onPickFile: () -> Unit,
+    title: String = tr("导入脚本"),
+    summary: String = tr("支持 .user.js 链接或本地文件；去广告规则会自动转交「去广告」"),
+    urlLabel: String = tr("脚本地址（http / https，.user.js）"),
 ) {
     var url by remember(show) { mutableStateOf("") }
     AppGlassDialog(
         show = show,
-        title = tr("导入脚本"),
-        summary = tr("支持 .user.js 链接或本地文件；去广告规则会自动转交「去广告」"),
+        title = title,
+        summary = summary,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
@@ -652,7 +659,7 @@ private fun ImportDialog(
                 value = url,
                 onValueChange = { url = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = tr("脚本地址（http / https，.user.js）"),
+                label = urlLabel,
                 singleLine = true,
             )
             Spacer(Modifier.height(10.dp))
