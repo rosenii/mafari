@@ -342,10 +342,13 @@ internal fun BoxScope.BrowserFloatingBar(
                                         // 提高竖向隐藏阈值，降低误触
                                         // 主页不允许收起底栏：收起后没有任何手势能唤回
                                         if (dragDistance > 56f && !barHidden && tab.url.isNotEmpty()) {
+                                            // 主动隐藏：标记为「用户隐藏」，只有系统返回手势能呼出
+                                            ui.barUserHidden = true
                                             barHidden = true
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             change.consume()
-                                        } else if (dragDistance < -56f && barHidden) {
+                                        } else if (BAR_LEGACY_RECALL && dragDistance < -56f && barHidden) {
+                                            // 旧的呼出逻辑（在栏上反向拖动）：先禁用，见 BAR_LEGACY_RECALL
                                             barHidden = false
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             change.consume()
@@ -442,6 +445,13 @@ internal fun BoxScope.BrowserFloatingBar(
                 onExpand = {
                     ui.barCompact = false
                     ui.barOverlap = false
+                },
+                // 地址栏上快速下滑：整条栏完全隐藏（主页没有页面，不隐藏）；只有系统返回手势能呼出
+                onHideBar = {
+                    if (tab.url.isNotEmpty()) {
+                        ui.barUserHidden = true
+                        barHidden = true
+                    }
                 },
                 onChange = {
                     address = it

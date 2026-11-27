@@ -124,6 +124,8 @@ internal fun SafariSplitBar(
     onSwitchTab: (Int) -> Unit,
     /** 上滑地址栏：打开标签页列表 */
     onOpenTabs: () -> Unit,
+    /** 在地址栏上快速下滑：把三段式栏收起成标题小胶囊 */
+    onHideBar: () -> Unit = {},
     /** 右边圆钮的图标 / 无障碍描述（默认「更多」；自定义标签页用「在 Mafari 中打开」） */
     endIcon: ImageVector = MiuixIcons.Glass.More,
     endDescription: String = tr("更多"),
@@ -246,6 +248,7 @@ internal fun SafariSplitBar(
                 onHome = onHome,
                 onSwitchTab = onSwitchTab,
                 onOpenTabs = onOpenTabs,
+                onHideBar = onHideBar,
                 gesturesEnabled = gesturesEnabled,
             )
             if (!editing) {
@@ -473,6 +476,7 @@ private fun SafariAddressPill(
     onHome: () -> Unit,
     onSwitchTab: (Int) -> Unit,
     onOpenTabs: () -> Unit,
+    onHideBar: () -> Unit = {},
     gesturesEnabled: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -518,6 +522,7 @@ private fun SafariAddressPill(
     }
     val latestSwitch by rememberUpdatedState(onSwitchTab)
     val latestOpenTabs by rememberUpdatedState(onOpenTabs)
+    val latestHideBar by rememberUpdatedState(onHideBar)
     val latestHome by rememberUpdatedState(onHome)
     // 长按打开起始页的弹性动画：先快速缩小，到底时打开起始页，再带过冲弹回（放大）
     val popScope = rememberCoroutineScope()
@@ -556,6 +561,10 @@ private fun SafariAddressPill(
                 if (editing || compact || !gesturesEnabled) return@pointerInput
                 val switchPx = 48.dp.toPx()
                 val openPx = 40.dp.toPx()
+                // 快速下滑收起三段式栏：下滑够一段距离，且松手时竖向速度够快（慢速下拉不触发，避免误收）
+                val hidePx = 28.dp.toPx()
+                val hideFlingPx = 900.dp.toPx()
+                val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
                 // 横向拖过切换阈值时「咔」一下：和圆钮的吸附 / 排斥配合，告诉手指松手就会切换
                 var crossed = false
                 detectDragGestures(
@@ -564,8 +573,10 @@ private fun SafariAddressPill(
                         dragX = 0f
                         dragY = 0f
                         crossed = false
+                        tracker.resetTracking()
                     },
                     onDrag = { change, amount ->
+                        tracker.addPosition(change.uptimeMillis, change.position)
                         change.consume()
                         dragX += amount.x
                         dragY += amount.y
@@ -580,14 +591,18 @@ private fun SafariAddressPill(
                     onDragEnd = {
                         val dx = dragX
                         val dy = dragY
+                        val vy = tracker.calculateVelocity().y
                         dragging = false
                         dragX = 0f
                         dragY = 0f
                         if (kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
-                            // 竖向为主：上滑打开标签页列表
+                            // 竖向为主：上滑打开标签页列表；快速下滑收起三段式栏
                             if (dy < -openPx) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 latestOpenTabs()
+                            } else if (dy > hidePx && vy > hideFlingPx) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                latestHideBar()
                             }
                         } else if (kotlin.math.abs(dx) > switchPx) {
                             // 手指往左滑 = 下一个标签，往右滑 = 上一个标签

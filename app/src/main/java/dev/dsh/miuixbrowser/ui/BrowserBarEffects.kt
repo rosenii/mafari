@@ -13,6 +13,12 @@ import androidx.compose.runtime.LaunchedEffect
 
 /** 底栏自动隐藏：随网页滚动方向收起 / 展开，Gecko 视频全屏时收起，主页与「固定」模式下强制显示；
  *  从 BrowserScreen 拆出，逻辑未改。 */
+/**
+ * 旧的呼出逻辑开关：用户在栏上主动下滑隐藏后，原先可以靠「页面上滑 / 回到顶部 / 在栏上反向拖动」把栏叫回来。
+ * 现在改为只有系统返回手势能呼出，这些旧路径先关掉但代码保留；改成 true 即可恢复旧行为。
+ */
+internal const val BAR_LEGACY_RECALL = false
+
 @Composable
 internal fun BrowserUiState.BarAutoHideEffects(
     tab: BrowserTab,
@@ -38,6 +44,11 @@ internal fun BrowserUiState.BarAutoHideEffects(
     // 主页没有滚动手势能把底栏唤回来，收起后底栏会从组合树里移除，再也点不到、拖不到。
     LaunchedEffect(barHidden, tab.url.isEmpty(), tab.geckoFullscreen) {
         if (barHidden && tab.url.isEmpty() && !tab.geckoFullscreen) barHidden = false
+    }
+
+    // 栏只要不再隐藏（返回手势呼出、换标签、回到主页、切到固定样式等），「用户主动隐藏」标记随之清掉
+    LaunchedEffect(barHidden) {
+        if (!barHidden) barUserHidden = false
     }
 
     // 切到「固定」立即把已收起的底栏显示出来（视频全屏除外）；离开固定样式则页面不再深入栏下
@@ -70,9 +81,11 @@ internal fun BrowserUiState.BarAutoHideEffects(
                 // 悬浮三段式：栏固定显示，但随滚动方向在「完整三段式」和「标题小胶囊」之间切换；
                 // 缩小时页面深入栏下（网页铺满屏幕），展开时让出栏的位置。阈值与自动隐藏一致
                 if (barFixed && compactOnScroll) {
-                    barHidden = false
+                    // 用户主动下滑隐藏后保持隐藏，只有系统返回手势能呼出（见 BrowserScreen 的 BackHandler）
+                    if (!barUserHidden || BAR_LEGACY_RECALL) barHidden = false
                     if (tab.url.isEmpty()) {
                         barCompact = false
+                        barHidden = false // 主页没有任何手势能唤出栏：无论如何不保持隐藏
                         barOverlap = false
                         last = 0
                         lastShow = 0
@@ -145,7 +158,8 @@ internal fun BrowserUiState.BarAutoHideEffects(
                 val dy = offset - last
                 when {
                     offset <= 12 -> {
-                        barHidden = false
+                        // 旧的呼出逻辑（回到顶部显示）：用户主动隐藏后禁用，见 BAR_LEGACY_RECALL
+                        if (!barUserHidden || BAR_LEGACY_RECALL) barHidden = false
                         lastShow = offset
                         scrollDownAccum = 0f
                         scrollUpAccum = 0f
@@ -164,7 +178,8 @@ internal fun BrowserUiState.BarAutoHideEffects(
                         scrollDownAccum = 0f
                         // 隐藏后须向上累计约 120px 才恢复，避免轻微回弹就弹出
                         scrollUpAccum += -dy
-                        if (barHidden && scrollUpAccum >= 120f) {
+                        // 旧的呼出逻辑（上滑显示）：用户主动隐藏后禁用，见 BAR_LEGACY_RECALL
+                        if (barHidden && scrollUpAccum >= 120f && (!barUserHidden || BAR_LEGACY_RECALL)) {
                             barHidden = false
                             lastShow = offset
                             scrollUpAccum = 0f

@@ -623,6 +623,11 @@ fun BrowserScreen(
             showGroupPicker -> showGroupPicker = false
             showQuickPicker -> showQuickPicker = false
             sheet != Sheet.None -> sheet = Sheet.None
+            // 栏被用户主动下滑隐藏：系统返回手势先把栏呼出来（弹层 / 查找等已在上面先处理）
+            ui.barUserHidden && barHidden -> {
+                ui.barUserHidden = false
+                barHidden = false
+            }
             // 阅读模式：返回先退出阅读模式
             tab.readerActive -> tab.exitReader()
             tab.canGoBack -> tab.goBack()
