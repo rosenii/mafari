@@ -142,10 +142,15 @@ BrowserChunk {
                 )
 
                 Sheet.Menu -> {
-                    // 「更多」菜单最高占屏幕 44%，超出（如编辑排序时展开隐藏区）可滚动
-                    val menuMaxH = (LocalConfiguration.current.screenHeightDp * 0.44f).dp
                     // 编辑状态和滚动状态提到这里：「完成」要画在滚动区外面的右上角（菜单自动下滚后也一直看得见）
                     val menuEditing = remember { mutableStateOf(false) }
+                    // 「更多」菜单平时最高占屏幕 44%；进入编辑（长按图标）后弹层向上顶高到最多 86%，把隐藏区完整露出来，
+                    // 实在还装不下才可滚动
+                    val menuMaxH by androidx.compose.animation.core.animateDpAsState(
+                        targetValue = (LocalConfiguration.current.screenHeightDp * (if (menuEditing.value) 0.86f else 0.44f)).dp,
+                        animationSpec = androidx.compose.animation.core.tween(260),
+                        label = "menuMaxH",
+                    )
                     val menuScroll = rememberScrollState()
                     Box(modifier = Modifier.heightIn(max = menuMaxH + sheetInsets.top + sheetInsets.bottom)) {
                     Box(

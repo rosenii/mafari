@@ -247,6 +247,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 进入方式：没有长按功能的图标，长按即进入编辑（不用先拖动）；有长按功能的图标
  * （[longPressActions]）保持原样：按住不动 0.65 秒触发长按功能，拖动超过阈值才进入编辑。
+ * 两种方式进入编辑的那一刻，被按住的图标都脱离这次手势（不拎起、不跟手、松手不落位）；
+ * 弹层此时向上顶高，把隐藏区完整露出来，之后再长按任一图标才能拖动排序。
  */
 /** 更多菜单里长按进入管理页（脚本 / 收藏 / 拓展）所需的按住时长，含系统长按判定时间 */
 internal const val MENU_LONG_PRESS_MS = 650L
@@ -311,6 +313,10 @@ internal fun MenuGrid(
     // 长按后、尚未拖够距离时的累计位移：超过阈值才真正进入编辑，避免手指轻微抖动误触发（仅有长按功能的图标用）
     var pendingDrag by remember { mutableStateOf(Offset.Zero) }
     val enterEditThresholdPx = with(density) { 24.dp.toPx() }
+    // 这一次手势已经「用掉」了：长按 / 拖动触发进入编辑的那一刻，被按住的图标就脱离手势控制，
+    // 之后手指不管怎么动、松手，都不会拎起它、更不会把它落进隐藏区（弹层长高后手指下面已是别的位置）。
+    // 要排序得松手后再重新长按一个图标
+    var gestureDetached by remember { mutableStateOf(false) }
 
     // 布局位移补偿：进入编辑时弹层会长高、菜单会自动下滚，图标在屏幕上的位置随之变了，手指却没动。
     // 按下那一刻记下图标的屏幕 y（[anchorY]），之后实时对比它当前的屏幕 y（[trackedY]），差值就是要补的位移——
@@ -332,6 +338,7 @@ internal fun MenuGrid(
     val enterEdit = { action: MenuAction ->
         beginTracking(action) // 先记锚点，再改 editing（改了之后才会重新布局）
         entryAction = action
+        gestureDetached = true
         editing = true
     }
     val headerHeight = 32.dp
@@ -441,22 +448,24 @@ internal fun MenuGrid(
                                         }
                                     } else {
                                         // 没有长按功能的图标：长按即进入编辑，不用先拖动（弹层自动拉长、菜单自动下沉，出现「完成」和各图标的 ×）。
-                                        // 此刻只进入编辑、不拎起图标：松手不会改变顺序；手指接着拖才拎起它
+                                        // 此刻只进入编辑、不拎起图标，这次手势到此为止（见 gestureDetached）：手指接着拖 / 松手都不会改变顺序
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         enterEdit(action)
                                     }
                                 }
                             },
                             onDrag = { delta ->
-                                if (delta.x != 0f || delta.y != 0f) {
+                                if (!gestureDetached && (delta.x != 0f || delta.y != 0f)) {
                                     if (dragAction == null) {
                                         // 已在编辑态：直接跟手；否则累计位移，拖过阈值才进入编辑
                                         pendingDrag += delta
-                                        if (editing || pendingDrag.getDistance() >= enterEditThresholdPx) {
-                                            if (!editing) {
-                                                enterEdit(action)
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            } else if (entryAction != action) {
+                                        if (!editing && pendingDrag.getDistance() >= enterEditThresholdPx) {
+                                            // 拖动触发进入编辑：只进入编辑，这个图标随即脱离这次手势，不被拎起
+                                            enterEdit(action)
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            pendingDrag = Offset.Zero
+                                        } else if (editing) {
+                                            if (entryAction != action) {
                                                 beginTracking(action) // 编辑中拎起别的图标：锚点取它此刻的位置
                                             }
                                             dragAction = action
@@ -479,6 +488,7 @@ internal fun MenuGrid(
                                 pendingDrag = Offset.Zero
                                 trackedAction = null
                                 entryAction = null
+                                gestureDetached = false
                             },
                             onDragCancel = {
                                 holdJob?.cancelCompat()
@@ -487,6 +497,7 @@ internal fun MenuGrid(
                                 pendingDrag = Offset.Zero
                                 trackedAction = null
                                 entryAction = null
+                                gestureDetached = false
                             },
                         )
                     }

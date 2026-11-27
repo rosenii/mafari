@@ -56,6 +56,7 @@ enum class MenuAction(
     GeckoExtensions("gecko_extensions", tr("拓展"), AppIcons.Puzzle),
     ScriptMenu("script_menu", tr("脚本"), AppIcons.Script),
     History("history", tr("历史"), MiuixIcons.Glass.WorldClock),
+    Bookshelf("bookshelf", tr("书架"), AppIcons.Bookshelf),
 
     /** 网络请求（两个内核）：以弹窗列出本页发出的请求域名，一键屏蔽 / 放行 */
     Requests("requests", tr("网络请求"), AppIcons.Globe),
@@ -141,7 +142,7 @@ class MenuOrderStore(context: Context) {
             MenuAction.Favorite, MenuAction.History, MenuAction.Desktop, MenuAction.Settings,
             MenuAction.Account, MenuAction.Translate, MenuAction.Incognito, MenuAction.AddToDesktop, MenuAction.Downloads,
             MenuAction.Scan, MenuAction.Home, MenuAction.ScriptMenu, MenuAction.GeckoExtensions, MenuAction.Refresh,
-            MenuAction.Bookmarks,
+            MenuAction.Bookmarks, MenuAction.Bookshelf,
         )
 
         private const val KEY = "order"

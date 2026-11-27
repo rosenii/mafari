@@ -108,6 +108,7 @@ internal fun BrowserUiState.performMenuAction(
             refreshScriptSheet(state)
         }
         MenuAction.History -> pushPage(AppRoute.Library(1))
+        MenuAction.Bookshelf -> pushPage(AppRoute.Bookshelf)
         MenuAction.Requests -> requestSheetShow = true
         MenuAction.Settings -> pushPage(AppRoute.Settings)
         MenuAction.Account -> if (EngineSupport.SYNC_BUNDLED) pushPage(AppRoute.FxaPage)

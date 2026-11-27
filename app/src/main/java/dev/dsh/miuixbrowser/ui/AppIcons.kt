@@ -67,6 +67,16 @@ object AppIcons {
         )
     }
 
+    /** 书架：翻开的书（左右两页 + 中缝）。 */
+    val Bookshelf: ImageVector by lazy {
+        stroked(
+            "Bookshelf",
+            "M12,6.5C10.5,5.2 8,4.5 4,4.5V18.5C8,18.5 10.5,19.2 12,20.5C13.5,19.2 16,18.5 20,18.5V4.5C16,4.5 13.5,5.2 12,6.5Z",
+            "M12,6.5V20.5",
+            width = 2.0f,
+        )
+    }
+
     /** 阅读模式：四行文字（末行较短），类似 Safari 的阅读器图标。 */
     val Reader: ImageVector by lazy {
         stroked(
