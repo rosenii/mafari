@@ -749,7 +749,7 @@ fun BookshelfScreen(
                     if (pickFeed != null) {
                         val total = pickFeed.books.size
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            LazyColumn(modifier = Modifier.fillMaxWidth().height(minOf(total, 6) * 56.dp)) {
+                            LazyColumn(modifier = Modifier.fillMaxWidth().height(56.dp * minOf(total, 6))) {
                                 items(total) { i ->
                                     val b = pickFeed.books[i]
                                     FeedRow(
@@ -836,7 +836,7 @@ fun BookshelfScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     // 每行 48dp（含「移出分类」那一行）；超过 6 行就固定高度、内部滚动
-                                    .height(minOf(categories.size + 1, 6) * 48.dp)
+                                    .height(48.dp * minOf(categories.size + 1, 6))
                                     .verticalScroll(rememberScrollState()),
                             ) {
                                 categories.forEach { c ->
