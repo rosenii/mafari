@@ -220,7 +220,7 @@ class ExtensionStore(context: Context) {
     }
 
     /* ------------------------------------------------------------------ */
-    /* 网络：安装 / 更新 / 自动更新 / 首次启动自动安装推荐脚本                */
+    /* 网络：安装 / 更新 / 自动更新                                        */
     /* ------------------------------------------------------------------ */
 
     /** 自动更新：0 手动 1 每天 2 每 3 天 3 每周（与「去广告」订阅一致） */
@@ -286,26 +286,6 @@ class ExtensionStore(context: Context) {
         refreshAll()
     }
 
-    /**
-     * 首次打开 app 自动拉取并安装「推荐脚本」。
-     * 每个推荐脚本只自动安装一次（记在 bootstrapped 里）：用户之后删掉它不会被再装回来；
-     * 下载失败的下次启动继续重试。
-     */
-    suspend fun bootstrapRecommended() {
-        val done = prefs.getStringSet("bootstrapped", emptySet()).orEmpty().toMutableSet()
-        var changed = false
-        for (builtin in BUILTIN_SCRIPTS) {
-            val url = builtin.userScriptUrl
-            if (url.isBlank() || url in done) continue
-            if (items.any { it.sourceUrl == url }) { // 已经装过（旧版本手动添加）
-                done += url; changed = true
-                continue
-            }
-            if (install(url).isSuccess) { done += url; changed = true }
-        }
-        if (changed) prefs.edit().putStringSet("bootstrapped", done).apply()
-    }
-
     private fun markError(id: String, message: String) {
         val index = items.indexOfFirst { it.id == id }
         if (index < 0) return
@@ -364,10 +344,9 @@ class ExtensionStore(context: Context) {
         persist()
     }
 
-    /** 「媒体嗅探与播放」里的推荐脚本（悬浮媒体播放器 / M3U8 媒体下载器）：按来源地址认 */
+    /** 「媒体嗅探与播放」相关的已安装脚本（M3U8 媒体下载器）：按来源地址认 */
     fun mediaScriptIds(): List<String> {
-        val urls = BUILTIN_SCRIPTS.filter { it.media && it.userScriptUrl.isNotBlank() }.map { it.userScriptUrl }.toSet()
-        return items.filter { it.sourceUrl in urls }.map { it.id }
+        return items.filter { it.sourceUrl in MEDIA_SCRIPT_URLS }.map { it.id }
     }
 
     /**

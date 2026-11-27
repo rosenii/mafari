@@ -166,7 +166,7 @@ MainActivity ──► BrowserScreen（Compose，约 3000 行：手势 / 弹层 
 | 原生能力 | `GmBridge`（`@JavascriptInterface`） | 私有 MessageChannel → relay.js → background.js → 原生端口（令牌 + 来源校验） |
 | 值 | `GmStore`（共用） | `GmStore`（共用）+ 快照内联 + 跨标签广播 |
 
-- 拼装：`UserscriptEngine`（解析元数据 + `buildSource`，含 `@require/@resource` 走 `ScriptResources` 缓存）；脚本存储 `ExtensionStore`；`BuiltinScripts` 首启自动装一次推荐脚本。
+- 拼装：`UserscriptEngine`（解析元数据 + `buildSource`，含 `@require/@resource` 走 `ScriptResources` 缓存）；脚本存储 `ExtensionStore`。
 - Gecko 拓展：`GeckoExtensions`（`GeckoExtensionStore`：AMO 搜索 / 安装 / 更新 / 权限确认、`GeckoExtTabHost` 回调给 `BrowserState` 实现 `tabs.*`）、`GeckoExtensionsScreen`、`GeckoExtMenuSheet`。
 - WebView 拓展（实验性）：`ext/` 下的自研 WebExtension 运行时，由 `AppContainer.webExtensions`（`ExtensionSystem`）持有。
   标签接入：`BrowserTab.applyWebExtensions()`（WebView 标签构造时、切无痕时、拓展集合变化时调用；无痕标签不装）→ `WebViewExtensionHost.install` 装 content script 与消息桥；

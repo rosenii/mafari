@@ -536,12 +536,19 @@ BrowserChunk {
         }
         // 弹窗开着时给没有时长的项探时长（结果写回列表，行里的时长随之出现）
         androidx.compose.runtime.LaunchedEffect(sniffDialogShow, sniffItems.size) {
-            if (sniffDialogShow) tab.probeDurations(sniffList, 8000)
+            if (sniffDialogShow && settings.mediaDisclaimerAccepted) tab.probeDurations(sniffList, 8000)
         }
         // 换标签 / 换页：旧提示收起
         androidx.compose.runtime.LaunchedEffect(tab.id, tab.url) { sniffDialogShow = false }
+        // 声明未确认前：点地址栏媒体图标先弹声明；确认后直接打开嗅探列表，取消则什么都不打开
+        MediaDisclaimerSheet(
+            show = sniffDialogShow && !settings.mediaDisclaimerAccepted,
+            backdrop = if (glassAvailable) glassBackdrop else null,
+            onAccept = { settings.acceptMediaDisclaimer() },
+            onDismiss = { sniffDialogShow = false },
+        )
         SniffDialog(
-            show = sniffDialogShow,
+            show = sniffDialogShow && settings.mediaDisclaimerAccepted,
             items = sniffItems,
             backdrop = if (glassAvailable) glassBackdrop else null,
             onPlay = { m ->

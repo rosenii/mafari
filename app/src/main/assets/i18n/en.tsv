@@ -667,9 +667,8 @@ Mafari · 基于 miuix 与系统 WebView	Mafari · built on miuix and the system
 在轻应用 / 桌面快捷方式中启用	Enable in light apps / home-screen shortcuts
 关闭后从桌面图标打开的页面不去广告，重新打开生效	When off, pages opened from home-screen icons aren't ad-blocked; takes effect on reopening
 订阅源	Subscriptions
-还没有订阅。点右上角「添加」导入订阅链接或本地规则文件，也可以直接选下面的推荐订阅。	No subscriptions yet. Tap "Add" at the top right to import a subscription link or a local rules file, or pick a recommended subscription below.
+还没有订阅。点右上角「添加」导入订阅链接或本地规则文件。	No subscriptions yet. Tap "Add" at the top right to import a subscription link or a local rules file.
 已更新（{0} 条规则）	Updated ({0} rules)
-推荐订阅	Recommended subscriptions
 规则管理	Rule management
 自定义规则	Custom rules
 手写规则；长按网页元素「标记为广告」也会记在这里	Handwritten rules; elements you long-press and "Mark as ad" are also recorded here
@@ -998,14 +997,13 @@ localStorage · IndexedDB 等，不含 Cookie	localStorage · IndexedDB, etc., e
 关闭后无痕标签不运行脚本，切换后刷新页面生效	When off, private tabs don't run scripts; refresh the page after switching
 关闭后从桌面图标打开的页面不运行脚本，重新打开生效	When off, pages opened from home-screen icons don't run scripts; takes effect on reopening
 已安装脚本	Installed scripts
-还没有脚本。点右上角「导入脚本」输入链接或选择本地文件，也可以直接选下面的推荐脚本。	No scripts yet. Tap "Import script" at the top right to enter a link or pick a local file, or pick a recommended script below.
+还没有脚本。点右上角「导入脚本」输入链接或选择本地文件。	No scripts yet. Tap "Import script" at the top right to enter a link or pick a local file.
 已更新 {0}	{0} updated
 {0} 已是最新	{0} is up to date
-推荐脚本	Recommended scripts
 已添加 	Added 
 下载失败，检查网络	Download failed; check your network
 脚本在页面加载完成后注入运行，可在每个页面的「脚本」菜单里临时开关。	Scripts are injected after the page finishes loading; you can toggle them temporarily in each page's "Scripts" menu.
-首次打开 app 会自动安装推荐脚本；有来源地址的脚本会按上面设置的间隔在后台自动更新。	Recommended scripts are installed automatically the first time you open the app; scripts with a source URL are updated automatically in the background at the interval set above.
+有来源地址的脚本会按上面设置的间隔在后台自动更新。	Scripts with a source URL are updated automatically in the background at the interval set above.
 新建脚本	New script
 删除脚本	Delete script
 导入脚本	Import script
@@ -2415,3 +2413,6 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 护眼	Eye care
 浅色	Light
 无法显示这张图片	Can't display this image
+媒体嗅探与播放声明	Media sniffing & playback notice
+我已知晓此软件的嗅探功能仅用于学习和研究，知晓本软件不提供嗅探国内主流视频平台的功能。使用特殊方式通过此软件获取其他平台网站影视媒体资源产生的法律责任与此软件无关，由我本人自行承担！	I understand that this app's sniffing feature is for learning and research only, and that it does not provide sniffing of mainstream video platforms in China. Any legal liability arising from obtaining film and video resources from other websites by special means through this app is unrelated to the app, and I will bear it myself!
+我已知晓	I understand

@@ -58,37 +58,6 @@ data class AdSub(
     val error: String = "",
 )
 
-data class AdPreset(val name: String, val url: String, val summary: String)
-
-/** 推荐订阅（点一下即可订阅）。地址都是各规则项目官方对外提供的订阅链接。 */
-val AD_PRESETS = listOf(
-    AdPreset(
-        tr("AdGuard 中文"),
-        "https://filters.adtidy.org/extension/ublock/filters/224.txt",
-        tr("国内网站广告，首选"),
-    ),
-    AdPreset(
-        "EasyList China",
-        "https://easylist-downloads.adblockplus.org/easylistchina.txt",
-        tr("EasyList 的中文补充规则"),
-    ),
-    AdPreset(
-        "EasyList",
-        "https://easylist.to/easylist/easylist.txt",
-        tr("国际通用广告规则"),
-    ),
-    AdPreset(
-        tr("AdGuard 移动广告"),
-        "https://filters.adtidy.org/extension/ublock/filters/11.txt",
-        tr("针对移动端网页的广告"),
-    ),
-    AdPreset(
-        "anti-AD",
-        "https://anti-ad.net/easylist.txt",
-        tr("国内广告域名合集"),
-    ),
-)
-
 /** 旧版本存放在脚本列表里的去广告订阅，由 [ExtensionStore] 读出后交给 [AdBlock.migrateLegacy]。 */
 data class LegacyAdSub(val name: String, val url: String, val enabled: Boolean)
 

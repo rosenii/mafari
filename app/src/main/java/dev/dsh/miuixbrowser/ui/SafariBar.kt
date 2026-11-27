@@ -561,10 +561,8 @@ private fun SafariAddressPill(
                 if (editing || compact || !gesturesEnabled) return@pointerInput
                 val switchPx = 48.dp.toPx()
                 val openPx = 40.dp.toPx()
-                // 快速下滑收起三段式栏：下滑够一段距离，且松手时竖向速度够快（慢速下拉不触发，避免误收）
-                val hidePx = 28.dp.toPx()
-                val hideFlingPx = 900.dp.toPx()
-                val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
+                // 在地址栏上下滑即收起三段式栏：只看竖向为主 + 下滑够一小段距离，不再要求松手速度
+                val hidePx = 20.dp.toPx()
                 // 横向拖过切换阈值时「咔」一下：和圆钮的吸附 / 排斥配合，告诉手指松手就会切换
                 var crossed = false
                 detectDragGestures(
@@ -573,10 +571,8 @@ private fun SafariAddressPill(
                         dragX = 0f
                         dragY = 0f
                         crossed = false
-                        tracker.resetTracking()
                     },
                     onDrag = { change, amount ->
-                        tracker.addPosition(change.uptimeMillis, change.position)
                         change.consume()
                         dragX += amount.x
                         dragY += amount.y
@@ -591,16 +587,15 @@ private fun SafariAddressPill(
                     onDragEnd = {
                         val dx = dragX
                         val dy = dragY
-                        val vy = tracker.calculateVelocity().y
                         dragging = false
                         dragX = 0f
                         dragY = 0f
                         if (kotlin.math.abs(dy) > kotlin.math.abs(dx)) {
-                            // 竖向为主：上滑打开标签页列表；快速下滑收起三段式栏
+                            // 竖向为主：上滑打开标签页列表；下滑收起三段式栏
                             if (dy < -openPx) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 latestOpenTabs()
-                            } else if (dy > hidePx && vy > hideFlingPx) {
+                            } else if (dy > hidePx) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 latestHideBar()
                             }

@@ -1054,6 +1054,18 @@ class AppSettings(context: Context) {
         syncMediaFeatures()
     }
 
+    /**
+     * 「媒体嗅探与播放」免责声明是否已确认（从此版本起，打开该功能前必须先在弹窗里确认一次）。
+     * 未确认时：打开嗅探列表 / 打开总开关都会先弹出声明；自动悬浮播放不会自动拉起播放器。
+     */
+    var mediaDisclaimerAccepted by mutableStateOf(prefs.getBoolean(KEY_MEDIA_DISCLAIMER, false))
+        private set
+
+    fun acceptMediaDisclaimer() {
+        mediaDisclaimerAccepted = true
+        prefs.edit().putBoolean(KEY_MEDIA_DISCLAIMER, true).apply()
+    }
+
     /** 退出（按 Home / 手势返回桌面）时，全屏播放中的视频自动进入画中画 */
     var mediaAutoPip by mutableStateOf(prefs.getBoolean(KEY_MEDIA_AUTO_PIP, true))
         private set
@@ -1082,7 +1094,7 @@ class AppSettings(context: Context) {
     val mediaSniffActive: Boolean get() = mediaActive && mediaSniff
 
     /** 自动悬浮播放是否真正生效（需要嗅探本身生效） */
-    val mediaAutoFloatActive: Boolean get() = mediaSniffActive && mediaAutoFloat
+    val mediaAutoFloatActive: Boolean get() = mediaSniffActive && mediaAutoFloat && mediaDisclaimerAccepted
 
     // ---- 原生播放器（读写同一份 prefs，播放页不构造 AppSettings 直接读 PlayerPrefs）----
 
@@ -1435,6 +1447,7 @@ class AppSettings(context: Context) {
         const val KEY_DNT = "send_dnt"
         const val KEY_SNIFF = "media_sniff"
         const val KEY_MEDIA_MASTER = "media_master"
+        const val KEY_MEDIA_DISCLAIMER = "media_disclaimer_accepted"
         const val KEY_MEDIA_AUTO_PIP = "media_auto_pip"
         const val KEY_MEDIA_AUTO_FLOAT = "media_auto_float"
         const val KEY_WEBRTC = "webrtc_disabled"

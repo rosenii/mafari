@@ -20,6 +20,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -64,6 +68,10 @@ fun MediaSniffScreen(
     val scrollBehavior = MiuixScrollBehavior()
     val topScrolled = rememberTopBarScrolled(scrollBehavior)
 
+    // 免责声明：进入本页时未确认就弹出；在本页打开总开关前也要先确认（取消则开关保持关闭）
+    var showDisclaimer by remember { mutableStateOf(!settings.mediaDisclaimerAccepted) }
+    var pendingMasterOn by remember { mutableStateOf(false) }
+
     // 子开关是否可操作：总开关开，且（WebView 下）网页增强开
     val active = settings.mediaActive
     val enhancementsOff = !settings.geckoMode && !settings.pageEnhancements
@@ -91,6 +99,23 @@ fun MediaSniffScreen(
         ) { innerPadding ->
             val topInset = innerPadding.calculateTopPadding()
             Box(modifier = Modifier.fillMaxSize()) {
+                MediaDisclaimerSheet(
+                    show = showDisclaimer && !settings.mediaDisclaimerAccepted,
+                    backdrop = if (glass) backdrop else null,
+                    onAccept = {
+                        settings.acceptMediaDisclaimer()
+                        showDisclaimer = false
+                        if (pendingMasterOn) {
+                            pendingMasterOn = false
+                            settings.updateMediaMaster(true)
+                            onMasterChange(true)
+                        }
+                    },
+                    onDismiss = {
+                        showDisclaimer = false
+                        pendingMasterOn = false
+                    },
+                )
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -113,8 +138,13 @@ fun MediaSniffScreen(
                             summary = tr("一键停用：嗅探、原生悬浮播放、自动画中画、自动悬浮播放及相关脚本；关闭后不再拦截 / 弹窗，刷新页面后生效"),
                             checked = settings.mediaMaster,
                             onCheckedChange = {
-                                settings.updateMediaMaster(it)
-                                onMasterChange(it)
+                                if (it && !settings.mediaDisclaimerAccepted) {
+                                    pendingMasterOn = true
+                                    showDisclaimer = true
+                                } else {
+                                    settings.updateMediaMaster(it)
+                                    onMasterChange(it)
+                                }
                             },
                         )
                     }

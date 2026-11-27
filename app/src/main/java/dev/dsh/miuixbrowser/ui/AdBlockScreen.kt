@@ -9,9 +9,7 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
-import dev.dsh.miuixbrowser.adblock.AD_PRESETS
 import dev.dsh.miuixbrowser.adblock.AdBlock
-import dev.dsh.miuixbrowser.adblock.AdPreset
 import dev.dsh.miuixbrowser.adblock.AdSub
 import dev.dsh.miuixbrowser.data.AppSettings
 import android.net.Uri
@@ -207,7 +205,6 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     .pageBackground(),
             ) {
                 val subs = AdBlock.subs.toList()
-                val presets = AD_PRESETS.filter { p -> subs.none { it.url.equals(p.url, ignoreCase = true) } }
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(top = topInset + 8.dp, bottom = 32.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
@@ -351,7 +348,7 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                     if (subs.isEmpty()) {
                         item {
                             Text(
-                                text = tr("还没有订阅。点右上角「添加」导入订阅链接或本地规则文件，也可以直接选下面的推荐订阅。"),
+                                text = tr("还没有订阅。点右上角「添加」导入订阅链接或本地规则文件。"),
                                 fontSize = 13.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
@@ -379,14 +376,6 @@ fun AdBlockScreen(settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolea
                             },
                             onDelete = { deleting = sub },
                         )
-                    }
-
-                    if (presets.isNotEmpty()) {
-                        item { SmallTitle(text = tr("推荐订阅")) }
-                        items(presets.size) { index ->
-                            val p = presets[index]
-                            PresetCard(p) { subscribe(p.url, p.name) }
-                        }
                     }
 
                     item { SmallTitle(text = tr("规则管理")) }
@@ -589,37 +578,6 @@ private fun AdSubCard(
             IconButton(onClick = onDelete) {
                 Icon(imageVector = MiuixIcons.Glass.Delete, contentDescription = tr("删除"))
             }
-        }
-    }
-}
-
-@Composable
-private fun PresetCard(preset: AdPreset, onAdd: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp),
-        insideMargin = PaddingValues(14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RuleIcon()
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(preset.name, fontSize = 15.sp, color = MiuixTheme.colorScheme.onSurface)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = preset.summary,
-                    fontSize = 11.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 2,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            AppTextButton(
-                text = tr("订阅"),
-                onClick = onAdd,
-                primary = true,
-                inPage = true,
-                minHeight = 30.dp,
-            )
         }
     }
 }

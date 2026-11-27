@@ -446,7 +446,7 @@ internal fun BoxScope.BrowserFloatingBar(
                     ui.barCompact = false
                     ui.barOverlap = false
                 },
-                // 地址栏上快速下滑：整条栏完全隐藏（主页没有页面，不隐藏）；只有系统返回手势能呼出
+                // 地址栏上下滑：整条栏完全隐藏（主页没有页面，不隐藏）；只有系统返回手势能呼出
                 onHideBar = {
                     if (tab.url.isNotEmpty()) {
                         ui.barUserHidden = true

@@ -22,7 +22,7 @@ import kotlinx.coroutines.withContext
 import dev.dsh.miuixbrowser.script.ExtensionStore
 
 
-/** 进程启动后的后台任务：Gecko 拓展定期更新、去广告初始化 / 订阅更新、推荐脚本引导安装与脚本更新、加密备份自动推送（从 BrowserScreen 拆出） */
+/** 进程启动后的后台任务：Gecko 拓展定期更新、去广告初始化 / 订阅更新、脚本更新、加密备份自动推送（从 BrowserScreen 拆出） */
 @Composable
 internal fun BrowserStartupJobs(
     settings: AppSettings,
@@ -49,11 +49,10 @@ internal fun BrowserStartupJobs(
     // Gecko 模式下去广告用不上：不下载订阅（省流量 / CPU / 内存）；切回 WebView 时 settings.geckoMode 变化会重新触发
     LaunchedEffect(settings.geckoMode, settings.pageEnhancements) { if (!settings.geckoMode && settings.pageEnhancements) AdBlock.autoUpdateIfDue() }
 
-    // 首次打开 app：自动拉取并安装推荐脚本（每个只自动装一次，失败的下次启动重试）；之后按设置的间隔后台自动更新脚本
-    // 网页增强关着（WebView）：脚本不运行，也不去拉推荐脚本 / 检查脚本更新；Gecko 的脚本不受网页增强管，照旧
+    // 按设置的间隔后台自动更新脚本（不再自动安装推荐脚本）
+    // 网页增强关着（WebView）：脚本不运行，也不检查脚本更新；Gecko 的脚本不受网页增强管，照旧
     LaunchedEffect(settings.geckoMode, settings.pageEnhancements) {
         if (!settings.geckoMode && !settings.pageEnhancements) return@LaunchedEffect
-        runCatching { extensions.bootstrapRecommended() }
         runCatching { extensions.autoUpdateIfDue() }
     }
     // 按设置的间隔把加密备份自动推送到已配置的云同步目标（需已设默认口令）

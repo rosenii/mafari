@@ -9,14 +9,12 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 import dev.dsh.miuixbrowser.i18n.tr
 
-import dev.dsh.miuixbrowser.script.BuiltinScript
 import dev.dsh.miuixbrowser.adblock.AdBlock
 import dev.dsh.miuixbrowser.adblock.AdParser
 import dev.dsh.miuixbrowser.browser.rememberRemoteIcon
 import dev.dsh.miuixbrowser.crypto.EncryptionInfoDialog
 import dev.dsh.miuixbrowser.crypto.EncryptionLockButton
 import dev.dsh.miuixbrowser.data.AppSettings
-import dev.dsh.miuixbrowser.script.BUILTIN_SCRIPTS
 import dev.dsh.miuixbrowser.script.ExtensionStore
 import dev.dsh.miuixbrowser.script.UserScript
 import dev.dsh.miuixbrowser.script.UserscriptEngine
@@ -106,14 +104,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 
-/** 脚本页：布局与「去广告」一致 —— 顶部设置卡（自动更新）、已安装脚本、推荐脚本；右上角菜单可导入（URL / 本地文件）、新建、全部更新。 */
+/** 脚本页：布局与「去广告」一致 —— 顶部设置卡（自动更新）、已安装脚本；右上角菜单可导入（URL / 本地文件）、新建、全部更新。 */
 @Composable
 fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolean = true) {
     var editing by remember { mutableStateOf<UserScript?>(null) }
     var creating by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var busyIds by remember { mutableStateOf(setOf<String>()) }
-    var installingUrls by remember { mutableStateOf(setOf<String>()) }
     var importBusy by remember { mutableStateOf(false) }
     var updatingAll by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<UserScript?>(null) }
@@ -236,11 +233,6 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     .pageBackground(),
             ) {
                 val scripts = store.items.toList()
-                val missingBuiltins = BUILTIN_SCRIPTS.filter { builtin ->
-                    store.items.none { item ->
-                        builtin.userScriptUrl.isNotBlank() && item.sourceUrl == builtin.userScriptUrl
-                    }
-                }
                 LazyColumn(
                     state = listState,
                     contentPadding = PaddingValues(top = topInset + 8.dp, bottom = 88.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
@@ -285,7 +277,7 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                     if (scripts.isEmpty()) {
                         item {
                             Text(
-                                text = tr("还没有脚本。点右上角「导入脚本」输入链接或选择本地文件，也可以直接选下面的推荐脚本。"),
+                                text = tr("还没有脚本。点右上角「导入脚本」输入链接或选择本地文件。"),
                                 fontSize = 13.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
@@ -325,30 +317,10 @@ fun ExtensionsScreen(store: ExtensionStore, settings: AppSettings, onBack: () ->
                         )
                     }
 
-                    if (missingBuiltins.isNotEmpty()) {
-                        item { SmallTitle(text = tr("推荐脚本")) }
-                        items(missingBuiltins.size) { index ->
-                            val builtin = missingBuiltins[index]
-                            BuiltinScriptCard(builtin, installing = builtin.userScriptUrl in installingUrls) {
-                                if (builtin.userScriptUrl.isBlank()) {
-                                    store.add(builtin.name, builtin.code)
-                                } else if (builtin.userScriptUrl !in installingUrls) {
-                                    installingUrls = installingUrls + builtin.userScriptUrl
-                                    scope.launch {
-                                        store.install(builtin.userScriptUrl)
-                                            .onSuccess { toast(tr("已添加 ") + builtin.name) }
-                                            .onFailure { toast(it.message ?: tr("下载失败，检查网络")) }
-                                        installingUrls = installingUrls - builtin.userScriptUrl
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     item {
                         Text(
                             text = tr("脚本在页面加载完成后注入运行，可在每个页面的「脚本」菜单里临时开关。") +
-                                tr("首次打开 app 会自动安装推荐脚本；有来源地址的脚本会按上面设置的间隔在后台自动更新。"),
+                                tr("有来源地址的脚本会按上面设置的间隔在后台自动更新。"),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
@@ -681,54 +653,6 @@ internal fun ImportDialog(
                     Text(text = tr("导入"), style = MiuixTheme.textStyles.button)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun BuiltinScriptCard(script: BuiltinScript, installing: Boolean, onAdd: (BuiltinScript) -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .padding(bottom = 8.dp),
-        insideMargin = PaddingValues(14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .squircleClip(9.dp)
-                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = MiuixIcons.Glass.File,
-                    contentDescription = null,
-                    tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(script.name, fontSize = 15.sp, color = MiuixTheme.colorScheme.onSurface)
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = script.description,
-                    fontSize = 11.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 2,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            AppTextButton(
-                text = if (installing) tr("安装中…") else tr("安装"),
-                enabled = !installing,
-                onClick = { onAdd(script) },
-                primary = true,
-                inPage = true,
-                minHeight = 30.dp,
-            )
         }
     }
 }
