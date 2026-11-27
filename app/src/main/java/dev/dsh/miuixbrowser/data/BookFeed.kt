@@ -7,6 +7,9 @@ package dev.dsh.miuixbrowser.data
 
 import android.content.Context
 import android.net.Uri
+import dev.dsh.miuixbrowser.data.legado.LegadoBook
+import dev.dsh.miuixbrowser.data.legado.LegadoSource
+import dev.dsh.miuixbrowser.data.legado.LegadoSourceParser
 import dev.dsh.miuixbrowser.i18n.tr
 import dev.dsh.miuixbrowser.net.HttpFetcher
 import kotlinx.coroutines.Dispatchers
@@ -38,9 +41,16 @@ class FeedBook(
     val format: String?,
     val chapters: List<FeedChapter>,
     val chaptersUrl: String?,
+    /** 来自 Legado 书源的搜索 / 发现结果：下载时由书源引擎读详情、目录、正文（此时 url / chapters 都是空的）。 */
+    val legado: LegadoBook? = null,
+    val legadoSource: LegadoSource? = null,
 )
 
-class BookFeed(val name: String, val books: List<FeedBook>)
+/**
+ * 一份订阅源。通用 JSON 订阅源直接带 [books]；Legado（开源阅读）书源文件带 [sources]、[books] 为空——
+ * 书要用户在书源里搜索 / 发现之后才有，见 [BookFeedImport.importBook] 里的 Legado 分支。
+ */
+class BookFeed(val name: String, val books: List<FeedBook>, val sources: List<LegadoSource> = emptyList())
 
 /**
  * 通用 JSON 小说订阅源的解析。不依赖具体站点的规则，只认「书目列表 + 每本书的下载 / 章节链接」，字段名兼容常见写法：
@@ -65,6 +75,10 @@ object BookFeedParser {
     /** [baseUrl]：订阅源自身的地址（本地文件为 null，此时相对链接无法解析、会被丢弃）。解析失败抛 [IllegalArgumentException]（消息可直接给用户看）。 */
     fun parse(text: String, baseUrl: String? = null): BookFeed {
         val root = runCatching { JSONTokener(text.trim().trimStart('\uFEFF')).nextValue() }.getOrNull()
+        if (LegadoSourceParser.looksLikeLegado(root)) {
+            val sources = LegadoSourceParser.parse(root)
+            return BookFeed(sources.singleOrNull()?.name.orEmpty(), emptyList(), sources)
+        }
         var name = ""
         val arr: JSONArray? = when (root) {
             is JSONArray -> root
@@ -216,6 +230,8 @@ object BookFeedImport {
     private const val MAX_BOOK_BYTES = 48 * 1024 * 1024
     private const val MAX_CHAPTERS = 5000
     private const val PARALLEL = 4
+    /** Legado 书源通常有访问频率限制（引擎里按间隔排队），多开并发没有意义，还容易被站点风控 */
+    private const val LEGADO_PARALLEL = 2
 
     private fun options(maxBytes: Int, readTimeoutMs: Int = 20_000) =
         HttpFetcher.Options(connectTimeoutMs = 10_000, readTimeoutMs = readTimeoutMs, maxBytes = maxBytes, userAgent = UA)
@@ -257,7 +273,11 @@ object BookFeedImport {
                 BookShelf.load(context)
                 // 封面拿不到不影响入架；EPUB 自带封面时源里没写也行
                 val cover = book.cover?.let { runCatching { HttpFetcher.get(it, options(2 * 1024 * 1024)).bytes }.getOrNull() }
-                if (book.url != null) importFile(context, book, book.url, cover) else importChapters(context, book, cover, onProgress)
+                when {
+                    book.legado != null && book.legadoSource != null -> importLegado(context, book, book.legado, book.legadoSource, cover, onProgress)
+                    book.url != null -> importFile(context, book, book.url, cover)
+                    else -> importChapters(context, book, cover, onProgress)
+                }
             }.recoverCatching {
                 if (it is kotlin.coroutines.cancellation.CancellationException) throw it
                 throw IllegalStateException(it.message ?: tr("下载失败，检查网络或链接"))
@@ -298,6 +318,54 @@ object BookFeedImport {
 
         val txt = buildTxt(list.map { it.title }, bodies)
         val ok = BookShelf.addBook(context, "${book.title}.txt", "txt", book.title, book.author, cover) { it.writeText(txt) }
+        if (!ok) error(tr("仅支持 TXT / EPUB"))
+    }
+
+    /**
+     * Legado 书源的一本书：读详情页（补全书名 / 封面 / 目录地址）→ 读目录 → 逐章取正文 → 拼成 TXT 入架。
+     * 书源带访问频率限制（concurrentRate）时由引擎按间隔排队，所以大部头会比较慢；取消后已读的章节不入架。
+     */
+    private suspend fun importLegado(
+        context: Context,
+        book: FeedBook,
+        ref: LegadoBook,
+        source: LegadoSource,
+        cover: ByteArray?,
+        onProgress: (Int, Int) -> Unit,
+    ) {
+        val engine = source.engine
+        val chapters = engine.loadInfo(ref).let { engine.loadChapters(it) }.take(MAX_CHAPTERS)
+        // 详情页补全后的封面（列表里没有封面时才用）
+        val coverBytes = cover ?: ref.coverUrl?.let { runCatching { HttpFetcher.get(it, options(2 * 1024 * 1024)).bytes }.getOrNull() }
+
+        val tocUrls = chapters.mapTo(HashSet()) { it.url }
+        val done = AtomicInteger(0)
+        val gate = Semaphore(LEGADO_PARALLEL)
+        val bodies: List<String?> = coroutineScope {
+            chapters.mapIndexed { i, ch ->
+                async(Dispatchers.IO) {
+                    gate.withPermit {
+                        ensureActive()
+                        val next = chapters.getOrNull(i + 1)?.url
+                        var body: String? = null
+                        repeat(2) { attempt ->
+                            if (body == null) {
+                                body = runCatching { engine.loadContent(ref, ch, next, tocUrls) }.getOrNull()
+                                if (body == null && attempt == 0) ensureActive()
+                            }
+                        }
+                        onProgress(done.incrementAndGet(), chapters.size)
+                        body
+                    }
+                }
+            }.awaitAll()
+        }
+        if (bodies.all { it == null }) error(tr("章节下载失败，检查网络或书源是否失效"))
+
+        val title = ref.name.ifBlank { book.title }
+        val author = ref.author.ifBlank { book.author }
+        val txt = buildTxt(chapters.map { it.title }, bodies)
+        val ok = BookShelf.addBook(context, "$title.txt", "txt", title, author, coverBytes) { it.writeText(txt) }
         if (!ok) error(tr("仅支持 TXT / EPUB"))
     }
 

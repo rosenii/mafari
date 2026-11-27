@@ -30,6 +30,9 @@ val sqliteVersion = "2.4.0"
 // 加密引擎：ML-KEM-768（FIPS 203）与 X25519 用 BouncyCastle 轻量 API（需 ≥ 1.79 才有 ML-KEM）
 val bouncyCastleVersion = "1.82"
 val okhttpVersion = "5.5.1"
+// 书架订阅源的 Legado（开源阅读）书源引擎：jsoup 解析 HTML / CSS / XPath，Rhino 执行书源里的 @js / <js> 规则
+val jsoupVersion = "1.24.1"
+val rhinoVersion = "1.9.1"
 // 原生播放器内核：Media3 ExoPlayer（只要 exoplayer + hls；界面用 miuix 自绘，不引 media3-ui）。网络层用自带的 HttpURLConnection，不依赖 media3-datasource-okhttp
 val media3Version = "1.12.0-alpha01"
 // Git 同步：JGit 5.13 是最后一个面向 Java 8 的版本，Android 上可用（6.x 起要求 Java 11）
@@ -94,6 +97,8 @@ fun dependencyVersionsOf(withGecko: Boolean, withSync: Boolean): String = listOf
     // JGit 完整版本号带构建时间戳（5.13.3.202401111512-r），界面只展示 5.13.3
     Triple("sync", "JGit（Git）", jgitVersion.substringBefore("-r").substringBeforeLast('.')),
     Triple("sync", "JSch（SSH）", jschVersion),
+    Triple("engine", "jsoup（书源）", jsoupVersion),
+    Triple("engine", "Rhino（书源）", rhinoVersion),
     if (withSync) Triple("sync", "Firefox Sync（application-services）", if (fxaComponentsVersion == "+") "最新" else fxaComponentsVersion) else null,
     Triple("build", "Kotlin", kotlinVersion),
     Triple("build", "Android Gradle Plugin", agpVersion),
@@ -124,8 +129,8 @@ android {
         applicationId = "dev.dsh.miuixbrowser"
         minSdk = 33
         targetSdk = 37
-        versionCode = 20094
-        versionName = "v2.1.94"
+        versionCode = 20095
+        versionName = "v2.1.95"
         // gecko 分支的 CI 构建号（GITHUB_RUN_NUMBER，与预发布 tag「gecko-<n>」一致）；dual 是正式发布，按版本号比较，不写构建号；其它构建为 0
         val geckoBuild = if (System.getenv("GITHUB_REF") == "refs/heads/gecko" || System.getenv("GITHUB_REF_NAME") == "gecko") {
             System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
@@ -273,6 +278,9 @@ dependencies {
         exclude(group = "com.jcraft", module = "jsch")
     }
     implementation("com.github.mwiede:jsch:$jschVersion")
+    // Legado 书源引擎（data/legado）：HTML 解析 + JS 规则
+    implementation("org.jsoup:jsoup:$jsoupVersion")
+    implementation("org.mozilla:rhino:$rhinoVersion")
     // Firefox 账号登录 + Sync：见下方 syncLibs（gecko / liteSync 打包，普通 lite 仅 compileOnly）
     implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     testImplementation("junit:junit:4.13.2")

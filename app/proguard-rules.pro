@@ -49,3 +49,12 @@
 -dontwarn com.google.android.gms.internal.mlkit_**
 -keep class androidx.camera.** { *; }
 -dontwarn androidx.camera.**
+# Legado 书源引擎：Rhino 按名字反射 Java 类（书源 JS 里的 Packages.java.* / android.*），jsoup 的可选依赖告警
+-keep class org.mozilla.javascript.** { *; }
+-dontwarn org.mozilla.javascript.**
+-dontwarn javax.script.**
+-dontwarn java.beans.**
+-dontwarn org.jspecify.annotations.**
+-dontwarn org.w3c.dom.**
+-dontwarn re2j.**
+-dontwarn com.google.re2j.**
