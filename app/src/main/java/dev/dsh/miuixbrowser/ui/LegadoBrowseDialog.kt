@@ -10,6 +10,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -52,6 +54,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 搜索结果里的一个条目：书 + 它来自哪个书源（多书源搜索时要用）。 */
@@ -337,201 +340,257 @@ internal fun LegadoBrowseDialog(
         if (!state.allSources && src != null && mode == LegadoMode.Explore && !state.kindsLoaded) state.loadKinds(src, scope)
     }
 
-    AppGlassDialog(
+    val srcNow = src
+    AppBottomSheet(
         show = show,
         title = tr("书源搜索 / 发现"),
-        summary = if (state.allSources) tr("全部书源（{0} 个）", sources.count { it.canSearch }) else src?.name,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
+        scrollContent = true,
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            if (sources.isEmpty()) {
-                Text(
-                    text = tr("还没有书源：先在「订阅源」里添加 Legado 书源"),
-                    fontSize = 14.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                )
-                AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
-                }
-            } else {
-                if (sources.size > 1) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CategoryChip(text = tr("全部"), selected = state.allSources) { state.pickSource(-1) }
-                        sources.forEachIndexed { i, s ->
-                            CategoryChip(text = shortName(s.name), selected = i == state.sourceIdx) { state.pickSource(i) }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                        if (state.allSources) {
-                            Text(
-                                text = tr("在 {0} 个书源里搜索", sources.count { it.canSearch }),
-                                fontSize = 13.sp,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            )
-                        } else if (src != null) {
-                            if (src.canSearch) CategoryChip(text = tr("搜索"), selected = mode == LegadoMode.Search) { state.pickMode(LegadoMode.Search) }
-                            if (src.canExplore) CategoryChip(text = tr("发现"), selected = mode == LegadoMode.Explore) { state.pickMode(LegadoMode.Explore) }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-
-                when (mode) {
-                    LegadoMode.Search -> TextField(
-                        value = state.query,
-                        onValueChange = { state.query = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = tr("搜索书名或作者"),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { state.startSearch(sources, scope) }),
-                    )
-                    LegadoMode.Explore -> if (state.kinds.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            state.kinds.forEachIndexed { i, k ->
-                                CategoryChip(text = k.title, selected = i == state.kindIdx) { state.startExplore(src!!, i, scope) }
-                            }
-                        }
-                    }
-                    null -> Text(
-                        text = tr("这个书源既没有搜索规则，也没有发现入口"),
-                        fontSize = 14.sp,
+        val insets = LocalBottomSheetInsets.current
+        val screenH = LocalConfiguration.current.screenHeightDp.dp
+        val cap = (screenH * 0.86f).coerceAtLeast(280.dp)
+        val rows = state.items.size.coerceAtMost(6)
+        val desired = (370.dp + 56.dp * rows).coerceAtMost(cap)
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().height(desired),
+            contentPadding = PaddingValues(top = insets.top + 4.dp, bottom = insets.bottom + 12.dp),
+        ) {
+            item(key = "browse-head") {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = if (state.allSources) tr("全部书源（{0} 个）", sources.count { it.canSearch }) else srcNow?.name.orEmpty(),
+                        fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
-                }
-                if (mode == LegadoMode.Search) {
-                    Spacer(Modifier.height(8.dp))
-                    AppTextButton(
-                        text = tr("搜索"),
-                        onClick = { state.startSearch(sources, scope) },
-                        enabled = state.query.isNotBlank() && !state.loading,
-                        primary = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(6.dp))
+                    if (sources.isEmpty()) {
+                        Text(
+                            text = tr("还没有书源：先在「订阅源」里添加 Legado 书源"),
+                            fontSize = 14.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        )
+                        AppDialogButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                            Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
+                        }
+                    } else {
+                        if (sources.size > 1) {
+                            if (sources.size > 6) {
+                                // 书源多时横向滑动找不到头，改用抽象层的下拉菜单
+                                val items = remember(sources) { listOf(tr("全部")) + sources.map { it.name } }
+                                AppDropdownPreference(
+                                    onSelectedIndexChange = { i -> state.pickSource(i - 1) },
+                                    items = items,
+                                    selectedIndex = if (state.allSources) 0 else state.sourceIdx + 1,
+                                    title = tr("书源"),
+                                    summary = tr("共 {0} 个", sources.size),
+                                    backdrop = backdrop,
+                                )
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CategoryChip(text = tr("全部"), selected = state.allSources) { state.pickSource(-1) }
+                                    sources.forEachIndexed { i, s ->
+                                        CategoryChip(text = shortName(s.name), selected = i == state.sourceIdx) { state.pickSource(i) }
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
 
-                // ---- 结果列表 / 状态提示
-                val list = state.items
-                if (list.isEmpty()) {
-                    val hint: String = when {
-                        state.loading -> tr("加载中…")
-                        state.error != null -> state.error.orEmpty()
-                        state.touched -> tr("没有找到相关书籍")
-                        mode == LegadoMode.Search -> tr("输入书名或作者，点「搜索」")
-                        else -> ""
-                    }
-                    Box(modifier = Modifier.fillMaxWidth().height(112.dp), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = hint,
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                                if (state.allSources) {
+                                    Text(
+                                        text = tr("在 {0} 个书源里搜索", sources.count { it.canSearch }),
+                                        fontSize = 13.sp,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    )
+                                } else if (srcNow != null) {
+                                    if (srcNow.canSearch) CategoryChip(text = tr("搜索"), selected = mode == LegadoMode.Search) { state.pickMode(LegadoMode.Search) }
+                                    if (srcNow.canExplore) CategoryChip(text = tr("发现"), selected = mode == LegadoMode.Explore) { state.pickMode(LegadoMode.Explore) }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+
+                        when (mode) {
+                            LegadoMode.Search -> TextField(
+                                value = state.query,
+                                onValueChange = { state.query = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = tr("搜索书名或作者"),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { state.startSearch(sources, scope) }),
+                            )
+                            LegadoMode.Explore -> if (state.kinds.isNotEmpty()) {
+                                if (state.kinds.size > 5) {
+                                    // 分类多时不再横向滑动，改成下拉菜单
+                                    AppDropdownPreference(
+                                        onSelectedIndexChange = { i -> srcNow?.let { state.startExplore(it, i, scope) } },
+                                        items = state.kinds.map { it.title },
+                                        selectedIndex = state.kindIdx.coerceIn(0, state.kinds.lastIndex),
+                                        title = tr("分类"),
+                                        summary = tr("共 {0} 个", state.kinds.size),
+                                        backdrop = backdrop,
+                                    )
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        state.kinds.forEachIndexed { i, k ->
+                                            CategoryChip(text = k.title, selected = i == state.kindIdx) { srcNow?.let { state.startExplore(it, i, scope) } }
+                                        }
+                                    }
+                                }
+                            }
+                            null -> Text(
+                                text = tr("这个书源既没有搜索规则，也没有发现入口"),
                                 fontSize = 14.sp,
-                                textAlign = TextAlign.Center,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
-                            if (state.error != null && !state.loading) {
-                                AppTextButton(
-                                    text = tr("重试"),
-                                    onClick = {
-                                        if (!state.allSources && mode == LegadoMode.Explore && state.kinds.isEmpty() && src != null) state.loadKinds(src, scope)
-                                        else state.loadMore(sources, scope)
-                                    },
+                        }
+                        if (mode == LegadoMode.Search) {
+                            Spacer(Modifier.height(6.dp))
+                            AppTextButton(
+                                text = tr("搜索"),
+                                onClick = { state.startSearch(sources, scope) },
+                                enabled = state.query.isNotBlank() && !state.loading,
+                                primary = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    }
+                }
+            }
+
+            if (sources.isNotEmpty()) {
+                if (state.items.isEmpty()) {
+                    item(key = "browse-hint") {
+                        Box(modifier = Modifier.fillMaxWidth().height(112.dp), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                val hint: String = when {
+                                    state.loading -> tr("加载中…")
+                                    state.error != null -> state.error.orEmpty()
+                                    state.touched -> tr("没有找到相关书籍")
+                                    mode == LegadoMode.Search -> tr("输入书名或作者，点「搜索」")
+                                    else -> ""
+                                }
+                                Text(
+                                    text = hint,
+                                    fontSize = 14.sp,
+                                    textAlign = TextAlign.Center,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
+                                if (state.error != null && !state.loading) {
+                                    AppTextButton(
+                                        text = tr("重试"),
+                                        onClick = {
+                                            if (!state.allSources && mode == LegadoMode.Explore && state.kinds.isEmpty() && srcNow != null) {
+                                                state.loadKinds(srcNow, scope)
+                                            } else {
+                                                state.loadMore(sources, scope)
+                                            }
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
                 } else {
-                    LazyColumn(modifier = Modifier.fillMaxWidth().height(56.dp * minOf(list.size + 1, 5))) {
-                        items(list, key = { it.key }) { item ->
-                            FeedRow(
-                                title = item.book.name,
-                                author = listOfNotNull(
-                                    item.book.author.ifBlank { null },
-                                    item.book.lastChapter,
-                                    if (state.allSources) shortName(item.source.name) else null,
-                                ).joinToString(" · "),
-                                checked = item.key in state.chosen,
-                                onShelf = (item.book.name.trim() to item.book.author.trim()) in shelfKeys,
-                                onClick = { state.toggle(item) },
-                                onLongClick = { state.showDetail(item) },
-                            )
-                        }
-                        item(key = "legado-footer") {
-                            Box(modifier = Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
-                                when {
-                                    state.loading -> Text(
-                                        text = tr("加载中…"),
-                                        fontSize = 13.sp,
+                    items(state.items, key = { it.key }) { item ->
+                        FeedRow(
+                            title = item.book.name,
+                            author = listOfNotNull(
+                                item.book.author.ifBlank { null },
+                                item.book.lastChapter,
+                                if (state.allSources) shortName(item.source.name) else null,
+                            ).joinToString(" · "),
+                            checked = item.key in state.chosen,
+                            onShelf = (item.book.name.trim() to item.book.author.trim()) in shelfKeys,
+                            onClick = { state.toggle(item) },
+                            onLongClick = { state.showDetail(item) },
+                        )
+                    }
+                    item(key = "browse-footer") {
+                        Box(modifier = Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) {
+                            when {
+                                state.loading -> Text(
+                                    text = tr("加载中…"),
+                                    fontSize = 13.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                state.error != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = state.error.orEmpty(),
+                                        fontSize = 12.sp,
+                                        textAlign = TextAlign.Center,
                                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
-                                    state.error != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = state.error.orEmpty(),
-                                            fontSize = 12.sp,
-                                            textAlign = TextAlign.Center,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        )
-                                        AppTextButton(text = tr("重试"), onClick = { state.loadMore(sources, scope) })
-                                    }
-                                    !state.exhausted -> AppTextButton(text = tr("加载更多"), onClick = { state.loadMore(sources, scope) })
-                                    else -> Text(
-                                        text = tr("没有更多了"),
-                                        fontSize = 13.sp,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    )
+                                    AppTextButton(text = tr("重试"), onClick = { state.loadMore(sources, scope) })
                                 }
+                                !state.exhausted -> AppTextButton(text = tr("加载更多"), onClick = { state.loadMore(sources, scope) })
+                                else -> Text(
+                                    text = tr("没有更多了"),
+                                    fontSize = 13.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
                             }
                         }
                     }
                 }
 
                 if (state.items.isNotEmpty() && state.warning != null) {
-                    Text(
-                        text = tr("部分书源失败：{0}", state.warning.orEmpty()),
-                        fontSize = 11.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 3,
-                    )
-                    Spacer(Modifier.height(4.dp))
+                    item(key = "browse-warning") {
+                        Text(
+                            text = tr("部分书源失败：{0}", state.warning.orEmpty()),
+                            fontSize = 11.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 3,
+                        )
+                    }
                 }
                 if (state.items.isNotEmpty()) {
-                    Text(
-                        text = tr("长按结果可看简介、分类和最新章节"),
-                        fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
+                    item(key = "browse-longpress") {
+                        Column {
+                            Text(
+                                text = tr("长按结果可看简介、分类和最新章节"),
+                                fontSize = 12.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                        }
                     }
-                    AppDialogButton(
-                        onClick = {
-                            val picks = state.picks()
-                            if (picks.isEmpty()) {
-                                Toast.makeText(context, tr("请先勾选要导入的书"), Toast.LENGTH_SHORT).show()
-                            } else {
-                                state.clearChosen()
-                                onImport(picks)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        role = GlassDialogButtonRole.Primary,
-                    ) { Text(text = tr("导入 {0} 本", state.chosen.size), style = MiuixTheme.textStyles.button) }
+                }
+                item(key = "browse-actions") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                            Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                val picks = state.picks()
+                                if (picks.isEmpty()) {
+                                    Toast.makeText(context, tr("请先勾选要导入的书"), Toast.LENGTH_SHORT).show()
+                                } else {
+                                    state.clearChosen()
+                                    onImport(picks)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Primary,
+                        ) { Text(text = tr("导入 {0} 本", state.chosen.size), style = MiuixTheme.textStyles.button) }
+                    }
                 }
             }
         }

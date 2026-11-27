@@ -64,12 +64,17 @@ val LocalPageGlassBackdrop = androidx.compose.runtime.compositionLocalOf<Backdro
 @Composable
 fun GlassBackButton(onClick: () -> Unit, backdrop: Backdrop? = null) {
     val haptic = LocalHapticFeedback.current
+    // 与顶栏其它按钮（Aa / 更多等）保持一致：自定义玻璃参数时也要用同一套 style / material，
+    // 否则返回键还是上游默认材质，和旁边的按钮看起来不是一块玻璃
+    val dark = isAppDarkTheme()
     GlassIconButton(
         onClick = {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         },
         backdrop = backdrop,
+        style = GlassLook.barStyle(dark),
+        material = if (GlassLook.custom()) GlassLook.barMaterial(dark) else null,
     ) {
         Icon(
             imageVector = MiuixIcons.Glass.ChevronBackward,
