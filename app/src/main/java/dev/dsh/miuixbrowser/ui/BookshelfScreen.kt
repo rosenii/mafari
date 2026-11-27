@@ -232,6 +232,8 @@ fun BookshelfScreen(
     var feedRunning by remember { mutableStateOf(false) }
     var feedProgress by remember { mutableStateOf("") }
     var feedJob by remember { mutableStateOf<Job?>(null) }
+    // Legado 书源：导入书源文件后在这个弹窗里搜索 / 发现、勾选、下载
+    var legadoShow by remember { mutableStateOf(false) }
     val shelfKeys = remember(books) { books.mapTo(HashSet()) { it.title.trim() to it.author.trim() } }
 
     // 编辑窗口 / 删除确认：书和显示状态分开存，关闭动画期间内容不会突然消失
@@ -306,6 +308,13 @@ fun BookshelfScreen(
             val r = withContext(Dispatchers.IO) { runCatching(load) }
             feedLoading = false
             r.onSuccess { f ->
+                if (f.sources.isNotEmpty()) {
+                    // Legado 书源文件没有现成的书目：登记书源，直接打开搜索 / 发现
+                    LegadoLibrary.add(f.sources)
+                    toast(tr("已导入 {0} 个书源", f.sources.size))
+                    legadoShow = true
+                    return@onSuccess
+                }
                 feedPick = f
                 feedSel = f.books.indices.filter { (f.books[it].title.trim() to f.books[it].author.trim()) !in shelfKeys }.toSet()
                 feedPickShow = true
@@ -744,8 +753,8 @@ fun BookshelfScreen(
                         feedFilePicker.launch(arrayOf("application/json", "text/*", "application/octet-stream", "*/*"))
                     },
                     title = tr("从订阅源导入"),
-                    summary = tr("支持通用 JSON 小说订阅源：输入链接或选择本地文件，再勾选要导入的书"),
-                    urlLabel = tr("订阅源地址（http / https，JSON）"),
+                    summary = tr("支持通用 JSON 小说订阅源和 Legado（开源阅读）书源：输入链接或选择本地文件；订阅源直接勾选导入，书源要先搜索或发现"),
+                    urlLabel = tr("订阅源 / 书源地址（http / https，JSON）"),
                 )
 
                 // ---- 订阅源书目：勾选要导入的书
@@ -794,6 +803,20 @@ fun BookshelfScreen(
                         }
                     }
                 }
+
+                // ---- Legado 书源：搜索 / 发现
+                LegadoBrowseDialog(
+                    show = legadoShow,
+                    backdrop = bd,
+                    sources = LegadoLibrary.sources,
+                    shelfKeys = shelfKeys,
+                    onDismiss = { legadoShow = false },
+                    onRemoveSource = { LegadoLibrary.remove(it.url) },
+                    onImport = { picks ->
+                        legadoShow = false
+                        startFeedImport(picks)
+                    },
+                )
 
                 // ---- 导入进度（可取消）
                 AppGlassDialog(
@@ -989,6 +1012,17 @@ fun BookshelfScreen(
                     },
                     icon = MiuixIcons.Glass.Download,
                 )
+                if (LegadoLibrary.sources.isNotEmpty()) {
+                    GlassPopupItem(
+                        text = tr("书源搜索 / 发现"),
+                        enabled = !importing && !feedLoading,
+                        onClick = {
+                            showMore = false
+                            legadoShow = true
+                        },
+                        icon = MiuixIcons.Glass.Search,
+                    )
+                }
                 GlassPopupItem(
                     text = if (importing) tr("正在导入…") else tr("从本地导入"),
                     enabled = !importing,
@@ -1092,7 +1126,7 @@ private fun CategoryChips(categories: List<BookCategory>, selectedId: String?, o
 }
 
 @Composable
-private fun CategoryChip(text: String, selected: Boolean, onClick: () -> Unit) {
+internal fun CategoryChip(text: String, selected: Boolean, onClick: () -> Unit) {
     Text(
         text = text,
         fontSize = 14.sp,
@@ -1126,7 +1160,7 @@ private fun MoveRow(text: String, dim: Boolean = false, onClick: () -> Unit) {
 
 /** 订阅源书目窗口里的一行：勾选圆点 + 书名 / 作者（已在书架的标出来）。 */
 @Composable
-private fun FeedRow(title: String, author: String, checked: Boolean, onShelf: Boolean, onClick: () -> Unit) {
+internal fun FeedRow(title: String, author: String, checked: Boolean, onShelf: Boolean, onClick: () -> Unit) {
     val sub = listOf(author, if (onShelf) tr("已在书架") else "").filter { it.isNotEmpty() }.joinToString(" · ")
     Row(
         modifier = Modifier.fillMaxWidth().height(56.dp).clickable(onClick = onClick),

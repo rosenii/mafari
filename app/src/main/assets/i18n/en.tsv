@@ -2339,8 +2339,6 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 本地导入小说 · 封面与书名管理	Import local novels · manage covers and titles
 书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说。	The bookshelf is empty. Tap More → Import from device to add TXT / EPUB novels.
 从订阅源导入	Import from feed
-支持通用 JSON 小说订阅源：输入链接或选择本地文件，再勾选要导入的书	Supports generic JSON novel feeds: enter a link or pick a local file, then choose the books to import
-订阅源地址（http / https，JSON）	Feed URL (http / https, JSON)
 共 {0} 本，勾选要导入的书（已在书架的默认不选）	{0} book(s). Choose what to import (books already on your shelf are unchecked)
 已在书架	On shelf
 导入 {0} 本	Import {0}
@@ -2416,3 +2414,34 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 媒体嗅探与播放声明	Media sniffing & playback notice
 我已知晓此软件的嗅探功能仅用于学习和研究，知晓本软件不提供嗅探国内主流视频平台的功能。使用特殊方式通过此软件获取其他平台网站影视媒体资源产生的法律责任与此软件无关，由我本人自行承担！	I understand that this app's sniffing feature is for learning and research only, and that it does not provide sniffing of mainstream video platforms in China. Any legal liability arising from obtaining film and video resources from other websites by special means through this app is unrelated to the app, and I will bear it myself!
 我已知晓	I understand
+# Legado book sources
+这个书源没有搜索地址	This book source has no search URL
+这个书源没有搜索规则	This book source has no search rules
+书源没有返回搜索地址（脚本可能出错，例如验证码识别失败），请重试	The book source returned no search URL (its script may have failed, e.g. CAPTCHA recognition). Please try again
+这个书源没有发现规则	This book source has no discover rules
+这个书源没有目录规则	This book source has no table-of-contents rules
+没有读到目录，书源规则可能已失效	Couldn't read the table of contents; the source rules may be out of date
+这个书源没有正文规则	This book source has no content rules
+这一章没有读到正文	Couldn't read the text of this chapter
+链接无效	Invalid link
+不支持的链接协议	Unsupported link protocol
+连接超时，检查网络	Connection timed out. Check your network
+无法解析服务器地址，检查网络	Can't resolve the server address. Check your network
+安全连接失败	Secure connection failed
+书源脚本出错：{0}	Book source script error: {0}
+没有读到有效的书源（需要 bookSourceUrl 和 bookSourceName）	No valid book sources found (bookSourceUrl and bookSourceName are required)
+暂不支持音频 / 图片 / 文件类书源，只能导入文字小说书源	Audio / image / file book sources aren't supported yet; only text novel sources can be imported
+章节下载失败，检查网络或书源是否失效	Chapter download failed. Check your network or whether the book source still works
+已导入 {0} 个书源	Imported {0} book source(s)
+支持通用 JSON 小说订阅源和 Legado（开源阅读）书源：输入链接或选择本地文件；订阅源直接勾选导入，书源要先搜索或发现	Supports generic JSON novel feeds and Legado book sources: enter a link or pick a local file. For a feed, tick the books to import; for a book source, search or discover first
+订阅源 / 书源地址（http / https，JSON）	Feed / book source URL (http / https, JSON)
+书源搜索 / 发现	Book source search / discover
+这个书源没有发现入口	This book source has no discover entries
+读取失败，检查网络或书源是否失效	Failed to load. Check your network or whether the book source still works
+还没有书源：先用「从订阅源导入」导入 Legado 书源文件	No book sources yet: import a Legado source file with "Import from feed" first
+发现	Discover
+移除书源	Remove source
+这个书源既没有搜索规则，也没有发现入口	This book source has neither search rules nor discover entries
+输入书名或作者，点「搜索」	Enter a title or author, then tap "Search"
+加载更多	Load more
+没有更多了	No more results
