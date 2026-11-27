@@ -70,10 +70,23 @@ internal class LegadoAnalyzer(private val engine: LegadoEngine, private val base
         for (seg in splitJs(r)) {
             cur = if (seg.js) js(seg.text, cur, vars) else elementsOf(seg.text, cur, vars)
         }
-        val list: List<Any?> = when (cur) {
+        var list: List<Any?> = when (cur) {
             null -> emptyList()
             is List<*> -> cur
             else -> listOf(cur)
+        }
+        // 脚本把整份目录 / 书单 JSON.stringify 成一个字符串返回时，拆成条目，后面的 $.title 之类规则才有东西可选
+        if (list.size == 1) {
+            val only = list[0]
+            if (only is CharSequence) {
+                val t = only.trim()
+                if (t.startsWith("[")) {
+                    runCatching {
+                        val arr = org.json.JSONTokener(t.toString()).nextValue() as? org.json.JSONArray
+                        if (arr != null) (0 until arr.length()).map { i -> arr.opt(i).takeIf { v -> v !== org.json.JSONObject.NULL } } else null
+                    }.getOrNull()?.let { list = it }
+                }
+            }
         }
         return if (reverse) list.asReversed() else list
     }

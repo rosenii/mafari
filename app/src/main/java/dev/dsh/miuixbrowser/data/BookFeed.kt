@@ -23,11 +23,16 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import org.jsoup.Jsoup
+import org.jsoup.parser.Parser
 import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
 
 /** 订阅源里的一章：[url] 指向正文，或直接内嵌 [text]。 */
 class FeedChapter(val title: String, val url: String?, val text: String?)
+
+/** 从链接或本地文件读到的一份订阅源：[feed] 是解析结果，[raw] 是原文（用于保存订阅），[baseUrl] 是相对链接的基准地址。 */
+class LoadedFeed(val feed: BookFeed, val raw: String, val baseUrl: String?)
 
 /**
  * 订阅源里的一本书。正文来源三选一（按此优先级）：
@@ -75,7 +80,10 @@ object BookFeedParser {
 
     /** [baseUrl]：订阅源自身的地址（本地文件为 null，此时相对链接无法解析、会被丢弃）。解析失败抛 [IllegalArgumentException]（消息可直接给用户看）。 */
     fun parse(text: String, baseUrl: String? = null): BookFeed {
-        val root = runCatching { JSONTokener(text.trim().trimStart('\uFEFF')).nextValue() }.getOrNull()
+        val source = text.trim().trimStart('\uFEFF')
+        // OPDS 1.0（Atom XML）：book 目录里带 acquisition 链接
+        if (source.startsWith("<")) return parseOpds(source, baseUrl)
+        val root = runCatching { JSONTokener(source).nextValue() }.getOrNull()
         if (LegadoSourceParser.looksLikeLegado(root)) {
             val sources = LegadoSourceParser.parse(root)
             return BookFeed(sources.singleOrNull()?.name.orEmpty(), emptyList(), sources)
@@ -94,6 +102,40 @@ object BookFeedParser {
         for (i in 0 until arr.length()) parseBook(arr.optJSONObject(i), baseUrl)?.let(out::add)
         require(out.isNotEmpty()) { tr("订阅源里没有可导入的书（每本书需要书名，以及下载链接或章节列表；本地文件里的链接需写完整的 http / https 地址）") }
         return BookFeed(name, out)
+    }
+
+    /**
+     * OPDS 1.0（Atom）目录：`<feed><entry>` 里的 `title` / `author` / 带 `acquisition` 的 `link`。
+     * 只认能下载的条目（没有 acquisition 链接的导航页 / 详情页跳过）；封面取 image / thumbnail 链接。
+     */
+    private fun parseOpds(text: String, baseUrl: String?): BookFeed {
+        val doc = runCatching { Jsoup.parse(text, baseUrl.orEmpty(), Parser.xmlParser()) }
+            .getOrElse { throw IllegalArgumentException(tr("不是有效的订阅源（OPDS 文件解析失败）")) }
+        val name = doc.selectFirst("feed > title")?.text()?.trim().orEmpty()
+        val out = ArrayList<FeedBook>()
+        for (entry in doc.select("entry")) {
+            val title = entry.selectFirst("title")?.text()?.trim().orEmpty()
+            if (title.isEmpty()) continue
+            val author = entry.selectFirst("author > name")?.text()?.trim()
+                ?: entry.selectFirst("author")?.text()?.trim().orEmpty()
+            val cover = entry.select("link").firstNotNullOfOrNull { l ->
+                val rel = l.attr("rel").lowercase()
+                if (rel.contains("image") || rel.contains("thumbnail") || rel.contains("cover")) resolve(l.attr("href"), baseUrl) else null
+            }
+            val acquisition = entry.select("link").firstOrNull { l ->
+                l.attr("rel").lowercase().contains("acquisition")
+            } ?: continue
+            val href = resolve(acquisition.attr("href"), baseUrl) ?: continue
+            val format = normFormat(acquisition.attr("type")).let { it ?: formatFromPath(href) }
+            out.add(FeedBook(title, author, cover, href, format, emptyList(), null))
+        }
+        require(out.isNotEmpty()) { tr("订阅源里没有可导入的书（OPDS 目录里没有带下载链接的条目）") }
+        return BookFeed(name, out)
+    }
+
+    private fun formatFromPath(url: String): String? {
+        val path = runCatching { URL(url).path }.getOrDefault(url)
+        return normFormat(path.substringAfterLast('.', ""))
     }
 
     /** 章节列表的 JSON（数组，或放在 chapters / list / data … 下的数组），元素可以是链接字符串或 {title,url|text}。 */
@@ -238,16 +280,17 @@ object BookFeedImport {
         HttpFetcher.Options(connectTimeoutMs = 10_000, readTimeoutMs = readTimeoutMs, maxBytes = maxBytes, userAgent = UA)
 
     /** 下载订阅源并解析。阻塞调用，放 IO 线程。 */
-    fun loadFromUrl(url: String): BookFeed {
+    fun loadFromUrl(url: String): LoadedFeed {
         val u = url.trim()
         require(u.startsWith("http://", true) || u.startsWith("https://", true)) { tr("请输入 http / https 链接") }
         val res = HttpFetcher.get(u, options(MAX_FEED_BYTES))
+        val text = BookContent.decodeText(res.bytes)
         // 重定向之后以最终地址为准，相对链接才解析得对
-        return BookFeedParser.parse(BookContent.decodeText(res.bytes), res.url)
+        return LoadedFeed(BookFeedParser.parse(text, res.url), text, res.url)
     }
 
     /** 读本地订阅源文件并解析。阻塞调用，放 IO 线程。 */
-    fun loadFromUri(context: Context, uri: Uri): BookFeed {
+    fun loadFromUri(context: Context, uri: Uri): LoadedFeed {
         val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
             val out = java.io.ByteArrayOutputStream()
             val buf = ByteArray(16 * 1024)
@@ -261,7 +304,8 @@ object BookFeedImport {
             }
             out.toByteArray()
         } ?: error(tr("读取文件失败"))
-        return BookFeedParser.parse(BookContent.decodeText(bytes), null)
+        val text = BookContent.decodeText(bytes)
+        return LoadedFeed(BookFeedParser.parse(text, null), text, null)
     }
 
     /**

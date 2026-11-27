@@ -41,18 +41,34 @@ class LegadoSource(
     val bookInfo: LegadoRules,
     val toc: LegadoRules,
     val content: LegadoRules,
+    /** 书源原始的 JSON 文本，用于持久化；解析失败的旧数据可能为空。 */
+    val raw: String = "",
+    /** 书源总开关（Legado 的 `enabled`）；关掉后不参与搜索 / 发现，但仍留在列表里。 */
+    var enabled: Boolean = true,
+    /** 发现开关（Legado 的 `enabledExplore`）。 */
+    var exploreEnabled: Boolean = true,
 ) {
     val engine: LegadoEngine by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { LegadoEngine(this) }
 
-    val canSearch: Boolean get() = !searchUrl.isNullOrBlank() && search["bookList"] != null
-    val canExplore: Boolean get() = !exploreUrl.isNullOrBlank()
+    val canSearch: Boolean get() = enabled && !searchUrl.isNullOrBlank() && search["bookList"] != null
+    val canExplore: Boolean get() = enabled && exploreEnabled && !exploreUrl.isNullOrBlank()
+
+    /** 复制一份并改开关（书源列表是不可变的 state，改开关时用新对象替换）。 */
+    fun withSwitches(enabled: Boolean = this.enabled, explore: Boolean = this.exploreEnabled): LegadoSource =
+        LegadoSource(
+            name, url, group, comment, type, header, searchUrl, exploreUrl, jsLib, concurrentRate,
+            this.search, this.explore, bookInfo, toc, content, raw, enabled,
+            explore,
+        )
 }
 
 object LegadoSourceParser {
-    /** 顶层是书源数组，或单个书源对象（有 bookSourceUrl 字段）。 */
+    /** 顶层是书源数组、单个书源对象（有 bookSourceUrl），或 `{"bookSources":[…]}` 形式的合集。 */
     fun looksLikeLegado(root: Any?): Boolean = when (root) {
         is JSONArray -> (0 until root.length()).any { root.optJSONObject(it)?.has("bookSourceUrl") == true }
-        is JSONObject -> root.has("bookSourceUrl")
+        is JSONObject -> root.has("bookSourceUrl") || root.optJSONArray("bookSources")?.let { a ->
+            (0 until a.length()).any { a.optJSONObject(it)?.has("bookSourceUrl") == true }
+        } == true
         else -> false
     }
 
@@ -60,7 +76,10 @@ object LegadoSourceParser {
     fun parse(root: Any?): List<LegadoSource> {
         val objs: List<JSONObject> = when (root) {
             is JSONArray -> (0 until root.length()).mapNotNull { root.optJSONObject(it) }
-            is JSONObject -> listOf(root)
+            // Legado 的备份 / 合集文件会把书源放在 bookSources 下
+            is JSONObject -> root.optJSONArray("bookSources")?.let { a ->
+                (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+            } ?: listOf(root)
             else -> emptyList()
         }
         val all = objs.mapNotNull { runCatching { parseOne(it) }.getOrNull() }
@@ -70,7 +89,7 @@ object LegadoSourceParser {
         return text
     }
 
-    private fun parseOne(o: JSONObject): LegadoSource? {
+    internal fun parseOne(o: JSONObject): LegadoSource? {
         val url = str(o, "bookSourceUrl")?.substringBefore('#')?.trimEnd('/') ?: return null
         val name = str(o, "bookSourceName") ?: url
         val header = when (val h = o.opt("header")) {
@@ -98,6 +117,9 @@ object LegadoSourceParser {
             bookInfo = rules(o.opt("ruleBookInfo")),
             toc = rules(o.opt("ruleToc")),
             content = rules(o.opt("ruleContent")),
+            raw = o.toString(),
+            enabled = o.optBoolean("enabled", true),
+            exploreEnabled = o.optBoolean("enabledExplore", true),
         )
     }
 

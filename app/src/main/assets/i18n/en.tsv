@@ -2445,3 +2445,40 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 输入书名或作者，点「搜索」	Enter a title or author, then tap "Search"
 加载更多	Load more
 没有更多了	No more results
+{0} 个订阅源 · {1} 个书源	{0} subscription(s) · {1} book source(s)
+订阅源 {0}	Subscriptions {0}
+书源 {0}	Book sources {0}
+还没有订阅源。点下方「添加」导入 JSON / OPDS 订阅源或 Legado 书源。	No subscriptions yet. Tap "Add" below to import a JSON / OPDS feed or a Legado book source.
+{0} 本	{0} book(s)
+刷新中…	Refreshing…
+可搜索	Searchable
+可发现	Discoverable
+还没有书源。点下方「添加」导入 Legado（开源阅读）书源文件或链接。	No book sources yet. Tap "Add" below to import a Legado book source file or link.
+删除这个订阅源？	Delete this subscription?
+「{0}」会从列表移除，已下载到书架的书不受影响。	"{0}" will be removed from the list; books already in your bookshelf are not affected.
+删除这个书源？	Delete this book source?
+「{0}」会从书源列表移除，已下载到书架的书不受影响。	"{0}" will be removed from the source list; books already in your bookshelf are not affected.
+添加订阅源	Add subscription
+支持 JSON / OPDS 小说订阅源和 Legado（开源阅读）书源：输入链接或选择本地文件。订阅源会保存下来，之后可随时刷新和重新挑书；书源要先搜索或发现	Supports JSON / OPDS novel feeds and Legado book sources: enter a link or pick a local file. Feeds are saved so you can refresh and pick books again later; for a book source, search or discover first
+订阅源 / 书源地址（http / https）	Feed / book source URL (http / https)
+书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说，或在「订阅源」里按书源搜索。	Your bookshelf is empty. Tap More → Import from device to add TXT / EPUB novels, or search a book source under Subscriptions.
+已导入 {0} 个书源（新增 {1} 个）	Imported {0} book source(s) ({1} new)
+这个地址是 Legado 书源，请从「书源」里重新导入	This URL is a Legado book source; re-import it under "Book sources"
+订阅源已被删除	The subscription has been deleted
+已刷新，共 {0} 本	Refreshed: {0} book(s)
+读取订阅源失败，请重新导入	Couldn't read the subscription; please import it again
+刷新失败，检查链接	Refresh failed. Check the link
+全部书源（{0} 个）	All book sources ({0})
+在 {0} 个书源里搜索	Searching {0} book sources
+还没有书源：先在「订阅源」里添加 Legado 书源	No book sources yet: add a Legado book source under Subscriptions first
+没有可用的书源	No available book sources
+分类：{0}	Category: {0}
+最新章节：{0}	Latest chapter: {0}
+（这本书没有简介）	(No description for this book)
+取消勾选	Unselect
+勾选这本书	Select this book
+不是有效的订阅源（OPDS 文件解析失败）	Not a valid feed (failed to parse the OPDS file)
+订阅源里没有可导入的书（OPDS 目录里没有带下载链接的条目）	No importable books in this feed (the OPDS catalog has no entries with download links)
+订阅源不存在	The subscription doesn't exist
+订阅源文件缺失，请重新导入	The subscription file is missing; please import it again
+长按结果可看简介、分类和最新章节	Long-press a result to see its description, category and latest chapter

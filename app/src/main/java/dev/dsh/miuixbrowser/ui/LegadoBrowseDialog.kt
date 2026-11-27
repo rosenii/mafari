@@ -6,7 +6,6 @@
 package dev.dsh.miuixbrowser.ui
 
 import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -44,6 +44,9 @@ import dev.dsh.miuixbrowser.data.legado.LegadoSource
 import dev.dsh.miuixbrowser.i18n.tr
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
@@ -51,20 +54,10 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 已导入的 Legado 书源（进程内保存，重启后需要重新导入书源文件）。 */
-internal object LegadoLibrary {
-    var sources by mutableStateOf<List<LegadoSource>>(emptyList())
-        private set
-
-    /** 同一个地址的书源会被新导入的覆盖。 */
-    fun add(list: List<LegadoSource>) {
-        val urls = list.mapTo(HashSet()) { it.url }
-        sources = sources.filter { it.url !in urls } + list
-    }
-
-    fun remove(url: String) {
-        sources = sources.filter { it.url != url }
-    }
+/** 搜索结果里的一个条目：书 + 它来自哪个书源（多书源搜索时要用）。 */
+internal class BrowseItem(val book: LegadoBook, val source: LegadoSource) {
+    /** 勾选 / 去重的键：同一本书在不同书源里算两条 */
+    val key: String get() = source.url + "\u0000" + book.bookUrl
 }
 
 internal enum class LegadoMode { Search, Explore }
@@ -72,9 +65,13 @@ internal enum class LegadoMode { Search, Explore }
 /**
  * 搜索 / 发现弹窗的状态。引擎调用都是阻塞的，放 IO 线程；每次重置结果都会让 [gen] 加一，
  * 迟到的旧请求（换了书源、改了关键字、切了分类）回来后直接丢弃。
+ *
+ * [sourceIdx] 为 -1 时是「全部书源」：搜索会并发问所有启用的书源并按书源 + 书籍地址去重合并。
+ * 聚合模式只做搜索，不做发现（各书源的分类对不上）。
  */
 @Stable
 internal class LegadoBrowseState {
+    /** 当前书源下标；-1 = 全部书源 */
     var sourceIdx by mutableStateOf(0)
         private set
     var mode by mutableStateOf(LegadoMode.Search)
@@ -84,10 +81,10 @@ internal class LegadoBrowseState {
         private set
     var kindIdx by mutableStateOf(0)
         private set
-    var items by mutableStateOf<List<LegadoBook>>(emptyList())
+    var items by mutableStateOf<List<BrowseItem>>(emptyList())
         private set
-    /** 已勾选的书（按 bookUrl，保持勾选顺序）；换搜索词 / 分类后仍保留，换书源时清空。 */
-    var chosen by mutableStateOf<Map<String, LegadoBook>>(emptyMap())
+    /** 已勾选的书（按 [BrowseItem.key]，保持勾选顺序）；换搜索词 / 分类后仍保留，换书源时清空。 */
+    var chosen by mutableStateOf<Map<String, BrowseItem>>(emptyMap())
         private set
     var loading by mutableStateOf(false)
         private set
@@ -100,6 +97,10 @@ internal class LegadoBrowseState {
         private set
     var kindsLoaded by mutableStateOf(false)
         private set
+    /** 长按书籍打开的详情 */
+    var detail by mutableStateOf<BrowseItem?>(null)
+
+    val allSources: Boolean get() = sourceIdx < 0
 
     private val pager = LegadoPager()
     private var gen = 0
@@ -107,9 +108,19 @@ internal class LegadoBrowseState {
     private var activeQuery = ""
     private var activeKind: LegadoExploreKind? = null
 
+    // 全部书源模式的分页 / 去重（单书源仍用 [LegadoPager]）
+    private val multiItems = ArrayList<BrowseItem>()
+    private val multiSeen = HashSet<String>()
+    private var multiPage = 1
+    private var multiExhausted = false
+
     private fun resetResults() {
         gen++
         pager.reset()
+        multiItems.clear()
+        multiSeen.clear()
+        multiPage = 1
+        multiExhausted = false
         items = emptyList()
         loading = false
         error = null
@@ -133,22 +144,26 @@ internal class LegadoBrowseState {
         resetResults()
     }
 
-    fun toggle(b: LegadoBook) {
-        chosen = if (b.bookUrl in chosen) chosen - b.bookUrl else chosen + (b.bookUrl to b)
+    fun showDetail(item: BrowseItem?) {
+        detail = item
+    }
+
+    fun toggle(item: BrowseItem) {
+        chosen = if (item.key in chosen) chosen - item.key else chosen + (item.key to item)
     }
 
     fun clearChosen() {
         chosen = emptyMap()
     }
 
-    fun startSearch(src: LegadoSource, scope: CoroutineScope) {
+    fun startSearch(sources: List<LegadoSource>, scope: CoroutineScope) {
         val q = query.trim()
         if (q.isEmpty()) return
         resetResults()
         activeMode = LegadoMode.Search
         activeQuery = q
         touched = true
-        loadMore(src, scope)
+        loadMore(sources, scope)
     }
 
     fun startExplore(src: LegadoSource, idx: Int, scope: CoroutineScope) {
@@ -158,7 +173,7 @@ internal class LegadoBrowseState {
         activeMode = LegadoMode.Explore
         activeKind = kind
         touched = true
-        loadMore(src, scope)
+        loadMore(listOf(src), scope)
     }
 
     /** 读发现入口（分类 / 榜单），读到后自动打开第一个。 */
@@ -179,54 +194,99 @@ internal class LegadoBrowseState {
     }
 
     /** 读下一页（第一页也走这里）；失败后再调一次就是重试同一页。 */
-    fun loadMore(src: LegadoSource, scope: CoroutineScope) {
+    fun loadMore(sources: List<LegadoSource>, scope: CoroutineScope) {
         if (loading) return
         val my = gen
-        val page = pager.nextPage
         val m = activeMode
         val q = activeQuery
         val kind = activeKind
+        val targets = if (allSources) {
+            if (m == LegadoMode.Explore) emptyList() else sources.filter { it.canSearch }
+        } else {
+            listOfNotNull(sources.getOrNull(sourceIdx))
+        }
+        if (targets.isEmpty()) {
+            error = tr("没有可用的书源")
+            exhausted = false
+            return
+        }
+        val pageNo = if (allSources) multiPage else pager.nextPage
         loading = true
         error = null
         scope.launch {
             val r = withContext(Dispatchers.IO) {
-                runCatching {
-                    if (m == LegadoMode.Search) src.engine.search(q, page)
-                    else src.engine.explore(kind ?: throw IllegalStateException("no kind"), page)
+                if (allSources) {
+                    // 并发问所有书源；个别书源失败不影响其它书源的结果
+                    coroutineScope {
+                        targets.map { s ->
+                            async { s to runCatching { s.engine.search(q, pageNo) } }
+                        }.awaitAll()
+                    }
+                } else {
+                    val src = targets.first()
+                    listOf(
+                        src to runCatching {
+                            if (m == LegadoMode.Search) src.engine.search(q, pageNo)
+                            else src.engine.explore(kind ?: throw IllegalStateException("no kind"), pageNo)
+                        },
+                    )
                 }
             }
             if (my != gen) return@launch
             loading = false
-            r.onSuccess {
-                pager.add(it)
-                items = pager.items.toList()
-                exhausted = pager.exhausted
-            }.onFailure {
-                error = it.message ?: tr("读取失败，检查网络或书源是否失效")
-                // 第一页就失败时没有「加载更多」，保留重试入口
-                exhausted = false
+            val failures = r.filter { it.second.isFailure }
+            if (allSources) {
+                val newItems = ArrayList<BrowseItem>()
+                for ((src, res) in r) {
+                    for (b in res.getOrNull().orEmpty()) {
+                        if (multiSeen.add(src.url + "\u0000" + b.bookUrl)) newItems.add(BrowseItem(b, src))
+                    }
+                }
+                if (newItems.isEmpty()) {
+                    multiExhausted = true
+                    if (failures.isNotEmpty() && multiItems.isEmpty()) {
+                        error = failures.first().second.exceptionOrNull()?.message
+                            ?: tr("读取失败，检查网络或书源是否失效")
+                    }
+                }
+                multiItems.addAll(newItems)
+                items = multiItems.toList()
+                exhausted = multiExhausted
+                if (newItems.isNotEmpty()) multiPage++
+            } else {
+                val res = r.first().second
+                res.onSuccess {
+                    pager.add(it)
+                    val src = targets.first()
+                    items = pager.items.map { b -> BrowseItem(b, src) }
+                    exhausted = pager.exhausted
+                }.onFailure {
+                    error = it.message ?: tr("读取失败，检查网络或书源是否失效")
+                    // 第一页就失败时没有「加载更多」，保留重试入口
+                    exhausted = false
+                }
             }
         }
     }
 
-    fun picks(src: LegadoSource): List<FeedBook> = chosen.values.map { b ->
+    fun picks(): List<FeedBook> = chosen.values.map { item ->
         FeedBook(
-            title = b.name,
-            author = b.author,
-            cover = b.coverUrl,
+            title = item.book.name,
+            author = item.book.author,
+            cover = item.book.coverUrl,
             url = null,
             format = null,
             chapters = emptyList(),
             chaptersUrl = null,
-            legado = b,
-            legadoSource = src,
+            legado = item.book,
+            legadoSource = item.source,
         )
     }
 }
 
 /**
- * Legado 书源的「搜索 / 发现」弹窗：选书源 → 搜索关键字或浏览发现分类 → 勾选 → 交给 [onImport] 下载入架。
- * [sources] 为空时只显示提示。
+ * Legado 书源的「搜索 / 发现」弹窗：选书源（或全部书源）→ 搜索关键字 / 浏览发现分类 → 勾选 → 交给 [onImport] 下载入架。
+ * [sources] 为空时只显示提示。长按一条结果可以看详情（简介 / 分类 / 最新章节）。
  */
 @Composable
 internal fun LegadoBrowseDialog(
@@ -234,19 +294,27 @@ internal fun LegadoBrowseDialog(
     backdrop: top.yukonga.miuix.kmp.blur.Backdrop?,
     sources: List<LegadoSource>,
     shelfKeys: Set<Pair<String, String>>,
+    /** 打开时默认选中的书源（地址）；为空或找不到时保持原来的选择 */
+    initialSourceUrl: String? = null,
     onDismiss: () -> Unit,
-    onRemoveSource: (LegadoSource) -> Unit,
     onImport: (List<FeedBook>) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state = remember { LegadoBrowseState() }
+    LaunchedEffect(show, initialSourceUrl) {
+        if (!show) return@LaunchedEffect
+        val idx = if (initialSourceUrl == null) 0 else sources.indexOfFirst { it.url == initialSourceUrl }
+        if (idx >= 0) state.pickSource(idx)
+    }
     val src = sources.getOrNull(state.sourceIdx)
     // 书源被移除后下标可能越界：回到第一个
-    LaunchedEffect(sources.size) {
-        if (state.sourceIdx >= sources.size && sources.isNotEmpty()) state.pickSource(0)
+    LaunchedEffect(sources.size, state.allSources) {
+        if (sources.isEmpty()) state.pickSource(0)
+        else if (state.sourceIdx >= sources.size && !state.allSources) state.pickSource(0)
     }
     val mode: LegadoMode? = when {
+        state.allSources -> if (sources.any { it.canSearch }) LegadoMode.Search else null
         src == null -> null
         state.mode == LegadoMode.Search && src.canSearch -> LegadoMode.Search
         state.mode == LegadoMode.Explore && src.canExplore -> LegadoMode.Explore
@@ -254,21 +322,21 @@ internal fun LegadoBrowseDialog(
         src.canExplore -> LegadoMode.Explore
         else -> null
     }
-    LaunchedEffect(src?.url, mode, state.kindsLoaded) {
-        if (src != null && mode == LegadoMode.Explore && !state.kindsLoaded) state.loadKinds(src, scope)
+    LaunchedEffect(src?.url, mode, state.kindsLoaded, state.allSources) {
+        if (!state.allSources && src != null && mode == LegadoMode.Explore && !state.kindsLoaded) state.loadKinds(src, scope)
     }
 
     AppGlassDialog(
         show = show,
         title = tr("书源搜索 / 发现"),
-        summary = src?.name,
+        summary = if (state.allSources) tr("全部书源（{0} 个）", sources.count { it.canSearch }) else src?.name,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            if (src == null) {
+            if (sources.isEmpty()) {
                 Text(
-                    text = tr("还没有书源：先用「从订阅源导入」导入 Legado 书源文件"),
+                    text = tr("还没有书源：先在「订阅源」里添加 Legado 书源"),
                     fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
@@ -282,6 +350,7 @@ internal fun LegadoBrowseDialog(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        CategoryChip(text = tr("全部"), selected = state.allSources) { state.pickSource(-1) }
                         sources.forEachIndexed { i, s ->
                             CategoryChip(text = shortName(s.name), selected = i == state.sourceIdx) { state.pickSource(i) }
                         }
@@ -291,15 +360,17 @@ internal fun LegadoBrowseDialog(
 
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                        if (src.canSearch) CategoryChip(text = tr("搜索"), selected = mode == LegadoMode.Search) { state.pickMode(LegadoMode.Search) }
-                        if (src.canExplore) CategoryChip(text = tr("发现"), selected = mode == LegadoMode.Explore) { state.pickMode(LegadoMode.Explore) }
+                        if (state.allSources) {
+                            Text(
+                                text = tr("在 {0} 个书源里搜索", sources.count { it.canSearch }),
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        } else if (src != null) {
+                            if (src.canSearch) CategoryChip(text = tr("搜索"), selected = mode == LegadoMode.Search) { state.pickMode(LegadoMode.Search) }
+                            if (src.canExplore) CategoryChip(text = tr("发现"), selected = mode == LegadoMode.Explore) { state.pickMode(LegadoMode.Explore) }
+                        }
                     }
-                    Text(
-                        text = tr("移除书源"),
-                        fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.clickable { onRemoveSource(src) }.padding(horizontal = 6.dp, vertical = 6.dp),
-                    )
                 }
                 Spacer(Modifier.height(8.dp))
 
@@ -311,7 +382,7 @@ internal fun LegadoBrowseDialog(
                         label = tr("搜索书名或作者"),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { state.startSearch(src, scope) }),
+                        keyboardActions = KeyboardActions(onSearch = { state.startSearch(sources, scope) }),
                     )
                     LegadoMode.Explore -> if (state.kinds.isNotEmpty()) {
                         Row(
@@ -319,7 +390,7 @@ internal fun LegadoBrowseDialog(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             state.kinds.forEachIndexed { i, k ->
-                                CategoryChip(text = k.title, selected = i == state.kindIdx) { state.startExplore(src, i, scope) }
+                                CategoryChip(text = k.title, selected = i == state.kindIdx) { state.startExplore(src!!, i, scope) }
                             }
                         }
                     }
@@ -333,7 +404,7 @@ internal fun LegadoBrowseDialog(
                     Spacer(Modifier.height(8.dp))
                     AppTextButton(
                         text = tr("搜索"),
-                        onClick = { state.startSearch(src, scope) },
+                        onClick = { state.startSearch(sources, scope) },
                         enabled = state.query.isNotBlank() && !state.loading,
                         primary = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -363,8 +434,8 @@ internal fun LegadoBrowseDialog(
                                 AppTextButton(
                                     text = tr("重试"),
                                     onClick = {
-                                        if (mode == LegadoMode.Explore && state.kinds.isEmpty()) state.loadKinds(src, scope)
-                                        else state.loadMore(src, scope)
+                                        if (!state.allSources && mode == LegadoMode.Explore && state.kinds.isEmpty() && src != null) state.loadKinds(src, scope)
+                                        else state.loadMore(sources, scope)
                                     },
                                 )
                             }
@@ -372,13 +443,19 @@ internal fun LegadoBrowseDialog(
                     }
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().height(56.dp * minOf(list.size + 1, 5))) {
-                        items(list, key = { it.bookUrl }) { b ->
+                        items(list, key = { it.key }) { item ->
                             FeedRow(
-                                title = b.name,
-                                author = listOfNotNull(b.author.ifBlank { null }, b.lastChapter).joinToString(" · "),
-                                checked = b.bookUrl in state.chosen,
-                                onShelf = (b.name.trim() to b.author.trim()) in shelfKeys,
-                            ) { state.toggle(b) }
+                                title = item.book.name,
+                                author = listOfNotNull(
+                                    item.book.author.ifBlank { null },
+                                    item.book.lastChapter,
+                                    if (state.allSources) shortName(item.source.name) else null,
+                                ).joinToString(" · "),
+                                checked = item.key in state.chosen,
+                                onShelf = (item.book.name.trim() to item.book.author.trim()) in shelfKeys,
+                                onClick = { state.toggle(item) },
+                                onLongClick = { state.showDetail(item) },
+                            )
                         }
                         item(key = "legado-footer") {
                             Box(modifier = Modifier.fillMaxWidth().height(56.dp), contentAlignment = Alignment.Center) {
@@ -395,9 +472,9 @@ internal fun LegadoBrowseDialog(
                                             textAlign = TextAlign.Center,
                                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
-                                        AppTextButton(text = tr("重试"), onClick = { state.loadMore(src, scope) })
+                                        AppTextButton(text = tr("重试"), onClick = { state.loadMore(sources, scope) })
                                     }
-                                    !state.exhausted -> AppTextButton(text = tr("加载更多"), onClick = { state.loadMore(src, scope) })
+                                    !state.exhausted -> AppTextButton(text = tr("加载更多"), onClick = { state.loadMore(sources, scope) })
                                     else -> Text(
                                         text = tr("没有更多了"),
                                         fontSize = 13.sp,
@@ -409,6 +486,14 @@ internal fun LegadoBrowseDialog(
                     }
                 }
 
+                if (state.items.isNotEmpty()) {
+                    Text(
+                        text = tr("长按结果可看简介、分类和最新章节"),
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
                 Spacer(Modifier.height(10.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
@@ -416,7 +501,7 @@ internal fun LegadoBrowseDialog(
                     }
                     AppDialogButton(
                         onClick = {
-                            val picks = state.picks(src)
+                            val picks = state.picks()
                             if (picks.isEmpty()) {
                                 Toast.makeText(context, tr("请先勾选要导入的书"), Toast.LENGTH_SHORT).show()
                             } else {
@@ -427,6 +512,56 @@ internal fun LegadoBrowseDialog(
                         modifier = Modifier.weight(1f),
                         role = GlassDialogButtonRole.Primary,
                     ) { Text(text = tr("导入 {0} 本", state.chosen.size), style = MiuixTheme.textStyles.button) }
+                }
+            }
+        }
+    }
+
+    // ---- 书籍详情（长按结果）：简介 / 分类 / 最新章节 / 来源书源
+    val detail = state.detail
+    AppGlassDialog(
+        show = detail != null,
+        title = detail?.book?.name,
+        summary = detail?.let { listOfNotNull(it.book.author.ifBlank { null }, it.source.name).joinToString(" · ") },
+        backdrop = backdrop,
+        onDismissRequest = { state.showDetail(null) },
+    ) {
+        if (detail != null) {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                val kind = detail.book.kind
+                val last = detail.book.lastChapter
+                if (!kind.isNullOrBlank()) {
+                    Text(text = tr("分类：{0}", kind), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (!last.isNullOrBlank()) {
+                    Text(text = tr("最新章节：{0}", last), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Spacer(Modifier.height(6.dp))
+                }
+                Text(
+                    text = detail.book.intro?.takeIf { it.isNotBlank() } ?: tr("（这本书没有简介）"),
+                    fontSize = 14.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AppDialogButton(onClick = { state.showDetail(null) }, modifier = Modifier.weight(1f)) {
+                        Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
+                    }
+                    AppDialogButton(
+                        onClick = {
+                            state.toggle(detail)
+                            state.showDetail(null)
+                        },
+                        modifier = Modifier.weight(1f),
+                        role = GlassDialogButtonRole.Primary,
+                    ) {
+                        Text(
+                            text = if (detail.key in state.chosen) tr("取消勾选") else tr("勾选这本书"),
+                            style = MiuixTheme.textStyles.button,
+                        )
+                    }
                 }
             }
         }

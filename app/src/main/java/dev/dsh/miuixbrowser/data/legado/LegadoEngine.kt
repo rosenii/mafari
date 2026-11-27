@@ -75,7 +75,7 @@ class LegadoEngine(val source: LegadoSource) {
     fun exploreKinds(): List<LegadoExploreKind> {
         kindsCache?.let { return it }
         val raw = source.exploreUrl?.trim().orEmpty()
-        if (raw.isEmpty()) return emptyList()
+        if (raw.isEmpty() || !source.exploreEnabled) return emptyList()
         val text = if (raw.startsWith("@js:", true) || raw.contains("<js>", true)) {
             LegadoAnalyzer(this, source.url).renderTemplate(raw, emptyMap())
         } else raw
@@ -130,7 +130,7 @@ class LegadoEngine(val source: LegadoSource) {
                     author = clean(a.getString(rules["author"], item, false, vars)),
                     bookUrl = bookUrl,
                     coverUrl = a.getString(rules["coverUrl"], item, true, vars).ifEmpty { null },
-                    intro = a.getString(rules["intro"], item, false, vars).ifEmpty { null },
+                    intro = cleanIntro(a.getString(rules["intro"], item, false, vars)).ifEmpty { null },
                     kind = a.getStringList(rules["kind"], item, false, vars).joinToString(",").ifEmpty { null },
                     lastChapter = clean(a.getString(rules["lastChapter"], item, false, vars)).ifEmpty { null },
                 ),
@@ -156,7 +156,7 @@ class LegadoEngine(val source: LegadoSource) {
         a.getString(rules["name"], content, false, vars).let { clean(it) }.takeIf { it.isNotEmpty() }?.let { book.name = it }
         a.getString(rules["author"], content, false, vars).let { clean(it) }.takeIf { it.isNotEmpty() }?.let { book.author = it }
         a.getString(rules["coverUrl"], content, true, vars).takeIf { it.isNotEmpty() }?.let { book.coverUrl = it }
-        a.getString(rules["intro"], content, false, vars).takeIf { it.isNotEmpty() }?.let { book.intro = it }
+        cleanIntro(a.getString(rules["intro"], content, false, vars)).takeIf { it.isNotEmpty() }?.let { book.intro = it }
         a.getStringList(rules["kind"], content, false, vars).joinToString(",").takeIf { it.isNotEmpty() }?.let { book.kind = it }
         a.getString(rules["lastChapter"], content, false, vars).let { clean(it) }.takeIf { it.isNotEmpty() }?.let { book.lastChapter = it }
         book.tocUrl = a.getString(rules["tocUrl"], content, true, vars).ifEmpty { res.finalUrl }
@@ -270,6 +270,11 @@ class LegadoEngine(val source: LegadoSource) {
                 (pages.getOrNull(page - 1) ?: pages.last()).trim()
             }
         }
+        // 有些书源不用 {{key}}，而把搜索词写成 searchKey（Legado 的另一种写法）
+        if (key != null && s.contains("searchKey")) {
+            // 路径 / 查询串里都可能出现，空格统一用 %20（+ 在路径里不是空格）
+            s = s.replace("searchKey", URLEncoder.encode(key, Charsets.UTF_8.name()).replace("+", "%20"))
+        }
 
         var method = "GET"
         var body: String? = null
@@ -351,6 +356,10 @@ class LegadoEngine(val source: LegadoSource) {
     }
 
     private fun clean(s: String): String = s.replace(Regex("\\s+"), " ").trim()
+
+    /** 简介规则常直接取整段 HTML，展示前转成纯文本；没有标签就只压缩空白。 */
+    private fun cleanIntro(s: String): String =
+        if (s.contains('<')) runCatching { org.jsoup.Jsoup.parse(s).text() }.getOrNull()?.let(::clean) ?: clean(s) else clean(s)
 
     companion object {
         private const val MAX_TOC_PAGES = 100
