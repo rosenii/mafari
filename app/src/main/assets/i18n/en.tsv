@@ -2482,3 +2482,38 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 订阅源不存在	The subscription doesn't exist
 订阅源文件缺失，请重新导入	The subscription file is missing; please import it again
 长按结果可看简介、分类和最新章节	Long-press a result to see its description, category and latest chapter
+保存书源失败：{0}	Failed to save the book source: {0}
+保存订阅源失败：{0}	Failed to save the subscription: {0}
+正在下载本章…	Downloading this chapter…
+本章下载失败：{0}。可以翻到下一章继续读，或稍后重新打开再试。	Failed to download this chapter: {0}. You can skip to the next chapter, or reopen the book and try again later.
+这本书的目录丢了，请重新从书源导入	This book's table of contents is missing; import it from the book source again
+章节不存在	Chapter not found
+书源已被删除，无法继续下载；可以重新导入书源后再试	The book source was deleted, so downloading can't continue. Re-import the book source and try again
+（本章没有内容）	(This chapter is empty)
+加入书架失败	Failed to add to the bookshelf
+Legado 订阅源	Legado subscriptions
+还没有 Legado 订阅源：先在「订阅源」里导入（sourceUrl + ruleArticles）	No Legado subscriptions yet: import one (sourceUrl + ruleArticles) under Subscriptions
+没有读到文章	No articles found
+点「刷新」读取文章	Tap Refresh to load articles
+请先勾选要导入的文章	Select the articles to import first
+导入 {0} 篇	Import {0}
+（这篇文章没有摘要）	(No summary for this article)
+勾选这篇	Select this article
+这个订阅源没有读到文章	No articles were read from this subscription
+这个订阅源没有文章列表规则	This subscription has no article-list rule
+这个订阅源没有正文规则	This subscription has no content rule
+没有读到正文，订阅源规则可能已失效	No content was read; the subscription rules may be out of date
+这个订阅源已停用	This subscription is disabled
+没有读到有效的订阅源（需要 sourceUrl 和 ruleArticles）	No valid subscriptions found (sourceUrl and ruleArticles are required)
+可浏览	Browsable
+还没有 Legado 订阅源。点下方「添加」导入带 sourceUrl / ruleArticles 的订阅源文件或链接。	No Legado subscriptions yet. Tap Add below to import a subscription file or link with sourceUrl / ruleArticles.
+Legado 订阅文章	Legado articles
+已导入 {0} 个订阅源（新增 {1} 个）	Imported {0} subscription(s) ({1} new)
+{0} 个订阅源 · {1} 个书源 · {2} 个 Legado 订阅	{0} subscription(s) · {1} book source(s) · {2} Legado subscription(s)
+「{0}」会从列表移除，已导入到书架的文章不受影响。	"{0}" will be removed from the list; articles already imported into your bookshelf are not affected.
+已取消，已导入 {0} 篇	Cancelled; imported {0} article(s)
+已导入 {0} 篇	Imported {0} article(s)
+已导入 {0} 篇，{1} 篇失败：{2}	Imported {0} article(s), {1} failed: {2}
+Legado 订阅 {0}	Legado subscriptions {0}
+部分书源失败：{0}	Some book sources failed: {0}
+书源	Source

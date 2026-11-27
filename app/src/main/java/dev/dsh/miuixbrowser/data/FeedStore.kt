@@ -16,7 +16,7 @@ import java.io.File
 import java.util.UUID
 
 /**
- * 已保存的一份通用订阅源（JSON / OPDS）。[raw] 不存在这里：原文单独放在 `bookshelf/feeds/<id>.feed`，
+ * 已保存的一份通用订阅源（JSON / OPDS）。原文不放在这里：它单独放在 `bookshelf/feeds/<id>.feed`，
  * 列表只读很小的清单，避免启动时把几 MB 的订阅源全读进内存。
  */
 class SavedFeed(
@@ -79,7 +79,7 @@ object FeedStore {
      * 在 IO 线程调用（会写盘）。
      */
     fun add(context: Context, loadedFeed: LoadedFeed, url: String?): SavedFeed {
-        require(loadedFeed.feed.sources.isEmpty()) { "Legado 书源不能保存为通用订阅源" }
+        require(loadedFeed.feed.sources.isEmpty() && loadedFeed.feed.rssSources.isEmpty()) { "Legado 书源不能保存为通用订阅源" }
         synchronized(lock) {
             ensureLoadedLocked(context)
             val now = System.currentTimeMillis()
@@ -110,7 +110,7 @@ object FeedStore {
 
     /** 用新下载到的内容刷新一份订阅源。返回更新后的条目；[id] 不存在时返回 null。在 IO 线程调用。 */
     fun refresh(context: Context, id: String, loadedFeed: LoadedFeed): SavedFeed? {
-        require(loadedFeed.feed.sources.isEmpty()) { "Legado 书源不能保存为通用订阅源" }
+        require(loadedFeed.feed.sources.isEmpty() && loadedFeed.feed.rssSources.isEmpty()) { "Legado 书源不能保存为通用订阅源" }
         synchronized(lock) {
             ensureLoadedLocked(context)
             val old = feeds.firstOrNull { it.id == id } ?: return null

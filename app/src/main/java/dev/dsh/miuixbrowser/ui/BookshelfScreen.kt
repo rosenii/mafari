@@ -94,6 +94,9 @@ import dev.dsh.miuixbrowser.data.FeedBook
 import dev.dsh.miuixbrowser.data.FeedStore
 import dev.dsh.miuixbrowser.data.LoadedFeed
 import dev.dsh.miuixbrowser.data.SavedFeed
+import dev.dsh.miuixbrowser.data.legado.LegadoRssArticle
+import dev.dsh.miuixbrowser.data.legado.LegadoRssSource
+import dev.dsh.miuixbrowser.data.legado.LegadoRssStore
 import dev.dsh.miuixbrowser.data.legado.LegadoSource
 import dev.dsh.miuixbrowser.data.legado.LegadoSourceStore
 import dev.dsh.miuixbrowser.data.BookSort
@@ -194,6 +197,7 @@ fun BookshelfScreen(
             BookShelf.load(context)
             FeedStore.load(context)
             LegadoSourceStore.load(context)
+            LegadoRssStore.load(context)
         }
         loaded = true
     }
@@ -248,14 +252,19 @@ fun BookshelfScreen(
     var legadoShow by remember { mutableStateOf(false) }
     /** 打开书源弹窗时要默认选中的书源地址（从订阅源管理里点进来的） */
     var legadoFocus by remember { mutableStateOf<String?>(null) }
+    // Legado 订阅源（RSS / JSON / 网页）：文章列表、勾选后逐篇取正文入架
+    var rssShow by remember { mutableStateOf(false) }
+    var rssFocus by remember { mutableStateOf<String?>(null) }
     // 订阅源管理：通用订阅源的刷新 / 删除，Legado 书源的启停 / 删除
     var feedMgrShow by remember { mutableStateOf(false) }
     var feedMgrTab by remember { mutableStateOf(0) }
     var refreshingFeedId by remember { mutableStateOf<String?>(null) }
     var deleteFeed by remember { mutableStateOf<SavedFeed?>(null) }
     var deleteSource by remember { mutableStateOf<LegadoSource?>(null) }
+    var deleteRss by remember { mutableStateOf<LegadoRssSource?>(null) }
     val savedFeeds = FeedStore.feeds
     val legadoSources = LegadoSourceStore.sources
+    val rssSources = LegadoRssStore.sources
     val shelfKeys = remember(books) { books.mapTo(HashSet()) { it.title.trim() to it.author.trim() } }
 
     // 编辑窗口 / 删除确认：书和显示状态分开存，关闭动画期间内容不会突然消失
@@ -333,14 +342,27 @@ fun BookshelfScreen(
                 val f = lf.feed
                 if (f.sources.isNotEmpty()) {
                     // Legado 书源文件没有现成的书目：保存书源，直接打开搜索 / 发现
-                    val added = withContext(Dispatchers.IO) { LegadoSourceStore.add(context, f.sources) }
+                    val added = runCatching { withContext(Dispatchers.IO) { LegadoSourceStore.add(context, f.sources) } }
+                        .onFailure { toast(tr("保存书源失败：{0}", it.message.orEmpty())) }
+                        .getOrDefault(0)
                     toast(tr("已导入 {0} 个书源（新增 {1} 个）", f.sources.size, added))
                     legadoFocus = f.sources.firstOrNull()?.url
                     legadoShow = true
                     return@onSuccess
                 }
+                if (f.rssSources.isNotEmpty()) {
+                    // Legado 订阅源（sourceUrl + ruleArticles）：保存后直接打开文章列表
+                    val added = runCatching { withContext(Dispatchers.IO) { LegadoRssStore.add(context, f.rssSources) } }
+                        .onFailure { toast(tr("保存订阅源失败：{0}", it.message.orEmpty())) }
+                        .getOrDefault(0)
+                    toast(tr("已导入 {0} 个订阅源（新增 {1} 个）", f.rssSources.size, added))
+                    rssFocus = f.rssSources.firstOrNull()?.url
+                    rssShow = true
+                    return@onSuccess
+                }
                 // 通用订阅源保存下来，下次不用再找链接
-                withContext(Dispatchers.IO) { FeedStore.add(context, lf, remoteUrl) }
+                runCatching { withContext(Dispatchers.IO) { FeedStore.add(context, lf, remoteUrl) } }
+                    .onFailure { toast(tr("保存订阅源失败：{0}", it.message.orEmpty())) }
                 feedPick = f
                 feedSel = f.books.indices.filter { (f.books[it].title.trim() to f.books[it].author.trim()) !in shelfKeys }.toSet()
                 feedPickShow = true
@@ -422,6 +444,44 @@ fun BookshelfScreen(
                         fail == 0 -> tr("已导入 {0} 本", ok)
                         ok == 0 -> tr("导入失败：{0}", lastErr.orEmpty())
                         else -> tr("已导入 {0} 本，{1} 本失败：{2}", ok, fail, lastErr.orEmpty())
+                    },
+                )
+            }
+        }
+    }
+
+    /** Legado 订阅源文章：逐篇取正文入架；可取消，取消后已入架的保留。 */
+    fun startRssImport(source: LegadoRssSource, picks: List<LegadoRssArticle>) {
+        rssShow = false
+        feedProgress = ""
+        feedRunning = true
+        importing = true
+        feedJob = scope.launch {
+            var ok = 0
+            var fail = 0
+            var lastErr: String? = null
+            var cancelled = false
+            try {
+                for ((i, a) in picks.withIndex()) {
+                    feedProgress = tr("《{0}》（{1}/{2}）", a.title, i + 1, picks.size)
+                    val r = BookFeedImport.importRssArticle(context, source, a)
+                    val err = r.exceptionOrNull()
+                    if (err is CancellationException) throw err
+                    if (err == null) ok++ else { fail++; lastErr = err.message }
+                }
+            } catch (e: CancellationException) {
+                cancelled = true
+                throw e
+            } finally {
+                feedRunning = false
+                importing = false
+                feedJob = null
+                toast(
+                    when {
+                        cancelled -> tr("已取消，已导入 {0} 篇", ok)
+                        fail == 0 -> tr("已导入 {0} 篇", ok)
+                        ok == 0 -> tr("导入失败：{0}", lastErr.orEmpty())
+                        else -> tr("已导入 {0} 篇，{1} 篇失败：{2}", ok, fail, lastErr.orEmpty())
                     },
                 )
             }
@@ -880,11 +940,22 @@ fun BookshelfScreen(
                     },
                 )
 
+                // ---- Legado 订阅源（RSS / JSON / 网页）：文章列表 → 勾选导入
+                LegadoRssDialog(
+                    show = rssShow,
+                    backdrop = bd,
+                    sources = rssSources.filter { it.enabled },
+                    shelfKeys = shelfKeys,
+                    initialSourceUrl = rssFocus,
+                    onDismiss = { rssShow = false },
+                    onImport = { source, picks -> startRssImport(source, picks) },
+                )
+
                 // ---- 订阅源管理：通用订阅源（打开 / 刷新 / 删除）+ Legado 书源（启停 / 删除）
                 AppGlassDialog(
                     show = feedMgrShow,
                     title = tr("订阅源"),
-                    summary = tr("{0} 个订阅源 · {1} 个书源", savedFeeds.size, legadoSources.size),
+                    summary = tr("{0} 个订阅源 · {1} 个书源 · {2} 个 Legado 订阅", savedFeeds.size, legadoSources.size, rssSources.size),
                     backdrop = bd,
                     onDismissRequest = { feedMgrShow = false },
                 ) {
@@ -892,6 +963,7 @@ fun BookshelfScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CategoryChip(text = tr("订阅源 {0}", savedFeeds.size), selected = feedMgrTab == 0) { feedMgrTab = 0 }
                             CategoryChip(text = tr("书源 {0}", legadoSources.size), selected = feedMgrTab == 1) { feedMgrTab = 1 }
+                            CategoryChip(text = tr("Legado 订阅 {0}", rssSources.size), selected = feedMgrTab == 2) { feedMgrTab = 2 }
                         }
                         Spacer(Modifier.height(8.dp))
                         if (feedMgrTab == 0) {
@@ -949,7 +1021,7 @@ fun BookshelfScreen(
                                     }
                                 }
                             }
-                        } else {
+                        } else if (feedMgrTab == 1) {
                             if (legadoSources.isEmpty()) {
                                 Text(
                                     text = tr("还没有书源。点下方「添加」导入 Legado（开源阅读）书源文件或链接。"),
@@ -1003,6 +1075,64 @@ fun BookshelfScreen(
                                                 fontSize = 13.sp,
                                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                                 modifier = Modifier.clickable { deleteSource = src }.padding(horizontal = 6.dp, vertical = 8.dp),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (rssSources.isEmpty()) {
+                                Text(
+                                    text = tr("还没有 Legado 订阅源。点下方「添加」导入带 sourceUrl / ruleArticles 的订阅源文件或链接。"),
+                                    fontSize = 14.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                                )
+                            } else {
+                                LazyColumn(modifier = Modifier.fillMaxWidth().height(64.dp * minOf(rssSources.size, 5))) {
+                                    items(rssSources, key = { it.url }) { src ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().height(64.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            MiuixSwitch(
+                                                checked = src.enabled,
+                                                onCheckedChange = { on ->
+                                                    scope.launch { withContext(Dispatchers.IO) { LegadoRssStore.setEnabled(context, src.url, on) } }
+                                                },
+                                            )
+                                            Column(
+                                                modifier = Modifier.weight(1f).padding(start = 8.dp)
+                                                    .clickable {
+                                                        rssFocus = src.url
+                                                        feedMgrShow = false
+                                                        rssShow = true
+                                                    },
+                                            ) {
+                                                Text(
+                                                    text = src.name,
+                                                    fontSize = 16.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = if (src.enabled) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                                )
+                                                Text(
+                                                    text = listOfNotNull(
+                                                        src.group.ifBlank { null },
+                                                        if (src.canBrowse) tr("可浏览") else null,
+                                                        if (!src.enabled) tr("已停用") else null,
+                                                    ).joinToString(" · ").ifBlank { src.url },
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                                )
+                                            }
+                                            Text(
+                                                text = tr("删除"),
+                                                fontSize = 13.sp,
+                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                                modifier = Modifier.clickable { deleteRss = src }.padding(horizontal = 6.dp, vertical = 8.dp),
                                             )
                                         }
                                     }
@@ -1069,6 +1199,33 @@ fun BookshelfScreen(
                                 if (src != null) {
                                     if (legadoFocus == src.url) legadoFocus = null
                                     scope.launch { withContext(Dispatchers.IO) { LegadoSourceStore.remove(context, src.url) } }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            role = GlassDialogButtonRole.Destructive,
+                        ) { Text(text = tr("删除"), style = MiuixTheme.textStyles.button) }
+                    }
+                }
+
+                // ---- 删除 Legado 订阅源确认
+                AppGlassDialog(
+                    show = deleteRss != null,
+                    title = tr("删除这个订阅源？"),
+                    summary = deleteRss?.let { tr("「{0}」会从列表移除，已导入到书架的文章不受影响。", it.name) },
+                    backdrop = bd,
+                    onDismissRequest = { deleteRss = null },
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppDialogButton(onClick = { deleteRss = null }, modifier = Modifier.weight(1f)) {
+                            Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                val rss = deleteRss
+                                deleteRss = null
+                                if (rss != null) {
+                                    if (rssFocus == rss.url) rssFocus = null
+                                    scope.launch { withContext(Dispatchers.IO) { LegadoRssStore.remove(context, rss.url) } }
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -1279,6 +1436,18 @@ fun BookshelfScreen(
                             showMore = false
                             legadoFocus = null
                             legadoShow = true
+                        },
+                        icon = MiuixIcons.Glass.Search,
+                    )
+                }
+                if (rssSources.any { it.enabled }) {
+                    GlassPopupItem(
+                        text = tr("Legado 订阅文章"),
+                        enabled = !importing && !feedLoading,
+                        onClick = {
+                            showMore = false
+                            rssFocus = null
+                            rssShow = true
                         },
                         icon = MiuixIcons.Glass.Search,
                     )
@@ -1528,7 +1697,7 @@ private fun BookRow(book: Book, selecting: Boolean, checked: Boolean, onClick: (
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = book.fileName.substringAfterLast('.', "").uppercase(),
+                    text = if (book.remote) tr("书源") else book.fileName.substringAfterLast('.', "").uppercase(),
                     fontSize = 11.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier

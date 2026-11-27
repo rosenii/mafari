@@ -37,6 +37,10 @@ data class Book(
     val progress: Float = 0f,
     /** 所属分类的 id；空串 = 未分类（只出现在「全部」里） */
     val category: String = "",
+    /** 远端书（Legado 书源）：正文不落盘，按章按需下载，见 [RemoteBooks] */
+    val remote: Boolean = false,
+    /** 远端书的目录章数（书架 / 阅读器用，不读元数据也能显示） */
+    val remoteTotal: Int = 0,
 )
 
 /** 书架分类。书只记录分类 id，改名不用动书。 */
@@ -84,7 +88,7 @@ object BookShelf {
     private var loaded = false
 
     private fun root(context: Context) = File(context.filesDir, DIR).also { it.mkdirs() }
-    private fun bookDir(context: Context, id: String) = File(root(context), id)
+    internal fun bookDir(context: Context, id: String) = File(root(context), id)
 
     fun coverFile(context: Context, id: String) = File(bookDir(context, id), "cover.img")
 
@@ -172,6 +176,48 @@ object BookShelf {
                 fileName = target.name,
                 addedAt = System.currentTimeMillis(),
                 hasCover = hasCover,
+            )
+            synchronized(lock) {
+                val next = listOf(book) + books
+                writeIndex(context, next)
+                books = next
+            }
+            return true
+        } catch (t: Throwable) {
+            dir.deleteRecursively()
+            throw t
+        }
+    }
+
+    /**
+     * 新建一本远端书（Legado 书源）：只写目录元数据和封面，正文等阅读器按章下载。
+     * [meta] 里的章节就是目录；在 IO 线程调用。
+     */
+    fun addRemoteBook(
+        context: Context,
+        title: String,
+        author: String,
+        cover: ByteArray?,
+        meta: RemoteBookMeta,
+    ): Boolean {
+        load(context)
+        val id = UUID.randomUUID().toString().replace("-", "").take(16)
+        val dir = bookDir(context, id).also { it.mkdirs() }
+        try {
+            RemoteBooks.write(context, id, meta)
+            var hasCover = false
+            if (cover != null) {
+                hasCover = runCatching { writeCover(coverFile(context, id), decodeScaled(cover)) }.getOrDefault(false)
+            }
+            val book = Book(
+                id = id,
+                title = title.ifBlank { meta.name },
+                author = author.ifBlank { meta.author },
+                fileName = "",
+                addedAt = System.currentTimeMillis(),
+                hasCover = hasCover,
+                remote = true,
+                remoteTotal = meta.chapters.size,
             )
             synchronized(lock) {
                 val next = listOf(book) + books
@@ -394,6 +440,8 @@ object BookShelf {
                     offset = o.optInt("offset"),
                     progress = o.optDouble("progress", 0.0).toFloat(),
                     category = o.optString("category"),
+                    remote = o.optBoolean("remote"),
+                    remoteTotal = o.optInt("remoteTotal"),
                 )
             }
         }.getOrDefault(emptyList())
@@ -408,7 +456,8 @@ object BookShelf {
                     .put("file", it.fileName).put("addedAt", it.addedAt)
                     .put("hasCover", it.hasCover).put("coverRev", it.coverRev)
                     .put("chapter", it.chapter).put("offset", it.offset).put("progress", it.progress.toDouble())
-                    .put("category", it.category),
+                    .put("category", it.category)
+                    .put("remote", it.remote).put("remoteTotal", it.remoteTotal),
             )
         }
         val f = File(root(context), INDEX)

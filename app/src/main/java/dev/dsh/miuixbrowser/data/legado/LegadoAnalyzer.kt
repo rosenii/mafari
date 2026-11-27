@@ -11,6 +11,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.TextNode
+import org.jsoup.parser.Parser
 import java.net.URL
 
 /**
@@ -439,7 +440,12 @@ internal class LegadoAnalyzer(private val engine: LegadoEngine, private val base
         is Element -> content
         is CharSequence -> {
             val s = content.toString()
-            if (s === cachedKey && cachedDoc != null) cachedDoc else Jsoup.parse(s, baseUrl).also { cachedKey = s; cachedDoc = it }
+            if (s === cachedKey && cachedDoc != null) cachedDoc else {
+                // RSS / Atom 是 XML：HTML 解析器会把 <link> 当空元素，文本就丢了
+                val head = s.trimStart('\uFEFF', ' ', '\n', '\r', '\t').take(64).lowercase()
+                val parser = if (head.startsWith("<?xml") || head.startsWith("<rss") || head.startsWith("<feed")) Parser.xmlParser() else null
+                (if (parser != null) Jsoup.parse(s, baseUrl, parser) else Jsoup.parse(s, baseUrl)).also { cachedKey = s; cachedDoc = it }
+            }
         }
         is List<*> -> content.firstOrNull()?.let { asElement(it) }
         else -> null

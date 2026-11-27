@@ -8,6 +8,9 @@ package dev.dsh.miuixbrowser.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import dev.dsh.miuixbrowser.data.legado.LegadoBook
+import dev.dsh.miuixbrowser.data.legado.LegadoChapter
+import dev.dsh.miuixbrowser.data.legado.LegadoSourceStore
 import dev.dsh.miuixbrowser.i18n.tr
 import java.io.File
 import java.net.URLDecoder
@@ -26,7 +29,15 @@ sealed interface Block {
  * 一章。[text] 是章内全部文字，已经整理好：段落用 \n 分隔，每段以两个全角空格开头（首行缩进）。
  * [blocks] 是按出现顺序排好的文字块 / 图片块；纯文字的章节只有一个文字块（TXT 就是这样）。
  */
-class Chapter(val title: String, val text: String, val blocks: List<Block> = listOf(Block.Text(text))) {
+class Chapter(
+    val title: String,
+    val text: String,
+    val blocks: List<Block> = listOf(Block.Text(text)),
+    /** 远端书里的章节下标；本地书为 -1 */
+    val index: Int = -1,
+    /** 远端章节还没下载（[text] 是占位提示）；读完缓存后由阅读器替换 */
+    val pending: Boolean = false,
+) {
     val hasImages: Boolean get() = blocks.any { it is Block.Image }
 }
 
@@ -50,12 +61,73 @@ object BookContent {
     internal const val INLINE_IMAGE_MIN = 16L * 1024
     private const val MAX_IMAGE_BYTES = 40L * 1024 * 1024
 
-    /** 在 IO 线程调用；读不出任何内容时返回空列表。 */
+    /** 在 IO 线程调用；读不出任何内容时返回空列表。远端书只读目录，正文按章取（见 [loadRemoteChapter]）。 */
     fun load(context: Context, book: Book): List<Chapter> {
+        if (book.remote) return loadRemote(context, book)
         val file = BookShelf.bookFile(context, book)
         if (!file.isFile) return emptyList()
         val chapters = if (file.extension.equals("epub", ignoreCase = true)) parseEpub(file) else parseTxt(decodeText(file.readBytes()))
         return chapters.flatMap { splitLong(it) }
+    }
+
+    /** 远端书打开时预读的章节范围：当前章前后各这么多章（再远就翻到时再下）。 */
+    private const val REMOTE_PREFETCH = 2
+
+    /**
+     * 远端书：目录立刻返回，当前章附近的已缓存章节带上正文，其余是占位章节。
+     * 阅读器滑到附近时再调 [loadRemoteChapter] 下载并替换，不用等整本下完。
+     */
+    private fun loadRemote(context: Context, book: Book): List<Chapter> {
+        val meta = RemoteBooks.read(context, book.id) ?: return emptyList()
+        val current = book.chapter.coerceIn(0, meta.chapters.lastIndex)
+        return meta.chapters.mapIndexed { i, c ->
+            val cached = if (kotlin.math.abs(i - current) <= REMOTE_PREFETCH) RemoteBooks.cached(context, book.id, i) else null
+            if (cached != null) {
+                Chapter(c.title, cached, index = i)
+            } else {
+                Chapter(c.title, tr("正在下载本章…"), index = i, pending = true)
+            }
+        }
+    }
+
+    /** 下载远端书的一章并缓存；目录变了 / 书源被删 / 网络失败时抛异常（消息可直接给用户看）。 */
+    fun loadRemoteChapter(context: Context, book: Book, index: Int): Chapter {
+        val meta = RemoteBooks.read(context, book.id) ?: error(tr("这本书的目录丢了，请重新从书源导入"))
+        val c = meta.chapters.getOrNull(index) ?: error(tr("章节不存在"))
+        RemoteBooks.cached(context, book.id, index)?.let { return Chapter(c.title, it, index = index) }
+        val source = LegadoSourceStore.find(meta.sourceUrl)
+            ?: error(tr("书源已被删除，无法继续下载；可以重新导入书源后再试"))
+        val legadoBook = LegadoBook(
+            name = meta.name,
+            author = meta.author,
+            bookUrl = meta.bookUrl,
+            coverUrl = meta.coverUrl,
+            intro = meta.intro,
+            kind = meta.kind,
+        ).also { it.tocUrl = meta.tocUrl }
+        val tocUrls = meta.chapters.mapTo(HashSet()) { it.url }
+        val raw = source.engine.loadContent(
+            legadoBook,
+            LegadoChapter(c.title, c.url),
+            meta.chapters.getOrNull(index + 1)?.url,
+            tocUrls,
+        )
+        val text = remoteReaderText(raw)
+        RemoteBooks.save(context, book.id, index, text)
+        return Chapter(c.title, text, index = index)
+    }
+
+    private val REMOTE_HTML = Regex("<(?:p|br|div|span|img)\b", RegexOption.IGNORE_CASE)
+
+    /** 书源正文（HTML 或纯文本）→ 阅读器用的段落文本（首行缩进）。 */
+    private fun remoteReaderText(raw: String): String {
+        val paras = if (REMOTE_HTML.containsMatchIn(raw)) {
+            htmlToParagraphs(raw)
+        } else {
+            raw.replace("\r\n", "\n").replace('\r', '\n').split('\n')
+                .map { it.trim() }.filter { it.isNotEmpty() }
+        }
+        return paras.joinToString("\n") { INDENT + it }.ifBlank { tr("（本章没有内容）") }
     }
 
     // ---------------------------------------------------------------- TXT

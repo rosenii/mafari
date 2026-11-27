@@ -226,9 +226,38 @@ private fun Modifier.readerBackground(theme: ReaderTheme): Modifier =
 @Composable
 fun ReaderScreen(bookId: String, onBack: () -> Unit, settings: AppSettings, blurEnabled: Boolean = true) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val book = remember(bookId) { BookShelf.books.firstOrNull { it.id == bookId } }
     var chapters by remember { mutableStateOf<List<Chapter>?>(null) }
     var failed by remember { mutableStateOf(false) }
+    /** 远端章节下载完成后 +1：让分页器丢掉旧的那一页、按新正文重排 */
+    var revision by remember { mutableIntStateOf(0) }
+    val loading = remember { HashSet<Int>() }
+
+    // 远端书：滑到哪章附近就下哪章；下完替换成真实章节，失败就留一段可读的提示
+    fun ensureChapter(index: Int) {
+        val b = book ?: return
+        val list = chapters ?: return
+        val ch = list.getOrNull(index) ?: return
+        if (!ch.pending || !loading.add(index)) return
+        scope.launch {
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching { BookContent.loadRemoteChapter(context, b, index) }.getOrElse { e ->
+                    Chapter(
+                        title = ch.title,
+                        text = tr("本章下载失败：{0}。可以翻到下一章继续读，或稍后重新打开再试。", e.message.orEmpty()),
+                        index = index,
+                    )
+                }
+            }
+            loading.remove(index)
+            val now = chapters
+            if (now != null && index in now.indices && now[index].pending) {
+                chapters = now.toMutableList().also { it[index] = loaded }
+                revision++
+            }
+        }
+    }
 
     LaunchedEffect(bookId) {
         if (book == null) {
@@ -236,7 +265,12 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit, settings: AppSettings, blur
             return@LaunchedEffect
         }
         val r = withContext(Dispatchers.IO) { runCatching { BookContent.load(context, book) }.getOrNull() }
-        if (r.isNullOrEmpty()) failed = true else chapters = r
+        if (r.isNullOrEmpty()) failed = true else {
+            chapters = r
+            // 先下当前章（和下一章），打开不用等整本
+            ensureChapter(book.chapter)
+            ensureChapter(book.chapter + 1)
+        }
     }
 
     val theme = resolveReaderTheme(settings.readerTheme, isAppDarkTheme())
@@ -245,7 +279,17 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit, settings: AppSettings, blur
     Box(modifier = Modifier.fillMaxSize().readerBackground(theme)) {
         val list = chapters
         if (book != null && list != null) {
-            ReaderBody(book = book, chapters = list, settings = settings, onBack = onBack, blurEnabled = blurEnabled, ink = ink, theme = theme)
+            ReaderBody(
+                book = book,
+                chapters = list,
+                revision = revision,
+                onNeedChapter = { ensureChapter(it) },
+                settings = settings,
+                onBack = onBack,
+                blurEnabled = blurEnabled,
+                ink = ink,
+                theme = theme,
+            )
         } else {
             Text(
                 text = if (failed) tr("无法读取这本书") else tr("加载中…"),
@@ -261,7 +305,17 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit, settings: AppSettings, blur
 }
 
 @Composable
-private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSettings, onBack: () -> Unit, blurEnabled: Boolean, ink: Color, theme: ReaderTheme) {
+private fun ReaderBody(
+    book: Book,
+    chapters: List<Chapter>,
+    revision: Int,
+    onNeedChapter: (Int) -> Unit,
+    settings: AppSettings,
+    onBack: () -> Unit,
+    blurEnabled: Boolean,
+    ink: Color,
+    theme: ReaderTheme,
+) {
     val context = LocalContext.current
     val view = LocalView.current
 
@@ -271,8 +325,15 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
     val liquid = if (glass) liquidBackdrop else null
     val bd = if (glass) backdrop else null
 
-    val ctl = remember(chapters) {
+    val ctl = remember(book.id) {
         ReaderController(book.chapter.coerceIn(0, chapters.lastIndex), book.offset.coerceAtLeast(0)).also { it.percent = book.progress }
+    }
+
+    // 翻到新章节 / 有章节下载完成：把当前章和前后各一章排进下载队列
+    LaunchedEffect(ctl.chapter, revision, chapters) {
+        onNeedChapter(ctl.chapter)
+        onNeedChapter(ctl.chapter - 1)
+        onNeedChapter(ctl.chapter + 1)
     }
     var overlay by remember { mutableStateOf(false) }
     var showToc by remember { mutableStateOf(false) }
@@ -321,7 +382,15 @@ private fun ReaderBody(book: Book, chapters: List<Chapter>, settings: AppSetting
                     .kyantLayerBackdrop(liquidBackdrop)
                     .readerBackground(theme),
             ) {
-                ReaderPager(chapters = chapters, bookFile = bookFile, ctl = ctl, ink = ink, settings = settings, onToggleOverlay = { overlay = !overlay })
+                ReaderPager(
+                    chapters = chapters,
+                    bookFile = bookFile,
+                    ctl = ctl,
+                    revision = revision,
+                    ink = ink,
+                    settings = settings,
+                    onToggleOverlay = { overlay = !overlay },
+                )
             }
 
             AnimatedVisibility(visible = overlay, enter = fadeIn(), exit = fadeOut()) {
@@ -599,6 +668,7 @@ private fun ReaderPager(
     chapters: List<Chapter>,
     bookFile: File,
     ctl: ReaderController,
+    revision: Int,
     ink: Color,
     settings: AppSettings,
     onToggleOverlay: () -> Unit,
@@ -634,7 +704,7 @@ private fun ReaderPager(
             )
         }
         // 屏幕尺寸 / 主题 / 排版设置变了：整页重排，位置取最近保存在 ctl 里的（章节 + 章内偏移）
-        key(widthPx, heightPx, ink, fontSp, linePct) {
+        key(widthPx, heightPx, ink, fontSp, linePct, revision) {
             PagerContent(
                 chapters = chapters,
                 bookFile = bookFile,

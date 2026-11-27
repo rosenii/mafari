@@ -90,6 +90,9 @@ internal class LegadoBrowseState {
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    /** 多书源搜索时部分书源失败：有结果也把失败原因列出来，方便定位是哪个书源 / 什么错 */
+    var warning by mutableStateOf<String?>(null)
+        private set
     var exhausted by mutableStateOf(true)
         private set
     /** 已经发起过搜索 / 发现（用来区分「还没搜」和「没结果」） */
@@ -124,6 +127,7 @@ internal class LegadoBrowseState {
         items = emptyList()
         loading = false
         error = null
+        warning = null
         exhausted = true
         touched = false
     }
@@ -213,6 +217,7 @@ internal class LegadoBrowseState {
         val pageNo = if (allSources) multiPage else pager.nextPage
         loading = true
         error = null
+        warning = null
         scope.launch {
             val r = withContext(Dispatchers.IO) {
                 if (allSources) {
@@ -235,6 +240,13 @@ internal class LegadoBrowseState {
             if (my != gen) return@launch
             loading = false
             val failures = r.filter { it.second.isFailure }
+            if (failures.isNotEmpty()) {
+                warning = failures.joinToString("\n") { (s, res) ->
+                    val msg = res.exceptionOrNull()?.message?.takeIf { it.isNotBlank() }
+                        ?: res.exceptionOrNull()?.javaClass?.simpleName.orEmpty()
+                    tr("{0}：{1}", s.name, msg)
+                }
+            }
             if (allSources) {
                 val newItems = ArrayList<BrowseItem>()
                 for ((src, res) in r) {
@@ -245,8 +257,7 @@ internal class LegadoBrowseState {
                 if (newItems.isEmpty()) {
                     multiExhausted = true
                     if (failures.isNotEmpty() && multiItems.isEmpty()) {
-                        error = failures.first().second.exceptionOrNull()?.message
-                            ?: tr("读取失败，检查网络或书源是否失效")
+                        error = warning ?: tr("读取失败，检查网络或书源是否失效")
                     }
                 }
                 multiItems.addAll(newItems)
@@ -486,6 +497,15 @@ internal fun LegadoBrowseDialog(
                     }
                 }
 
+                if (state.items.isNotEmpty() && state.warning != null) {
+                    Text(
+                        text = tr("部分书源失败：{0}", state.warning.orEmpty()),
+                        fontSize = 11.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 3,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
                 if (state.items.isNotEmpty()) {
                     Text(
                         text = tr("长按结果可看简介、分类和最新章节"),

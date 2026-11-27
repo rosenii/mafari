@@ -8,6 +8,9 @@ package dev.dsh.miuixbrowser.data
 import android.content.Context
 import android.net.Uri
 import dev.dsh.miuixbrowser.data.legado.LegadoBook
+import dev.dsh.miuixbrowser.data.legado.LegadoRssArticle
+import dev.dsh.miuixbrowser.data.legado.LegadoRssSource
+import dev.dsh.miuixbrowser.data.legado.LegadoRssSourceParser
 import dev.dsh.miuixbrowser.data.legado.LegadoSource
 import dev.dsh.miuixbrowser.data.legado.LegadoSourceParser
 import dev.dsh.miuixbrowser.i18n.tr
@@ -56,7 +59,13 @@ class FeedBook(
  * 一份订阅源。通用 JSON 订阅源直接带 [books]；Legado（开源阅读）书源文件带 [sources]、[books] 为空——
  * 书要用户在书源里搜索 / 发现之后才有，见 [BookFeedImport.importBook] 里的 Legado 分支。
  */
-class BookFeed(val name: String, val books: List<FeedBook>, val sources: List<LegadoSource> = emptyList())
+class BookFeed(
+    val name: String,
+    val books: List<FeedBook>,
+    val sources: List<LegadoSource> = emptyList(),
+    /** Legado 的订阅源（RSS / JSON / 网页），和书源分开 */
+    val rssSources: List<LegadoRssSource> = emptyList(),
+)
 
 /**
  * 通用 JSON 小说订阅源的解析。不依赖具体站点的规则，只认「书目列表 + 每本书的下载 / 章节链接」，字段名兼容常见写法：
@@ -87,6 +96,10 @@ object BookFeedParser {
         if (LegadoSourceParser.looksLikeLegado(root)) {
             val sources = LegadoSourceParser.parse(root)
             return BookFeed(sources.singleOrNull()?.name.orEmpty(), emptyList(), sources)
+        }
+        if (LegadoRssSourceParser.looksLikeLegado(root)) {
+            val rss = LegadoRssSourceParser.parse(root)
+            return BookFeed(rss.singleOrNull()?.name.orEmpty(), emptyList(), emptyList(), rss)
         }
         var name = ""
         val arr: JSONArray? = when (root) {
@@ -329,6 +342,34 @@ object BookFeedImport {
             }
         }
 
+    /** 把 Legado 订阅源里的一篇文章导入成一本单章 TXT（文章通常很短，直接取正文即可）。 */
+    suspend fun importRssArticle(
+        context: Context,
+        source: LegadoRssSource,
+        article: LegadoRssArticle,
+        onProgress: (Int, Int) -> Unit = { _, _ -> },
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            BookShelf.load(context)
+            val cover = article.image?.let { runCatching { HttpFetcher.get(it, options(2 * 1024 * 1024)).bytes }.getOrNull() }
+            val raw = source.loadContent(article)
+            val txt = buildTxt(listOf(article.title), listOf(raw))
+            val ok = BookShelf.addBook(
+                context,
+                "${article.title}.txt",
+                "txt",
+                article.title,
+                article.author.ifBlank { source.name },
+                cover,
+            ) { it.writeText(txt) }
+            if (!ok) error(tr("仅支持 TXT / EPUB"))
+            onProgress(1, 1)
+        }.recoverCatching {
+            if (it is kotlin.coroutines.cancellation.CancellationException) throw it
+            throw IllegalStateException(it.message ?: tr("下载失败，检查网络或订阅源是否失效"))
+        }
+    }
+
     private fun importFile(context: Context, book: FeedBook, url: String, cover: ByteArray?) {
         val res = HttpFetcher.get(url, options(MAX_BOOK_BYTES, readTimeoutMs = 60_000))
         val ext = pickExt(book.format, res.url, res.contentType, res.bytes)
@@ -367,10 +408,11 @@ object BookFeedImport {
     }
 
     /**
-     * Legado 书源的一本书：读详情页（补全书名 / 封面 / 目录地址）→ 读目录 → 逐章取正文 → 拼成 TXT 入架。
-     * 书源带访问频率限制（concurrentRate）时由引擎按间隔排队，所以大部头会比较慢；取消后已读的章节不入架。
+     * Legado 书源的一本书：读详情页 → 读目录 → 直接把目录存成「远端书」入架。
+     * 正文不在这里下载，阅读器翻到哪章再取哪章（见 BookContent.loadRemoteChapter），
+     * 所以大部头也是几秒入架，不用等整本下完。
      */
-    private suspend fun importLegado(
+    private fun importLegado(
         context: Context,
         book: FeedBook,
         ref: LegadoBook,
@@ -379,39 +421,30 @@ object BookFeedImport {
         onProgress: (Int, Int) -> Unit,
     ) {
         val engine = source.engine
-        val chapters = engine.loadInfo(ref).let { engine.loadChapters(it) }.take(MAX_CHAPTERS)
-        // 详情页补全后的封面（列表里没有封面时才用）
-        val coverBytes = cover ?: ref.coverUrl?.let { runCatching { HttpFetcher.get(it, options(2 * 1024 * 1024)).bytes }.getOrNull() }
+        val info = engine.loadInfo(ref)
+        val chapters = engine.loadChapters(info).take(MAX_CHAPTERS)
+        val coverBytes = cover ?: info.coverUrl?.let { runCatching { HttpFetcher.get(it, options(2 * 1024 * 1024)).bytes }.getOrNull() }
 
-        val tocUrls = chapters.mapTo(HashSet()) { it.url }
-        val done = AtomicInteger(0)
-        val gate = Semaphore(LEGADO_PARALLEL)
-        val bodies: List<String?> = coroutineScope {
-            chapters.mapIndexed { i, ch ->
-                async(Dispatchers.IO) {
-                    gate.withPermit {
-                        ensureActive()
-                        val next = chapters.getOrNull(i + 1)?.url
-                        var body: String? = null
-                        repeat(2) { attempt ->
-                            if (body == null) {
-                                body = runCatching { engine.loadContent(ref, ch, next, tocUrls) }.getOrNull()
-                                if (body == null && attempt == 0) ensureActive()
-                            }
-                        }
-                        onProgress(done.incrementAndGet(), chapters.size)
-                        body
-                    }
-                }
-            }.awaitAll()
-        }
-        if (bodies.all { it == null }) error(tr("章节下载失败，检查网络或书源是否失效"))
-
-        val title = ref.name.ifBlank { book.title }
-        val author = ref.author.ifBlank { book.author }
-        val txt = buildTxt(chapters.map { it.title }, bodies)
-        val ok = BookShelf.addBook(context, "$title.txt", "txt", title, author, coverBytes) { it.writeText(txt) }
-        if (!ok) error(tr("仅支持 TXT / EPUB"))
+        val meta = RemoteBookMeta(
+            sourceUrl = source.url,
+            bookUrl = info.bookUrl,
+            name = info.name.ifBlank { book.title },
+            author = info.author.ifBlank { book.author },
+            coverUrl = info.coverUrl,
+            intro = info.intro,
+            kind = info.kind,
+            tocUrl = info.tocUrl,
+            chapters = chapters.map { RemoteChapterMeta(it.title, it.url) },
+        )
+        val ok = BookShelf.addRemoteBook(
+            context,
+            title = meta.name,
+            author = meta.author,
+            cover = coverBytes,
+            meta = meta,
+        )
+        if (!ok) error(tr("加入书架失败"))
+        onProgress(1, 1)
     }
 
     /** 一章正文；失败重试一次，仍失败返回 null（由 [buildTxt] 填占位文字）。 */
