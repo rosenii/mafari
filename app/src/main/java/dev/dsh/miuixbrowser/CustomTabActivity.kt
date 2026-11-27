@@ -43,6 +43,9 @@ class CustomTabActivity : WebAppActivity() {
 
     override fun onWebViewReady() {
         barUrl = startUrl
+        // 显式开启 WebView 硬件层（与主界面 setupWebView 一致）：WebView 被整页采集层录制并送入 RuntimeShader 取样时，
+        // 软件 / 自动层会整页闪烁；进 GPU 离屏层后底栏 / 状态栏的高级材质才能稳定取样网页
+        webView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
         // 网页和底栏放进同一棵 Compose 树：WebView 在整页采集层里，底栏的玻璃才能取样到网页（高级材质）；
         // 网页铺到手势条下面，状态栏留白 / 底栏收起都由 Compose 控制（沉浸式）。插在最底层，下拉刷新指示器等仍在上面
         (webView.parent as? ViewGroup)?.removeView(webView)

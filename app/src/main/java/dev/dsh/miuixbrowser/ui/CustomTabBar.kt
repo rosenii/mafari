@@ -5,7 +5,6 @@
 
 package dev.dsh.miuixbrowser.ui
 
-import android.os.Build
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -21,15 +20,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.layer.CompositingStrategy as LayerCompositingStrategy
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.viewinterop.AndroidView
@@ -47,8 +42,8 @@ import top.yukonga.miuix.kmp.theme.ThemeController
  * 自定义标签页（[dev.dsh.miuixbrowser.CustomTabActivity]）的整页：网页 + 浏览器同款悬浮三段式 [SafariSplitBar] + 状态栏 / 底部材质。
  * 与主界面浏览页保持同一套体验：
  * 1. WebView 放在整页采集层里，底栏 / 状态栏的玻璃（miuix 材质、液态玻璃、渐进模糊）能真正取样到网页；
- * 2. 沉浸式：网页铺到手势条下面；状态栏留白 [topPadPx] 随滚动收起 / 回落（由 Activity 的滚动监听驱动），
- *    收起时底栏缩成小胶囊（[compact]），点胶囊展开；展开时网页在栏上面结束；
+ * 2. 沉浸式：网页始终铺满到屏幕底（手势条下面），底栏悬浮在网页之上、背后不再有模糊带；状态栏留白 [topPadPx] 随滚动收起 / 回落（由 Activity 的滚动监听驱动），
+ *    收起时底栏缩成小胶囊（[compact]），点胶囊展开；
  * 3. 主题 / 玻璃参数配成和主界面一致（Activity 不是 setContent 起的，要自己包一层）。
  */
 @Composable
@@ -94,7 +89,6 @@ internal fun CustomTabScreen(
         ) {
             val metrics = BarStyles.SafariSplit.metrics
             val baseDensity = LocalDensity.current
-            var barHeightPx by remember { mutableIntStateOf(0) }
             Box(Modifier.fillMaxSize()) {
                 // ---- 整页采集层：只有网页，底栏不能放进来 ----
                 Box(
@@ -104,8 +98,7 @@ internal fun CustomTabScreen(
                         .then(if (settings.liquidGlass) Modifier.kyantLayerBackdrop(liquidBackdrop) else Modifier),
                 ) {
                     val topDp = with(baseDensity) { topPadPx.toDp() }
-                    // 栏展开时网页在栏上面结束；收起成小胶囊时网页铺到手势条下面
-                    val bottomDp = with(baseDensity) { (if (compact) 0 else barHeightPx).toDp() }
+                    // 网页始终铺满到屏幕底（含手势条下面），底栏悬浮在网页之上，不再让出一行
                     AndroidView(
                         factory = { _ ->
                             (webView.parent as? ViewGroup)?.removeView(webView)
@@ -116,7 +109,7 @@ internal fun CustomTabScreen(
                                 )
                             }
                         },
-                        modifier = Modifier.fillMaxSize().padding(top = topDp, bottom = bottomDp),
+                        modifier = Modifier.fillMaxSize().padding(top = topDp),
                     )
                 }
 
@@ -130,23 +123,13 @@ internal fun CustomTabScreen(
                     )
                 }
 
-                // ---- 底栏所在那一行（网页在它上面结束时）：渐进模糊 ----
-                if (settings.blurEnabled && !compact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    BottomBarProgressiveBand(
-                        backdrop = browserBackdrop,
-                        heightPx = { barHeightPx },
-                        alpha = { 1f },
-                    )
-                }
-
                 // ---- 悬浮三段式栏 ----
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         // 底部让开手势条；软键盘弹出时根布局已经按键盘高度让位，这里不重复留白
-                        .windowInsetsPadding(WindowInsets.navigationBars.exclude(WindowInsets.ime))
-                        .onSizeChanged { barHeightPx = it.height },
+                        .windowInsetsPadding(WindowInsets.navigationBars.exclude(WindowInsets.ime)),
                 ) {
                     CompositionLocalProvider(
                         LocalDensity provides Density(

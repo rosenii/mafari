@@ -17,9 +17,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -103,6 +107,7 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.glass.GlassPopupItem
+import top.yukonga.miuix.kmp.glass.GlassPopupDefaults
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.glass.File
@@ -233,6 +238,7 @@ fun BookshelfScreen(
     var editBook by remember { mutableStateOf<Book?>(null) }
     var editShow by remember { mutableStateOf(false) }
     var editTitle by remember { mutableStateOf("") }
+    var editAuthor by remember { mutableStateOf("") }
     var pendingCover by remember { mutableStateOf<Bitmap?>(null) }
     var confirmShow by remember { mutableStateOf(false) }
 
@@ -369,6 +375,7 @@ fun BookshelfScreen(
         } else {
             editBook = book
             editTitle = book.title
+            editAuthor = book.author
             pendingCover = null
             editShow = true
         }
@@ -595,17 +602,20 @@ fun BookshelfScreen(
                             ) {
                                 BookCover(book = b, override = pendingCover, modifier = Modifier.fillMaxSize())
                             }
-                            Spacer(Modifier.height(6.dp))
-                            AppTextButton(
-                                text = tr("上传封面"),
-                                onClick = { coverPicker.launch(arrayOf("image/*")) },
-                            )
-                            Spacer(Modifier.height(6.dp))
+                            Spacer(Modifier.height(12.dp))
                             TextField(
                                 value = editTitle,
                                 onValueChange = { editTitle = it },
                                 modifier = Modifier.fillMaxWidth(),
                                 label = tr("书名"),
+                                singleLine = true,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            TextField(
+                                value = editAuthor,
+                                onValueChange = { editAuthor = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = tr("作者"),
                                 singleLine = true,
                             )
                             Spacer(Modifier.height(16.dp))
@@ -618,10 +628,11 @@ fun BookshelfScreen(
                                 AppDialogButton(
                                     onClick = {
                                         val title = editTitle
+                                        val author = editAuthor
                                         val cover = pendingCover
                                         editShow = false
                                         scope.launch {
-                                            withContext(Dispatchers.IO) { BookShelf.update(context, b.id, title, newCover = cover) }
+                                            withContext(Dispatchers.IO) { BookShelf.update(context, b.id, title, author = author, newCover = cover) }
                                         }
                                     },
                                     modifier = Modifier.weight(1f),
@@ -877,13 +888,28 @@ fun BookshelfScreen(
                 }
             }
 
-            // 排序菜单：与 Scaffold 同级、放在最后 → 位于最上层（盖住顶栏）。当前项后面带 ✓；点已选中的排序项不变，方向单独两项
+            // 排序菜单：与 Scaffold 同级、放在最后 → 位于最上层（盖住顶栏）。顶部是 网格 / 列表 左右分割的一行，细线下是排序依据（当前项后面带 ✓），再一条细线下是 升序 / 降序
             AppGlassPopup(
                 show = showSort,
                 onDismissRequest = { showSort = false },
                 anchorBounds = Rect(sortAnchor.left, sortAnchor.bottom, sortAnchor.right, sortAnchor.bottom),
                 backdrop = bd,
             ) {
+                // 网格 / 列表：一行左右分割，点任意一侧选定
+                PopupSplitRow(
+                    leftText = tr("网格"),
+                    rightText = tr("列表"),
+                    leftSelected = grid,
+                    onLeft = {
+                        showSort = false
+                        settings.updateBookshelfGrid(true)
+                    },
+                    onRight = {
+                        showSort = false
+                        settings.updateBookshelfGrid(false)
+                    },
+                )
+                PopupDivider()
                 BookSort.entries.forEach { opt ->
                     GlassPopupItem(
                         text = sortLabel(opt) + if (opt == sort) "  ✓" else "",
@@ -893,6 +919,7 @@ fun BookshelfScreen(
                         },
                     )
                 }
+                PopupDivider()
                 GlassPopupItem(
                     text = tr("升序") + if (!desc) "  ✓" else "",
                     onClick = {
@@ -923,20 +950,6 @@ fun BookshelfScreen(
                         showMore = false
                         selected = emptySet()
                         selecting = true
-                    },
-                )
-                GlassPopupItem(
-                    text = tr("网格") + if (grid) "  ✓" else "",
-                    onClick = {
-                        showMore = false
-                        settings.updateBookshelfGrid(true)
-                    },
-                )
-                GlassPopupItem(
-                    text = tr("列表") + if (!grid) "  ✓" else "",
-                    onClick = {
-                        showMore = false
-                        settings.updateBookshelfGrid(false)
                     },
                 )
                 GlassPopupItem(
@@ -988,6 +1001,66 @@ fun BookshelfScreen(
             }
 
         }
+    }
+}
+
+/** 弹出菜单里的细分隔线。 */
+@Composable
+private fun PopupDivider() {
+    Box(
+        modifier = Modifier
+            .padding(vertical = 4.dp)
+            .fillMaxWidth()
+            .height(0.5.dp)
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+    )
+}
+
+/** 弹出菜单里左右分割的一行：两侧各占一半、中间一条竖细线，点任意一侧选定；选中的一侧带 ✓ 并用主题色。 */
+@Composable
+private fun PopupSplitRow(
+    leftText: String,
+    rightText: String,
+    leftSelected: Boolean,
+    onLeft: () -> Unit,
+    onRight: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PopupSplitCell(leftText, leftSelected, onLeft, Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .width(0.5.dp)
+                .height(22.dp)
+                .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+        )
+        PopupSplitCell(rightText, !leftSelected, onRight, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun PopupSplitCell(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressedColor = GlassPopupDefaults.itemPressedColor()
+    Box(
+        modifier = modifier
+            .padding(horizontal = GlassPopupDefaults.ItemPressInset)
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(GlassPopupDefaults.ItemPressRadius))
+            .background(if (pressed) pressedColor else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text + if (selected) "  ✓" else "",
+            fontSize = 16.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceContainer,
+            maxLines = 1,
+        )
     }
 }
 
