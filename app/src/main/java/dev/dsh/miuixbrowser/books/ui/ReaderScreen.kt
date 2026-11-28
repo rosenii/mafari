@@ -1054,7 +1054,7 @@ private fun PagerContent(
                             // 以左边缘为轴，右边缘翘起并随手指移出
                             val t = offset.coerceIn(0f, 1f)
                             transformOrigin = TransformOrigin(0f, 0.5f)
-                            cameraDistance = 14f * density
+                            cameraDistance = 14f * this.density
                             rotationY = t * 52f
                         } else if (offset < 0f) {
                             // 抵消 Pager 的横向位移：下面这页原地不动，被翻页逐渐露出
