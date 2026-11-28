@@ -98,12 +98,12 @@ object SpeechEngineImport {
             if (!url.startsWith("http://", true) && !url.startsWith("https://", true)) { skipped++; continue }
 
             var method = firstString(o, "method", "requestMethod")
-            var body = firstString(o, "body", "requestBody")
-            var headers = headerString(o.opt("header") ?: o.opt("headers"))
+            var body = firstBody(o, "body", "requestBody", "postData", "data")
+            var headers = firstHeaders(o, "header", "headers", "requestHeaders", "requestHeader")
             if (opts != null) {
                 opts.optString("method").trim().takeIf { it.isNotEmpty() }?.let { method = it }
-                bodyString(opts.opt("body"))?.let { body = it }
-                headers = mergeHeaders(headers, headerString(opts.opt("headers") ?: opts.opt("header")))
+                firstBody(opts, "body", "requestBody", "postData", "data").takeIf { it.isNotEmpty() }?.let { body = it }
+                headers = mergeHeaders(headers, firstHeaders(opts, "headers", "header", "requestHeaders"))
             }
             body = normalize(body)
             headers = normalize(headers)
@@ -137,17 +137,95 @@ object SpeechEngineImport {
         return Result(out, skipped, title, unsupported)
     }
 
-    /** 拆出 Legado 写在地址后面的选项 JSON；拆不出（或后面不是合法 JSON）就整串当地址。 */
+    /**
+     * 拆出 Legado 写在地址后面的选项 JSON。选项 JSON 经常不严格（末尾多了字符、body 里有没转义的引号等），
+     * 所以依次试：整段严格解析 → 配平花括号后解析 → 按 method / body / headers 逐个宽松提取。
+     * 都不行才整串当地址（此时请求头 / 请求体会是空的）。
+     */
     private fun splitOptions(raw: String): Pair<String, JSONObject?> {
-        val m = OPTION_SPLIT.find(raw) ?: return raw.trim() to null
-        val tail = raw.substring(m.range.last + 1).trim()
-        val obj: JSONObject? = try {
-            JSONObject(tail)
-        } catch (e: JSONException) {
-            null
+        var from = 0
+        while (true) {
+            val m = OPTION_SPLIT.find(raw, from) ?: return raw.trim() to null
+            val tail = raw.substring(m.range.last + 1).trim()
+            val obj = parseOptions(tail)
+            if (obj != null) return raw.substring(0, m.range.first).trim() to obj
+            from = m.range.last + 1
         }
-        if (obj == null) return raw.trim() to null
-        return raw.substring(0, m.range.first).trim() to obj
+    }
+
+    private fun parseOptions(tail: String): JSONObject? {
+        if (!tail.startsWith("{")) return null
+        try {
+            return JSONObject(tail)
+        } catch (_: JSONException) {
+        }
+        val block = balanced(tail, 0)
+        if (block != null) {
+            try {
+                return JSONObject(block)
+            } catch (_: JSONException) {
+            }
+        }
+        // 宽松提取：至少 method / body / headers 之一读得出来才算
+        val o = JSONObject()
+        val m = extractValue(tail, "method")
+        if (m is String) o.put("method", m)
+        val b = extractValue(tail, "body")
+        if (b != null) o.put("body", b)
+        val h = extractValue(tail, "headers") ?: extractValue(tail, "header")
+        if (h != null) o.put("headers", h)
+        return if (o.length() > 0) o else null
+    }
+
+    /** 从 [start]（必须是 `{` 或 `[`）起配平括号，引号里的括号不算；配不平返回 null。 */
+    private fun balanced(s: String, start: Int): String? {
+        val open = s[start]
+        val close = if (open == '{') '}' else if (open == '[') ']' else return null
+        var depth = 0
+        var quote = '\u0000'
+        var i = start
+        while (i < s.length) {
+            val c = s[i]
+            if (quote != '\u0000') {
+                if (c == '\\') i++ else if (c == quote) quote = '\u0000'
+            } else when (c) {
+                '"', '\'' -> quote = c
+                open -> depth++
+                close -> { depth--; if (depth == 0) return s.substring(start, i + 1) }
+            }
+            i++
+        }
+        return null
+    }
+
+    /** 在选项文本里找 `"key": value`，value 可以是字符串、对象或数组；字符串按 JSON 规则解转义。 */
+    private fun extractValue(s: String, key: String): Any? {
+        val m = Regex("""["']?\b$key["']?\s*[:=]\s*""").find(s) ?: return null
+        val i = m.range.last + 1
+        if (i >= s.length) return null
+        val c = s[i]
+        if (c == '{' || c == '[') {
+            val block = balanced(s, i) ?: return null
+            return try {
+                if (c == '{') JSONObject(block) else JSONArray(block)
+            } catch (_: JSONException) {
+                block
+            }
+        }
+        if (c == '"' || c == '\'') {
+            var j = i + 1
+            while (j < s.length) {
+                if (s[j] == '\\') j += 2 else if (s[j] == c) break else j++
+            }
+            if (j >= s.length) return null
+            val lit = s.substring(i, j + 1)
+            return try {
+                JSONTokener(lit).nextValue()
+            } catch (_: JSONException) {
+                lit.substring(1, lit.length - 1)
+            }
+        }
+        return null
     }
 
     private fun usesJs(head: String, opts: JSONObject?): Boolean {
@@ -189,6 +267,23 @@ object SpeechEngineImport {
         } catch (e: JSONException) {
             extra
         }
+    }
+
+    /** 依次取这些键里第一个「非空」的 header（字符串或对象），空字符串不会挡住后面的键。 */
+    private fun firstHeaders(o: JSONObject, vararg keys: String): String {
+        for (k in keys) {
+            val s = headerString(o.opt(k))
+            if (s.isNotBlank()) return s
+        }
+        return ""
+    }
+
+    private fun firstBody(o: JSONObject, vararg keys: String): String {
+        for (k in keys) {
+            val s = bodyString(o.opt(k))
+            if (!s.isNullOrEmpty()) return s
+        }
+        return ""
     }
 
     private fun firstString(o: JSONObject, vararg keys: String): String {

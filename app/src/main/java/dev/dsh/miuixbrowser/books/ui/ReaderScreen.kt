@@ -67,7 +67,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.ImageShader
@@ -1041,53 +1043,91 @@ private fun PagerContent(
             modifier = Modifier.fillMaxSize(),
             key = pageKey,
         ) { page ->
-            // offset > 0：正在被翻走（或翻回来）的那一页，位于视口左侧；offset < 0：垫在下面、等着被露出的那一页
+            // offset > 0：正在被卷走（或卷回来）的那一页；offset < 0：垫在下面、等着被露出的那一页
             val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+            // 背面是正面的镜像透出来：在深色纸上压黑、浅色纸上压白，把字冲淡成「纸背」
+            val backWash = if (ink.luminance() < 0.5f) Color.White.copy(alpha = 0.62f) else Color.Black.copy(alpha = 0.55f)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    // 翻动的页必须盖在上面；Pager 默认后面的页盖前面的页，会把正在翻的页挡住
+                    // 卷动的页必须盖在上面；Pager 默认后面的页盖前面的页，会把正在卷的页挡住
                     .zIndex(if (offset > 0f) 1f else 0f)
                     .graphicsLayer {
+                        // 抵消 Pager 的横向位移：卷页和下面那页都原地不动，只靠绘制表现翻动
+                        translationX = if (offset > 0f) offset * size.width else offset.coerceIn(-1f, 0f) * size.width
+                    }
+                    // 注意顺序：drawWithContent 在纸色之前，drawContent() 画出来的才包含纸色，卷页时纸色会一起被折叠 / 镜像
+                    .drawWithContent {
+                        val t = offset.coerceIn(-1f, 1f)
                         val w = size.width
-                        if (offset > 0f) {
-                            // 以左边缘为轴，右边缘翘起并随手指移出
-                            val t = offset.coerceIn(0f, 1f)
-                            transformOrigin = TransformOrigin(0f, 0.5f)
-                            cameraDistance = 14f * this.density
-                            rotationY = t * 52f
-                        } else if (offset < 0f) {
-                            // 抵消 Pager 的横向位移：下面这页原地不动，被翻页逐渐露出
-                            translationX = offset.coerceIn(-1f, 0f) * w
+                        val h = size.height
+                        if (t > 0.001f) {
+                            // 折线从右边缘向左走：开头折线跟着手指，到 t=1 时折线到最左、整页卷走
+                            val fold = w * (1f - t / 2f - t * t / 2f)
+                            val tip = 2f * fold - w // 被卷起那一角（原右边缘）现在所在的位置
+                            val self = this
+                            // 1) 还没被卷起的正面
+                            if (fold > 0f) {
+                                clipRect(left = 0f, top = 0f, right = fold, bottom = h) { self.drawContent() }
+                                // 卷起的背面边缘落在正面上的阴影
+                                if (tip > 0f) {
+                                    val sw = 26.dp.toPx()
+                                    clipRect(left = 0f, top = 0f, right = fold, bottom = h) {
+                                        drawRect(
+                                            brush = Brush.horizontalGradient(
+                                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.22f)),
+                                                startX = tip - sw,
+                                                endX = tip,
+                                            ),
+                                            topLeft = androidx.compose.ui.geometry.Offset(tip - sw, 0f),
+                                            size = androidx.compose.ui.geometry.Size(sw, h),
+                                        )
+                                    }
+                                }
+                            }
+                            // 2) 折线右侧露出下一页：折线处投下阴影
+                            val shadowW = 30.dp.toPx()
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(Color.Black.copy(alpha = 0.32f * (1f - t * 0.6f)), Color.Transparent),
+                                    startX = fold,
+                                    endX = fold + shadowW,
+                                ),
+                                topLeft = androidx.compose.ui.geometry.Offset(fold, 0f),
+                                size = androidx.compose.ui.geometry.Size(shadowW, h),
+                            )
+                            // 3) 翻过去的背面：以折线为轴把右半边镜像到折线左侧，盖在正面上
+                            val flapL = maxOf(0f, tip)
+                            if (fold > flapL) {
+                                clipRect(left = flapL, top = 0f, right = fold, bottom = h) {
+                                    withTransform({ scale(-1f, 1f, androidx.compose.ui.geometry.Offset(fold, 0f)) }) {
+                                        self.drawContent()
+                                    }
+                                    drawRect(backWash)
+                                    // 纸面弯曲的明暗：折线处最亮（卷轴高光），往卷起的边缘逐渐变暗
+                                    drawRect(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(
+                                                Color.Black.copy(alpha = 0.20f),
+                                                Color.Black.copy(alpha = 0.05f),
+                                                Color.White.copy(alpha = 0.16f),
+                                            ),
+                                            startX = tip,
+                                            endX = fold,
+                                        ),
+                                    )
+                                }
+                            }
+                        } else if (t < -0.001f) {
+                            // 下面那页：被盖住时略暗，随着露出逐渐恢复
+                            drawContent()
+                            drawRect(Color.Black.copy(alpha = 0.22f * (-t)))
+                        } else {
+                            drawContent()
                         }
                     }
                     // 每页自带不透明纸色；Pager 的底色是共用的，页面叠在一起时文字会互相透出来
-                    .then(pageBackground)
-                    .drawWithContent {
-                        drawContent()
-                        val t = offset.coerceIn(-1f, 1f)
-                        if (t > 0.001f) {
-                            // 翻起的页：越靠右越暗，像纸面弯曲；右侧外缘投一道阴影到下面那页上
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.16f * t)),
-                                ),
-                            )
-                            val shadowW = 28.dp.toPx()
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(Color.Black.copy(alpha = 0.30f * (1f - t * 0.6f)), Color.Transparent),
-                                    startX = size.width,
-                                    endX = size.width + shadowW,
-                                ),
-                                topLeft = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                                size = androidx.compose.ui.geometry.Size(shadowW, size.height),
-                            )
-                        } else if (t < -0.001f) {
-                            // 下面那页：被盖住时略暗，随着露出逐渐恢复
-                            drawRect(Color.Black.copy(alpha = 0.22f * (-t)))
-                        }
-                    },
+                    .then(pageBackground),
             ) { pageContent(page) }
         }
 
