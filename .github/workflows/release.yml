@@ -74,6 +74,10 @@ jobs:
           yes | "$SDKMANAGER" "platform-tools" "platforms;android-37.2" "build-tools;36.0.0" 2>&1 | tail -5 || true
           ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
 
+      # 清理已移除的「立体」图标残留（zip 覆盖仓库时不会删文件，残留的 ic_launcher_solid3d.xml 会让资源链接失败）
+      - name: Remove stale solid3d icon resources
+        run: find app/src -iname '*solid3d*' -print -delete
+
       # 应用版本名 / 版本号（取自 app/build.gradle.kts），用于 dual 预发布标题与更新日志匹配
       - name: Read app version
         run: |
