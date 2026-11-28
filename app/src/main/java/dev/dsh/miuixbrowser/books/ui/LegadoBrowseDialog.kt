@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -32,6 +34,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +61,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
+import top.yukonga.miuix.kmp.glass.GlassTabRow
 import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -344,6 +349,40 @@ internal fun LegadoBrowseDialog(
     }
 
     val srcNow = src
+
+    // 顶部固定的「搜索 / 发现」分栏：两页左右滑动切换，页面与 state.mode 双向同步
+    val pagerState = rememberPagerState(
+        initialPage = if (state.mode == LegadoMode.Explore) 1 else 0,
+        pageCount = { 2 },
+    )
+    val sourcesNow by rememberUpdatedState(sources)
+    fun supports(m: LegadoMode): Boolean {
+        val list = sourcesNow
+        return if (state.allSources) {
+            m == LegadoMode.Search && list.any { it.canSearch }
+        } else {
+            list.getOrNull(state.sourceIdx)?.let { if (m == LegadoMode.Search) it.canSearch else it.canExplore } ?: false
+        }
+    }
+    // 滑动 / 点分栏停下后：当前书源支持该页就切过去（会重置结果）；不支持就留在原模式，页面里提示
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { p ->
+            val m = if (p == 1) LegadoMode.Explore else LegadoMode.Search
+            if (supports(m)) state.pickMode(m)
+        }
+    }
+    // 换书源后：当前页仍可用就同步模式；不可用而另一页可用，自动翻过去（如只有发现入口的书源）
+    LaunchedEffect(sources, state.sourceIdx) {
+        if (sources.isEmpty()) return@LaunchedEffect
+        val cur = if (pagerState.currentPage == 1) LegadoMode.Explore else LegadoMode.Search
+        if (supports(cur)) {
+            state.pickMode(cur)
+        } else {
+            val other = if (cur == LegadoMode.Search) LegadoMode.Explore else LegadoMode.Search
+            if (supports(other)) pagerState.animateScrollToPage(if (other == LegadoMode.Explore) 1 else 0)
+        }
+    }
+
     AppBottomSheet(
         show = show,
         title = tr("书源搜索 / 发现"),
@@ -355,11 +394,31 @@ internal fun LegadoBrowseDialog(
         val screenH = LocalConfiguration.current.screenHeightDp.dp
         val cap = (screenH * 0.86f).coerceAtLeast(280.dp)
         val rows = state.items.size.coerceAtMost(6)
-        val listH = (if (state.items.isEmpty()) 330.dp else (185.dp + 56.dp * rows)).coerceAtMost(cap - 80.dp)
+        // 分栏固定在顶部（占 insets.top + 约 52dp），列表高度相应让出
+        val listH = (if (state.items.isEmpty()) 330.dp else (185.dp + 56.dp * rows)).coerceAtMost(cap - 80.dp - 52.dp)
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = cap)) {
-        LazyColumn(
+        if (sources.isNotEmpty()) {
+            GlassTabRow(
+                tabs = listOf(tr("搜索"), tr("发现")),
+                selectedIndex = pagerState.currentPage,
+                onSelect = { i -> scope.launch { pagerState.animateScrollToPage(i) } },
+                backdrop = backdrop,
+                modifier = Modifier.padding(top = insets.top + 4.dp, bottom = 4.dp),
+            )
+        }
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier.fillMaxWidth().height(listH),
-            contentPadding = PaddingValues(top = insets.top + 4.dp),
+        ) { page ->
+        val pageMode = if (page == 1) LegadoMode.Explore else LegadoMode.Search
+        // pmode：本页在当前书源下可用的模式；null = 这个书源没有该入口
+        val pmode: LegadoMode? = if (supports(pageMode)) pageMode else null
+        // 结果列表只属于已经切过来的那一页，滑动途中相邻页不显示另一页的结果
+        val active = pmode != null && state.mode == pmode
+        val shown = if (active) state.items else emptyList()
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 4.dp),
         ) {
             item(key = "browse-head") {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -406,23 +465,16 @@ internal fun LegadoBrowseDialog(
                             Spacer(Modifier.height(8.dp))
                         }
 
-                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                                if (state.allSources) {
-                                    Text(
-                                        text = tr("在 {0} 个书源里搜索", sources.count { it.canSearch }),
-                                        fontSize = 13.sp,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                    )
-                                } else if (srcNow != null) {
-                                    if (srcNow.canSearch) CategoryChip(text = tr("搜索"), selected = mode == LegadoMode.Search) { state.pickMode(LegadoMode.Search) }
-                                    if (srcNow.canExplore) CategoryChip(text = tr("发现"), selected = mode == LegadoMode.Explore) { state.pickMode(LegadoMode.Explore) }
-                                }
-                            }
+                        if (state.allSources && pmode == LegadoMode.Search) {
+                            Text(
+                                text = tr("在 {0} 个书源里搜索", sources.count { it.canSearch }),
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Spacer(Modifier.height(8.dp))
                         }
-                        Spacer(Modifier.height(8.dp))
 
-                        when (mode) {
+                        when (pmode) {
                             LegadoMode.Search -> TextField(
                                 value = state.query,
                                 onValueChange = { state.query = it },
@@ -455,12 +507,18 @@ internal fun LegadoBrowseDialog(
                                 }
                             }
                             null -> Text(
-                                text = tr("这个书源既没有搜索规则，也没有发现入口"),
+                                text = when {
+                                    state.allSources -> tr("「全部」只能搜索，选择单个书源后才能使用发现")
+                                    pageMode == LegadoMode.Search && srcNow?.canExplore != true -> tr("这个书源既没有搜索规则，也没有发现入口")
+                                    pageMode == LegadoMode.Search -> tr("这个书源没有搜索规则")
+                                    srcNow?.canSearch != true -> tr("这个书源既没有搜索规则，也没有发现入口")
+                                    else -> tr("这个书源没有发现入口")
+                                },
                                 fontSize = 14.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }
-                        if (mode == LegadoMode.Search) {
+                        if (pmode == LegadoMode.Search) {
                             Spacer(Modifier.height(6.dp))
                             AppTextButton(
                                 text = tr("搜索"),
@@ -476,15 +534,16 @@ internal fun LegadoBrowseDialog(
             }
 
             if (sources.isNotEmpty()) {
-                if (state.items.isEmpty()) {
+                if (shown.isEmpty()) {
                     item(key = "browse-hint") {
                         Box(modifier = Modifier.fillMaxWidth().height(112.dp), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 val hint: String = when {
+                                    !active -> ""
                                     state.loading -> tr("加载中…")
                                     state.error != null -> state.error.orEmpty()
                                     state.touched -> tr("没有找到相关书籍")
-                                    mode == LegadoMode.Search -> tr("输入书名或作者，点「搜索」")
+                                    pmode == LegadoMode.Search -> tr("输入书名或作者，点「搜索」")
                                     else -> ""
                                 }
                                 Text(
@@ -493,11 +552,11 @@ internal fun LegadoBrowseDialog(
                                     textAlign = TextAlign.Center,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
-                                if (state.error != null && !state.loading) {
+                                if (active && state.error != null && !state.loading) {
                                     AppTextButton(
                                         text = tr("重试"),
                                         onClick = {
-                                            if (!state.allSources && mode == LegadoMode.Explore && state.kinds.isEmpty() && srcNow != null) {
+                                            if (!state.allSources && pmode == LegadoMode.Explore && state.kinds.isEmpty() && srcNow != null) {
                                                 state.loadKinds(srcNow, scope)
                                             } else {
                                                 state.loadMore(sources, scope)
@@ -509,7 +568,7 @@ internal fun LegadoBrowseDialog(
                         }
                     }
                 } else {
-                    items(state.items, key = { it.key }) { item ->
+                    items(shown, key = { it.key }) { item ->
                         FeedRow(
                             title = item.book.name,
                             author = listOfNotNull(
@@ -551,7 +610,7 @@ internal fun LegadoBrowseDialog(
                     }
                 }
 
-                if (state.items.isNotEmpty() && state.warning != null) {
+                if (shown.isNotEmpty() && state.warning != null) {
                     item(key = "browse-warning") {
                         Text(
                             text = tr("部分书源失败：{0}", state.warning.orEmpty()),
@@ -561,7 +620,7 @@ internal fun LegadoBrowseDialog(
                         )
                     }
                 }
-                if (state.items.isNotEmpty()) {
+                if (shown.isNotEmpty()) {
                     item(key = "browse-longpress") {
                         Column {
                             Text(
@@ -576,6 +635,7 @@ internal fun LegadoBrowseDialog(
 
             }
         }
+        } // HorizontalPager
         // 固定底部：不会被上方内容顶走
         AppDialogButton(
             onClick = {

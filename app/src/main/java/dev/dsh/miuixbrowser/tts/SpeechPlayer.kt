@@ -106,14 +106,32 @@ class SpeechPlayer(private val context: Context, private val scope: CoroutineSco
         tts = created
     }
 
-    /** 朗读中改倍速：系统 TTS 下一段生效；HTTP 音频按引擎能力即时 / 下一段生效。 */
+    /**
+     * 朗读中改倍速，立即生效：
+     * - 系统 TTS：[TextToSpeech.setSpeechRate] 只对之后的 speak 有效，所以用新语速从当前这一句重新读（换 session，旧句的回调作废）；
+     * - HTTP 引擎且服务端处理倍速（URL / 请求体 / 请求头里有占位符）：当前这段音频已经按旧语速生成，重新请求当前这一句；
+     * - HTTP 引擎且服务端不处理：直接改 MediaPlayer 的播放速度。
+     */
     fun setSpeed(value: Float) {
         val v = value.coerceIn(0.5f, 2.5f)
         if (v == speed) return
         speed = v
         val eng = engine ?: return
-        if (!eng.system && !serverAppliesSpeed(eng)) {
-            runCatching { media?.let { it.playbackParams = it.playbackParams.setSpeed(v) } }
+        when {
+            eng.system -> {
+                if (state == SpeechState.SPEAKING) {
+                    session++ // 旧 utterance 的 onDone / onError 不再推进
+                    speakNextSystem()
+                }
+            }
+            serverAppliesSpeed(eng) -> {
+                if (state == SpeechState.SPEAKING || state == SpeechState.PREPARING) {
+                    job?.cancel()
+                    releaseMedia()
+                    job = scope.launch { runHttp() }
+                }
+            }
+            else -> runCatching { media?.let { it.playbackParams = it.playbackParams.setSpeed(v) } }
         }
     }
 
@@ -310,10 +328,13 @@ class SpeechPlayer(private val context: Context, private val scope: CoroutineSco
         state = SpeechState.ERROR
     }
 
+    /** 服务端自己处理倍速：URL、请求体、请求头任一处有速度占位符，或 URL 里带 speed= / rate= 参数。此时本地不能再叠加变速，否则会变成两倍速度 */
     private fun serverAppliesSpeed(engine: SpeechEngine?): Boolean {
-        val u = engine?.url.orEmpty()
-        return u.contains("{{speakSpeed}}") || u.contains("{{speed}}") ||
-            Regex("[?&](?:speed|rate)=", RegexOption.IGNORE_CASE).containsMatchIn(u)
+        if (engine == null) return false
+        // 占位符写法要与 SpeechHttp.replace 一致（精确匹配 {{speakSpeed}} / {{speed}}）
+        fun has(t: String) = t.contains("{{speakSpeed}}") || t.contains("{{speed}}")
+        if (has(engine.url) || has(engine.body) || has(engine.headers)) return true
+        return Regex("[?&](?:speed|rate)=", RegexOption.IGNORE_CASE).containsMatchIn(engine.url)
     }
 
     private fun splitText(text: String): List<String> {

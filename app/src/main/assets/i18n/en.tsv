@@ -2581,3 +2581,4 @@ AI 语音	AI voice
 订阅地址或 JSON 内容	Subscription URL or JSON content
 已取消，已导入 {0} 项	Cancelled; imported {0} items
 已导入 {0} 项，{1} 项失败：{2}	Imported {0} items, {1} failed: {2}
+「全部」只能搜索，选择单个书源后才能使用发现	"All" only supports search; pick a single book source to use Discover

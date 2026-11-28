@@ -284,6 +284,8 @@ object BookFeedParser {
 object BookFeedImport {
     private const val UA = "Mozilla/5.0 mafari"
     private const val MAX_FEED_BYTES = 8 * 1024 * 1024
+    /** 订阅源 / 书源文件的上限：Legado 书源合集动辄十几 MB（几千个书源），8 MiB 会误报「文件过大」 */
+    private const val MAX_SOURCE_BYTES = 64 * 1024 * 1024
     private const val MAX_BOOK_BYTES = 48 * 1024 * 1024
     private const val MAX_CHAPTERS = 5000
     private const val PARALLEL = 4
@@ -297,7 +299,7 @@ object BookFeedImport {
     fun loadFromUrl(url: String): LoadedFeed {
         val u = url.trim()
         require(u.startsWith("http://", true) || u.startsWith("https://", true)) { tr("请输入 http / https 链接") }
-        val res = HttpFetcher.get(u, options(MAX_FEED_BYTES))
+        val res = HttpFetcher.get(u, options(MAX_SOURCE_BYTES, readTimeoutMs = 60_000))
         val text = BookContent.decodeText(res.bytes)
         // 重定向之后以最终地址为准，相对链接才解析得对
         return LoadedFeed(BookFeedParser.parse(text, res.url), text, res.url)
@@ -313,7 +315,7 @@ object BookFeedImport {
                 val n = input.read(buf)
                 if (n < 0) break
                 total += n
-                if (total > MAX_FEED_BYTES) throw HttpFetcher.TooLargeException()
+                if (total > MAX_SOURCE_BYTES) throw HttpFetcher.TooLargeException()
                 out.write(buf, 0, n)
             }
             out.toByteArray()
@@ -373,7 +375,7 @@ object BookFeedImport {
 
     /** 书源索引型订阅：文章链接本身是 Legado 书源 JSON，解析后加入书源库。 */
     suspend fun importRssBookSource(context: Context, url: String): Int = withContext(Dispatchers.IO) {
-        val res = HttpFetcher.get(url, options(8 * 1024 * 1024, readTimeoutMs = 30_000))
+        val res = HttpFetcher.get(url, options(MAX_SOURCE_BYTES, readTimeoutMs = 60_000))
         val root = JSONTokener(BookContent.decodeText(res.bytes)).nextValue()
         if (!LegadoSourceParser.looksLikeLegado(root)) {
             error(tr("这个链接不是书源文件"))
