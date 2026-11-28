@@ -1,4 +1,11 @@
 # Changelog
+- 修复：Legado 书源脚本在 release 包里大面积报错（「Java 类 xx 没有名为 yy 的公共实例字段或方法」「找不到函数 raw」等）：脚本用的 java / cookie / source / 响应对象被 R8 改了名，现在加了 keep 规则
+- 修复：书源脚本里 `page` / `key` / `book` / `chapter` / `title` 等变量没有上下文时报「未定义」（例如发现页、目录页求值）；现在始终有默认值
+- 新增：书源脚本兼容 `res.raw()`（code / header / headers / request().url() / body().string()）、`statusCode()` / `cookies()` 等；`java.createSymmetricCrypto`（decryptStr / encryptBase64 …）、`digestHex` / `HMacHex`、`aesBase64DecodeToString`、`hexDecodeToString`、`ajaxAll` 等常用方法
+- 新增：`java.startBrowserAwait` / `java.webView` / `java.startBrowser` 不再直接抛错：用不可见的 WebView 加载页面并返回渲染后的 HTML（过 5 秒盾、JS 渲染可用；需要人工点验证码的页面仍不支持）
+- 修复：阅读界面每行末尾残留 `<br><br>`：正文净化统一处理各种转义写法（`&lt;br&gt;`、多层 `&amp;lt;`、`&#60;`、`\\u003c`、`<br class>`、`< br >`），拆成独立段落
+- 新增：两款应用图标「默认」（白底）和「深蓝」（默认的深色版）；原默认图标更名为「经典」，移除「立体」图标
+- 调整：设置 → 应用图标改为点击弹出 sheet：上方一行选择图标，下方「跟随显示模式」开关控制是否自动切换深浅色图标（默认→深蓝、多彩→深色、极简→极暗，经典无深色版）；旧版选择自动迁移
 - 新增：支持 Legado 订阅源（RSS / JSON / 网页，`sourceUrl` + `ruleArticles`）：导入后可在「更多 → 订阅源 → Legado 订阅」里浏览文章、勾选导入书架；文章按单章 TXT 入架
 - 新增：Legado 书源导入改为「先入架、边读边下」：只取详情和目录就入架，阅读器翻到哪章下哪章并缓存，大部头不用再等整本下载；书架里标「书源」
 - 修复：书源搜索失败时显示具体是哪个书源、什么原因；多书源搜索部分失败时保留其它书源的结果

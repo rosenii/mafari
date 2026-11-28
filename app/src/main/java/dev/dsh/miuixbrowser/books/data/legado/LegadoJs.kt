@@ -42,6 +42,9 @@ internal class LegadoJs(private val engine: LegadoEngine) {
             bind(scope, "cookie", LegadoCookieBridge(engine))
             bind(scope, "source", sourceBridge)
             bind(scope, "cache", sourceBridge)
+            for ((k, v) in DEFAULT_VARS) if (k !in vars) bind(scope, k, v)
+            if ("book" !in vars) bind(scope, "book", LegadoBook("", "", ""))
+            if ("chapter" !in vars) bind(scope, "chapter", LegadoChapter(vars["title"]?.toString().orEmpty(), ""))
             for ((k, v) in vars) bind(scope, k, v)
             engine.source.jsLib?.takeIf { it.isNotBlank() }?.let { cx.evaluateString(scope, it, "jsLib", 1, null) }
             return toKotlin(cx.evaluateString(scope, script, "rule", 1, null), cx, scope)
@@ -92,6 +95,16 @@ internal class LegadoJs(private val engine: LegadoEngine) {
     }
 
     private companion object {
+        /** Legado 脚本里始终存在的变量（没有上下文时给空值 / 第 1 页，免得出现 “xxx 未定义”）。 */
+        val DEFAULT_VARS: Map<String, Any?> = mapOf(
+            "page" to 1,
+            "key" to "",
+            "result" to null,
+            "baseUrl" to "",
+            "title" to "",
+            "src" to "",
+            "nextChapterUrl" to "",
+        )
         const val START_KEY = "legado.js.start"
         const val TIMEOUT_MS = 90_000L
     }
@@ -184,12 +197,103 @@ class LegadoJavaBridge(private val engine: LegadoEngine) {
 
     fun get(key: String): String = engine.store[key].orEmpty()
 
-    // ---- 不支持
-    fun startBrowser(url: String, title: String): Nothing = throw UnsupportedOperationException("startBrowser")
+    // ---- 加解密 / 摘要（Legado JsExtensions 里书源最常用的一批；hutool 的 SymmetricCrypto 用 [LegadoSymmetricCrypto] 代替）
+    fun createSymmetricCrypto(transformation: String, key: Any?, iv: Any?): LegadoSymmetricCrypto =
+        LegadoSymmetricCrypto(transformation, bytesOf(key), iv?.let { bytesOf(it) })
 
-    fun startBrowserAwait(url: String, title: String): Nothing = throw UnsupportedOperationException("startBrowserAwait")
+    fun createSymmetricCrypto(transformation: String, key: Any?): LegadoSymmetricCrypto =
+        LegadoSymmetricCrypto(transformation, bytesOf(key), null)
 
-    fun webView(html: String?, url: String?, js: String?): Nothing = throw UnsupportedOperationException("webView")
+    fun aesBase64DecodeToString(str: String, key: String, transformation: String, iv: String): String =
+        String(LegadoSymmetricCrypto(transformation, key.toByteArray(), iv.toByteArray()).decrypt(str), Charsets.UTF_8)
+
+    fun aesBase64DecodeToByteArray(str: String, key: String, transformation: String, iv: String): ByteArray =
+        LegadoSymmetricCrypto(transformation, key.toByteArray(), iv.toByteArray()).decrypt(str)
+
+    fun aesEncodeToBase64String(data: String, key: String, transformation: String, iv: String): String =
+        LegadoSymmetricCrypto(transformation, key.toByteArray(), iv.toByteArray()).encryptBase64(data)
+
+    fun digestHex(data: String, algorithm: String): String =
+        hex(MessageDigest.getInstance(normAlgo(algorithm)).digest(data.toByteArray(Charsets.UTF_8)))
+
+    fun digestBase64Str(data: String, algorithm: String): String =
+        Base64.getEncoder().encodeToString(MessageDigest.getInstance(normAlgo(algorithm)).digest(data.toByteArray(Charsets.UTF_8)))
+
+    fun HMacHex(data: String, algorithm: String, key: String): String = hex(hmac(data, algorithm, key))
+
+    fun HMacBase64(data: String, algorithm: String, key: String): String =
+        Base64.getEncoder().encodeToString(hmac(data, algorithm, key))
+
+    private fun hmac(data: String, algorithm: String, key: String): ByteArray {
+        val name = algorithm.replace("-", "").let { if (it.startsWith("Hmac", true)) it else "Hmac$it" }
+        val mac = javax.crypto.Mac.getInstance(name)
+        mac.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(Charsets.UTF_8), name))
+        return mac.doFinal(data.toByteArray(Charsets.UTF_8))
+    }
+
+    private fun normAlgo(a: String): String = when (a.uppercase().replace("-", "")) {
+        "SHA1" -> "SHA-1"
+        "SHA256" -> "SHA-256"
+        "SHA384" -> "SHA-384"
+        "SHA512" -> "SHA-512"
+        else -> a
+    }
+
+    // ---- 十六进制 / 字节
+    fun hexDecodeToString(s: String): String = String(hexDecodeToByteArray(s), Charsets.UTF_8)
+
+    fun hexDecodeToByteArray(s: String): ByteArray = LegadoSymmetricCrypto.unhex(s)
+
+    fun hexEncodeToString(s: String): String = hex(s.toByteArray(Charsets.UTF_8))
+
+    fun base64Decode(s: String, charset: String): String = String(base64DecodeToByteArray(s), java.nio.charset.Charset.forName(charset))
+
+    fun strToBytes(s: String): ByteArray = s.toByteArray(Charsets.UTF_8)
+
+    fun strToBytes(s: String, charset: String): ByteArray = s.toByteArray(java.nio.charset.Charset.forName(charset))
+
+    fun bytesToStr(b: ByteArray): String = String(b, Charsets.UTF_8)
+
+    fun bytesToStr(b: ByteArray, charset: String): String = String(b, java.nio.charset.Charset.forName(charset))
+
+    fun utf8ToGbk(s: String): String = String(s.toByteArray(java.nio.charset.Charset.forName("GBK")), java.nio.charset.Charset.forName("GBK"))
+
+    fun androidId(): String = "0000000000000000"
+
+    fun getWebViewUA(): String = LegadoWeb.userAgent()
+
+    /** 依次请求一批地址（Legado 是并发；这里串行，书源自己有访问频率限制）。 */
+    fun ajaxAll(urls: Array<String>): Array<LegadoResponse> = Array(urls.size) { engine.fetchForScript(urls[it], null) }
+
+    // ---- 浏览器：用不可见的 WebView 加载页面（没有人机交互界面，验证码要人点的页面做不了，但靠 JS 渲染 / 过 5 秒盾的页面可以）
+    /** 打开网页让用户操作：这里没有独立的浏览器界面，只记录日志，脚本继续往下跑。 */
+    fun startBrowser(url: String, title: String) {
+        engine.log("startBrowser: $url")
+    }
+
+    /** 加载 [url] 并返回渲染后的页面（body 是 HTML，url 是最终地址）。 */
+    fun startBrowserAwait(url: String, title: String): LegadoResponse = startBrowserAwait(url, title, true)
+
+    fun startBrowserAwait(url: String, title: String, refetchAfterSuccess: Boolean): LegadoResponse {
+        val abs = LegadoAnalyzer.absUrl(engine.source.url, url)
+        val r = LegadoWeb.load(abs, null, null, engine.jar.header(abs))
+        return LegadoResponse(r.url, 200, r.result.toByteArray(Charsets.UTF_8), "text/html; charset=utf-8", emptyMap(), "UTF-8")
+    }
+
+    /** 加载 [html]（为空则加载 [url]），执行 [js]（为空则返回整页 HTML）并返回结果文本。 */
+    fun webView(html: String?, url: String?, js: String?): String {
+        val base = url?.let { LegadoAnalyzer.absUrl(engine.source.url, it) }
+        if (html.isNullOrEmpty() && base == null) throw IllegalArgumentException("webView: html 和 url 不能同时为空")
+        return LegadoWeb.load(base, html, js, base?.let { engine.jar.header(it) }).result
+    }
+
+    private fun bytesOf(v: Any?): ByteArray = when (v) {
+        is ByteArray -> v
+        is CharSequence -> v.toString().toByteArray(Charsets.UTF_8)
+        is List<*> -> ByteArray(v.size) { (v[it] as Number).toByte() }
+        null -> ByteArray(0)
+        else -> v.toString().toByteArray(Charsets.UTF_8)
+    }
 
     private fun headersOf(h: Any?): Map<String, String> {
         val m = h as? Map<*, *> ?: return emptyMap()

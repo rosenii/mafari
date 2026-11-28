@@ -22,6 +22,9 @@ class MafariApp : Application() {
         super.onCreate()
         dev.dsh.miuixbrowser.i18n.I18n.init(this)
         container = AppContainer(this)
+        // Legado 书源脚本：下载文件的临时目录 + java.webView / startBrowserAwait 用的上下文
+        dev.dsh.miuixbrowser.books.data.legado.LegadoEngine.cacheDir = java.io.File(cacheDir, "legado")
+        dev.dsh.miuixbrowser.books.data.legado.LegadoWeb.appContext = this
         if (Application.getProcessName() == packageName) {
             StartupCoordinator.onProcessCreate(this)
         }

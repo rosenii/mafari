@@ -214,6 +214,7 @@ class LegadoEngine(val source: LegadoSource) {
         val vars = mapOf<String, Any?>(
             "book" to book,
             "title" to chapter.title,
+            "chapter" to chapter,
             "nextChapterUrl" to (nextChapterUrl ?: ""),
         )
         val sb = StringBuilder()

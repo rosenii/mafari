@@ -58,3 +58,14 @@
 -dontwarn org.w3c.dom.**
 -dontwarn re2j.**
 -dontwarn com.google.re2j.**
+
+# Legado 书源脚本里的 java / cookie / source / cache 对象、请求返回值、book / chapter 等由 Rhino 按名字反射调用其 public 方法：
+# release 里不能被 R8 改名 / 裁掉（否则脚本会报「Java 类 xx 没有名为 yy 的公共实例字段或方法」「找不到函数 raw」之类）
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoJavaBridge { public *; }
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoCookieBridge { public *; }
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoSourceBridge { public *; }
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoResponse { public *; }
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoRaw* { public *; }
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoSymmetricCrypto { public *; }
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoBook { public *; }
+-keep class dev.dsh.miuixbrowser.books.data.legado.LegadoChapter { public *; }

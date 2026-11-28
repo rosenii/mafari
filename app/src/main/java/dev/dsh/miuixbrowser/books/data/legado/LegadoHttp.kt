@@ -106,6 +106,21 @@ class LegadoResponse(
     fun url(): String = finalUrl
     fun header(name: String): String? = headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value?.firstOrNull()
 
+    // 兼容 Legado 脚本里 jsoup Connection.Response / StrResponse / OkHttp Response 的常用写法
+    fun statusCode(): Int = status
+    fun statusMessage(): String = ""
+    fun message(): String = ""
+    fun isSuccessful(): Boolean = status in 200..299
+    fun headers(): Map<String, String> = headers.entries.filter { it.key != null }.associate { it.key to it.value.joinToString(", ") }
+    fun cookies(): Map<String, String> = headers.entries.firstOrNull { it.key.equals("set-cookie", ignoreCase = true) }?.value.orEmpty()
+        .mapNotNull { c -> c.substringBefore(';').split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0].trim() to it[1].trim() } }
+        .toMap()
+    fun cookie(name: String): String? = cookies()[name]
+    fun contentType(): String = contentType
+    fun bodyAsBytes(): ByteArray = bytes
+    /** `res.raw()`：OkHttp Response 的替身，见 [LegadoRawResponse]。 */
+    fun raw(): LegadoRawResponse = LegadoRawResponse(this)
+
     override fun toString(): String = decodeBody()
 
     private fun decodeBody(): String {

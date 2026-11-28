@@ -94,6 +94,53 @@ object TextCleaner {
         return s
     }
 
-    /** 一批段落：逐段净化并丢掉空段。 */
-    fun paragraphs(list: List<String>): List<String> = list.mapNotNull { line(it) }
+    // ---- 残留的 HTML 标记（转义没消干净的 <br>）
+    private val LT_FORMS = Regex("&lt;|&#0*60;|&#x0*3c;|\\\\u003c|\\\\x3c", RegexOption.IGNORE_CASE)
+    private val GT_FORMS = Regex("&gt;|&#0*62;|&#x0*3e;|\\\\u003e|\\\\x3e", RegexOption.IGNORE_CASE)
+    private val ENTITY_LAYER = Regex("&amp;(?=#?[a-zA-Z0-9]+;)", RegexOption.IGNORE_CASE)
+    private val SCRIPT_BLOCK = Regex("<(script|style)\\b[\\s\\S]*?</\\1\\s*>", RegexOption.IGNORE_CASE)
+    private val BR_TAG = Regex("<\\s*/?\\s*br\\b[^<>]*>", RegexOption.IGNORE_CASE)
+    private val BLOCK_TAG = Regex(
+        "<\\s*/?\\s*(?:p|div|h[1-6]|li|tr|ul|ol|table|blockquote|section|article)\\b[^<>]*>",
+        RegexOption.IGNORE_CASE,
+    )
+    private val INLINE_TAG = Regex(
+        "<\\s*/?\\s*(?:span|a|b|i|u|s|em|strong|font|small|big|sub|sup|center|ruby|rt|rp|img|image|label|code)\\b[^<>]*>",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * 把各种写法的转义标记还原成真正的 `<` `>`：`&lt;` `&amp;lt;`（任意层）`&#60;` `&#x3c;` `\\u003c` `<\\/p>`。
+     * 最多还原 3 层，没有变化就停。
+     */
+    fun unescapeMarkup(input: String): String {
+        var s = input
+        repeat(3) {
+            val n = ENTITY_LAYER.replace(s, "&")
+                .let { LT_FORMS.replace(it, "<") }
+                .let { GT_FORMS.replace(it, ">") }
+                .replace("<\\/", "</")
+            if (n == s) return s
+            s = n
+        }
+        return s
+    }
+
+    /** 一段文本里残留的 `<br>` / 块级标签 → 换行，行内标签去掉；返回拆开后的各行（未净化）。 */
+    fun splitMarkup(raw: String): List<String> {
+        var s = unescapeMarkup(raw)
+        if (s.indexOf('<') >= 0) {
+            s = SCRIPT_BLOCK.replace(s, "")
+            s = BR_TAG.replace(s, "\n")
+            s = BLOCK_TAG.replace(s, "\n")
+            s = INLINE_TAG.replace(s, "")
+        }
+        return s.split('\n')
+    }
+
+    private fun maybeMarkup(s: String): Boolean = s.indexOf('<') >= 0 || s.indexOf('&') >= 0 || s.indexOf('\\') >= 0
+
+    /** 一批段落：先把残留的（含转义的）`<br>` 等标记拆成独立行，再逐段净化并丢掉空段。 */
+    fun paragraphs(list: List<String>): List<String> =
+        list.flatMap { if (maybeMarkup(it)) splitMarkup(it) else listOf(it) }.mapNotNull { line(it) }
 }
