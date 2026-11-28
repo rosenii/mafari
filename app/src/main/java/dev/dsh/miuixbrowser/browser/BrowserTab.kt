@@ -342,7 +342,11 @@ class BrowserTab(
     internal val webViewOrNull: WebView? = if (engineKind == EngineKind.WEBVIEW) {
         dev.dsh.miuixbrowser.engine.EngineSupport.markWebViewUsed(appContext)
         // 无痕标签：创建后立刻绑到独立 Profile（必须在 WebView 首次使用前）。不支持多 Profile 时沿用进程级 Cookie 开关
-        WebView(appContext).also { if (startIncognito) dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.bind(it) }
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        WebView(appContext).also {
+            Diag.log("tab $id: WebView ctor ${android.os.SystemClock.elapsedRealtime() - t0}ms (url empty=${url.isEmpty()})")
+            if (startIncognito) dev.dsh.miuixbrowser.engine.webview.IncognitoProfile.bind(it)
+        }
     } else {
         null
     }
@@ -543,8 +547,11 @@ class BrowserTab(
     init {
         // 引擎初始化放在这里（而不是各自的构造处），保证上面所有属性初始化完毕
         if (webViewOrNull != null) {
+            val t1 = android.os.SystemClock.elapsedRealtime()
             setupWebView()
+            val t2 = android.os.SystemClock.elapsedRealtime()
             applyWebExtensions() // 必须在首次加载网页之前
+            Diag.log("tab $id: setupWebView ${t2 - t1}ms, applyWebExtensions ${android.os.SystemClock.elapsedRealtime() - t2}ms")
         }
     }
 
