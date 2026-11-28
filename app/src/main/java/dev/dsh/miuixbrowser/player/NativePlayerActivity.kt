@@ -367,6 +367,7 @@ class NativePlayerActivity : ComponentActivity() {
                         onDownload = if (p.request.isLocal) null else ({ download(p) }),
                         onCopyLink = if (p.request.isLocal) null else ({ copyLink(p) }),
                         onCast = if (cast != null) ({ cast.openPicker() }) else null,
+                        onListen = ({ listenVideo(p) }),
                         pip = inPip,
                         bgPlay = bgPlay,
                         onBgPlayChange = { changeBgPlay(it) },
@@ -810,6 +811,20 @@ class NativePlayerActivity : ComponentActivity() {
     }
 
     // ------------------------------------------------------------------ 后台播放
+
+    /**
+     * 听视频：确保后台播放 / 前台服务在跑，把播放页收进后台（窗口消失），只留音频。
+     * 不 finish 活动，播放器继续由本活动 + PlayerService 持有；熄屏 / 切后台都不会暂停。
+     */
+    private fun listenVideo(p: MafariPlayer) {
+        if (!bgPlay) {
+            bgPlay = true
+            PlayerPrefs.setBgPlay(this, true)
+        }
+        startBgService()
+        Toast.makeText(this, tr("已切换为只听声音，播放器已收起"), Toast.LENGTH_SHORT).show()
+        moveTaskToBack(true)
+    }
 
     private fun changeBgPlay(on: Boolean) {
         bgPlay = on

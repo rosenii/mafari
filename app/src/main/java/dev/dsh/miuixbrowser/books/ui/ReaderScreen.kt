@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,7 +62,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -289,7 +292,8 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit, settings: AppSettings, blur
         }
     }
 
-    val theme = resolveReaderTheme(settings.readerTheme, isAppDarkTheme())
+    // 「自动」跟随系统深浅色，而不是应用内固定模式
+    val theme = resolveReaderTheme(settings.readerTheme, isSystemInDarkTheme())
     val ink = theme.ink
 
     Box(modifier = Modifier.fillMaxSize().readerBackground(theme)) {
@@ -639,6 +643,8 @@ private fun ReaderSettingsPanel(settings: AppSettings, backdrop: top.yukonga.miu
             selectedIndex = settings.readerPageTurn,
             title = tr("翻页方式"),
             backdrop = backdrop,
+            // 这一行和字号 / 行距等滑块共用 sheet 的左右留白，不要再叠加组件默认内边距
+            insideMargin = PaddingValues(0.dp),
         )
         ReaderSliderRow(
             name = tr("字号"),
@@ -681,7 +687,7 @@ private fun ReaderSettingsPanel(settings: AppSettings, backdrop: top.yukonga.miu
 /** 「文字背景」：四个色块可选，当前项描边。 */
 @Composable
 private fun ReaderThemeRow(settings: AppSettings) {
-    val appDark = isAppDarkTheme()
+    val appDark = isSystemInDarkTheme()
     val current = settings.readerTheme.let { if (it == READER_THEME_AUTO) (if (appDark) READER_THEME_DARK else READER_THEME_PAPER) else it }
     val options = listOf(
         READER_THEME_PAPER to tr("纸质纹理"),
@@ -1040,10 +1046,26 @@ private fun PagerContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        rotationY = (offset * 32f).coerceIn(-32f, 32f)
-                        cameraDistance = 8000f
+                        val a = kotlin.math.abs(offset)
+                        rotationY = (offset * 68f).coerceIn(-68f, 68f)
+                        cameraDistance = 5200f
+                        translationX = -offset * size.width * 0.12f
                         transformOrigin = TransformOrigin(if (offset > 0f) 0f else 1f, 0.5f)
-                        alpha = 1f - (kotlin.math.abs(offset) * 0.2f).coerceAtMost(0.2f)
+                        shadowElevation = a * 36f
+                        alpha = 1f - (a * 0.12f).coerceAtMost(0.12f)
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        val a = kotlin.math.abs(offset)
+                        if (a > 0.01f) {
+                            // 翻起的页边压暗，模拟书页背光 / 阴影
+                            val colors = if (offset > 0f) {
+                                listOf(Color.Black.copy(alpha = 0.32f * a), Color.Transparent)
+                            } else {
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.32f * a))
+                            }
+                            drawRect(brush = Brush.horizontalGradient(colors))
+                        }
                     },
             ) { pageContent(page) }
         }

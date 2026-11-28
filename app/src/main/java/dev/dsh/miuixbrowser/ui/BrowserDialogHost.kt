@@ -18,6 +18,7 @@ import dev.dsh.miuixbrowser.browser.playSniffed
 import dev.dsh.miuixbrowser.browser.probeDurations
 import dev.dsh.miuixbrowser.browser.DefaultBrowser
 import dev.dsh.miuixbrowser.download.Downloader
+import dev.dsh.miuixbrowser.download.ExternalDownloader
 import dev.dsh.miuixbrowser.data.AppSettings
 import dev.dsh.miuixbrowser.engine.EngineSupport
 import dev.dsh.miuixbrowser.engine.gecko.GeckoNetLog
@@ -169,7 +170,17 @@ BrowserChunk {
                                 onClick = {
                                     val req = downloadRequest
                                     pendingDownload = null
-                                    scope.launch {
+                                    val temp = req.tempPath?.let { java.io.File(it) }
+                                    val handed = temp != null && ExternalDownloader.active(context) &&
+                                        ExternalDownloader.handLocal(context, temp, req.fileName, req.mime)
+                                    if (handed) {
+                                        req.onResult?.invoke(true, null)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            tr("已交给 {0} 下载", ExternalDownloader.labelOf(ExternalDownloader.target)),
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    } else scope.launch {
                                         val saved = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                             when {
                                                 req.tempPath != null -> {

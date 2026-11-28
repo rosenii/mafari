@@ -81,7 +81,9 @@ object BookContent {
         val meta = RemoteBooks.read(context, book.id) ?: return emptyList()
         val current = book.chapter.coerceIn(0, meta.chapters.lastIndex)
         return meta.chapters.mapIndexed { i, c ->
-            val cached = if (kotlin.math.abs(i - current) <= REMOTE_PREFETCH) RemoteBooks.cached(context, book.id, i) else null
+            val cachedRaw = if (kotlin.math.abs(i - current) <= REMOTE_PREFETCH) RemoteBooks.cached(context, book.id, i) else null
+            // 旧版本缓存里可能是带 &lt;br&gt; / <br> 的原文：读出来时再净化一遍
+            val cached = cachedRaw?.let { remoteReaderText(it) }
             if (cached != null) {
                 Chapter(c.title, cached, index = i)
             } else {
@@ -94,7 +96,7 @@ object BookContent {
     fun loadRemoteChapter(context: Context, book: Book, index: Int): Chapter {
         val meta = RemoteBooks.read(context, book.id) ?: error(tr("这本书的目录丢了，请重新从书源导入"))
         val c = meta.chapters.getOrNull(index) ?: error(tr("章节不存在"))
-        RemoteBooks.cached(context, book.id, index)?.let { return Chapter(c.title, it, index = index) }
+        RemoteBooks.cached(context, book.id, index)?.let { return Chapter(c.title, remoteReaderText(it), index = index) }
         val source = LegadoSourceStore.find(meta.sourceUrl)
             ?: error(tr("书源已被删除，无法继续下载；可以重新导入书源后再试"))
         val legadoBook = LegadoBook(

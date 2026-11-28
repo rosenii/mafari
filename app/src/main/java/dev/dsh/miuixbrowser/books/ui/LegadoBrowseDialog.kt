@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -354,10 +355,11 @@ internal fun LegadoBrowseDialog(
         val screenH = LocalConfiguration.current.screenHeightDp.dp
         val cap = (screenH * 0.86f).coerceAtLeast(280.dp)
         val rows = state.items.size.coerceAtMost(6)
-        val desired = (370.dp + 56.dp * rows).coerceAtMost(cap)
+        val listH = (if (state.items.isEmpty()) 330.dp else (185.dp + 56.dp * rows)).coerceAtMost(cap - 80.dp)
+        Column(modifier = Modifier.fillMaxWidth().heightIn(max = cap)) {
         LazyColumn(
-            modifier = Modifier.fillMaxWidth().height(desired),
-            contentPadding = PaddingValues(top = insets.top + 4.dp, bottom = insets.bottom + 12.dp),
+            modifier = Modifier.fillMaxWidth().height(listH),
+            contentPadding = PaddingValues(top = insets.top + 4.dp),
         ) {
             item(key = "browse-head") {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -571,30 +573,31 @@ internal fun LegadoBrowseDialog(
                         }
                     }
                 }
-                item(key = "browse-actions") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                            Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
-                        }
-                        AppDialogButton(
-                            onClick = {
-                                val picks = state.picks()
-                                if (picks.isEmpty()) {
-                                    Toast.makeText(context, tr("请先勾选要导入的书"), Toast.LENGTH_SHORT).show()
-                                } else {
-                                    state.clearChosen()
-                                    onImport(picks)
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            role = GlassDialogButtonRole.Primary,
-                        ) { Text(text = tr("导入 {0} 本", state.chosen.size), style = MiuixTheme.textStyles.button) }
-                    }
-                }
+
             }
+        }
+        // 固定底部：不会被上方内容顶走
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = insets.bottom + 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
+            }
+            AppDialogButton(
+                onClick = {
+                    val picks = state.picks()
+                    if (picks.isEmpty()) {
+                        Toast.makeText(context, tr("请先勾选要导入的书"), Toast.LENGTH_SHORT).show()
+                    } else {
+                        state.clearChosen()
+                        onImport(picks)
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                role = GlassDialogButtonRole.Primary,
+            ) { Text(text = tr("导入 {0} 本", state.chosen.size), style = MiuixTheme.textStyles.button) }
+        }
         }
     }
 

@@ -15,6 +15,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import androidx.core.content.FileProvider
 
 /** 一个可交接下载的第三方下载器 */
 data class ExternalApp(val pkg: String, val label: String)
@@ -130,6 +131,52 @@ object ExternalDownloader {
     }
 
     /** 交给系统 DownloadManager：通知栏显示进度，文件保存到 Download/mafari；任何异常都返回 false（调用方回退内置）。 */
+    /**
+     * 页面内 blob / 缓存文件交给外部下载器：content:// + 临时读权限。
+     * 系统下载器读不到应用私有 provider，返回 false 让调用方回退内置下载。
+     */
+    fun handLocal(context: Context, file: java.io.File, fileName: String, mimeType: String?): Boolean {
+        if (!active(context)) return false
+        if (!file.isFile || file.length() <= 0) return false
+        val uri = runCatching {
+            FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
+        }.getOrNull() ?: return false
+        val mime = mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+        if (target == SYSTEM) {
+            return runCatching {
+                // 系统下载器以 Downloads provider 身份读文件：显式授权一次
+                context.grantUriPermission("com.android.providers.downloads", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val safe = fileName.replace('/', '_').replace('\\', '_').ifBlank { "download" }
+                val req = DownloadManager.Request(uri)
+                    .setTitle(safe)
+                    .setMimeType(mime)
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "mafari/$safe")
+                (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+                true
+            }.getOrDefault(false)
+        }
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_TITLE, fileName)
+            putExtra("android.intent.extra.TITLE", fileName)
+            putExtra("com.android.extra.filename", fileName)
+        }
+        val t = target
+        return try {
+            if (t == CHOOSER) {
+                context.startActivity(Intent.createChooser(intent, tr("选择下载器")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } else {
+                intent.setPackage(t)
+                context.startActivity(intent)
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun handToSystem(
         context: Context,
         uri: Uri,

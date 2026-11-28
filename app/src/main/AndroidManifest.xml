@@ -548,6 +548,17 @@
             android:taskAffinity=""
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density|fontScale"
             android:theme="@style/Theme.MafariTranslucent" />
+
+        <!-- 页面内 blob / 本地缓存文件交给第三方下载器（content:// 读取权限） -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

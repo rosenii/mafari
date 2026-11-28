@@ -813,18 +813,20 @@ fun BrowserScreen(
         // ---- 加载进度条：与下拉刷新指示器同一层（采集层与所有渐进模糊带之外、在它们之上），不会被模糊采样 ----
         ui.BrowserProgressOverlay(tab = tab, barLayout = barLayout, contentTopPx = contentTopPx)
 
-        // ---- 网页听书：右下角圆形按钮，位于底栏 / 导航栏上方，材质走抽象层 ----
-        if (customView == null && !ui.editing && (tab.url.startsWith("http://", true) || tab.url.startsWith("https://", true))) {
+        // ---- 网页听书：只在阅读模式里出现，右下角、底栏 / 导航栏上方，材质走抽象层 ----
+        if (tab.readerActive && customView == null && !ui.editing) {
             val bottomReserve = with(LocalDensity.current) { contentBottomPx().toDp() }
-            WebSpeechButton(
-                tab = tab,
-                backdrop = glassBackdrop,
-                liquid = if (settings.liquidGlass) barLiquidBackdrop else null,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(end = 16.dp, bottom = bottomReserve + 12.dp),
-            )
+            CompositionLocalProvider(LocalPageGlassBackdrop provides glassBackdrop) {
+                WebSpeechButton(
+                    tab = tab,
+                    backdrop = glassBackdrop,
+                    liquid = if (settings.liquidGlass) barLiquidBackdrop else null,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .navigationBarsPadding()
+                        .padding(end = 16.dp, bottom = bottomReserve + 72.dp),
+                )
+            }
         }
         BrowserFloatingBar(
             ui = ui,

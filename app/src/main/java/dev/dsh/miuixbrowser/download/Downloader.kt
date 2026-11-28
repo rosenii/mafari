@@ -961,7 +961,11 @@ object Downloader {
     }.getOrDefault(false)
 
     /** 把缓存文件流式复制到 Download/mafari（大 blob 用，不把整个文件读进内存） */
-    fun saveFile(context: Context, file: java.io.File, fileName: String, mime: String?): Boolean {
+    fun saveFile(context: Context, file: java.io.File, fileName: String, mime: String?): Boolean =
+        saveFileEx(context, file, fileName, mime).first
+
+    /** 同 [saveFile]，额外返回 MediaStore 最终使用的文件名（重名时可能带 (1)），用于提示保存路径。 */
+    fun saveFileEx(context: Context, file: java.io.File, fileName: String, mime: String?): Pair<Boolean, String?> {
         init(context)
         var uri: Uri? = null
         return runCatching {
@@ -972,7 +976,7 @@ object Downloader {
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val target = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                ?: return@runCatching false
+                ?: return@runCatching (false to null)
             uri = target
             val out = context.contentResolver.openOutputStream(target) ?: error("no output stream")
             out.use { o -> file.inputStream().use { it.copyTo(o, 64 * 1024) } }
@@ -993,12 +997,14 @@ object Downloader {
                 state = DownloadState.DONE,
             )
             tasks.add(0, saved)
+            sessionIds.add(saved.id)
+            finishedAt[saved.id] = System.currentTimeMillis()
             persist(saved.id)
-            true
+            true to saved.name
         }.getOrElse {
             // 写到一半失败：删掉未完成的条目，避免留下残缺文件
             uri?.let { u -> runCatching { context.contentResolver.delete(u, null, null) } }
-            false
+            false to null
         }
     }
 
@@ -1030,6 +1036,8 @@ object Downloader {
             state = DownloadState.DONE,
         )
         tasks.add(0, saved)
+        sessionIds.add(saved.id)
+        finishedAt[saved.id] = System.currentTimeMillis()
         persist(saved.id)
         true
     }.getOrDefault(false)

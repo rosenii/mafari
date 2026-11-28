@@ -93,6 +93,7 @@ import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.glass.FullScreen
 import top.yukonga.miuix.kmp.icon.glass.Link
 import top.yukonga.miuix.kmp.icon.glass.More
+import top.yukonga.miuix.kmp.icon.glass.VolumeUp
 import top.yukonga.miuix.kmp.icon.glass.Pause
 import top.yukonga.miuix.kmp.icon.glass.Play
 import top.yukonga.miuix.kmp.icon.glass.VolumeOff
@@ -165,6 +166,8 @@ internal fun PlayerSurface(
     onCopyLink: (() -> Unit)? = null,
     /** 「投屏」菜单项：弹「投屏到」面板（见 [NativeCast]）；null 时灰掉 */
     onCast: (() -> Unit)? = null,
+    /** 「听视频」：收起画面只保留音频，后台 / 熄屏继续播放；null 时灰掉 */
+    onListen: (() -> Unit)? = null,
     pip: Boolean = false,
     bgPlay: Boolean? = null,
     onBgPlayChange: (Boolean) -> Unit = {},
@@ -435,12 +438,28 @@ internal fun PlayerSurface(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (fullscreen) {
+                            PlayerGlassButton(36.dp, backdrop, enabled = onListen != null, onClick = {
+                                onListen?.invoke()
+                                popup = POP_NONE
+                                poke++
+                            }) {
+                                GlassGlyph(MiuixIcons.Glass.VolumeUp, 22.dp)
+                            }
                             PlayerGlassButton(36.dp, backdrop, enabled = onCast != null, onClick = {
                                 onCast?.invoke()
                                 popup = POP_NONE
                                 poke++
                             }) {
                                 GlassGlyph(dev.dsh.miuixbrowser.ui.AppIcons.ScreenMirror, 22.dp)
+                            }
+                        } else {
+                            // 卡片态：听视频放在「更多」左边
+                            PlayerGlassButton(36.dp, backdrop, enabled = onListen != null, onClick = {
+                                onListen?.invoke()
+                                popup = POP_NONE
+                                poke++
+                            }) {
+                                GlassGlyph(MiuixIcons.Glass.VolumeUp, 22.dp)
                             }
                         }
                         PlayerGlassButton(36.dp, backdrop, onClick = {
