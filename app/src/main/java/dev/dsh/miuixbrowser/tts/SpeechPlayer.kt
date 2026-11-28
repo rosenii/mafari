@@ -106,6 +106,17 @@ class SpeechPlayer(private val context: Context, private val scope: CoroutineSco
         tts = created
     }
 
+    /** 朗读中改倍速：系统 TTS 下一段生效；HTTP 音频按引擎能力即时 / 下一段生效。 */
+    fun setSpeed(value: Float) {
+        val v = value.coerceIn(0.5f, 2.5f)
+        if (v == speed) return
+        speed = v
+        val eng = engine ?: return
+        if (!eng.system && !serverAppliesSpeed(eng)) {
+            runCatching { media?.let { it.playbackParams = it.playbackParams.setSpeed(v) } }
+        }
+    }
+
     fun start(engine: SpeechEngine, text: String, speed: Float, onFinished: () -> Unit) {
         stopInternal()
         this.engine = engine
@@ -274,6 +285,9 @@ class SpeechPlayer(private val context: Context, private val scope: CoroutineSco
                 true
             }
             mp.start()
+            if (!serverAppliesSpeed(engine)) {
+                runCatching { mp.playbackParams = mp.playbackParams.setSpeed(speed) }
+            }
             cont.invokeOnCancellation { clean() }
         } catch (t: Throwable) {
             clean()
@@ -294,6 +308,12 @@ class SpeechPlayer(private val context: Context, private val scope: CoroutineSco
         state = SpeechState.ERROR
         stopInternal()
         state = SpeechState.ERROR
+    }
+
+    private fun serverAppliesSpeed(engine: SpeechEngine?): Boolean {
+        val u = engine?.url.orEmpty()
+        return u.contains("{{speakSpeed}}") || u.contains("{{speed}}") ||
+            Regex("[?&](?:speed|rate)=", RegexOption.IGNORE_CASE).containsMatchIn(u)
     }
 
     private fun splitText(text: String): List<String> {
@@ -408,9 +428,11 @@ private object SpeechHttp {
     private fun replace(template: String, text: String, speed: Float, forUrl: Boolean, voice: String, model: String): String {
         if (template.isBlank()) return template
         val urlText = URLEncoder.encode(text, "UTF-8")
+        val urlText2 = URLEncoder.encode(urlText, "UTF-8")
         val jsonText = JSONObject.quote(text).removeSurrounding("\"")
         val sp = String.format(Locale.US, "%.2f", speed)
-        return template
+        var out = template
+            .replace("{{speakTextUrl2}}", urlText2)
             .replace("{{speakTextUrl}}", urlText)
             .replace("{{speakTextJson}}", jsonText)
             .replace("{{speakText}}", if (forUrl) urlText else text)
@@ -419,6 +441,13 @@ private object SpeechHttp {
             .replace("{{speed}}", sp)
             .replace("{{voice}}", voice)
             .replace("{{model}}", model)
+        // Legado 朗读引擎常把 speed=0.9 写死；没有占位符时按用户倍速覆盖，否则滑块无效
+        if (forUrl && !template.contains("{{speakSpeed}}") && !template.contains("{{speed}}")) {
+            out = Regex("([?&](?:speed|rate)=)[^&]*", RegexOption.IGNORE_CASE).replace(out) { m ->
+                m.groupValues[1] + sp
+            }
+        }
+        return out
     }
 
     private fun parseHeaders(raw: String): Map<String, String> {

@@ -5,6 +5,8 @@
 
 package dev.dsh.miuixbrowser.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,8 +35,13 @@ import dev.dsh.miuixbrowser.books.ui.ReaderSliderRow
 import dev.dsh.miuixbrowser.tts.SpeechEngine
 import dev.dsh.miuixbrowser.tts.SpeechEngineStore
 import dev.dsh.miuixbrowser.i18n.tr
+import dev.dsh.miuixbrowser.net.HttpFetcher
 import dev.dsh.miuixbrowser.tts.SpeechPlayer
 import dev.dsh.miuixbrowser.tts.SpeechState
+import dev.dsh.miuixbrowser.tts.SpeechEngineImport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
@@ -91,6 +99,47 @@ internal fun SpeechSheet(
     var page by remember { mutableStateOf(0) }
     var editing by remember { mutableStateOf<SpeechEngine?>(null) }
     var adding by remember { mutableStateOf(false) }
+    var importShow by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun importEngines(raw: String) {
+        scope.launch {
+            val loading = android.widget.Toast.makeText(context, tr("正在读取语音引擎订阅…"), android.widget.Toast.LENGTH_SHORT)
+            loading.show()
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (raw.trim().startsWith("http://", true) || raw.trim().startsWith("https://", true)) {
+                        HttpFetcher.get(raw.trim(), HttpFetcher.Options(maxBytes = 4 * 1024 * 1024, readTimeoutMs = 20_000)).bytes.toString(Charsets.UTF_8)
+                    } else raw
+                }.getOrElse { return@withContext "" }
+            }
+            val r = runCatching { SpeechEngineImport.parse(text) }
+            r.onSuccess { res ->
+                val added = SpeechEngineStore.importAll(context, res.engines)
+                android.widget.Toast.makeText(
+                    context,
+                    tr("已导入 {0} 个语音引擎（新增 {1} 个）", res.engines.size, added),
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+                editing = null
+                adding = false
+            }.onFailure {
+                android.widget.Toast.makeText(context, it.message ?: tr("导入失败"), android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val engineFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty() }.getOrDefault("")
+            }
+            if (text.isBlank()) {
+                android.widget.Toast.makeText(context, tr("导入失败"), android.widget.Toast.LENGTH_SHORT).show()
+            } else importEngines(text)
+        }
+    }
     LaunchedEffect(show) {
         if (show) {
             page = 0
@@ -165,7 +214,10 @@ internal fun SpeechSheet(
                         range = 0.5f..2.5f,
                         step = 0.1f,
                         show = { tr("{0}×", String.format(java.util.Locale.US, "%.1f", it)) },
-                        onCommit = { SpeechEngineStore.setSpeed(context, it) },
+                        onCommit = {
+                            SpeechEngineStore.setSpeed(context, it)
+                            player.setSpeed(it)
+                        },
                     )
                 } else if (formDraft != null) {
                     EngineForm(formDraft, backdrop)
@@ -278,6 +330,12 @@ internal fun SpeechSheet(
                         ) { Text(text = tr("保存"), style = MiuixTheme.textStyles.button) }
                     }
                 } else {
+                    AppTextButton(
+                        text = tr("导入语音引擎订阅"),
+                        onClick = { importShow = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(6.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         AppDialogButton(
                             onClick = { adding = true; editing = null },
@@ -292,6 +350,23 @@ internal fun SpeechSheet(
             }
         }
     }
+
+    ImportDialog(
+        show = importShow,
+        backdrop = backdrop,
+        onDismiss = { importShow = false },
+        onImport = { text ->
+            importShow = false
+            importEngines(text)
+        },
+        onPickFile = {
+            importShow = false
+            engineFilePicker.launch(arrayOf("application/json", "text/*", "*/*"))
+        },
+        title = tr("导入语音引擎订阅"),
+        summary = tr("粘贴 Legado 在线朗读引擎订阅 JSON，或输入订阅地址 / 选择本地文件"),
+        urlLabel = tr("订阅地址或 JSON 内容"),
+    )
 }
 
 /** 自定义语音引擎字段（保存 / 取消在 [SpeechSheet] 的固定 footer 里）。 */

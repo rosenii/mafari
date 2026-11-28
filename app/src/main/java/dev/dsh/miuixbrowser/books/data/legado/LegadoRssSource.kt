@@ -105,9 +105,46 @@ class LegadoRssSource(
                 ),
             )
         }
+        // 有些「书源索引」订阅页没有文章节点，只有一堆书源 JSON 直链 / legado:// 导入链接：
+        // 规则没命中时退回扫描这些链接，至少能列出可导入的书源。
+        if (out.isEmpty()) {
+            val seen = HashSet<String>()
+            for (el in analyzer.getElements("a[href]", body)) {
+                val href = analyzer.getString("@href", el, true).trim()
+                val bookUrl = bookSourceUrl(href) ?: continue
+                if (!seen.add(bookUrl)) continue
+                val title = analyzer.getString("@text", el, false).trim()
+                    .ifBlank { bookUrl.substringAfterLast('/').substringBefore('?').ifBlank { bookUrl } }
+                out.add(
+                    LegadoRssArticle(
+                        title = title,
+                        link = bookUrl,
+                        author = "",
+                        pubDate = "",
+                        image = null,
+                        description = null,
+                    ),
+                )
+            }
+        }
         val next = ruleNextPage?.let { analyzer.getString(textRule(it), body, true, vars) }
             ?.takeIf { it.isNotBlank() && it != target }
         return LegadoRssPage(out, next)
+    }
+
+    /** 书源索引页里的 JSON 直链 / legado://import/bookSource?src=…，转成可下载的 http(s) 地址。 */
+    private fun bookSourceUrl(href: String): String? {
+        if (href.startsWith("legado://import/bookSource", true)) {
+            val query = href.substringAfter('?', "")
+            val src = query.split('&').firstOrNull { it.startsWith("src=", true) }
+                ?.substringAfter('=') ?: return null
+            return runCatching { java.net.URLDecoder.decode(src, "UTF-8") }.getOrNull()
+                ?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
+        }
+        return href.takeIf {
+            (it.startsWith("http://", true) || it.startsWith("https://", true)) &&
+                (it.endsWith(".json", true) || it.contains("/sources/"))
+        }
     }
 
     /** 简单规则（title / description / pubDate …）默认取文本；没写 @ / $ / 选择器变化时自动补 @text。 */

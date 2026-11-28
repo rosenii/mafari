@@ -94,10 +94,10 @@ import top.yukonga.miuix.kmp.icon.glass.FullScreen
 import top.yukonga.miuix.kmp.icon.glass.Link
 import top.yukonga.miuix.kmp.icon.glass.More
 import top.yukonga.miuix.kmp.icon.glass.VolumeUp
+import top.yukonga.miuix.kmp.icon.glass.Earphones
 import top.yukonga.miuix.kmp.icon.glass.Pause
 import top.yukonga.miuix.kmp.icon.glass.Play
 import top.yukonga.miuix.kmp.icon.glass.VolumeOff
-import top.yukonga.miuix.kmp.icon.glass.VolumeUp
 import top.yukonga.miuix.kmp.material.GlassDefaults
 import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
 import top.yukonga.miuix.kmp.material.GlassMaterials
@@ -443,7 +443,7 @@ internal fun PlayerSurface(
                                 popup = POP_NONE
                                 poke++
                             }) {
-                                GlassGlyph(MiuixIcons.Glass.VolumeUp, 22.dp)
+                                GlassGlyph(MiuixIcons.Glass.Earphones, 22.dp)
                             }
                             PlayerGlassButton(36.dp, backdrop, enabled = onCast != null, onClick = {
                                 onCast?.invoke()
@@ -459,7 +459,7 @@ internal fun PlayerSurface(
                                 popup = POP_NONE
                                 poke++
                             }) {
-                                GlassGlyph(MiuixIcons.Glass.VolumeUp, 22.dp)
+                                GlassGlyph(MiuixIcons.Glass.Earphones, 22.dp)
                             }
                         }
                         PlayerGlassButton(36.dp, backdrop, onClick = {

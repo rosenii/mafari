@@ -27,8 +27,7 @@ import dev.dsh.miuixbrowser.tts.SpeechPlayer
 import dev.dsh.miuixbrowser.tts.SpeechState
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.glass.Pause
-import top.yukonga.miuix.kmp.icon.glass.VolumeUp
+import top.yukonga.miuix.kmp.icon.glass.Earphones
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -67,11 +66,7 @@ internal fun WebSpeechButton(
         size = 46.dp,
     ) {
         Icon(
-            imageVector = if (speech.state == SpeechState.SPEAKING || speech.state == SpeechState.PREPARING) {
-                MiuixIcons.Glass.Pause
-            } else {
-                MiuixIcons.Glass.VolumeUp
-            },
+            imageVector = MiuixIcons.Glass.Earphones,
             contentDescription = tr("朗读网页"),
             modifier = Modifier.size(24.dp),
             tint = MiuixTheme.colorScheme.onSurface,

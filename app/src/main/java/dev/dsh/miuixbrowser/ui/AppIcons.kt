@@ -333,4 +333,25 @@ object AppIcons {
             width = 3.2f,
         )
     }
+
+    /** 选择：圆角方框 + 对勾（多选）。 */
+    val SelectBooks: ImageVector by lazy {
+        stroked(
+            "SelectBooks",
+            "M7.5,4H16.5A3.5,3.5 0 0 1 20,7.5V16.5A3.5,3.5 0 0 1 16.5,20H7.5A3.5,3.5 0 0 1 4,16.5V7.5A3.5,3.5 0 0 1 7.5,4Z",
+            "M8.2,12.2L10.9,14.9L15.9,9.3",
+            width = 2.0f,
+        )
+    }
+
+    /** 创建分组：文件夹轮廓 + 加号。 */
+    val GroupAdd: ImageVector by lazy {
+        stroked(
+            "GroupAdd",
+            "M3.5,7.5A2.5,2.5 0 0 1 6,5H9.4L11.4,7H18A2.5,2.5 0 0 1 20.5,9.5V16.5A2.5,2.5 0 0 1 18,19H6A2.5,2.5 0 0 1 3.5,16.5Z",
+            "M12,10.6V15.4",
+            "M9.6,13H14.4",
+            width = 2.0f,
+        )
+    }
 }

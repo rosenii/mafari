@@ -141,6 +141,41 @@ object SpeechEngineStore {
         }
     }
 
+    /** 批量导入（语音引擎订阅）；同一 URL 覆盖规则并保留原来的 id / 启用状态。返回新增条数。 */
+    fun importAll(context: Context, list: List<SpeechEngine>): Int {
+        if (list.isEmpty()) return 0
+        synchronized(lock) {
+            var added = 0
+            val next = engines.toMutableList()
+            for (e in list) {
+                if (e.system) continue
+                val idx = next.indexOfFirst { it.url == e.url }
+                if (idx >= 0) {
+                    val old = next[idx]
+                    next[idx] = SpeechEngine(
+                        id = old.id,
+                        name = e.name.ifBlank { old.name },
+                        url = e.url,
+                        method = e.method,
+                        headers = e.headers,
+                        body = e.body,
+                        voice = e.voice,
+                        model = e.model,
+                    )
+                } else {
+                    next.add(e)
+                    added++
+                }
+            }
+            engines = next
+            selectedId = list.lastOrNull { it.url.isNotBlank() }?.let { e ->
+                next.firstOrNull { it.url == e.url }?.id
+            } ?: selectedId
+            save(context)
+            return added
+        }
+    }
+
     fun remove(context: Context, id: String) {
         if (id == SYSTEM_ID) return
         synchronized(lock) {

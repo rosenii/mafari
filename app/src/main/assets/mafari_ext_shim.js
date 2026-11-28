@@ -640,12 +640,17 @@ function (CFG, ENTRIES) {
       setIcon: noop, setBadgeTextColor: noop, enable: noop, disable: noop,
       isEnabled: promised(function () { return P.resolve(true); }),
       openPopup: unsupported(prefix + '.openPopup'),
+      // pageAction 的 show/hide 在该适配层没有独立地址栏槽位，接受但不产生视觉效果
+      show: noop, hide: noop,
+      isShown: promised(function () { return P.resolve(true); }),
       // 工具栏点击事件：没有工具栏按钮，popup 由「拓展」菜单打开
       onClicked: inertEvent(prefix + '.onClicked')
     };
   }
   var action = CFG.page ? makeAction('action') : null;
   var browserAction = CFG.page ? makeAction('browserAction') : null;
+  // 大量 MV2 拓展用 pageAction；宿主没有地址栏槽位，但保留同一套状态/事件入口，避免启动期 TypeError
+  var pageAction = CFG.page ? makeAction('pageAction') : null;
 
   // Context menu definitions are managed natively; create keeps Chrome's synchronous id return.
   var contextMenus = null, menuSequence = 1;
@@ -894,10 +899,49 @@ function (CFG, ENTRIES) {
   var idle = null;
   if (CFG.page && declares('idle')) {
     idle = {
-      queryState: unsupported('idle.queryState'),
-      setDetectionInterval: promised(function () { return P.resolve(); }),
+      queryState: promised(function (detectionInterval) { return rpc('idle.queryState', [Number(detectionInterval) || 60]); }),
+      setDetectionInterval: promised(function (seconds) { return rpc('idle.setDetectionInterval', [Number(seconds) || 60]); }),
       onStateChanged: inertEvent('idle.onStateChanged')
     };
+  }
+
+  // commands：Firefox 不需要权限；只读 manifest 里的快捷键，Android 没有桌面快捷键 UI
+  var commands = null;
+  if (CFG.page) {
+    commands = {
+      getAll: promised(function () { return rpc('commands.getAll', []); }),
+      update: unsupported('commands.update'),
+      reset: unsupported('commands.reset'),
+      onCommand: inertEvent('commands.onCommand', true)
+    };
+  }
+
+  // management：只读自身 / 已安装扩展信息，启停和卸载走 Mafari 扩展管理页
+  var management = null;
+  if (CFG.page && declares('management')) {
+    management = {
+      getSelf: promised(function () { return rpc('management.getSelf', []); }),
+      getAll: promised(function () { return rpc('management.getAll', []); }),
+      get: promised(function (id) { return rpc('management.get', [String(id || '')]); }),
+      getPermissionWarningsById: promised(function (id) { return rpc('management.getPermissionWarningsById', [String(id || '')]); }),
+      getPermissionWarningsByManifest: promised(function (text) { return rpc('management.getPermissionWarningsByManifest', [String(text || '')]); }),
+      setEnabled: unsupported('management.setEnabled'),
+      uninstall: unsupported('management.uninstall'),
+      onEnabled: inertEvent('management.onEnabled', true),
+      onDisabled: inertEvent('management.onDisabled', true),
+      onInstalled: inertEvent('management.onInstalled', true),
+      onUninstalled: inertEvent('management.onUninstalled', true)
+    };
+  }
+
+  var dns = null;
+  if (CFG.page && declares('dns')) {
+    dns = { resolve: promised(function (hostname) { return rpc('dns.resolve', [String(hostname || '')]); }) };
+  }
+
+  var topSites = null;
+  if (CFG.page && declares('topSites')) {
+    topSites = { get: promised(function () { return rpc('topSites.get', []); }) };
   }
   if (contextMenus) {
     contextMenus.onShown = inertEvent('menus.onShown', true);
@@ -942,6 +986,10 @@ function (CFG, ENTRIES) {
   if (!CFG.offscreen && offscreen) browser.offscreen = offscreen;
   if (!CFG.offscreen && windows) browser.windows = windows;
   if (!CFG.offscreen && idle) browser.idle = idle;
+  if (!CFG.offscreen && commands) browser.commands = commands;
+  if (!CFG.offscreen && management) browser.management = management;
+  if (!CFG.offscreen && dns) browser.dns = dns;
+  if (!CFG.offscreen && topSites) browser.topSites = topSites;
   if (!CFG.offscreen && bookmarks) browser.bookmarks = bookmarks;
   if (!CFG.offscreen && downloads) browser.downloads = downloads;
   if (!CFG.offscreen && cookies) browser.cookies = cookies;
@@ -957,6 +1005,7 @@ function (CFG, ENTRIES) {
   if (!CFG.offscreen && declarativeNetRequest) browser.declarativeNetRequest = declarativeNetRequest;
   if (!CFG.offscreen && userScripts) browser.userScripts = userScripts;
   if (!CFG.offscreen && action) browser.action = action;
+  if (!CFG.offscreen && pageAction) browser.pageAction = pageAction;
   if (!CFG.offscreen && browserAction) browser.browserAction = browserAction;
   if (!CFG.offscreen && contextMenus) { browser.contextMenus = contextMenus; browser.menus = contextMenus; }
 
@@ -979,6 +1028,10 @@ function (CFG, ENTRIES) {
   if (!CFG.offscreen && offscreen) chrome.offscreen = cbObj(offscreen);
   if (!CFG.offscreen && windows) chrome.windows = cbObj(windows);
   if (!CFG.offscreen && idle) chrome.idle = cbObj(idle);
+  if (!CFG.offscreen && commands) chrome.commands = cbObj(commands);
+  if (!CFG.offscreen && management) chrome.management = cbObj(management);
+  if (!CFG.offscreen && dns) chrome.dns = cbObj(dns);
+  if (!CFG.offscreen && topSites) chrome.topSites = cbObj(topSites);
   if (!CFG.offscreen && bookmarks) chrome.bookmarks = cbObj(bookmarks);
   if (!CFG.offscreen && downloads) chrome.downloads = cbObj(downloads);
   if (!CFG.offscreen && cookies) chrome.cookies = cbObj(cookies);
@@ -993,6 +1046,7 @@ function (CFG, ENTRIES) {
   if (!CFG.offscreen && declarativeNetRequest) chrome.declarativeNetRequest = cbObj(declarativeNetRequest);
   if (!CFG.offscreen && userScripts) chrome.userScripts = cbObj(userScripts);
   if (!CFG.offscreen && action) chrome.action = cbObj(action);
+  if (!CFG.offscreen && pageAction) chrome.pageAction = cbObj(pageAction);
   if (!CFG.offscreen && browserAction) chrome.browserAction = cbObj(browserAction);
   if (!CFG.offscreen && contextMenus) { chrome.contextMenus = cbObj(contextMenus); chrome.contextMenus.create = contextMenus.create; chrome.menus = chrome.contextMenus; }
 

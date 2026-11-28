@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -104,8 +105,7 @@ import dev.dsh.miuixbrowser.tts.SpeechEngineStore
 import dev.dsh.miuixbrowser.tts.SpeechPlayer
 import dev.dsh.miuixbrowser.tts.SpeechState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.glass.Pause
-import top.yukonga.miuix.kmp.icon.glass.VolumeUp
+import top.yukonga.miuix.kmp.icon.glass.Earphones
 import dev.dsh.miuixbrowser.data.READER_THEME_DARK
 import dev.dsh.miuixbrowser.data.READER_THEME_EYE
 import dev.dsh.miuixbrowser.data.READER_THEME_LIGHT
@@ -439,6 +439,7 @@ private fun ReaderBody(
                     ctl = ctl,
                     revision = revision,
                     ink = ink,
+                    pageBackground = Modifier.readerBackground(theme),
                     settings = settings,
                     onToggleOverlay = { overlay = !overlay },
                 )
@@ -463,11 +464,7 @@ private fun ReaderBody(
                         }
                         LiquidGlassButton(onClick = { showSpeech = true }, backdrop = liquid) {
                             Icon(
-                                imageVector = if (speech.state == SpeechState.SPEAKING || speech.state == SpeechState.PREPARING) {
-                                    MiuixIcons.Glass.Pause
-                                } else {
-                                    MiuixIcons.Glass.VolumeUp
-                                },
+                                imageVector = MiuixIcons.Glass.Earphones,
                                 contentDescription = tr("听书"),
                                 modifier = Modifier.size(22.dp),
                                 tint = MiuixTheme.colorScheme.onSurface,
@@ -760,6 +757,7 @@ private fun ReaderPager(
     ctl: ReaderController,
     revision: Int,
     ink: Color,
+    pageBackground: Modifier,
     settings: AppSettings,
     onToggleOverlay: () -> Unit,
 ) {
@@ -806,6 +804,7 @@ private fun ReaderPager(
                 fullH = fullH,
                 layout = layout,
                 ink = ink,
+                pageBackground = pageBackground,
                 pageTurn = settings.readerPageTurn,
                 onToggleOverlay = onToggleOverlay,
                 measurer = measurer,
@@ -876,6 +875,7 @@ private fun PagerContent(
     fullH: Int,
     layout: ReaderLayout,
     ink: Color,
+    pageBackground: Modifier,
     pageTurn: Int,
     onToggleOverlay: () -> Unit,
     measurer: androidx.compose.ui.text.TextMeasurer,
@@ -1041,30 +1041,51 @@ private fun PagerContent(
             modifier = Modifier.fillMaxSize(),
             key = pageKey,
         ) { page ->
+            // offset > 0：正在被翻走（或翻回来）的那一页，位于视口左侧；offset < 0：垫在下面、等着被露出的那一页
             val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    // 翻动的页必须盖在上面；Pager 默认后面的页盖前面的页，会把正在翻的页挡住
+                    .zIndex(if (offset > 0f) 1f else 0f)
                     .graphicsLayer {
-                        val a = kotlin.math.abs(offset)
-                        rotationY = (offset * 68f).coerceIn(-68f, 68f)
-                        cameraDistance = 5200f
-                        translationX = -offset * size.width * 0.12f
-                        transformOrigin = TransformOrigin(if (offset > 0f) 0f else 1f, 0.5f)
-                        shadowElevation = a * 36f
-                        alpha = 1f - (a * 0.12f).coerceAtMost(0.12f)
+                        val w = size.width
+                        if (offset > 0f) {
+                            // 以左边缘为轴，右边缘翘起并随手指移出
+                            val t = offset.coerceIn(0f, 1f)
+                            transformOrigin = TransformOrigin(0f, 0.5f)
+                            cameraDistance = 14f * density
+                            rotationY = t * 52f
+                        } else if (offset < 0f) {
+                            // 抵消 Pager 的横向位移：下面这页原地不动，被翻页逐渐露出
+                            translationX = offset.coerceIn(-1f, 0f) * w
+                        }
                     }
+                    // 每页自带不透明纸色；Pager 的底色是共用的，页面叠在一起时文字会互相透出来
+                    .then(pageBackground)
                     .drawWithContent {
                         drawContent()
-                        val a = kotlin.math.abs(offset)
-                        if (a > 0.01f) {
-                            // 翻起的页边压暗，模拟书页背光 / 阴影
-                            val colors = if (offset > 0f) {
-                                listOf(Color.Black.copy(alpha = 0.32f * a), Color.Transparent)
-                            } else {
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.32f * a))
-                            }
-                            drawRect(brush = Brush.horizontalGradient(colors))
+                        val t = offset.coerceIn(-1f, 1f)
+                        if (t > 0.001f) {
+                            // 翻起的页：越靠右越暗，像纸面弯曲；右侧外缘投一道阴影到下面那页上
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.16f * t)),
+                                ),
+                            )
+                            val shadowW = 28.dp.toPx()
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(Color.Black.copy(alpha = 0.30f * (1f - t * 0.6f)), Color.Transparent),
+                                    startX = size.width,
+                                    endX = size.width + shadowW,
+                                ),
+                                topLeft = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                size = androidx.compose.ui.geometry.Size(shadowW, size.height),
+                            )
+                        } else if (t < -0.001f) {
+                            // 下面那页：被盖住时略暗，随着露出逐渐恢复
+                            drawRect(Color.Black.copy(alpha = 0.22f * (-t)))
                         }
                     },
             ) { pageContent(page) }

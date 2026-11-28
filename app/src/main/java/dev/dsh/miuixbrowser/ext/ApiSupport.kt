@@ -38,6 +38,12 @@ object ApiSupport {
         "cookies" to SupportLevel.PARTIAL, // URL-scoped get/getAll/set/remove；有 GET_COOKIE_INFO 时带真实属性；无全局枚举、storeId 和 Cookie 变更事件
         "clipboardWrite" to SupportLevel.PARTIAL, // Mafari clipboard.readText/writeText；仅拓展页面，受 Android 系统前后台剪贴板限制
         "clipboardRead" to SupportLevel.PARTIAL,
+        "commands" to SupportLevel.PARTIAL, // 读取 manifest 命令；Android 不提供桌面快捷键 UI
+        "pageAction" to SupportLevel.PARTIAL, // 与 action 共用状态；没有独立地址栏图标槽位
+        "management" to SupportLevel.PARTIAL, // getSelf/getAll/get 只读；启停 / 卸载仍走 Mafari 管理页
+        "idle" to SupportLevel.PARTIAL, // 屏幕点亮 / 锁屏状态；检测间隔不生效
+        "dns" to SupportLevel.PARTIAL, // 系统解析器 A/AAAA 查询
+        "topSites" to SupportLevel.PARTIAL, // 最近浏览历史按域名去重
     )
 
     fun forWebView(permission: String): SupportLevel = webView[permission] ?: SupportLevel.NONE

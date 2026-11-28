@@ -27,6 +27,11 @@ class ActionApi {
         }
         registerPrefix("action")
         registerPrefix("browserAction")
+        // pageAction 复用同一份状态；显示槽位仍由 Mafari 拓展菜单承担
+        registerPrefix("pageAction")
+        router.register("pageAction.show") { _, _ -> null }
+        router.register("pageAction.hide") { _, _ -> null }
+        router.register("pageAction.isShown") { _, _ -> true }
     }
     private fun normalizeColor(value: Any?): String? = when (value) {
         is org.json.JSONArray -> if (value.length() >= 3) runCatching {

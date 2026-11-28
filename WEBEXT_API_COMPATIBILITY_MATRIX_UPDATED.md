@@ -46,13 +46,13 @@
 | `browsingData` | NONE | 无按扩展权限清理浏览数据 API | P3 |
 | `captivePortal` | NONE | 无网络门户状态 API | P4 |
 | `clipboard` | PARTIAL（Mafari 扩展 API） | `browser.clipboard.readText/writeText` 与 `chrome.clipboard` callback 入口；仅扩展页面，读写权限分别校验；Android 前后台限制，非 Firefox 完整语义 | P2 |
-| `commands` | NONE | 未发现快捷键注册/触发 API | P2 |
+| `commands` | PARTIAL | 读取 manifest 的 `commands` 与 `suggested_key` 返回给 `getAll`；Android 没有桌面快捷键，`update/reset` 与 `onCommand` 不触发 | P2 |
 | `contentScripts` | MANIFEST | 静态 `content_scripts` 可由注入器处理；动态 API `register/unregister/update/getRegisteredContentScripts` 在 shim 有入口，但原生 router 没有 handler | P1 |
 | `contextualIdentities` | NONE | 无容器身份 API；Android 标签隐私模式不等同 Firefox Containers | P4 |
 | `cookies` | PARTIAL | URL 范围 get/getAll/set/remove；需要 cookies + 对应 host permission；系统 WebView 支持 GET_COOKIE_INFO（CookieManagerCompat 1.6）时 get/getAll 返回真实 domain/hostOnly/path/secure/httpOnly/sameSite/过期时间，不支持时只有 name/value；getAll 必须带 url（不带返回 unsupported）；WebView 不提供全局枚举、storeId（仅 "0"）和变更事件 | P1 |
 | `declarativeNetRequest` | PARTIAL | 动态 block/redirect/allow 规则已接入；静态 ruleset、session rules、高级条件与调试 API 缺失 | P1 |
 | `devtools` | NONE | 无扩展 DevTools 页面及面板宿主 | P4 |
-| `dns` | NONE | 无扩展 DNS resolve API | P2 |
+| `dns` | PARTIAL | `resolve` 用系统解析器返回 A/AAAA 地址；不支持 flags、cname 等扩展字段 | P2 |
 | `dom` | NONE | 无 Firefox 扩展专用 DOM 扩展接口 | P4 |
 | `downloads` | PARTIAL | 支持内置下载器的 download/search/pause/resume/cancel/erase；暂不支持完整 Chrome 下载字段、过滤条件及 onChanged 等事件 | P2 |
 | `events` | N/A | 公共事件模型/类型；具体事件需由各 API 实现，不单独算已支持 | — |
@@ -62,13 +62,13 @@
 | `history` | PARTIAL | 新增 search/deleteUrl/deleteRange/deleteAll；历史库按 URL 聚合，缺少 getVisits 与逐次访问统计 | P2 |
 | `i18n` | FULL* | `I18nMessages` 提供消息表和 manifest 本地化；需补齐 Firefox 全部 locale/复数/占位符边界测试 | P2 |
 | `identity` | NONE | 无 OAuth 身份授权 API | P4 |
-| `idle` | NONE | 无系统空闲/锁屏状态 API | P4 |
-| `management` | NONE | 无安装拓展枚举、启停和管理 API | P3 |
+| `idle` | PARTIAL | `queryState` 按屏幕点亮 / 锁屏返回 active / idle / locked；`setDetectionInterval` 仅校验参数，不做定时器 | P4 |
+| `management` | PARTIAL | `getSelf/getAll/get/getPermissionWarnings*` 只读；启停 / 卸载仍走 Mafari 管理页并返回 UNSUPPORTED | P3 |
 | `mafari`（Mafari 专有） | PARTIAL | `browser.mafari.userscripts` / `chrome.mafari.userscripts` 管理原生 Userscript 库；需 `mafariScripts` 权限，仅拓展页面可用；不等同 Firefox 标准 `userScripts` | P2 |
 | `menus` | PARTIAL | contextMenus.create/update/remove/removeAll、onClicked 与常用 URL/context 过滤已接入；WebView 菜单宿主入口与 Firefox 全部上下文仍有边界 | P1 |
 | `notifications` | PARTIAL | basic 文本通知 create/update/clear/getAll 与点击/关闭事件；Android 系统授权和渠道由用户控制 | P2 |
 | `omnibox` | NONE | Android 地址栏没有扩展建议提供者接口 | P4 |
-| `pageAction` | MANIFEST | 能解析 MV2 `page_action` 配置；没有完整 API 和地址栏按钮宿主 | P2 |
+| `pageAction` | PARTIAL | 能解析 MV2 `page_action` 配置，JS 入口与 action 共用状态；没有独立地址栏图标槽位，`show/hide` 不产生可见变化 | P2 |
 | `permissions` | PARTIAL | getAll/contains/request/remove 与原生授权弹窗、持久化授权、onAdded/onRemoved 已实现；复杂 match pattern 子集判断仍有限 | P1 |
 | `pkcs11` | NONE | 不提供 PKCS#11 模块管理 | P4 |
 | `privacy` | NONE | 无扩展隐私设置读取/修改 API | P1 |
@@ -83,7 +83,7 @@
 | `tabGroups` | NONE | 无扩展标签组 API | P3 |
 | `tabs` | PARTIAL | query/get/getCurrent/create/update/duplicate/move/remove/reload/goBack/goForward/sendMessage/captureVisibleTab 与 onActivated/onHighlighted/onUpdated/onRemoved/onMoved 等基础事件已接入；截图仅活动 WebView viewport，单窗口且 sendMessage 仅主框架；`update({muted})` / `mutedInfo` / `query({muted})` / onUpdated 的 mutedInfo 在支持 MUTE_AUDIO（WebViewCompat 1.11）的系统 WebView 上为真实静音，不支持时空操作且恒为未静音；`audible` 无对应 API，恒为 false | P1 |
 | `theme` | NONE | 无扩展主题读取/应用 API | P4 |
-| `topSites` | NONE | 无常访站点 API | P3 |
+| `topSites` | PARTIAL | `get` 从 Mafari 浏览历史按域名去重取最近 20 条，不是 Firefox 的独立常访算法 | P3 |
 | `types` | N/A | 公共类型命名空间，不是独立运行时服务 | — |
 | `userScripts` | PARTIAL | 标准 register/getScripts/update/unregister 已接入动态脚本注入器；MAIN/ISOLATED 仍受 WebView 世界隔离限制，frame 支持不完整 | P2 |
 | `userScripts (Legacy)` | NONE | MV2 legacy userScripts API 未实现 | P4 |
@@ -106,7 +106,7 @@
 | `action` / `browser_action` / `page_action` | MANIFEST | 配置可解析，不代表完整按钮 API 已实现 |
 | `options_page` / `options_ui` | PARTIAL | options 页面可被识别/打开；UI 交互和全部 Firefox 行为仍需验证 |
 | `web_accessible_resources` | PARTIAL | 有资源声明模型；MV3 matches 约束及所有资源访问路径需专项测试 |
-| `commands` | NONE | manifest 字段当前列为不支持 |
+| `commands` | PARTIAL | 字段可解析并用于 `commands.getAll`；没有快捷键触发宿主 |
 | `devtools_page` / `sidebar_action` / `side_panel` | NONE | 当前解析器将相关字段列为不支持 |
 
 ## 5. 当前实现代码定位
@@ -176,6 +176,15 @@ await browser.mafari.userscripts.remove(installed.id);
 
 - `runtime.sendMessage` 默认回复等待上限调整为 10 秒，并记录超时目标上下文，不再静默等满 30 秒。
 - popup/background/options 页面销毁或拓展关闭时，会立即清理其未完成消息投递；调用方收到 `NO_RECEIVER` 或 `TIMEOUT`，不再被已销毁 endpoint 长时间拖住。
+
+## 5.3 本轮增补：commands / management / idle / dns / topSites
+
+- `commands.getAll`：读取 manifest `commands`，`suggested_key.default`（退回 linux/windows/mac）作为 `shortcut`；不需要权限。
+- `management`：`getSelf` / `getAll` / `get` / `getPermissionWarningsById` 只读，需要 `management` 权限；`setEnabled` / `uninstall` 明确 UNSUPPORTED，避免静默改变用户安装状态。
+- `idle.queryState`：需要 `idle` 权限；锁屏返回 `locked`，亮屏交互返回 `active`，否则 `idle`。`setDetectionInterval` 只做参数校验，没有后台定时器。
+- `dns.resolve`：需要 `dns` 权限；系统解析器查询 A/AAAA，返回 `{addresses:[…]}`；失败回 NETWORK。
+- `topSites.get`：需要 `topSites` 权限；从浏览历史按 host 去重，返回最近 20 条 `{url,title}`；不是 Firefox 独立的常访统计。
+- JS 垫片同步暴露 `browser.*` / `chrome.*` 命名空间；`chrome.*` 仍按 callback 形式包一层。
 
 ## 6. 兼容性边界（不是简单补 API 名称就能解决）
 

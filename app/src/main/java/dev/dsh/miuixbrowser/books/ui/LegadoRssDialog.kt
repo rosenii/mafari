@@ -6,6 +6,7 @@
 package dev.dsh.miuixbrowser.books.ui
 
 import dev.dsh.miuixbrowser.ui.*
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 
 import android.widget.Toast
 import androidx.compose.foundation.horizontalScroll
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -159,13 +161,22 @@ internal fun LegadoRssDialog(
         if (show && src != null) state.loadMore(sources, scope)
     }
 
-    AppGlassDialog(
+    AppBottomSheet(
         show = show,
         title = tr("Legado 订阅源"),
-        summary = src?.name,
         backdrop = backdrop,
         onDismissRequest = onDismiss,
+        scrollContent = true,
     ) {
+        val insets = LocalBottomSheetInsets.current
+        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 660.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .padding(top = insets.top),
+        ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             if (src == null) {
                 Text(
@@ -238,26 +249,27 @@ internal fun LegadoRssDialog(
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
-                    }
-                    AppDialogButton(
-                        onClick = {
-                            if (state.chosen.isEmpty()) {
-                                Toast.makeText(context, tr("请先勾选要导入的文章"), Toast.LENGTH_SHORT).show()
-                            } else {
-                                val picks = state.chosen.values.toList()
-                                state.clearChosen()
-                                onImport(src, picks)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        role = GlassDialogButtonRole.Primary,
-                    ) { Text(text = tr("导入 {0} 篇", state.chosen.size), style = MiuixTheme.textStyles.button) }
-                }
             }
+        }
+        // 底部只保留导入按钮，固定占满一行
+        val importSource = src
+        AppDialogButton(
+            onClick = {
+                if (importSource != null) {
+                    if (state.chosen.isEmpty()) {
+                        Toast.makeText(context, tr("请先勾选要导入的文章"), Toast.LENGTH_SHORT).show()
+                    } else {
+                        val picks = state.chosen.values.toList()
+                        state.clearChosen()
+                        onImport(importSource, picks)
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = insets.bottom + 12.dp),
+            enabled = src != null,
+            role = GlassDialogButtonRole.Primary,
+        ) { Text(text = tr("导入 {0} 篇", state.chosen.size), style = MiuixTheme.textStyles.button) }
+        }
         }
     }
 

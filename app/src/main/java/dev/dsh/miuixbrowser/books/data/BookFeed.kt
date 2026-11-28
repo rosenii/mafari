@@ -13,6 +13,7 @@ import dev.dsh.miuixbrowser.books.data.legado.LegadoRssSource
 import dev.dsh.miuixbrowser.books.data.legado.LegadoRssSourceParser
 import dev.dsh.miuixbrowser.books.data.legado.LegadoSource
 import dev.dsh.miuixbrowser.books.data.legado.LegadoSourceParser
+import dev.dsh.miuixbrowser.books.data.legado.LegadoSourceStore
 import dev.dsh.miuixbrowser.i18n.tr
 import dev.dsh.miuixbrowser.net.HttpFetcher
 import kotlinx.coroutines.Dispatchers
@@ -368,6 +369,17 @@ object BookFeedImport {
             if (it is kotlin.coroutines.cancellation.CancellationException) throw it
             throw IllegalStateException(it.message ?: tr("下载失败，检查网络或订阅源是否失效"))
         }
+    }
+
+    /** 书源索引型订阅：文章链接本身是 Legado 书源 JSON，解析后加入书源库。 */
+    suspend fun importRssBookSource(context: Context, url: String): Int = withContext(Dispatchers.IO) {
+        val res = HttpFetcher.get(url, options(8 * 1024 * 1024, readTimeoutMs = 30_000))
+        val root = JSONTokener(BookContent.decodeText(res.bytes)).nextValue()
+        if (!LegadoSourceParser.looksLikeLegado(root)) {
+            error(tr("这个链接不是书源文件"))
+        }
+        val list = LegadoSourceParser.parse(root)
+        withContext(Dispatchers.Main) { LegadoSourceStore.add(context, list) }
     }
 
     private fun importFile(context: Context, book: FeedBook, url: String, cover: ByteArray?) {

@@ -577,27 +577,19 @@ internal fun LegadoBrowseDialog(
             }
         }
         // 固定底部：不会被上方内容顶走
-        Row(
+        AppDialogButton(
+            onClick = {
+                val picks = state.picks()
+                if (picks.isEmpty()) {
+                    Toast.makeText(context, tr("请先勾选要导入的书"), Toast.LENGTH_SHORT).show()
+                } else {
+                    state.clearChosen()
+                    onImport(picks)
+                }
+            },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = insets.bottom + 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            AppDialogButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
-            }
-            AppDialogButton(
-                onClick = {
-                    val picks = state.picks()
-                    if (picks.isEmpty()) {
-                        Toast.makeText(context, tr("请先勾选要导入的书"), Toast.LENGTH_SHORT).show()
-                    } else {
-                        state.clearChosen()
-                        onImport(picks)
-                    }
-                },
-                modifier = Modifier.weight(1f),
-                role = GlassDialogButtonRole.Primary,
-            ) { Text(text = tr("导入 {0} 本", state.chosen.size), style = MiuixTheme.textStyles.button) }
-        }
+            role = GlassDialogButtonRole.Primary,
+        ) { Text(text = tr("导入 {0} 本", state.chosen.size), style = MiuixTheme.textStyles.button) }
         }
     }
 

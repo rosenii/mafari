@@ -6,6 +6,7 @@
 package dev.dsh.miuixbrowser.books.ui
 
 import dev.dsh.miuixbrowser.ui.*
+import top.yukonga.miuix.kmp.layout.LocalBottomSheetInsets
 
 import android.graphics.Bitmap
 import android.text.format.DateFormat
@@ -120,6 +121,7 @@ import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.glass.GlassDialogButtonRole
 import top.yukonga.miuix.kmp.glass.GlassPopupItem
 import top.yukonga.miuix.kmp.glass.GlassPopupDefaults
+import dev.dsh.miuixbrowser.ui.AppIcons
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.glass.Download
 import top.yukonga.miuix.kmp.icon.glass.File
@@ -167,9 +169,9 @@ private fun sortLabel(sort: BookSort): String = when (sort) {
  * 设置 → 浏览 → 书架。
  *
  * 复用其他二级页面的框架（玻璃大标题顶栏 + 右上角按钮）。顶栏三个按钮：搜索（写法同历史页：顶栏下方展开输入框，按书名 / 作者过滤）、
- * 排序（添加时间 / 书名 / 作者 / 阅读进度，升降序）、更多（选择 / 网格 / 列表 / 创建分类 / 导入）。
- * 网格 / 列表和排序方式存在 [AppSettings]（与阅读器排版同一套 SharedPreferences）。分类用顶栏下方一行可横滑的标签切换；
- * 「选择」进入多选，底部「移动到分类 / 删除」；长按封面（非选择模式）弹出编辑窗口。「从订阅源导入」读取通用 JSON 小说订阅源（链接或本地文件，弹窗与脚本页共用），勾选后下载入架。
+ * 排序（添加时间 / 书名 / 作者 / 阅读进度，升降序）、更多（选择 / 网格 / 列表 / 创建分组 / 导入）。
+ * 网格 / 列表和排序方式存在 [AppSettings]（与阅读器排版同一套 SharedPreferences）。分组用顶栏下方一行可横滑的标签切换；
+ * 「选择」进入多选，底部「移动到分组 / 删除」；长按封面（非选择模式）弹出编辑窗口。「从订阅源导入」读取通用 JSON 小说订阅源（链接或本地文件，弹窗与脚本页共用），勾选后下载入架。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -210,7 +212,7 @@ fun BookshelfScreen(
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
 
-    // 当前分类（null = 全部）；分类被删掉后自动回到「全部」
+    // 当前分组（null = 全部）；分组被删掉后自动回到「全部」
     var currentCategory by remember { mutableStateOf<String?>(null) }
     val activeCategory = currentCategory?.takeIf { id -> categories.any { it.id == id } }
 
@@ -277,7 +279,7 @@ fun BookshelfScreen(
     var pendingCover by remember { mutableStateOf<Bitmap?>(null) }
     var confirmShow by remember { mutableStateOf(false) }
 
-    // 分类：创建 / 重命名共用一个输入窗口；移动、批量删除、删分类各一个窗口
+    // 分组：创建 / 重命名共用一个输入窗口；移动、批量删除、删分组各一个窗口
     var nameShow by remember { mutableStateOf(false) }
     var nameRename by remember { mutableStateOf(false) }
     var nameText by remember { mutableStateOf("") }
@@ -296,11 +298,11 @@ fun BookshelfScreen(
         scope.launch {
             if (rename) {
                 val ok = renameId != null && withContext(Dispatchers.IO) { BookShelf.renameCategory(context, renameId, text) }
-                if (ok) nameShow = false else toast(tr("分类名不能为空，也不能与已有分类重名"))
+                if (ok) nameShow = false else toast(tr("分组名不能为空，也不能与已有分组重名"))
             } else {
                 val c = withContext(Dispatchers.IO) { BookShelf.createCategory(context, text) }
                 if (c == null) {
-                    toast(tr("分类名不能为空，也不能与已有分类重名"))
+                    toast(tr("分组名不能为空，也不能与已有分组重名"))
                 } else {
                     nameShow = false
                     if (moving) {
@@ -461,15 +463,26 @@ fun BookshelfScreen(
         feedJob = scope.launch {
             var ok = 0
             var fail = 0
+            var sourceCount = 0
             var lastErr: String? = null
             var cancelled = false
             try {
                 for ((i, a) in picks.withIndex()) {
                     feedProgress = tr("《{0}》（{1}/{2}）", a.title, i + 1, picks.size)
-                    val r = BookFeedImport.importRssArticle(context, source, a)
-                    val err = r.exceptionOrNull()
-                    if (err is CancellationException) throw err
-                    if (err == null) ok++ else { fail++; lastErr = err.message }
+                    // 书源索引：链接是 .json 书源文件时直接并入书源库，而不是当成文章正文
+                    val isBookSourceLink = source.ruleContent.isNullOrBlank() &&
+                        (a.link.endsWith(".json", true) || a.link.contains("/sources/"))
+                    if (isBookSourceLink) {
+                        val r = runCatching { BookFeedImport.importRssBookSource(context, a.link) }
+                        val err = r.exceptionOrNull()
+                        if (err is CancellationException) throw err
+                        if (err == null) { ok++; sourceCount += r.getOrDefault(0) } else { fail++; lastErr = err.message }
+                    } else {
+                        val r = BookFeedImport.importRssArticle(context, source, a)
+                        val err = r.exceptionOrNull()
+                        if (err is CancellationException) throw err
+                        if (err == null) ok++ else { fail++; lastErr = err.message }
+                    }
                 }
             } catch (e: CancellationException) {
                 cancelled = true
@@ -480,10 +493,11 @@ fun BookshelfScreen(
                 feedJob = null
                 toast(
                     when {
-                        cancelled -> tr("已取消，已导入 {0} 篇", ok)
+                        cancelled -> tr("已取消，已导入 {0} 项", ok)
+                        fail == 0 && sourceCount > 0 -> tr("已导入 {0} 个书源", sourceCount)
                         fail == 0 -> tr("已导入 {0} 篇", ok)
                         ok == 0 -> tr("导入失败：{0}", lastErr.orEmpty())
-                        else -> tr("已导入 {0} 篇，{1} 篇失败：{2}", ok, fail, lastErr.orEmpty())
+                        else -> tr("已导入 {0} 项，{1} 项失败：{2}", ok, fail, lastErr.orEmpty())
                     },
                 )
             }
@@ -636,7 +650,7 @@ fun BookshelfScreen(
                     books.isEmpty() -> tr("书架是空的。点右上角「更多」→「从本地导入」添加 TXT / EPUB 小说，或在「订阅源」里按书源搜索。")
                     shown.isEmpty() && query.isNotBlank() -> tr("没有找到相关书籍")
                     shown.isEmpty() && activeCategory != null ->
-                        tr("这个分类里还没有书。点右上角「更多」→「选择」勾选书籍，再「移动到分类」。")
+                        tr("这个分组里还没有书。点右上角「更多」→「选择」勾选书籍，再「移动到分组」。")
                     else -> null
                 }
 
@@ -682,7 +696,7 @@ fun BookshelfScreen(
                         }
                     }
 
-                    // 选择模式的底部操作栏：移动到分类 / 删除
+                    // 选择模式的底部操作栏：移动到分组 / 删除
                     if (selecting) {
                         Row(
                             modifier = Modifier
@@ -693,7 +707,7 @@ fun BookshelfScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             LiquidGlassPillButton(
-                                text = tr("移动到分类"),
+                                text = tr("移动到分组"),
                                 onClick = { moveShow = true },
                                 backdrop = liquid,
                                 modifier = Modifier.weight(1f),
@@ -825,10 +839,10 @@ fun BookshelfScreen(
                     }
                 }
 
-                // ---- 创建 / 重命名分类
+                // ---- 创建 / 重命名分组
                 AppGlassDialog(
                     show = nameShow,
-                    title = if (nameRename) tr("重命名分类") else tr("创建分类"),
+                    title = if (nameRename) tr("重命名分组") else tr("创建分组"),
                     backdrop = bd,
                     onDismissRequest = {
                         nameShow = false
@@ -840,7 +854,7 @@ fun BookshelfScreen(
                             value = nameText,
                             onValueChange = { nameText = it.take(20) },
                             modifier = Modifier.fillMaxWidth(),
-                            label = tr("分类名称"),
+                            label = tr("分组名称"),
                             singleLine = true,
                         )
                         Spacer(Modifier.height(16.dp))
@@ -880,50 +894,64 @@ fun BookshelfScreen(
                     urlLabel = tr("订阅源 / 书源地址（http / https）"),
                 )
 
-                // ---- 订阅源书目：勾选要导入的书
+                // ---- 订阅源书目：勾选要导入的书（bottom sheet，底部只保留导入按钮）
                 val pickFeed = feedPick
-                AppGlassDialog(
+                AppBottomSheet(
                     show = feedPickShow,
                     title = pickFeed?.name?.ifBlank { null } ?: tr("订阅源"),
-                    summary = pickFeed?.let { tr("共 {0} 本，勾选要导入的书（已在书架的默认不选）", it.books.size) },
                     backdrop = bd,
                     onDismissRequest = { feedPickShow = false },
+                    scrollContent = true,
                 ) {
-                    if (pickFeed != null) {
-                        val total = pickFeed.books.size
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            LazyColumn(modifier = Modifier.fillMaxWidth().height(56.dp * minOf(total, 6))) {
-                                items(total) { i ->
-                                    val b = pickFeed.books[i]
-                                    FeedRow(
-                                        title = b.title,
-                                        author = b.author,
-                                        checked = i in feedSel,
-                                        onShelf = (b.title.trim() to b.author.trim()) in shelfKeys,
-                                        onClick = { feedSel = if (i in feedSel) feedSel - i else feedSel + i },
-                                    )
+                    val insets = LocalBottomSheetInsets.current
+                    Column(modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .fillMaxWidth()
+                                .heightIn(max = 470.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(top = insets.top),
+                        ) {
+                            if (pickFeed != null) {
+                                val total = pickFeed.books.size
+                                Text(
+                                    text = tr("共 {0} 本，勾选要导入的书（已在书架的默认不选）", total),
+                                    fontSize = 13.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                LazyColumn(modifier = Modifier.fillMaxWidth().height(56.dp * minOf(total, 6))) {
+                                    items(total) { i ->
+                                        val b = pickFeed.books[i]
+                                        FeedRow(
+                                            title = b.title,
+                                            author = b.author,
+                                            checked = i in feedSel,
+                                            onShelf = (b.title.trim() to b.author.trim()) in shelfKeys,
+                                            onClick = { feedSel = if (i in feedSel) feedSel - i else feedSel + i },
+                                        )
+                                    }
                                 }
+                                Spacer(Modifier.height(6.dp))
+                                AppTextButton(
+                                    text = if (feedSel.size == total) tr("取消全选") else tr("全选"),
+                                    onClick = { feedSel = if (feedSel.size == total) emptySet() else (0 until total).toSet() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             }
-                            Spacer(Modifier.height(6.dp))
-                            AppTextButton(
-                                text = if (feedSel.size == total) tr("取消全选") else tr("全选"),
-                                onClick = { feedSel = if (feedSel.size == total) emptySet() else (0 until total).toSet() },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                AppDialogButton(onClick = { feedPickShow = false }, modifier = Modifier.weight(1f)) {
-                                    Text(text = tr("取消"), style = MiuixTheme.textStyles.button)
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                if (pickFeed != null && feedSel.isNotEmpty()) {
+                                    startFeedImport(feedSel.sorted().map { pickFeed.books[it] })
                                 }
-                                AppDialogButton(
-                                    onClick = {
-                                        if (feedSel.isEmpty()) toast(tr("请先勾选要导入的书"))
-                                        else startFeedImport(feedSel.sorted().map { pickFeed.books[it] })
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    role = GlassDialogButtonRole.Primary,
-                                ) { Text(text = tr("导入 {0} 本", feedSel.size), style = MiuixTheme.textStyles.button) }
-                            }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = insets.bottom + 12.dp),
+                            enabled = pickFeed != null && feedSel.isNotEmpty(),
+                            role = GlassDialogButtonRole.Primary,
+                        ) {
+                            Text(text = tr("导入 {0} 本", feedSel.size), style = MiuixTheme.textStyles.button)
                         }
                     }
                 }
@@ -954,14 +982,29 @@ fun BookshelfScreen(
                 )
 
                 // ---- 订阅源管理：通用订阅源（打开 / 刷新 / 删除）+ Legado 书源（启停 / 删除）
-                AppGlassDialog(
+                AppBottomSheet(
                     show = feedMgrShow,
                     title = tr("订阅源"),
-                    summary = tr("{0} 个订阅源 · {1} 个书源 · {2} 个 Legado 订阅", savedFeeds.size, legadoSources.size, rssSources.size),
                     backdrop = bd,
                     onDismissRequest = { feedMgrShow = false },
+                    scrollContent = true,
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    val insets = LocalBottomSheetInsets.current
+                    Column(modifier = Modifier.fillMaxWidth().heightIn(max = 660.dp)) {
+                        Text(
+                            text = tr("{0} 个订阅源 · {1} 个书源 · {2} 个 Legado 订阅", savedFeeds.size, legadoSources.size, rssSources.size),
+                            fontSize = 13.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = insets.top, bottom = 8.dp),
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .fillMaxWidth()
+                                .heightIn(max = 520.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             CategoryChip(text = tr("订阅源 {0}", savedFeeds.size), selected = feedMgrTab == 0) { feedMgrTab = 0 }
                             CategoryChip(text = tr("书源 {0}", legadoSources.size), selected = feedMgrTab == 1) { feedMgrTab = 1 }
@@ -1141,20 +1184,16 @@ fun BookshelfScreen(
                                 }
                             }
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            AppDialogButton(
-                                onClick = {
-                                    feedMgrShow = false
-                                    feedDialog = true
-                                },
-                                modifier = Modifier.weight(1f),
-                                role = GlassDialogButtonRole.Primary,
-                            ) { Text(text = tr("添加"), style = MiuixTheme.textStyles.button) }
-                            AppDialogButton(onClick = { feedMgrShow = false }, modifier = Modifier.weight(1f)) {
-                                Text(text = tr("关闭"), style = MiuixTheme.textStyles.button)
-                            }
                         }
+                        }
+                        AppDialogButton(
+                            onClick = {
+                                feedMgrShow = false
+                                feedDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = insets.bottom + 12.dp),
+                            role = GlassDialogButtonRole.Primary,
+                        ) { Text(text = tr("添加"), style = MiuixTheme.textStyles.button) }
                     }
                 }
 
@@ -1249,11 +1288,11 @@ fun BookshelfScreen(
                     }
                 }
 
-                // ---- 删除分类确认（书不会被删）
+                // ---- 删除分组确认（书不会被删）
                 AppGlassDialog(
                     show = deleteCatShow,
-                    title = tr("删除分类「{0}」？", activeCategoryName),
-                    summary = tr("分类里的书不会被删除，仍可在「全部」里找到。"),
+                    title = tr("删除分组「{0}」？", activeCategoryName),
+                    summary = tr("分组里的书不会被删除，仍可在「全部」里找到。"),
                     backdrop = bd,
                     onDismissRequest = { deleteCatShow = false },
                 ) {
@@ -1274,11 +1313,11 @@ fun BookshelfScreen(
                     }
                 }
 
-                // ---- 移动到分类：列出所有分类 + 「移出分类」；一个分类都没有时引导去创建
+                // ---- 移动到分组：列出所有分组 + 「移出分组」；一个分组都没有时引导去创建
                 AppGlassDialog(
                     show = moveShow,
-                    title = tr("移动到分类"),
-                    summary = if (categories.isEmpty()) tr("还没有分类，先创建一个。") else null,
+                    title = tr("移动到分组"),
+                    summary = if (categories.isEmpty()) tr("还没有分组，先创建一个。") else null,
                     backdrop = bd,
                     onDismissRequest = { moveShow = false },
                 ) {
@@ -1287,7 +1326,7 @@ fun BookshelfScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    // 每行 48dp（含「移出分类」那一行）；超过 6 行就固定高度、内部滚动
+                                    // 每行 48dp（含「移出分组」那一行）；超过 6 行就固定高度、内部滚动
                                     .height(48.dp * minOf(categories.size + 1, 6))
                                     .verticalScroll(rememberScrollState()),
                             ) {
@@ -1300,7 +1339,7 @@ fun BookshelfScreen(
                                         toast(tr("已移入「{0}」", c.name))
                                     }
                                 }
-                                MoveRow(text = tr("移出分类"), dim = true) {
+                                MoveRow(text = tr("移出分组"), dim = true) {
                                     val ids = selectedIds.toSet()
                                     moveShow = false
                                     exitSelect()
@@ -1323,13 +1362,13 @@ fun BookshelfScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                                 role = GlassDialogButtonRole.Primary,
-                            ) { Text(text = tr("新建分类"), style = MiuixTheme.textStyles.button) }
+                            ) { Text(text = tr("新建分组"), style = MiuixTheme.textStyles.button) }
                         }
                     }
                 }
             }
 
-            // 排序菜单：与 Scaffold 同级、放在最后 → 位于最上层（盖住顶栏）。顶部是 网格 / 列表 左右分割的一行，细线下是排序依据（当前项后面带 ✓），再一条细线下是 升序 / 降序
+            // 排序菜单：与 Scaffold 同级、放在最后 → 位于最上层（盖住顶栏）。顶部是 网格 / 列表 左右分割的一行，细线下是排序依据（当前项后面带 ✓），再一条细线下是 升序 | 降序 左右分割的一行
             AppGlassPopup(
                 show = showSort,
                 onDismissRequest = { showSort = false },
@@ -1361,16 +1400,16 @@ fun BookshelfScreen(
                     )
                 }
                 PopupDivider()
-                GlassPopupItem(
-                    text = tr("升序") + if (!desc) "  ✓" else "",
-                    onClick = {
+                // 升序 / 降序：一行左右分割，点任意一侧切换
+                PopupSplitRow(
+                    leftText = tr("升序"),
+                    rightText = tr("降序"),
+                    leftSelected = !desc,
+                    onLeft = {
                         showSort = false
                         settings.updateBookshelfSort(sort, false)
                     },
-                )
-                GlassPopupItem(
-                    text = tr("降序") + if (desc) "  ✓" else "",
-                    onClick = {
+                    onRight = {
                         showSort = false
                         settings.updateBookshelfSort(sort, true)
                     },
@@ -1392,9 +1431,10 @@ fun BookshelfScreen(
                         selected = emptySet()
                         selecting = true
                     },
+                    icon = AppIcons.SelectBooks,
                 )
                 GlassPopupItem(
-                    text = tr("创建分类"),
+                    text = tr("创建分组"),
                     onClick = {
                         showMore = false
                         moveAfterCreate = false
@@ -1402,10 +1442,11 @@ fun BookshelfScreen(
                         nameText = ""
                         nameShow = true
                     },
+                    icon = AppIcons.GroupAdd,
                 )
                 if (activeCategory != null) {
                     GlassPopupItem(
-                        text = tr("重命名当前分类"),
+                        text = tr("重命名当前分组"),
                         onClick = {
                             showMore = false
                             nameRename = true
@@ -1414,7 +1455,7 @@ fun BookshelfScreen(
                         },
                     )
                     GlassPopupItem(
-                        text = tr("删除当前分类"),
+                        text = tr("删除当前分组"),
                         onClick = {
                             showMore = false
                             deleteCatShow = true
@@ -1541,7 +1582,7 @@ private fun EmptyHint(text: String) {
     )
 }
 
-/** 顶栏下方的分类标签：「全部」+ 各分类，可横向滑动。 */
+/** 顶栏下方的分组标签：「全部」+ 各分组，可横向滑动。 */
 @Composable
 private fun CategoryChips(categories: List<BookCategory>, selectedId: String?, onSelect: (String?) -> Unit) {
     Row(
@@ -1571,7 +1612,7 @@ internal fun CategoryChip(text: String, selected: Boolean, onClick: () -> Unit) 
     )
 }
 
-/** 「移动到分类」窗口里的一行。 */
+/** 「移动到分组」窗口里的一行。 */
 @Composable
 private fun MoveRow(text: String, dim: Boolean = false, onClick: () -> Unit) {
     Text(

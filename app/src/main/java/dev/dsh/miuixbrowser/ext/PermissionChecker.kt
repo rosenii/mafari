@@ -40,6 +40,7 @@ object PermissionChecker {
         "extension." to emptySet(),
         "action." to emptySet(),
         "browserAction." to emptySet(),
+        "pageAction." to emptySet(),
         "storage." to setOf("storage"),
         // tabs.query / create / update / sendMessage 本身不要权限；url、title 等敏感字段由 tabs 实现按 canSeeTabDetails 裁剪
         "tabs." to emptySet(),
@@ -64,6 +65,11 @@ object PermissionChecker {
         "mafari.userscripts." to setOf("mafariScripts"),
         "userScripts." to setOf("userScripts"),
         "offscreen." to setOf("offscreen"),
+        "commands." to emptySet(),
+        "management." to setOf("management"),
+        "idle." to setOf("idle"),
+        "dns." to setOf("dns"),
+        "topSites." to setOf("topSites"),
     )
 
     /** content script 能直接调的 API 前缀；其余只有拓展自己的页面能调 */

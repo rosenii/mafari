@@ -2358,7 +2358,7 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 从本地导入	Import from device
 搜索书名或作者	Search title or author
 没有找到相关书籍	No matching books
-这个分类里还没有书。点右上角「更多」→「选择」勾选书籍，再「移动到分类」。	No books in this category yet. Tap More → Select, pick books, then Move to category.
+这个分组里还没有书。点右上角「更多」→「选择」勾选书籍，再「移动到分组」。	No books in this group yet. Tap More → Select, pick books, then Move to group.
 添加时间	Date added
 阅读进度	Reading progress
 升序	Ascending
@@ -2366,25 +2366,25 @@ SurfaceView：省电、延迟低、滑动更跟手（默认），但不能被毛
 选择	Select
 网格	Grid
 列表	List
-创建分类	Create category
-重命名分类	Rename category
-重命名当前分类	Rename this category
-删除当前分类	Delete this category
-分类名称	Category name
-分类名不能为空，也不能与已有分类重名	The category name can't be empty or match an existing one
+创建分组	Create group
+重命名分组	Rename group
+重命名当前分组	Rename this group
+删除当前分组	Delete this group
+分组名称	Group name
+分组名不能为空，也不能与已有分组重名	The group name can't be empty or match an existing one
 已选 {0} 本	{0} selected
 全选	Select all
 取消全选	Deselect all
-移动到分类	Move to category
-移出分类	Remove from category
-新建分类	New category
-还没有分类，先创建一个。	No categories yet — create one first.
+移动到分组	Move to group
+移出分组	Remove from group
+新建分组	New group
+还没有分组，先创建一个。	No groups yet — create one first.
 已移入「{0}」	Moved to "{0}"
 全部	All
 删除选中的 {0} 本书？	Delete {0} selected book(s)?
 书的文件和封面也会一并删除，无法恢复。	The files and covers will be deleted too. This can't be undone.
-删除分类「{0}」？	Delete category "{0}"?
-分类里的书不会被删除，仍可在「全部」里找到。	Books in it won't be deleted; you'll still find them under All.
+删除分组「{0}」？	Delete group "{0}"?
+分组里的书不会被删除，仍可在「全部」里找到。	Books in it won't be deleted; you'll still find them under All.
 已导入 {0} 本	Imported {0} book(s)
 已导入 {0} 本，{1} 个文件无法导入（仅支持 TXT / EPUB）	Imported {0} book(s); {1} file(s) couldn't be imported (TXT / EPUB only)
 无法导入所选文件（仅支持 TXT / EPUB）	Couldn't import the selected files (TXT / EPUB only)
@@ -2567,3 +2567,10 @@ AI 语音	AI voice
 没有读到网页正文	No readable text found on this page
 已切换为只听声音，播放器已收起	Switched to audio only; the player has been minimized
 当前页面已离线保存至{0}	The current page was saved offline to {0}
+正在读取语音引擎订阅…	Reading speech engine subscription…
+已导入 {0} 个语音引擎（新增 {1} 个）	Imported {0} speech engines ({1} new)
+导入语音引擎订阅	Import speech engine subscription
+粘贴 Legado 在线朗读引擎订阅 JSON，或输入订阅地址 / 选择本地文件	Paste Legado online TTS engine subscription JSON, or enter a URL / choose a local file
+订阅地址或 JSON 内容	Subscription URL or JSON content
+已取消，已导入 {0} 项	Cancelled; imported {0} items
+已导入 {0} 项，{1} 项失败：{2}	Imported {0} items, {1} failed: {2}
