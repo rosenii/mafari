@@ -20,7 +20,7 @@ import java.util.UUID
  *
  * [system] 为 true 时用 Android 系统 TTS（[TextToSpeech]），其余字段不用；
  * 自定义引擎是一次 HTTP 请求：URL / 请求体里支持占位符
- * `{{speakText}}`、`{{speakTextUrl}}`、`{{speakTextJson}}`、`{{speakSpeed}}`、`{{voice}}`、`{{model}}`，
+ * `{{speakText}}`、`{{speakTextUrl}}`、`{{speakTextUrl2}}`（双重 URL 编码）、`{{speakTextJson}}`、`{{speakSpeed}}`、`{{voice}}`、`{{model}}`，
  * 返回音频字节即可。这样既能填 Legado 的 `{{speakText}}` / `{{speakSpeed}}` 朗读引擎地址，
  * 也能填 OpenAI 兼容的 `/v1/audio/speech` 这类 AI 语音接口。
  */
@@ -34,6 +34,10 @@ class SpeechEngine(
     val body: String = "",
     val voice: String = "",
     val model: String = "",
+    /** 来自哪份语音订阅（订阅地址 / 文件名 / 粘贴内容的哈希）；空 = 手动添加的引擎，不属于任何订阅文件夹 */
+    val groupKey: String = "",
+    /** 订阅文件夹显示名 */
+    val groupName: String = "",
 ) {
     val displayName: String get() = if (system) tr("系统语音") else name
 }
@@ -84,6 +88,8 @@ object SpeechEngineStore {
                             body = e.optString("body"),
                             voice = e.optString("voice"),
                             model = e.optString("model"),
+                            groupKey = e.optString("groupKey"),
+                            groupName = e.optString("groupName"),
                         ),
                     )
                 }
@@ -125,6 +131,8 @@ object SpeechEngineStore {
         if (engine.system) return
         synchronized(lock) {
             val id = engine.id.ifBlank { UUID.randomUUID().toString().replace("-", "").take(12) }
+            // 编辑订阅里的引擎不会让它跳出订阅文件夹
+            val old = engines.firstOrNull { it.id == id }
             val e = SpeechEngine(
                 id = id,
                 name = engine.name.trim().ifBlank { tr("自定义语音") },
@@ -134,6 +142,8 @@ object SpeechEngineStore {
                 body = engine.body,
                 voice = engine.voice.trim(),
                 model = engine.model.trim(),
+                groupKey = old?.groupKey ?: engine.groupKey,
+                groupName = old?.groupName ?: engine.groupName,
             )
             engines = if (engines.any { it.id == id }) engines.map { if (it.id == id) e else it } else engines + e
             selectedId = id
@@ -141,15 +151,27 @@ object SpeechEngineStore {
         }
     }
 
-    /** 批量导入（语音引擎订阅）；同一 URL 覆盖规则并保留原来的 id / 启用状态。返回新增条数。 */
-    fun importAll(context: Context, list: List<SpeechEngine>): Int {
+    /**
+     * 批量导入（语音引擎订阅），这批引擎都放进 [groupKey] / [groupName] 这个订阅文件夹。
+     * 同一订阅里「地址 + 请求方式 + 请求体」相同的引擎视为同一个：更新规则、保留原 id，
+     * 订阅里没写 voice / model 时保留用户自己填的。旧版本导入、还没有文件夹的同地址引擎会被收进来，不会重复出现。
+     * 当前选用的引擎不变（只导入 1 个时才自动选中它）。返回新增条数。
+     */
+    fun importAll(context: Context, list: List<SpeechEngine>, groupKey: String = "", groupName: String = ""): Int {
         if (list.isEmpty()) return 0
         synchronized(lock) {
             var added = 0
             val next = engines.toMutableList()
+            var lastId: String? = null
             for (e in list) {
                 if (e.system) continue
-                val idx = next.indexOfFirst { it.url == e.url }
+                val id = importedId(groupKey, e)
+                var idx = next.indexOfFirst { it.id == id }
+                if (idx < 0 && groupKey.isNotEmpty()) {
+                    idx = next.indexOfFirst {
+                        it.groupKey.isEmpty() && it.url == e.url && it.id == importedId("", it)
+                    }
+                }
                 if (idx >= 0) {
                     val old = next[idx]
                     next[idx] = SpeechEngine(
@@ -159,20 +181,52 @@ object SpeechEngineStore {
                         method = e.method,
                         headers = e.headers,
                         body = e.body,
-                        voice = e.voice,
-                        model = e.model,
+                        voice = e.voice.ifBlank { old.voice },
+                        model = e.model.ifBlank { old.model },
+                        groupKey = groupKey,
+                        groupName = groupName,
                     )
+                    lastId = old.id
                 } else {
-                    next.add(e)
+                    next.add(
+                        SpeechEngine(
+                            id = id,
+                            name = e.name,
+                            url = e.url,
+                            method = e.method,
+                            headers = e.headers,
+                            body = e.body,
+                            voice = e.voice,
+                            model = e.model,
+                            groupKey = groupKey,
+                            groupName = groupName,
+                        ),
+                    )
+                    lastId = id
                     added++
                 }
             }
             engines = next
-            selectedId = list.lastOrNull { it.url.isNotBlank() }?.let { e ->
-                next.firstOrNull { it.url == e.url }?.id
-            } ?: selectedId
+            if (list.size == 1 && lastId != null) selectedId = lastId
             save(context)
             return added
+        }
+    }
+
+    private fun importedId(groupKey: String, e: SpeechEngine): String {
+        val seed = if (groupKey.isEmpty()) e.url else groupKey + "\n" + e.url + "\n" + e.method + "\n" + e.body
+        return "sub_" + Integer.toHexString(seed.hashCode())
+    }
+
+    /** 删除整个订阅文件夹里的引擎；正在用的在里面就回到系统语音。 */
+    fun removeGroup(context: Context, groupKey: String) {
+        if (groupKey.isEmpty()) return
+        synchronized(lock) {
+            val gone = engines.filter { it.groupKey == groupKey }.map { it.id }.toSet()
+            if (gone.isEmpty()) return
+            engines = engines.filterNot { it.id in gone }
+            if (selectedId in gone) selectedId = SYSTEM_ID
+            save(context)
         }
     }
 
@@ -193,7 +247,8 @@ object SpeechEngineStore {
                     JSONObject()
                         .put("id", it.id).put("name", it.name).put("url", it.url)
                         .put("method", it.method).put("headers", it.headers).put("body", it.body)
-                        .put("voice", it.voice).put("model", it.model),
+                        .put("voice", it.voice).put("model", it.model)
+                        .put("groupKey", it.groupKey).put("groupName", it.groupName),
                 )
             }
             val o = JSONObject()

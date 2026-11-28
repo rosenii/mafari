@@ -2537,7 +2537,7 @@ Legado 订阅 {0}	Legado subscriptions {0}
 系统语音直接使用手机自带的 TTS；自定义引擎按 HTTP 请求取音频。	The system voice uses your phone's built-in TTS; custom engines fetch audio over HTTP.
 手机系统语音	Phone system TTS
 添加引擎	Add engine
-请求地址 / 请求体里可用：{{speakText}}、{{speakTextUrl}}、{{speakTextJson}}、{{speakSpeed}}、{{voice}}、{{model}}	Available in the URL / body: {{speakText}}, {{speakTextUrl}}, {{speakTextJson}}, {{speakSpeed}}, {{voice}}, {{model}}
+请求地址 / 请求体里可用：{{speakText}}、{{speakTextUrl}}、{{speakTextUrl2}}、{{speakTextJson}}、{{speakSpeed}}、{{voice}}、{{model}}	Available in the URL / body: {{speakText}}, {{speakTextUrl}}, {{speakTextUrl2}}, {{speakTextJson}}, {{speakSpeed}}, {{voice}}, {{model}}
 请求地址	Request URL
 请求方式	Method
 请求头（JSON 或每行 Key: Value）	Headers (JSON or one Key: Value per line)
@@ -2569,6 +2569,13 @@ AI 语音	AI voice
 当前页面已离线保存至{0}	The current page was saved offline to {0}
 正在读取语音引擎订阅…	Reading speech engine subscription…
 已导入 {0} 个语音引擎（新增 {1} 个）	Imported {0} speech engines ({1} new)
+，跳过 {0} 个	, {0} skipped
+暂不支持 JS 规则：{0}	JS rules are not supported: {0}
+粘贴导入	Pasted import
+语音订阅	Voice subscription
+长按订阅文件夹可整组删除。	Long-press a subscription folder to delete it with all its engines.
+删除订阅「{0}」？	Delete subscription "{0}"?
+将删除这个订阅导入的全部语音引擎。	This removes every voice engine imported from this subscription.
 导入语音引擎订阅	Import speech engine subscription
 粘贴 Legado 在线朗读引擎订阅 JSON，或输入订阅地址 / 选择本地文件	Paste Legado online TTS engine subscription JSON, or enter a URL / choose a local file
 订阅地址或 JSON 内容	Subscription URL or JSON content
