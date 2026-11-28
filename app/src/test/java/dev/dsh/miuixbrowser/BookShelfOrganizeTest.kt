@@ -5,10 +5,10 @@
 
 package dev.dsh.miuixbrowser
 
-import dev.dsh.miuixbrowser.data.Book
-import dev.dsh.miuixbrowser.data.BookCategory
-import dev.dsh.miuixbrowser.data.BookShelf
-import dev.dsh.miuixbrowser.data.BookSort
+import dev.dsh.miuixbrowser.books.data.Book
+import dev.dsh.miuixbrowser.books.data.BookCategory
+import dev.dsh.miuixbrowser.books.data.BookShelf
+import dev.dsh.miuixbrowser.books.data.BookSort
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

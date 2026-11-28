@@ -5,6 +5,9 @@
 
 package dev.dsh.miuixbrowser.ui
 
+import dev.dsh.miuixbrowser.books.ui.BookshelfScreen
+import dev.dsh.miuixbrowser.books.ui.ReaderScreen
+
 
 import dev.dsh.miuixbrowser.browser.AppRoute
 import dev.dsh.miuixbrowser.browser.BrowserState

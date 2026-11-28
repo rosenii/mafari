@@ -5,9 +5,9 @@
 
 package dev.dsh.miuixbrowser
 
-import dev.dsh.miuixbrowser.data.BookContent
-import dev.dsh.miuixbrowser.data.BookFeedImport
-import dev.dsh.miuixbrowser.data.BookFeedParser
+import dev.dsh.miuixbrowser.books.data.BookContent
+import dev.dsh.miuixbrowser.books.data.BookFeedImport
+import dev.dsh.miuixbrowser.books.data.BookFeedParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

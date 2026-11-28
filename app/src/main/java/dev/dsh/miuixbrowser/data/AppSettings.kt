@@ -5,6 +5,8 @@
 
 package dev.dsh.miuixbrowser.data
 
+import dev.dsh.miuixbrowser.books.data.BookSort
+
 import dev.dsh.miuixbrowser.i18n.tr
 
 import dev.dsh.miuixbrowser.adblock.AdBlock
@@ -143,6 +145,11 @@ const val READER_THEME_PAPER = 0
 const val READER_THEME_EYE = 1
 const val READER_THEME_LIGHT = 2
 const val READER_THEME_DARK = 3
+
+/** 阅读器翻页方式：上下 / 左右平滑 / 仿真。 */
+const val READER_PAGE_TURN_VERTICAL = 0
+const val READER_PAGE_TURN_SMOOTH = 1
+const val READER_PAGE_TURN_SIMULATED = 2
 const val READER_PAD_V_MIN = 14
 const val READER_PAD_V_MAX = 44
 const val READER_PAD_V_DEFAULT = 26
@@ -363,6 +370,18 @@ class AppSettings(context: Context) {
     var readerTheme by mutableIntStateOf(prefs.getInt(KEY_READER_THEME, READER_THEME_AUTO).coerceIn(READER_THEME_AUTO, READER_THEME_DARK))
         private set
 
+    /** 阅读器翻页方式，见 READER_PAGE_TURN_*。 */
+    var readerPageTurn by mutableIntStateOf(
+        prefs.getInt(KEY_READER_PAGE_TURN, READER_PAGE_TURN_SMOOTH)
+            .coerceIn(READER_PAGE_TURN_VERTICAL, READER_PAGE_TURN_SIMULATED),
+    )
+        private set
+
+    fun updateReaderPageTurn(v: Int) {
+        readerPageTurn = v.coerceIn(READER_PAGE_TURN_VERTICAL, READER_PAGE_TURN_SIMULATED)
+        prefs.edit().putInt(KEY_READER_PAGE_TURN, readerPageTurn).apply()
+    }
+
     fun updateReaderTheme(v: Int) {
         readerTheme = v.coerceIn(READER_THEME_AUTO, READER_THEME_DARK)
         prefs.edit().putInt(KEY_READER_THEME, readerTheme).apply()
@@ -395,7 +414,8 @@ class AppSettings(context: Context) {
         readerPadH = READER_PAD_H_DEFAULT
         readerPadV = READER_PAD_V_DEFAULT
         readerTheme = READER_THEME_AUTO
-        prefs.edit().remove(KEY_READER_THEME).remove(KEY_READER_FONT).remove(KEY_READER_LINE).remove(KEY_READER_PAD_H).remove(KEY_READER_PAD_V).apply()
+        readerPageTurn = READER_PAGE_TURN_SMOOTH
+        prefs.edit().remove(KEY_READER_PAGE_TURN).remove(KEY_READER_THEME).remove(KEY_READER_FONT).remove(KEY_READER_LINE).remove(KEY_READER_PAD_H).remove(KEY_READER_PAD_V).apply()
     }
 
     /** 书架：true = 网格（默认），false = 列表。 */
@@ -1406,6 +1426,7 @@ class AppSettings(context: Context) {
         const val KEY_READER_PAD_H = "reader_pad_h"
         const val KEY_READER_PAD_V = "reader_pad_v"
         const val KEY_READER_THEME = "reader_theme"
+        const val KEY_READER_PAGE_TURN = "reader_page_turn"
         const val KEY_BOOKSHELF_GRID = "bookshelf_grid"
         const val KEY_BOOKSHELF_SORT = "bookshelf_sort"
         const val KEY_BOOKSHELF_SORT_DESC = "bookshelf_sort_desc"

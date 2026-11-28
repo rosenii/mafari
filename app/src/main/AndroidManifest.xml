@@ -27,6 +27,10 @@
 
     <!-- 包可见性：检测已安装的第三方下载器 -->
     <queries>
+        <!-- 朗读：列出系统 TTS 引擎 -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <package android:name="com.dv.adm.pay" />
         <package android:name="com.dv.adm" />
         <package android:name="idm.internet.download.manager.plus" />

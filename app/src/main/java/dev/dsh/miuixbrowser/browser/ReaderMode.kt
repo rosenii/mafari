@@ -33,6 +33,10 @@ object ReaderMode {
     fun enterScript(js: String, dark: Boolean): String =
         "$js\n;window.__mafariReader ? window.__mafariReader.enter({dark:$dark}) : false;"
 
+    /** 听书：取当前页面正文纯文本（优先用阅读模式提取的正文）。evaluateJavascript 返回 JSON 字符串，需要再解一次。 */
+    fun textScript(js: String): String =
+        "$js\n;(function(){try{if(window.__mafariReader&&window.__mafariReader.text)return window.__mafariReader.text();}catch(e){}try{return document.body?document.body.innerText:'';}catch(e){return '';}})();"
+
     /** 退出阅读模式（页面里没有脚本就什么也不做） */
     const val EXIT_SCRIPT = "(function(){try{if(window.__mafariReader){window.__mafariReader.exit();}return true;}catch(e){return false;}})();"
 }

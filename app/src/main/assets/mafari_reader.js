@@ -587,7 +587,15 @@
     detect: detect,
     enter: enter,
     exit: exit,
-    active: function () { return state.active; }
+    active: function () { return state.active; },
+    // 听书用：优先返回阅读模式提取出的正文纯文本，提取失败再退回页面全文
+    text: function () {
+      try {
+        var d = extract();
+        if (d && d.article) return textOf(d.article);
+      } catch (e) {}
+      try { return document.body ? document.body.innerText : ''; } catch (e) { return ''; }
+    }
   };
   window.__mafariReader = api;
 
@@ -623,6 +631,12 @@
         everConnected = true;
         if (m.t === 'enter') { if (!enter({ dark: !!m.dark, fontScale: m.fontScale })) readerable = false; }
         else if (m.t === 'exit') { exit(); }
+        else if (m.t === 'text') {
+          var t = '';
+          try { t = api.text(); } catch (e) { t = ''; }
+          try { port.postMessage({ t: 'text', id: m.id, text: t }); } catch (e) {}
+          return;
+        }
         post();
       });
       port.onDisconnect.addListener(function () {

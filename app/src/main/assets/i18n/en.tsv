@@ -2519,3 +2519,49 @@ Legado 订阅 {0}	Legado subscriptions {0}
 书源	Source
 分类	Category
 共 {0} 个	{0} in total
+听书	Listen
+语音引擎	Voice engine
+当前章节	Current chapter
+未开始朗读	Not started
+准备中…	Preparing…
+正在朗读	Reading aloud
+朗读失败	Reading failed
+使用系统自带的 TTS	Use the built-in system TTS
+自动下一章	Auto next chapter
+本章读完后继续读下一章	Continue with the next chapter after this one
+语速	Speed
+{0}×	{0}×
+开始朗读	Start reading
+停止	Stop
+管理语音引擎	Manage voice engines
+系统语音直接使用手机自带的 TTS；自定义引擎按 HTTP 请求取音频。	The system voice uses your phone's built-in TTS; custom engines fetch audio over HTTP.
+手机系统语音	Phone system TTS
+添加引擎	Add engine
+请求地址 / 请求体里可用：{{speakText}}、{{speakTextUrl}}、{{speakTextJson}}、{{speakSpeed}}、{{voice}}、{{model}}	Available in the URL / body: {{speakText}}, {{speakTextUrl}}, {{speakTextJson}}, {{speakSpeed}}, {{voice}}, {{model}}
+请求地址	Request URL
+请求方式	Method
+请求头（JSON 或每行 Key: Value）	Headers (JSON or one Key: Value per line)
+请求体（POST 用）	Request body (for POST)
+音色 voice（可选）	Voice (optional)
+模型 model（可选）	Model (optional)
+填入 OpenAI 兼容语音模板	Fill in an OpenAI-compatible speech template
+系统语音	System voice
+自定义语音	Custom voice
+AI 语音	AI voice
+本章还在下载，稍后再听	This chapter is still downloading; try again shortly
+系统语音朗读失败	System TTS failed
+系统语音初始化失败	System TTS failed to initialize
+系统语音朗读失败（{0}）	System TTS failed ({0})
+语音引擎没有返回音频	The voice engine returned no audio
+语音请求失败	Voice request failed
+音频播放失败（{0}/{1}）	Audio playback failed ({0}/{1})
+语音引擎返回 HTTP {0}{1}	Voice engine returned HTTP {0}{1}
+语音音频过大	Voice audio is too large
+语音引擎地址必须是 http / https	The voice engine URL must be http / https
+翻页方式	Page turn
+上下翻页	Vertical paging
+左右平滑	Horizontal slide
+仿真翻页	Page-flip simulation
+朗读网页	Read page aloud
+网页正文	Page content
+没有读到网页正文	No readable text found on this page

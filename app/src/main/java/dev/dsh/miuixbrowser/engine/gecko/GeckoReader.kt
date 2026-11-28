@@ -14,6 +14,8 @@ import org.json.JSONObject
 import org.mozilla.geckoview.GeckoResult
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.WebExtension
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Gecko 内核的阅读模式适配：自带一个内置 WebExtension（assets/mafari-reader-ext），
@@ -87,6 +89,9 @@ internal object GeckoReader {
         }.onFailure { Diag.log("reader: attach session failed $it") }
     }
 
+    /** 听书正文请求：id → 回调（主线程）。内容脚本回 { t:"text", id, text }。 */
+    private val textRequests = ConcurrentHashMap<String, (String) -> Unit>()
+
     private fun delegate(tab: BrowserTab) = object : WebExtension.MessageDelegate {
         override fun onConnect(port: WebExtension.Port) {
             port.setDelegate(object : WebExtension.PortDelegate {
@@ -115,6 +120,12 @@ internal object GeckoReader {
                             val b = o.optBoolean("b")
                             main.post { tab.geckoBottomBar(b) }
                         }
+                        "text" -> {
+                            val id = o.optString("id")
+                            val text = o.optString("text")
+                            val cb = textRequests.remove(id)
+                            main.post { cb?.invoke(text) }
+                        }
                     }
                 }
 
@@ -125,6 +136,14 @@ internal object GeckoReader {
             // 握手：内容脚本收到任何消息即视为已连上，并回报一次当前状态
             main.post { runCatching { port.postMessage(JSONObject().put("t", "hi")) } }
         }
+    }
+
+    /** 听书：向该标签页要一次正文纯文本。回调在主线程；5 秒不回就当空文本。 */
+    fun requestText(port: WebExtension.Port, callback: (String) -> Unit) {
+        val id = UUID.randomUUID().toString()
+        textRequests[id] = callback
+        send(port, JSONObject().put("t", "text").put("id", id))
+        main.postDelayed({ textRequests.remove(id)?.invoke("") }, 5_000)
     }
 
     /** 主线程。向该标签页里的内容脚本发指令（enter / exit） */

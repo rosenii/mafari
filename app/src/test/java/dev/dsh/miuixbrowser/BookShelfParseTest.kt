@@ -5,7 +5,7 @@
 
 package dev.dsh.miuixbrowser
 
-import dev.dsh.miuixbrowser.data.BookShelf
+import dev.dsh.miuixbrowser.books.data.BookShelf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

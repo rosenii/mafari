@@ -130,6 +130,29 @@ internal class TabReader(private val tab: BrowserTab) {
         }
     }
 
+    /** 听书：提取当前页面正文（WebView 直接求值；Gecko 经内置阅读拓展的内容脚本）。回调在主线程。 */
+    fun extractText(callback: (String) -> Unit) {
+        if (tab.closed || tab.destroyed) {
+            callback("")
+            return
+        }
+        if (tab.isGecko) {
+            val port = readerPort
+            if (port == null) {
+                callback("")
+                return
+            }
+            GeckoReader.requestText(port, callback)
+            return
+        }
+        tab.evaluateJs(ReaderMode.textScript(ReaderMode.source(tab.appContext))) { raw ->
+            val text = runCatching {
+                org.json.JSONTokener(raw ?: "").nextValue() as? String
+            }.getOrNull().orEmpty()
+            callback(text)
+        }
+    }
+
     /** 退出阅读模式，回到原页面（滚动位置还原） */
     fun exitReader() {
         if (!readerActive) return

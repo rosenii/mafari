@@ -805,6 +805,9 @@ class BrowserTab(
     /** 地址栏阅读图标的点击：未进入 → 进入；已进入 → 退出。[dark] 是当前应用的深浅色，阅读层按它配色。 */
     fun toggleReader(dark: Boolean) = reader.toggleReader(dark)
 
+    /** 听书：取当前页面正文纯文本。 */
+    fun extractReadableText(callback: (String) -> Unit) = reader.extractText(callback)
+
     /** 退出阅读模式，回到原页面（滚动位置还原） */
     fun exitReader() = reader.exitReader()
 
