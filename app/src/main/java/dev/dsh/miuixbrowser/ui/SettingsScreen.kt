@@ -184,6 +184,7 @@ fun SettingsScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showAddEngine by remember { mutableStateOf(false) }
     var showWallpaper by remember { mutableStateOf(false) }
+    var showAppIcon by remember { mutableStateOf(false) }
     var showGlassParams by remember { mutableStateOf(false) }
     var showPermSheet by remember { mutableStateOf(false) }
     var showPermExceptions by remember { mutableStateOf(false) }
@@ -289,14 +290,10 @@ fun SettingsScreen(
                         summary = if (settings.wallpaper.isBlank()) tr("未设置") else tr("已设置"),
                         onClick = { showWallpaper = true },
                     )
-                    AppIconPicker(
-                        selected = settings.appIcon,
-                        onSelect = {
-                            if (it != settings.appIcon) {
-                                settings.updateAppIcon(it)
-                                Toast.makeText(context, tr("退出应用后桌面图标将更新"), Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                    SettingsRow(
+                        title = tr("应用图标"),
+                        summary = AppIconManager.CHOICES[settings.appIcon.coerceIn(0, AppIconManager.CHOICE_COUNT - 1)].label,
+                        onClick = { showAppIcon = true },
                     )
                     AppDropdownPreference(
                         backdrop = if (glass) backdrop else null,
@@ -712,6 +709,24 @@ fun SettingsScreen(
                     } else {
                         false
                     }
+                },
+            )
+
+            AppIconSheet(
+                show = showAppIcon,
+                backdrop = if (glass) backdrop else null,
+                selected = settings.appIcon,
+                followTheme = settings.appIconFollowTheme,
+                onDismiss = { showAppIcon = false },
+                onSelect = {
+                    if (it != settings.appIcon) {
+                        settings.updateAppIcon(it)
+                        Toast.makeText(context, tr("退出应用后桌面图标将更新"), Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onFollowChange = {
+                    settings.updateAppIconFollowTheme(it)
+                    Toast.makeText(context, tr("退出应用后桌面图标将更新"), Toast.LENGTH_SHORT).show()
                 },
             )
 
@@ -1207,77 +1222,92 @@ private fun WallpaperDialogRow(
     }
 }
 
-/** 应用图标选择：六个预览并排一行（图标随宽度自适应缩小），选中项带主题色描边和对勾。 */
+/**
+ * 应用图标选择弹层：上面一行是可选图标（选中项带主题色描边和对勾），
+ * 下面是「随显示模式切换深浅色」开关。深色配对关系见 [AppIconManager.darkPartner]，这里不展示。
+ */
 @Composable
-private fun AppIconPicker(selected: Int, onSelect: (Int) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
-        Text(
-            text = tr("应用图标"),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = MiuixTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = tr("退出应用时更新桌面图标；极简↔极暗、多彩 / 立体→深色 随显示模式自动切换"),
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            AppIconManager.ICONS.forEachIndexed { index, option ->
-                val active = index == selected
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .squircleClip(14.dp)
-                        .clickable { onSelect(index) }
-                        .padding(vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(
+private fun AppIconSheet(
+    show: Boolean,
+    backdrop: Backdrop?,
+    selected: Int,
+    followTheme: Boolean,
+    onDismiss: () -> Unit,
+    onSelect: (Int) -> Unit,
+    onFollowChange: (Boolean) -> Unit,
+) {
+    AppBottomSheet(
+        show = show,
+        title = tr("应用图标"),
+        backdrop = backdrop,
+        onDismissRequest = onDismiss,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                AppIconManager.CHOICES.forEachIndexed { index, option ->
+                    val active = index == selected
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth(0.88f)
-                            .widthIn(max = 52.dp)
-                            .aspectRatio(1f)
-                            .squircleBorder(
-                                width = if (active) 2.dp else 0.dp,
-                                color = if (active) MiuixTheme.colorScheme.primary else Color.Transparent,
-                                cornerRadius = 15.dp,
-                            )
-                            .padding(2.5.dp)
-                            .squircleClip(12.dp),
+                            .weight(1f)
+                            .squircleClip(14.dp)
+                            .clickable { onSelect(index) }
+                            .padding(vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Image(
-                            painter = painterResource(option.preview),
-                            contentDescription = option.label,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    Spacer(Modifier.height(5.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (active) {
-                            Icon(
-                                imageVector = MiuixIcons.Basic.Check,
-                                contentDescription = tr("已选中"),
-                                tint = MiuixTheme.colorScheme.primary,
-                                modifier = Modifier.size(12.dp),
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.84f)
+                                .widthIn(max = 64.dp)
+                                .aspectRatio(1f)
+                                .squircleBorder(
+                                    width = if (active) 2.dp else 0.dp,
+                                    color = if (active) MiuixTheme.colorScheme.primary else Color.Transparent,
+                                    cornerRadius = 18.dp,
+                                )
+                                .padding(3.dp)
+                                .squircleClip(15.dp),
+                        ) {
+                            Image(
+                                painter = painterResource(option.preview),
+                                contentDescription = option.label,
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
-                        Text(
-                            text = option.label,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                            color = if (active) {
-                                MiuixTheme.colorScheme.primary
-                            } else {
-                                MiuixTheme.colorScheme.onSurfaceVariantSummary
-                            },
-                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (active) {
+                                Icon(
+                                    imageVector = MiuixIcons.Basic.Check,
+                                    contentDescription = tr("已选中"),
+                                    tint = MiuixTheme.colorScheme.primary,
+                                    modifier = Modifier.size(13.dp),
+                                )
+                            }
+                            Text(
+                                text = option.label,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                color = if (active) {
+                                    MiuixTheme.colorScheme.primary
+                                } else {
+                                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                },
+                            )
+                        }
                     }
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            AppSwitchPreference(
+                title = tr("跟随显示模式"),
+                summary = tr("自动切换深浅色图标，退出应用时更新"),
+                checked = followTheme,
+                onCheckedChange = onFollowChange,
+            )
         }
     }
 }

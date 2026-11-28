@@ -52,10 +52,10 @@
         android:fullBackupContent="@xml/backup_rules"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_default"
         android:label="@string/app_name"
         android:largeHeap="true"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_default"
         android:supportsRtl="true"
         android:theme="@style/Theme.MiuixBrowser"
         android:usesCleartextTraffic="true">
@@ -400,10 +400,25 @@
             android:theme="@style/Theme.MiuixBrowser" />
 
         <!-- 应用图标：同一时间只启用一个 alias，见 AppIconManager。
-             alias 名带 V2：换图标资源后改名，让桌面启动器丢弃按旧组件名缓存的图标（否则会一直显示旧图 / 默认图） -->
+             alias 名带 V2 / V3：换图标资源后改名，让桌面启动器丢弃按旧组件名缓存的图标（否则会一直显示旧图 / 默认图）。
+             默认(白底) ↔ 深蓝、多彩 ↔ 深色、极简 ↔ 极暗 随显示模式成对切换；经典无深色版。 -->
         <activity-alias
-            android:name=".IconDefaultV2"
+            android:name=".IconDefaultV3"
             android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_default"
+            android:roundIcon="@mipmap/ic_launcher_default"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconClassicV3"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher"
@@ -430,11 +445,25 @@
         </activity-alias>
 
         <activity-alias
-            android:name=".IconSolidV2"
+            android:name=".IconMinimalV2"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher_solid3d"
-            android:roundIcon="@mipmap/ic_launcher_solid3d"
+            android:icon="@mipmap/ic_launcher_minimal"
+            android:roundIcon="@mipmap/ic_launcher_minimal"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconDeepBlueV3"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_deepblue"
+            android:roundIcon="@mipmap/ic_launcher_deepblue"
             android:label="@string/app_name"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -449,20 +478,6 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_dark"
             android:roundIcon="@mipmap/ic_launcher_dark"
-            android:label="@string/app_name"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-
-        <activity-alias
-            android:name=".IconMinimalV2"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_minimal"
-            android:roundIcon="@mipmap/ic_launcher_minimal"
             android:label="@string/app_name"
             android:targetActivity=".MainActivity">
             <intent-filter>

@@ -704,7 +704,8 @@ Mafari · 基于 miuix 与系统 WebView	Mafari · built on miuix and the system
 完成	Done
 默认	Default
 多彩	Colorful
-立体	3D
+经典	Classic
+深蓝	Deep blue
 深色	Dark
 极简	Minimal
 极暗	Ultra dark
@@ -1687,7 +1688,8 @@ SOCKS5 认证由应用内本机中转（127.0.0.1 随机端口）完成，WebVie
 跟随默认	Follow default
 删除此网站的全部例外	Delete all exceptions for this site
 应用图标	App icon
-退出应用时更新桌面图标；极简↔极暗、多彩 / 立体→深色 随显示模式自动切换	The home-screen icon updates when you exit the app; Minimal↔Ultra dark and Colorful / 3D→Dark switch automatically with the display mode
+跟随显示模式	Follow display mode
+自动切换深浅色图标，退出应用时更新	Switches between light and dark icons; updates when you exit the app
 禁止跟踪请求 · 指纹保护 · 禁用 WebRTC	Do Not Track · Fingerprint protection · Disable WebRTC
 已开启 {0} / 3 项 · 禁止跟踪请求 · 指纹保护 · 禁用 WebRTC	{0} / 3 on · Do Not Track · Fingerprint protection · Disable WebRTC
 已保存 {0} 个 · 	{0} saved · 

@@ -648,15 +648,41 @@ class AppSettings(context: Context) {
     }
 
     /**
-     * 用户选定的应用图标：0=默认 1=多彩 2=立体 3=深色 4=极简 5=极暗（对应 AppIconManager.ICONS）。
+     * 用户选定的应用图标：0=默认 1=多彩 2=极简 3=经典（对应 AppIconManager.ICONS 的前四项）。
      * 桌面上实际显示的图标还要按深 / 浅色换算，见 [AppIconManager.effective]。
+     * 旧版本（KEY_APP_ICON，0=默认 1=多彩 2=立体 3=深色 4=极简 5=极暗）的选择在首次读取时迁移：
+     * 旧默认 → 经典，立体 / 深色 → 默认，极暗 → 极简。
      */
-    var appIcon by mutableStateOf(prefs.getInt(KEY_APP_ICON, 0).coerceIn(0, 5))
+    var appIcon by mutableStateOf(
+        if (prefs.contains(KEY_APP_ICON_V3)) {
+            prefs.getInt(KEY_APP_ICON_V3, 0).coerceIn(0, 3)
+        } else {
+            migrateLegacyAppIcon(prefs.getInt(KEY_APP_ICON, 0)).also {
+                prefs.edit().putInt(KEY_APP_ICON_V3, it).apply()
+            }
+        },
+    )
         private set
 
     fun updateAppIcon(index: Int) {
-        appIcon = index.coerceIn(0, 5)
-        prefs.edit().putInt(KEY_APP_ICON, appIcon).apply()
+        appIcon = index.coerceIn(0, 3)
+        prefs.edit().putInt(KEY_APP_ICON_V3, appIcon).apply()
+    }
+
+    /** 桌面图标是否随显示模式自动切换深 / 浅色配对图标（默认开启，与旧版行为一致）。 */
+    var appIconFollowTheme by mutableStateOf(prefs.getBoolean(KEY_APP_ICON_FOLLOW, true))
+        private set
+
+    fun updateAppIconFollowTheme(on: Boolean) {
+        appIconFollowTheme = on
+        prefs.edit().putBoolean(KEY_APP_ICON_FOLLOW, on).apply()
+    }
+
+    private fun migrateLegacyAppIcon(old: Int): Int = when (old) {
+        0 -> 3 // 旧默认图标 → 经典
+        1 -> 1 // 多彩
+        4, 5 -> 2 // 极简 / 极暗 → 极简
+        else -> 0 // 立体 / 深色 → 新默认
     }
 
     /** 外部链接打开方式：0=应用内打开 1=交给其他浏览器（询问） */
@@ -1434,6 +1460,8 @@ class AppSettings(context: Context) {
         const val KEY_RESTORE_TABS = "restore_tabs_on_launch"
         const val KEY_RESTORE_MODE = "restore_tabs_mode"
         const val KEY_APP_ICON = "app_icon"
+        const val KEY_APP_ICON_V3 = "app_icon_v3"
+        const val KEY_APP_ICON_FOLLOW = "app_icon_follow_theme"
         const val KEY_IGNORED_UPDATE = "ignored_update"
         const val KEY_UPDATE_CHANNEL = "update_channel_v2" // 旧 "update_channel" 含义不同（stable/dev/gecko），已弃用
         const val KEY_UPDATE_CHANNEL_FLAVOR = "update_channel_installed_flavor" // 保存通道时安装的变体，用于发现换装
